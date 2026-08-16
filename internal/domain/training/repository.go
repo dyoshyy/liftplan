@@ -19,6 +19,14 @@ var ErrProgramNotConfigured = errors.New("プログラムが未設定である")
 // 理由の説明なく消える。
 var ErrExerciseNotFound = errors.New("種目が見つからない")
 
+// ErrNoMainExercise はメイン種目が1つも選ばれていないことを表す。
+//
+// SessionPlanner はメイン種目ゼロを致命エラーにする。設定の時点で
+// 弾かないと、保存は成功するのに以後すべてのセッション導出が失敗する。
+// Program は種目の Kind を知らない（ExerciseID しか持たない）ので、
+// ErrExerciseNotFound と同じ理由で突合はアプリケーション層の仕事になる。
+var ErrNoMainExercise = errors.New("メイン種目が1つも選ばれていない")
+
 // ErrConflictingSetLog は同じIDで内容の異なるログが送られたことを表す。
 //
 // 再送は同じ内容なら黙って受け入れる（冪等）。内容が違うなら、

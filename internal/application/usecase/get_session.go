@@ -48,6 +48,18 @@ func (u *GetSession) Execute(ctx context.Context, in GetSessionInput) (training.
 	if err != nil {
 		return training.PlannedSession{}, fmt.Errorf("プログラムの取得に失敗: %w", err)
 	}
+	// リポジトリの契約違反。(nil, nil) を返されると SessionPlanner の
+	// 匿名エラーになり、プレゼンテーション層が「未設定」と判別できない。
+	if program == nil {
+		return training.PlannedSession{}, fmt.Errorf(
+			"プログラムの取得: %w", training.ErrProgramNotConfigured)
+	}
+	// 途中でキャンセルされたら残りの取得をやめる。履歴は全件を読むので、
+	// クライアントが切断済みでも最後まで走らせると数十MBを無駄に確保する。
+	if err := ctx.Err(); err != nil {
+		return training.PlannedSession{}, fmt.Errorf("セッションの導出が中断された: %w", err)
+	}
+
 	pool, err := u.exercises.FindAll(ctx)
 	if err != nil {
 		return training.PlannedSession{}, fmt.Errorf("種目の取得に失敗: %w", err)
@@ -56,6 +68,10 @@ func (u *GetSession) Execute(ctx context.Context, in GetSessionInput) (training.
 	if err != nil {
 		return training.PlannedSession{}, fmt.Errorf("実績の取得に失敗: %w", err)
 	}
+	if err := ctx.Err(); err != nil {
+		return training.PlannedSession{}, fmt.Errorf("セッションの導出が中断された: %w", err)
+	}
+
 	conditions, err := u.conditions.FindAll(ctx)
 	if err != nil {
 		return training.PlannedSession{}, fmt.Errorf("コンディションの取得に失敗: %w", err)

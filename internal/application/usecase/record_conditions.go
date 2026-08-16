@@ -17,6 +17,9 @@ func NewRecordConditions(repo training.ConditionRepository) *RecordConditions {
 }
 
 func (u *RecordConditions) Execute(ctx context.Context, items []training.DailyCondition) error {
+	// 空は成功として扱う。クライアントは同期のたびに送ってくるので、
+	// 送るものが無い回に I/O を起こす理由がない。「空を送ってきた」ことを
+	// エラーにすると、正常な同期がエラーログを埋める。
 	if len(items) == 0 {
 		return nil
 	}

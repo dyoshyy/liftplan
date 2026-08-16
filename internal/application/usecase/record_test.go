@@ -88,3 +88,25 @@ func TestRecordConditions_PropagatesError(t *testing.T) {
 		t.Errorf("エラーが伝播していない: %v", err)
 	}
 }
+
+// nil を混ぜたままリポジトリに渡さないこと。
+// 実装側で panic するか黙って飛ばされるかが実装依存になる。
+func TestRecordSets_RejectsNilEntries(t *testing.T) {
+	repo := &fakeLogs{history: training.NewHistory(nil)}
+	log, err := training.NewSetLog(training.SetLogParams{
+		ID: "01J-C", PerformedOn: testDate, ExerciseID: "bench",
+		WeightKg: 85, Reps: 9, RIR: 2,
+	})
+	if err != nil {
+		t.Fatalf("ログ生成に失敗: %v", err)
+	}
+
+	err = usecase.NewRecordSets(repo).Execute(
+		context.Background(), []*training.SetLog{log, nil})
+	if !errors.Is(err, usecase.ErrInvalidInput) {
+		t.Errorf("nil が弾かれていない: %v", err)
+	}
+	if repo.callCount() != 0 {
+		t.Errorf("検証に失敗したのにリポジトリを叩いた: %d回", repo.callCount())
+	}
+}

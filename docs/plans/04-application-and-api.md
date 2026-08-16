@@ -986,6 +986,18 @@ git commit -m "feat(infrastructure): インメモリのリポジトリ実装を�
 
 ---
 
+> **契約の追加（D-035 / D-036 / D-037 / D-039）:** ハンドラのステータス分類は次のとおり。
+>
+> | 条件 | ステータス |
+> |---|---|
+> | `errors.Is(err, usecase.ErrInvalidInput)` | 400 |
+> | `errors.Is(err, training.ErrProgramNotConfigured)` | 409 |
+> | `errors.Is(err, training.ErrConflictingSetLog)` | 409 |
+> | `errors.Is(err, context.Canceled)` | 499（クライアント切断。ログに残すが警報にしない） |
+> | それ以外 | 500 |
+>
+> `ErrInvalidInput` はアプリケーション層のセンチネルで、ドメインのコンストラクタが返す匿名エラーを包み直したもの。これが無いと「頻度が範囲外」と「データベースが落ちている」が同じ形になる。
+
 ### Task 22: HTTP Presentation
 
 **Files:**

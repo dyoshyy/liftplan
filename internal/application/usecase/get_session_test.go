@@ -3,6 +3,7 @@ package usecase_test
 import (
 	"context"
 	"errors"
+	"sync"
 	"testing"
 	"time"
 
@@ -14,25 +15,51 @@ import (
 var testDate = training.MustDate(2026, time.August, 17)
 
 type fakeExercises struct {
-	all []*training.Exercise
-	err error
+	mu    sync.Mutex
+	all   []*training.Exercise
+	calls int
+	err   error
 }
 
-func (f fakeExercises) FindAll(context.Context) ([]*training.Exercise, error) {
+func (f *fakeExercises) FindAll(context.Context) ([]*training.Exercise, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.calls++
 	return f.all, f.err
 }
+func (f *fakeExercises) callCount() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.calls
+}
+
+// fake も「FindAll は Save と並行に呼ばれる」というリポジトリの契約を
+// 代理するので、同期を持たせる。持たせないと、並行性を検証するテストを
+// 書いた瞬間に fake 側で -race が発火し、本体の問題と紛れる。
 
 type fakeLogs struct {
+	mu      sync.Mutex
 	history training.History
 	saved   []*training.SetLog
 	calls   int
+	finds   int
 	err     error
 }
 
 func (f *fakeLogs) FindAll(context.Context) (training.History, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.finds++
 	return f.history, f.err
 }
+func (f *fakeLogs) findCount() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.finds
+}
 func (f *fakeLogs) Save(_ context.Context, logs []*training.SetLog) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	f.calls++
 	if f.err != nil {
 		return f.err
@@ -40,8 +67,14 @@ func (f *fakeLogs) Save(_ context.Context, logs []*training.SetLog) error {
 	f.saved = append(f.saved, logs...)
 	return nil
 }
+func (f *fakeLogs) callCount() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.calls
+}
 
 type fakeConditions struct {
+	mu    sync.Mutex
 	log   training.ConditionLog
 	saved []training.DailyCondition
 	calls int
@@ -49,9 +82,13 @@ type fakeConditions struct {
 }
 
 func (f *fakeConditions) FindAll(context.Context) (training.ConditionLog, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	return f.log, f.err
 }
 func (f *fakeConditions) Save(_ context.Context, items []training.DailyCondition) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	f.calls++
 	if f.err != nil {
 		return f.err
@@ -59,22 +96,44 @@ func (f *fakeConditions) Save(_ context.Context, items []training.DailyCondition
 	f.saved = append(f.saved, items...)
 	return nil
 }
+func (f *fakeConditions) callCount() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.calls
+}
 
 type fakeProgram struct {
+	mu      sync.Mutex
 	program *training.Program
 	saved   *training.Program
+	calls   int
 	err     error
 }
 
 func (f *fakeProgram) Get(context.Context) (*training.Program, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.calls++
 	return f.program, f.err
 }
 func (f *fakeProgram) Save(_ context.Context, p *training.Program) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	if f.err != nil {
 		return f.err
 	}
 	f.saved = p
 	return nil
+}
+func (f *fakeProgram) callCount() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.calls
+}
+func (f *fakeProgram) savedProgram() *training.Program {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.saved
 }
 
 func buildProgram(t *testing.T, pool []*training.Exercise) *training.Program {
@@ -107,7 +166,7 @@ func newGetSession(t *testing.T, logs *fakeLogs, conditions *fakeConditions, pro
 		t.Fatalf("シードが不正: %v", err)
 	}
 	return usecase.NewGetSession(
-		fakeExercises{all: pool}, logs, conditions, program,
+		&fakeExercises{all: pool}, logs, conditions, program,
 		training.DefaultSessionPlanner(),
 	)
 }
@@ -234,12 +293,18 @@ func TestGetSession_PassesDeloadAcceptanceThrough(t *testing.T) {
 
 // 対象日が未指定なら、リポジトリを一度も叩かずに弾くこと。
 func TestGetSession_RejectsZeroDateBeforeTouchingRepositories(t *testing.T) {
-	logs := &fakeLogs{history: training.NewHistory(nil), err: errors.New("叩かれてはいけない")}
+	logs := &fakeLogs{history: training.NewHistory(nil)}
 	conditions := &fakeConditions{log: training.NewConditionLog(nil)}
-	uc := newGetSession(t, logs, conditions, &fakeProgram{err: errors.New("叩かれてはいけない")})
+	programs := &fakeProgram{}
+	uc := newGetSession(t, logs, conditions, programs)
 
 	if _, err := uc.Execute(context.Background(), usecase.GetSessionInput{}); err == nil {
 		t.Error("対象日が未指定なのに通った")
+	}
+	// 「エラーが返ること」だけを見ると、ガードを消しても
+	// リポジトリ由来のエラーで成立してしまう。叩いていないことを見る。
+	if programs.callCount() != 0 {
+		t.Errorf("対象日が未指定なのにリポジトリを叩いた: %d回", programs.callCount())
 	}
 }
 
@@ -254,5 +319,97 @@ func TestGetSession_KeepsProgramNotConfiguredIdentifiable(t *testing.T) {
 	_, err := uc.Execute(context.Background(), usecase.GetSessionInput{Date: testDate})
 	if !errors.Is(err, training.ErrProgramNotConfigured) {
 		t.Errorf("未設定が判別できない形になっている: %v", err)
+	}
+}
+
+// コンディションが実際に計画へ届くこと。
+// 配線し忘れても、コンディションを渡さないテストばかりだと気づけない。
+func TestGetSession_ConditionsReachTheDomain(t *testing.T) {
+	pool, err := seed.Exercises()
+	if err != nil {
+		t.Fatalf("シードが不正: %v", err)
+	}
+
+	items := []training.DailyCondition{
+		training.NewDailyCondition(testDate).WithSleepHours(4),
+	}
+	for i := 1; i <= 14; i++ {
+		items = append(items,
+			training.NewDailyCondition(testDate.AddDays(-i)).WithSleepHours(7))
+	}
+
+	rirOf := func(t *testing.T, conditions *fakeConditions) int {
+		t.Helper()
+		uc := newGetSession(t,
+			&fakeLogs{history: training.NewHistory(nil)},
+			conditions,
+			&fakeProgram{program: buildProgram(t, pool)})
+		s, err := uc.Execute(context.Background(), usecase.GetSessionInput{Date: testDate})
+		if err != nil {
+			t.Fatalf("実行に失敗: %v", err)
+		}
+		if len(s.Main()) == 0 {
+			t.Fatal("メイン種目が出ていない")
+		}
+		return s.Main()[0].TargetRIR().Int()
+	}
+
+	base := rirOf(t, &fakeConditions{log: training.NewConditionLog(nil)})
+	deprived := rirOf(t, &fakeConditions{log: training.NewConditionLog(items)})
+
+	if deprived <= base {
+		t.Errorf("睡眠不足がRIR補正に届いていない: %d → %d", base, deprived)
+	}
+}
+
+func TestGetSession_PropagatesConditionError(t *testing.T) {
+	pool, err := seed.Exercises()
+	if err != nil {
+		t.Fatalf("シードが不正: %v", err)
+	}
+	boom := errors.New("読めない")
+	uc := newGetSession(t,
+		&fakeLogs{history: training.NewHistory(nil)},
+		&fakeConditions{log: training.NewConditionLog(nil), err: boom},
+		&fakeProgram{program: buildProgram(t, pool)})
+
+	if _, err := uc.Execute(context.Background(), usecase.GetSessionInput{Date: testDate}); !errors.Is(err, boom) {
+		t.Errorf("コンディションのエラーが伝播していない: %v", err)
+	}
+}
+
+// リポジトリが契約に反して (nil, nil) を返しても、未設定として扱えること。
+func TestGetSession_TreatsNilProgramAsNotConfigured(t *testing.T) {
+	uc := newGetSession(t,
+		&fakeLogs{history: training.NewHistory(nil)},
+		&fakeConditions{log: training.NewConditionLog(nil)},
+		&fakeProgram{})
+
+	_, err := uc.Execute(context.Background(), usecase.GetSessionInput{Date: testDate})
+	if !errors.Is(err, training.ErrProgramNotConfigured) {
+		t.Errorf("nil のプログラムが未設定として扱われていない: %v", err)
+	}
+}
+
+// キャンセル済みの context では履歴の全件読み込みまで走らせないこと。
+func TestGetSession_StopsOnCancelledContext(t *testing.T) {
+	pool, err := seed.Exercises()
+	if err != nil {
+		t.Fatalf("シードが不正: %v", err)
+	}
+	logs := &fakeLogs{history: training.NewHistory(nil)}
+	uc := newGetSession(t, logs,
+		&fakeConditions{log: training.NewConditionLog(nil)},
+		&fakeProgram{program: buildProgram(t, pool)})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	if _, err := uc.Execute(ctx, usecase.GetSessionInput{Date: testDate}); !errors.Is(err, context.Canceled) {
+		t.Errorf("キャンセルが伝わっていない: %v", err)
+	}
+	// 履歴の全件読み込みは最も高くつく。切断済みなら払わない。
+	if logs.findCount() != 0 {
+		t.Errorf("キャンセル済みなのに履歴を読んだ: %d回", logs.findCount())
 	}
 }
