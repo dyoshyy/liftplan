@@ -53,3 +53,69 @@
 - `go test -c` したバイナリを `/tmp` で実行 → 3ファイルを検査した上で PASS（空振りしない）
 
 **教訓:** 「テストで守る」と書いた仕組み自体を攻撃していなかった。番人を置いたら、番人が本当に噛みつくかを確かめるところまでが実装。
+
+---
+
+## D-004: Date の内部表現を time.Time から年月日の整数に変えた（敵対的検証の結果）
+
+**計画の記述:** `Date` は `time.Time` を内包し、UTC 午前0時に正規化する
+
+**実際:** `struct { year int; month time.Month; day int }`
+
+**きっかけ:** PR #2 への敵対的レビューで、`time.Time` を内包することに起因する問題が3つ挙がった。
+
+1. **`==` と `Equal()` が食い違う。** マップキーは `==`（wall/ext/loc の全フィールド一致）、`Equal()` は瞬間比較。ロケーションだけ違う値で `Equal()==true` かつ `==` が false になり、キーが割れる
+2. **正規化の抜け穴。** 同一パッケージ内から `Date{t: 任意のtime.Time}` を書ける。計画では Task 3〜16 が全て同じパッケージに着地するため、将来の自分が踏む経路。正午の time.Time を入れると `String()` は正常なのに `DaysSince` が丸め方向で非対称になり、壊れていることが観測できない
+3. **`DaysSince` が ±106751日（約292年）で飽和する。** `time.Duration` は int64 ナノ秒。ゼロ値との差分が 106751 という一見もっともらしい値を返す
+
+整数表現にすると3つとも構造的に消える。加えて `Weekday`/`AddDays`/`DaysSince` を通日（Howard Hinnant の days_from_civil）で実装することで `time.Duration` への依存自体が無くなった。
+
+---
+
+## D-005: NewDate をエラーを返す形にし、MustDate をテスト専用として追加した
+
+**計画の記述:** `NewDate(year, month, day) Date`（エラーを返さない）
+
+**実際:** `NewDate(...) (Date, error)` + `MustDate(...) Date`
+
+**判断の経緯:** 計画の Global Constraints は「値オブジェクトは不変かつ自己検証。コンストラクタで検証してエラーを返す」と定めているのに、`NewDate` だけがこれに反して `2026-02-30` を黙って `2026-03-02` に正規化していた。ただし変更は後続の全タスクに波及するため、**別エージェントに客観判断を委ねた**。
+
+エージェントの結論は案A（エラーを返す + MustDate）。決め手は次の3点だった。
+
+- **内部表現が整数になった時点で、案B（正規化を維持）は「現状維持」ではなく「新規実装」になる。** 正規化を保つには `time.Date` を呼び戻すか、うるう年と月末繰り上がりを手書きする必要がある。一方「不正なら弾く」は比較2本で済む。安い方が実は検証する側だった
+- **「呼び出し箇所100以上」は事実誤認だった。** 実測33箇所、うち計画コード側は11箇所で、その多くはテストのパッケージ変数（`var testDate = ...`）。パッケージ変数は `if err != nil` を書けないので、エラーを返すなら `MustDate` は必然
+- **同パッケージの他の値オブジェクト（Weight, Reps, RIR ほか8種）は全て `NewXxx(v) (T, error)`。** Date だけ例外にすると、型を見て挙動を推測できなくなる
+
+**MustDate の誤用対策:** 「テスト専用」を規約で守らせると必ず破られるため、`TestDomain_MustDateIsTestOnly` が AST を走査し、`_test.go` 以外での `MustDate` 使用を検出する。
+
+**残る穴:** ゼロ値 `training.Date{}` はどんなコンストラクタ設計でも塞げない。対策として、ゼロ値に対する演算はゼロ値に閉じるようにし（`AddDays`/`WeekStart` はゼロ値を返し、`DaysSince` は0を返す）、`String()` が `"0000-00-00"` という**パース不能な文字列**を返すようにした。履歴に混入しても正常な日付に見えない。
+
+---
+
+## D-006: 「タイムゾーンを閉じ込める」ために FromTime を追加した
+
+**計画の記述:** 記載なし
+
+**きっかけ:** レビューの指摘。`time.Time` から `Date` を作る API が無いため、Application 層が必ず `NewDate(now.Year(), now.Month(), now.Day())` と手で分解することになる。そのとき **どのタイムゾーンで分解するかの判断が型の外に漏れる**。
+
+具体的な壊れ方：JST のユーザーが朝7時（前日22時 UTC）に記録を送ったとき、サーバーが UTC で分解すると前日の日付になる。すると週内セッション番号が1本ズレ、`WeekStart()` 上で前週に落ち、週ボリュームの残差が別の週に計上される。48時間ルールも1日甘くなる。
+
+`FromTime(t time.Time, loc *time.Location) (Date, error)` を追加し、**ロケーションを引数で強制**した。暗黙に UTC やローカルを選ばせない。
+
+---
+
+## D-007: テストをミューテーションで検証した
+
+レビューの最も重い指摘は「DST 不変条件を主張するテストが、その退行を検出できない」だった。`d.AddDays(i).DaysSince(d)` という自己整合的な式は、両辺が同じ壊れた算術を使うため常に通ってしまう。
+
+そこで、テストを書いたあとに**実装を意図的に壊してテストが落ちるか**を確認した。
+
+| 変異 | 検出したテスト |
+|---|---|
+| `Equal` を年だけの比較にする | `TestDate_EqualMatchesStructEquality` |
+| `DaysSince` を `time.Duration` 経由に戻す | `TestDate_DaysSinceIsConsistentWithAddDays` / `TestDate_DaysSinceDoesNotSaturate` |
+| 閏年判定から400年ルールを削る | `TestNewDate_RejectsCentennialNonLeapYear` |
+| `FromTime` が loc を無視して UTC 固定 | `TestFromTime_UsesTheGivenLocation` |
+| 週初を日曜起点にする | `TestDate_WeekStartIsMonday` / `TestDate_WeekStartInvariants` |
+
+**以降のPRでも、テストを書いたら必ずミューテーションで検出力を確認する。** 通るテストを書くことと、壊れたら落ちるテストを書くことは別物。
