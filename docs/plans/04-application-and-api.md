@@ -176,6 +176,8 @@ git commit -m "feat(domain): リポジトリインターフェースを定義す
 - Create: `internal/application/usecase/record_conditions.go`
 - Test: `internal/application/usecase/get_session_test.go`
 - Test: `internal/application/usecase/record_test.go`
+- Create: `internal/application/usecase/configure_program.go`（D-031）
+- Test: `internal/application/usecase/configure_program_test.go`
 
 > **契約の修正:** `AccessorySlots` は廃止した。補助種目の枠数は残差から導出するので外から渡さない（D-018）。`training.NewDate` は `(Date, error)` を返すので、テストでは `MustDate` を使う。
 
@@ -277,10 +279,6 @@ func buildProgram(t *testing.T, pool []*training.Exercise) *training.Program {
 		if e.Kind() != training.KindVariation {
 			selected = append(selected, e.ID())
 		}
-	}
-	freq, err := training.NewFrequency(3)
-	if err != nil {
-		t.Fatalf("頻度が不正: %v", err)
 	}
 	p, err := training.NewProgram(freq, target, selected)
 	if err != nil {
