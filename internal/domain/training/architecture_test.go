@@ -100,11 +100,29 @@ func TestDomain_DependsOnNothingOutside(t *testing.T) {
 	t.Logf("%d ファイルを検査した", scanned)
 }
 
-// MustDate は不正な入力で panic する。コンパイル時に確定するリテラル専用であり、
-// 本番コードに現れてはならない。外部入力は ParseDate か FromTime を通すこと。
+// panic する関数は使える場所を限定する。
 //
-// 「テスト専用」を規約で守らせると必ず破られるので、AST で機械的に禁止する。
-func TestDomain_MustDateIsTestOnly(t *testing.T) {
+// 「ここでしか使わない」を規約で守らせると必ず破られるので、AST で機械的に禁止する。
+var panickingFunctions = []struct {
+	name string
+	// allowedFiles に無いファイルから呼ばれたら失敗させる。
+	// 空文字は「テストファイルなら許可」を意味する。
+	allowedFiles []string
+	reason       string
+}{
+	{
+		name:         "MustDate",
+		allowedFiles: []string{"date.go", ""},
+		reason:       "コンパイル時に確定するリテラル専用。外部入力は ParseDate か FromTime を通すこと",
+	},
+	{
+		name:         "newSlotTemplate",
+		allowedFiles: []string{"slot.go"},
+		reason:       "カタログ定義専用。実行時の値を渡すとパッケージのロード自体が失敗する",
+	},
+}
+
+func TestDomain_PanickingFunctionsStayWhereTheyBelong(t *testing.T) {
 	root := domainRoot(t)
 	fset := token.NewFileSet()
 	checked := 0
@@ -114,10 +132,6 @@ func TestDomain_MustDateIsTestOnly(t *testing.T) {
 			return err
 		}
 		if d.IsDir() || !strings.HasSuffix(path, ".go") {
-			return nil
-		}
-		// テストコードでの使用は正当。宣言そのものがある date.go も対象外。
-		if strings.HasSuffix(d.Name(), "_test.go") || d.Name() == "date.go" {
 			return nil
 		}
 
@@ -131,18 +145,22 @@ func TestDomain_MustDateIsTestOnly(t *testing.T) {
 		if err != nil {
 			return err
 		}
+		isTest := strings.HasSuffix(d.Name(), "_test.go")
+
 		ast.Inspect(file, func(n ast.Node) bool {
-			switch v := n.(type) {
-			case *ast.Ident:
-				if v.Name == "MustDate" {
-					t.Errorf("%s:%d: 本番コードで MustDate を使っている。外部入力は ParseDate か FromTime を通すこと",
-						rel, fset.Position(v.Pos()).Line)
+			name := calledFunctionName(n)
+			if name == "" {
+				return true
+			}
+			for _, fn := range panickingFunctions {
+				if fn.name != name {
+					continue
 				}
-			case *ast.SelectorExpr:
-				if v.Sel != nil && v.Sel.Name == "MustDate" {
-					t.Errorf("%s:%d: 本番コードで MustDate を使っている。外部入力は ParseDate か FromTime を通すこと",
-						rel, fset.Position(v.Pos()).Line)
+				if allowedIn(fn.allowedFiles, d.Name(), isTest) {
+					continue
 				}
+				t.Errorf("%s:%d: %s をここで使ってはいけない。%s",
+					rel, fset.Position(n.Pos()).Line, name, fn.reason)
 			}
 			return true
 		})
@@ -151,7 +169,39 @@ func TestDomain_MustDateIsTestOnly(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ドメイン層の走査に失敗: %v", err)
 	}
+	if checked == 0 {
+		t.Fatal("走査対象が0件。検査が空振りしている")
+	}
 	t.Logf("%d ファイルを検査した", checked)
+}
+
+// calledFunctionName は呼び出し式から関数名を取り出す。
+func calledFunctionName(n ast.Node) string {
+	call, ok := n.(*ast.CallExpr)
+	if !ok {
+		return ""
+	}
+	switch fn := call.Fun.(type) {
+	case *ast.Ident:
+		return fn.Name
+	case *ast.SelectorExpr:
+		if fn.Sel != nil {
+			return fn.Sel.Name
+		}
+	}
+	return ""
+}
+
+func allowedIn(allowed []string, fileName string, isTest bool) bool {
+	for _, a := range allowed {
+		if a == "" && isTest {
+			return true
+		}
+		if a == fileName {
+			return true
+		}
+	}
+	return false
 }
 
 func checkImport(t *testing.T, file, importPath string, isTest bool) {

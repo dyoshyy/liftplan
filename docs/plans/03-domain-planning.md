@@ -2100,7 +2100,10 @@ func (p SessionPlanner) Plan(req PlanRequest) (PlannedSession, error) {
 	}
 
 	selectedPool := p.selectedPool(req)
-	template := p.slots.Select(req.Program.Frequency(), sessionIndexInWeek(req.History, req.Date))
+	template, ok := p.slots.Select(req.Program.Frequency(), sessionIndexInWeek(req.History, req.Date))
+	if !ok {
+		return PlannedSession{}, errors.New("週の頻度に対応するスロット構成が無い")
+	}
 
 	mainIDs := make([]ExerciseID, 0, 3)
 	for _, e := range selectedPool {

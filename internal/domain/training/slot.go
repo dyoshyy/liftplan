@@ -2,7 +2,13 @@ package training
 
 import "fmt"
 
-const maxFrequencyPerWeek = 7
+// maxFrequencyPerWeek は週の頻度の上限。
+//
+// 4に抑えているのは、毎セッションで BIG3 すべてにスロットを割り当てる設計だから。
+// 週5回にすると1種目あたり19セット/週、週7回なら27セット/週になり、
+// デッドリフトを週27セットこなす前提のプログラムになってしまう。
+// それより多く通う場合は、頻度を上げるのではなく補助種目の日を自分で足す。
+const maxFrequencyPerWeek = 4
 
 // Frequency は週あたりのトレーニング回数。
 type Frequency struct {
@@ -65,10 +71,11 @@ func (s SlotTemplate) IsZero() bool { return s == SlotTemplate{} }
 //
 // 渡すのはこのファイル内の定数だけなので、失敗はプログラムの誤りであり
 // 実行時の入力では起こりえない。起動時に必ず気づけるよう panic する。
+// 他のファイルから呼ぶことは TestDomain_PanickingFunctionsStayWhereTheyBelong が禁止する。
+//
+// 役割の妥当性は検査しない。カタログの各要素が正当な役割を持つことは
+// TestSlotCatalog_ValuesAreRealistic が確かめており、到達しない分岐は残さない。
 func newSlotTemplate(role SlotRole, intensity float64, sets, rir int) SlotTemplate {
-	if !role.Valid() {
-		panic(fmt.Sprintf("スロット定義の役割が不正: %q", role))
-	}
 	i, err := NewIntensityPct(intensity)
 	if err != nil {
 		panic(fmt.Sprintf("スロット定義が不正: %v", err))
@@ -89,6 +96,18 @@ func newSlotTemplate(role SlotRole, intensity float64, sets, rir int) SlotTempla
 // 現行のベンチ（1RM 105kg 想定で 80 / 85 / 90〜95kg）が概ね
 // 76% / 81% / 88% に対応する。RIR は調整ダイヤルではなくガードレールなので
 // 2で固定し、高強度スロットのみ1にする。動かすのは強度帯とバリエーションの有無。
+//
+// 並び順は「重要な役割ほど先」にしている。強度の昇順ではない。
+//
+// これは、設定した頻度より実際に通う回数が少ないときの破綻を防ぐため。
+// スロットはその週の何本目かで決まるので、週4回の設定で週2回しか通わないと
+// 先頭2つしか使われない。バリエーションのスロットではメイン種目自体を
+// 実施しないので、先頭にバリエーションを置くとメインリフトの記録が
+// いつまでも増えない。42日経つと推定1RMが「古すぎる」と判定され、
+// メインもバリエーションも全部の重量が未確定になる。しかも回復経路が無い。
+//
+// 標準スロットを必ず先頭に置くことで、週に一度でも通えばメインリフト本体を
+// 実施することが保証される。
 var slotsByFrequency = map[int][]SlotTemplate{
 	1: {
 		newSlotTemplate(RoleStandard, 0.81, 4, 2),
@@ -98,15 +117,15 @@ var slotsByFrequency = map[int][]SlotTemplate{
 		newSlotTemplate(RoleHeavy, 0.88, 3, 1),
 	},
 	3: {
-		newSlotTemplate(RoleVariation, 0.76, 4, 2),
 		newSlotTemplate(RoleStandard, 0.81, 4, 2),
 		newSlotTemplate(RoleHeavy, 0.88, 3, 1),
+		newSlotTemplate(RoleVariation, 0.76, 4, 2),
 	},
 	4: {
-		newSlotTemplate(RoleVariation, 0.76, 4, 2),
-		newSlotTemplate(RoleVariation, 0.78, 4, 2),
 		newSlotTemplate(RoleStandard, 0.81, 4, 2),
 		newSlotTemplate(RoleHeavy, 0.88, 3, 1),
+		newSlotTemplate(RoleVariation, 0.76, 4, 2),
+		newSlotTemplate(RoleVariation, 0.78, 4, 2),
 	},
 }
 
@@ -117,14 +136,9 @@ func NewSlotCatalog() SlotCatalog { return SlotCatalog{} }
 
 // For は週の頻度に応じたスロット構成を返す。
 //
-// 週5回以上は4スロット構成を巡回させる。週の後半で同じ強度帯が二度来るが、
-// 強度配分そのものを崩すよりは良い。
+// 返るのは週1周期ぶんのスロットで、要素数は頻度と一致する。
 func (c SlotCatalog) For(f Frequency) []SlotTemplate {
-	n := f.PerWeek()
-	if n > 4 {
-		n = 4
-	}
-	slots, ok := slotsByFrequency[n]
+	slots, ok := slotsByFrequency[f.PerWeek()]
 	if !ok {
 		return nil
 	}
@@ -137,6 +151,10 @@ func (c SlotCatalog) For(f Frequency) []SlotTemplate {
 //
 // 要素数で剰余を取るため、頻度の設定を超えて回っても破綻しない。
 // 週3回の設定で4回目を実施したら、1本目と同じ構成に戻る。
+//
+// 逆に設定より少ない回数しか通わなかった場合は先頭のスロットだけが使われる。
+// 先頭を標準スロットにしてあるのは、そのときでもメインリフト本体が
+// 実施されるようにするため。
 func (c SlotCatalog) Select(f Frequency, sessionIndex int) (SlotTemplate, bool) {
 	slots := c.For(f)
 	if len(slots) == 0 {
