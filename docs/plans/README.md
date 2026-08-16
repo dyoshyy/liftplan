@@ -8,6 +8,7 @@
 | `02-domain-model.md` | Task 6〜10 | 種目・実績・履歴のモデルと推定1RM |
 | `03-domain-planning.md` | Task 11〜18 | スロット・残差・補助選択・デロード・SessionPlanner・シード |
 | `04-application-and-api.md` | Task 19〜24 | 起動して実際にセッションを返すサーバー |
+| `05-postgres.md` | Task 25〜29 | Postgres への差し替え。再起動しても記録が残る |
 
 ## 分割の理由
 
@@ -23,6 +24,5 @@
 
 ## この先
 
-- `05-postgres.md` — Neon Postgres への差し替え、マイグレーション
 - `06-auth.md` — 単一ユーザー向けの最小認証
 - クライアント（Kotlin + Jetpack Compose）は別リポジトリ
