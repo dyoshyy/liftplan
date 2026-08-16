@@ -5,83 +5,105 @@ import (
 	"math"
 )
 
-const (
-	defaultEstimatorAlpha      = 0.3
-	defaultEstimatorHysteresis = 0.02
-)
+const defaultEstimatorAlpha = 0.3
+
+// defaultMaxStaleDays はこの日数より古い記録しか無い種目の推定1RMを
+// 信用しない、という境界。
+//
+// 6週間ブランクがあると筋力は明確に落ちる。にもかかわらず推定1RMは
+// セッション数だけで畳み込まれるため、離脱前の値がそのまま残る。
+// 復帰初日に離脱前の重量を処方するのは危険なので、「推定できない」を返して
+// ユーザーに決めさせる。数字を捏造しないという方針と同じ扱いにする。
+const defaultMaxStaleDays = 42
 
 // OneRepMaxEstimator は履歴から推定1RMを導くドメインサービス。無状態。
 //
 // 単発の記録で全スロットの重量が動くと不安定になる。調子が良かった日の
 // 1セットで重量が跳ね上がり、翌週それを引きずって潰れるのを防ぐため、
-// セッション中央値 → EWMA → ヒステリシス の順に均す。
+// セッション中央値 → EWMA の順に均す。
+//
+// 重量のちらつき自体は、実施重量を増加単位のグリッドへ丸めることで
+// 吸収される。推定1RMが 1kg 動いても 2.5kg 刻みの処方は変わらない。
 type OneRepMaxEstimator struct {
-	alpha      float64
-	hysteresis float64
+	alpha        float64
+	maxStaleDays int
 }
 
 // NewOneRepMaxEstimator は平滑化の設定を検証して組み立てる。
 //
 // alpha は直近セッションの重み。1 に近いほど追随が速く、0 に近いほど鈍い。
-// hysteresis は「この割合未満の変化なら前回値を維持する」閾値。
-func NewOneRepMaxEstimator(alpha, hysteresis float64) (OneRepMaxEstimator, error) {
+// maxStaleDays はこれより古い記録しか無い種目を「推定できない」とする境界。
+func NewOneRepMaxEstimator(alpha float64, maxStaleDays int) (OneRepMaxEstimator, error) {
 	if math.IsNaN(alpha) || alpha <= 0 || alpha > 1 {
 		return OneRepMaxEstimator{}, fmt.Errorf("alpha は0より大きく1以下である必要がある: %v", alpha)
 	}
-	if math.IsNaN(hysteresis) || hysteresis < 0 || hysteresis >= 1 {
-		return OneRepMaxEstimator{}, fmt.Errorf("ヒステリシスは0以上1未満である必要がある: %v", hysteresis)
+	if maxStaleDays < 1 {
+		return OneRepMaxEstimator{}, fmt.Errorf("鮮度の上限は1日以上である必要がある: %d", maxStaleDays)
 	}
-	return OneRepMaxEstimator{alpha: alpha, hysteresis: hysteresis}, nil
+	return OneRepMaxEstimator{alpha: alpha, maxStaleDays: maxStaleDays}, nil
 }
 
 func DefaultOneRepMaxEstimator() OneRepMaxEstimator {
-	return OneRepMaxEstimator{alpha: defaultEstimatorAlpha, hysteresis: defaultEstimatorHysteresis}
+	return OneRepMaxEstimator{alpha: defaultEstimatorAlpha, maxStaleDays: defaultMaxStaleDays}
 }
 
-func (e OneRepMaxEstimator) Alpha() float64      { return e.alpha }
-func (e OneRepMaxEstimator) Hysteresis() float64 { return e.hysteresis }
+func (e OneRepMaxEstimator) Alpha() float64    { return e.alpha }
+func (e OneRepMaxEstimator) MaxStaleDays() int { return e.maxStaleDays }
+func (e OneRepMaxEstimator) IsZero() bool      { return e == OneRepMaxEstimator{} }
 
-// IsZero はゼロ値（未設定）かどうか。
-func (e OneRepMaxEstimator) IsZero() bool { return e == OneRepMaxEstimator{} }
-
-// Estimate は指定種目の平滑化された推定1RM。
+// Estimate は asOf 時点での、指定種目の平滑化された推定1RM。
 //
-// 推定できるセッションが1つも無ければ false を返す。自重種目しか記録が無い
-// 場合や、履歴そのものが無い場合がこれにあたる。
+// 推定できない場合は false を返す。次の3つがある。
+//   - 履歴が無い、または推定できるセッションが1つも無い（自重種目だけなど）
+//   - 最後の記録が古すぎる（ブランク明け）
+//   - 平滑後の値が推定1RMとして無効
 //
-// previous に前回公表した値を渡すと、変化がヒステリシス閾値未満のとき
-// 前回値を維持する。重量が毎回ちらつくのを防ぐ。
-func (e OneRepMaxEstimator) Estimate(h History, id ExerciseID, previous *OneRepMax) (OneRepMax, bool) {
-	if e.IsZero() {
+// asOf を必ず受け取るのは、セッション数だけで畳み込むと3ヶ月のブランクが
+// あっても直前のセッションと同じ重みになり、離脱前の重量がそのまま
+// 処方されてしまうため。
+func (e OneRepMaxEstimator) Estimate(h History, id ExerciseID, asOf Date) (OneRepMax, bool) {
+	if e.IsZero() || asOf.IsZero() {
 		return OneRepMax{}, false
 	}
 
-	acc, ok := e.smooth(h, id)
+	if e.isStale(h, id, asOf) {
+		return OneRepMax{}, false
+	}
+
+	acc, ok := e.smooth(h.ForExercise(id))
 	if !ok {
 		return OneRepMax{}, false
 	}
 
-	candidate, err := NewOneRepMax(acc)
+	orm, err := NewOneRepMax(acc)
 	if err != nil {
 		return OneRepMax{}, false
 	}
-	if previous == nil || previous.IsZero() {
-		return candidate, true
-	}
+	return orm, true
+}
 
-	change := math.Abs(candidate.Kg()-previous.Kg()) / previous.Kg()
-	if change < e.hysteresis {
-		return *previous, true
+// isStale は最後の記録が古すぎるか。履歴が無い場合も古い扱いにする。
+func (e OneRepMaxEstimator) isStale(h History, id ExerciseID, asOf Date) bool {
+	last, ok := h.LastPerformed(id)
+	if !ok {
+		return true
 	}
-	return candidate, true
+	return asOf.DaysSince(last) > e.maxStaleDays
 }
 
 // smooth はセッション代表値を古い順に EWMA で畳み込む。
-func (e OneRepMaxEstimator) smooth(h History, id ExerciseID) (float64, bool) {
+//
+// 引数は対象種目だけに絞り込み済みの履歴でなければならない。絞り込まないと、
+// 同一日に別種目のセットがあったときその中央値が混ざり、推定が大きく狂う。
+//
+// 畳み込める代表値が1つも無ければ false を返す。このとき acc は0のままだが、
+// 呼び出し側は false を見て打ち切ること。NewOneRepMax が0を弾くことに
+// 依存すると、将来1RMの下限を変えたときに静かに壊れる。
+func (e OneRepMaxEstimator) smooth(forExercise History) (float64, bool) {
 	var acc float64
 	started := false
 
-	for _, s := range h.ForExercise(id).Sessions() {
+	for _, s := range forExercise.Sessions() {
 		m, ok := s.MedianOneRepMax()
 		if !ok {
 			// 推定できないセッション（全セット自重など）は畳み込みから除く。

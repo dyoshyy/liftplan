@@ -2202,7 +2202,7 @@ func (p SessionPlanner) planMain(
 
 	// 重量はメインの推定1RMを基準にし、バリエーションには係数を掛ける。
 	// バリエーション自身の1RMを使うと、履歴の少ない種目で数字が暴れる。
-	if orm, ok := p.estimator.Estimate(req.History, main.ID(), nil); ok {
+	if orm, ok := p.estimator.Estimate(req.History, main.ID(), req.Date); ok {
 		set.weight = orm.WorkWeight(template.Intensity().Scale(intensityScale), ratio, target.Increment())
 		set.hasWeight = true
 	}
@@ -2270,7 +2270,7 @@ func (p SessionPlanner) planAccessory(
 		return set
 	}
 
-	if orm, ok := p.estimator.Estimate(req.History, id, nil); ok {
+	if orm, ok := p.estimator.Estimate(req.History, id, req.Date); ok {
 		intensity, err := NewIntensityPct(accessoryIntensityPct)
 		if err == nil {
 			set.weight = orm.WorkWeight(intensity.Scale(intensityScale), unitRatio, exercise.Increment())
