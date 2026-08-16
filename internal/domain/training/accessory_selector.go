@@ -12,13 +12,20 @@ const (
 	defaultMaxAccessorySlots = 8
 )
 
-// neverUsedDaysAgo は一度も使っていない種目を最優先にするための番兵。
-const neverUsedDaysAgo = 1 << 30
+// primaryContribution はこの値以上の寄与を「主働筋として使う」とみなす境界。
+//
+// 回復期間中の筋区分に対しては、主働筋として使う種目を避ける。
+// 補助的に軽く関与するぶん（三頭が 0.4 など）まで避けると、
+// 多関節種目がほとんど選べなくなる。
+const primaryContribution = 1.0
+
+// neverStimulated は一度も刺激していない筋区分・種目を最優先にするための番兵。
+const neverStimulated = 1 << 30
 
 // AccessorySelector は残差を埋める補助種目を選ぶドメインサービス。無状態。
 type AccessorySelector struct {
 	recoveryDays     int
-	setsPerAccessory int
+	setsPerAccessory SetCount
 	maxSlots         int
 }
 
@@ -26,41 +33,51 @@ func NewAccessorySelector(recoveryDays, setsPerAccessory, maxSlots int) (Accesso
 	if recoveryDays < 0 {
 		return AccessorySelector{}, fmt.Errorf("回復日数は0以上である必要がある: %d", recoveryDays)
 	}
-	if setsPerAccessory < 1 {
-		return AccessorySelector{}, fmt.Errorf("補助のセット数は1以上である必要がある: %d", setsPerAccessory)
+	// セット数の妥当性は SetCount に委ねる。独自に判定すると、上限を超える値が
+	// 通ったあと消費側で無言の no-op になり、残差が永久に減らなくなる。
+	sets, err := NewSetCount(setsPerAccessory)
+	if err != nil {
+		return AccessorySelector{}, fmt.Errorf("補助のセット数: %w", err)
 	}
 	if maxSlots < 1 {
 		return AccessorySelector{}, fmt.Errorf("補助スロットの上限は1以上である必要がある: %d", maxSlots)
 	}
 	return AccessorySelector{
 		recoveryDays:     recoveryDays,
-		setsPerAccessory: setsPerAccessory,
+		setsPerAccessory: sets,
 		maxSlots:         maxSlots,
 	}, nil
 }
 
 func DefaultAccessorySelector() AccessorySelector {
+	sets, err := NewSetCount(defaultSetsPerAccessory)
+	if err != nil {
+		panic(fmt.Sprintf("既定のセット数が不正: %v", err))
+	}
 	return AccessorySelector{
 		recoveryDays:     defaultRecoveryDays,
-		setsPerAccessory: defaultSetsPerAccessory,
+		setsPerAccessory: sets,
 		maxSlots:         defaultMaxAccessorySlots,
 	}
 }
 
-func (s AccessorySelector) SetsPerAccessory() int { return s.setsPerAccessory }
-func (s AccessorySelector) RecoveryDays() int     { return s.recoveryDays }
-func (s AccessorySelector) MaxSlots() int         { return s.maxSlots }
+func (s AccessorySelector) SetsPerAccessory() SetCount { return s.setsPerAccessory }
+func (s AccessorySelector) RecoveryDays() int          { return s.recoveryDays }
+func (s AccessorySelector) MaxSlots() int              { return s.maxSlots }
 
 func (s AccessorySelector) IsZero() bool { return s == AccessorySelector{} }
 
 // Select は残差を埋める補助種目を選ぶ。
 //
-// スロット数は固定せず、残差の合計から導く。固定すると、残差が小さい日に
-// 過剰なボリュームを積み、残差が大きい日には週目標に届かない。
+// スロット数は固定しない。残差が無くなるか、埋められる種目が尽きるか、
+// 上限に達するまで選び続ける。事前にスロット数を計算すると、
+// 1種目が複数区分を埋める事実を無視した見積もりになり、
+// 実際より多く積む日と、埋める余地を残して終わる日の両方が生まれる。
 //
-//  1. recoveryDays 日以内に刺激された筋区分を候補から外す（48時間ルール）
-//  2. 残差の大きい区分から貪欲に選ぶ。同値なら筋区分名の昇順（再現性のため）
-//  3. 同じ区分を狙う種目が複数あれば、最後に使ってから最も間隔が空いているものを選ぶ
+// 区分の選び方は「最も長く刺激していない区分から」。残差の大きい順にすると、
+// 週目標の大きい区分（大腿四頭筋16セット）が常に勝ち、小さい区分
+// （僧帽筋上部6セット）にスロットが一度も回らない。上限に張り付く低頻度では、
+// その区分が永久に0セットのままになる。
 func (s AccessorySelector) Select(
 	residual map[MuscleRegion]float64,
 	pool []*Exercise,
@@ -84,28 +101,22 @@ func (s AccessorySelector) Select(
 	}
 	sort.Slice(accessories, func(i, j int) bool { return accessories[i].ID() < accessories[j].ID() })
 
-	blocked := s.recentlyStimulated(h, byID, date)
+	recovering := s.recovering(h, byID, date)
+	remaining := s.trackable(residual, recovering)
+	staleness := s.regionStaleness(h, byID, date)
 
-	remaining := make(map[MuscleRegion]float64, len(residual))
-	for region, gap := range residual {
-		if gap > 0 && !blocked[region] {
-			remaining[region] = gap
-		}
-	}
+	chosen := make([]ExerciseID, 0, s.maxSlots)
+	taken := make(map[ExerciseID]bool, s.maxSlots)
 
-	slots := s.slotsFor(remaining)
-	chosen := make([]ExerciseID, 0, slots)
-	taken := make(map[ExerciseID]bool, slots)
-
-	for len(chosen) < slots {
-		region, ok := topRegion(remaining)
+	for len(chosen) < s.maxSlots && len(remaining) > 0 {
+		region, ok := nextRegion(remaining, staleness)
 		if !ok {
 			break
 		}
 
-		candidate := s.pickForRegion(accessories, taken, region, h, date)
+		candidate := s.pickForRegion(accessories, taken, recovering, region, h, date)
 		if candidate == nil {
-			// その区分を埋められる未使用の種目が無い。区分ごと諦める。
+			// この区分を埋められる未使用の種目が無い。区分ごと諦める。
 			delete(remaining, region)
 			continue
 		}
@@ -117,32 +128,29 @@ func (s AccessorySelector) Select(
 	return chosen
 }
 
-// slotsFor は残差の合計から必要なスロット数を導く。
+// trackable は残差のうち、実際に狙える区分だけを取り出す。
 //
-// 残差の合計を1種目あたりのセット数で割った切り上げ。
-// セッションが長くなりすぎないよう上限で頭打ちにする。
-func (s AccessorySelector) slotsFor(remaining map[MuscleRegion]float64) int {
-	total := 0.0
-	for _, gap := range remaining {
-		total += gap
+// 非有限値を落とすのは、+Inf の残差が常に最優先になったうえ、
+// 有限値を引いても減らずスロットを食い尽くすため。
+func (s AccessorySelector) trackable(
+	residual map[MuscleRegion]float64,
+	recovering map[MuscleRegion]bool,
+) map[MuscleRegion]float64 {
+	out := make(map[MuscleRegion]float64, len(residual))
+	for region, gap := range residual {
+		if gap <= 0 || math.IsNaN(gap) || math.IsInf(gap, 0) {
+			continue
+		}
+		if recovering[region] {
+			continue
+		}
+		out[region] = gap
 	}
-	if total <= 0 {
-		return 0
-	}
-
-	needed := int(math.Ceil(total / float64(s.setsPerAccessory)))
-	if needed > s.maxSlots {
-		return s.maxSlots
-	}
-	return needed
+	return out
 }
 
 // consume は選んだ種目の刺激ぶんを残差から差し引く。
 func (s AccessorySelector) consume(remaining map[MuscleRegion]float64, p StimulusProfile) {
-	sets, err := NewSetCount(s.setsPerAccessory)
-	if err != nil {
-		return
-	}
 	for _, r := range p.Regions() {
 		c, ok := p.Contribution(r)
 		if !ok {
@@ -151,43 +159,76 @@ func (s AccessorySelector) consume(remaining map[MuscleRegion]float64, p Stimulu
 		if _, tracked := remaining[r]; !tracked {
 			continue
 		}
-		remaining[r] = quantize(remaining[r] - c.TimesSets(sets))
+		remaining[r] = quantize(remaining[r] - c.TimesSets(s.setsPerAccessory))
 		if remaining[r] <= 0 {
 			delete(remaining, r)
 		}
 	}
 }
 
-// recentlyStimulated は回復期間内に刺激された筋区分。
+// recovering は回復期間中の筋区分。
 //
-// 半開区間 [cutoff, date) で見る。上限を閉じないと、セッション中に記録してから
-// 計画を開き直したとき、たった今やった種目の筋区分が「最近刺激した」と
-// 判定され、そのセッションの補助枠から自分自身が消える。
-func (s AccessorySelector) recentlyStimulated(
+// 区間は (date - recoveryDays, date) の開区間。
+// 下限を開くのは、回復日数ぶん経過した記録は解禁されるべきだから。
+// recoveryDays=2 なら、月曜の記録は火曜を塞ぐが水曜は解禁される。
+// 閉じると実質72時間ルールになり、月水金の水曜がほぼ何も選べなくなる。
+//
+// 上限を開くのは、セッション中に記録してから計画を開き直したとき、
+// たった今やった種目の筋区分で自分自身の枠が消えないようにするため。
+func (s AccessorySelector) recovering(
 	h History,
 	byID map[ExerciseID]*Exercise,
 	date Date,
 ) map[MuscleRegion]bool {
 	cutoff := date.AddDays(-s.recoveryDays)
-	blocked := map[MuscleRegion]bool{}
+	out := map[MuscleRegion]bool{}
 
-	for _, l := range h.OnOrAfter(cutoff).Before(date).Logs() {
+	for _, l := range h.After(cutoff).Before(date).Logs() {
 		e, ok := byID[l.ExerciseID()]
 		if !ok {
 			continue
 		}
 		for _, r := range e.Stimulus().Regions() {
-			blocked[r] = true
+			out[r] = true
 		}
 	}
-	return blocked
+	return out
+}
+
+// regionStaleness は筋区分ごとの「最後に刺激してからの日数」。
+// 一度も刺激していない区分は番兵で最優先にする。
+func (s AccessorySelector) regionStaleness(
+	h History,
+	byID map[ExerciseID]*Exercise,
+	date Date,
+) map[MuscleRegion]int {
+	out := map[MuscleRegion]int{}
+	for _, l := range h.Logs() {
+		e, ok := byID[l.ExerciseID()]
+		if !ok {
+			continue
+		}
+		days := date.DaysSince(l.PerformedOn())
+		if days < 0 {
+			days = 0
+		}
+		for _, r := range e.Stimulus().Regions() {
+			if prev, seen := out[r]; !seen || days < prev {
+				out[r] = days
+			}
+		}
+	}
+	return out
 }
 
 // pickForRegion はその区分を埋められる種目のうち、最後に使ってから
 // 最も間隔が空いているものを選ぶ。これでバリエーションが自動で回る。
+//
+// 回復期間中の区分を主働筋として使う種目は避ける。
 func (s AccessorySelector) pickForRegion(
 	accessories []*Exercise,
 	taken map[ExerciseID]bool,
+	recovering map[MuscleRegion]bool,
 	region MuscleRegion,
 	h History,
 	date Date,
@@ -202,10 +243,18 @@ func (s AccessorySelector) pickForRegion(
 		if _, ok := e.Stimulus().Contribution(region); !ok {
 			continue
 		}
+		if s.hitsRecoveringPrimaryMover(e, recovering) {
+			continue
+		}
 
-		daysAgo := neverUsedDaysAgo
+		daysAgo := neverStimulated
 		if last, ok := h.LastPerformed(e.ID()); ok {
 			daysAgo = date.DaysSince(last)
+			if daysAgo < 0 {
+				// 未来日のログ。時計のずれで入りうる。
+				// 負のままだと、その種目が永久に選ばれなくなる。
+				daysAgo = 0
+			}
 		}
 		if daysAgo > bestDaysAgo {
 			best = e
@@ -215,8 +264,25 @@ func (s AccessorySelector) pickForRegion(
 	return best
 }
 
-// topRegion は残差最大の筋区分。同値なら名前の昇順で決める（再現性のため）。
-func topRegion(remaining map[MuscleRegion]float64) (MuscleRegion, bool) {
+// hitsRecoveringPrimaryMover は、回復期間中の区分を主働筋として使う種目か。
+func (s AccessorySelector) hitsRecoveringPrimaryMover(e *Exercise, recovering map[MuscleRegion]bool) bool {
+	profile := e.Stimulus()
+	for _, r := range profile.Regions() {
+		if !recovering[r] {
+			continue
+		}
+		if c, ok := profile.Contribution(r); ok && c.Float() >= primaryContribution {
+			return true
+		}
+	}
+	return false
+}
+
+// nextRegion は次に埋める筋区分。
+//
+// 最も長く刺激していない区分を優先し、同じなら残差の大きい方、
+// それも同じなら名前の昇順（再現性のため）。
+func nextRegion(remaining map[MuscleRegion]float64, staleness map[MuscleRegion]int) (MuscleRegion, bool) {
 	regions := make([]MuscleRegion, 0, len(remaining))
 	for r := range remaining {
 		regions = append(regions, r)
@@ -225,11 +291,22 @@ func topRegion(remaining map[MuscleRegion]float64) (MuscleRegion, bool) {
 		return "", false
 	}
 
-	sort.Slice(regions, func(i, j int) bool {
-		if remaining[regions[i]] != remaining[regions[j]] {
-			return remaining[regions[i]] > remaining[regions[j]]
+	daysAgo := func(r MuscleRegion) int {
+		if d, ok := staleness[r]; ok {
+			return d
 		}
-		return regions[i] < regions[j]
+		return neverStimulated
+	}
+
+	sort.Slice(regions, func(i, j int) bool {
+		a, b := regions[i], regions[j]
+		if da, db := daysAgo(a), daysAgo(b); da != db {
+			return da > db
+		}
+		if remaining[a] != remaining[b] {
+			return remaining[a] > remaining[b]
+		}
+		return a < b
 	})
 	return regions[0], true
 }
