@@ -8,6 +8,24 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
+
+    # Postgres 実装のテストは実際の DB が要る。無いとスキップされ、
+    # 「通った」と「走らせていない」が区別できなくなる。
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_PASSWORD: liftplan
+          POSTGRES_USER: liftplan
+          POSTGRES_DB: liftplan
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U liftplan"
+          --health-interval 2s
+          --health-timeout 3s
+          --health-retries 15
+
     steps:
       - uses: actions/checkout@v4
 
@@ -29,4 +47,19 @@ jobs:
         run: go vet ./...
 
       - name: go test
+        env:
+          TEST_DATABASE_URL: postgres://liftplan:liftplan@127.0.0.1:5432/liftplan
         run: go test -race ./...
+
+      # スキップされていないことを確かめる。設定を消しても
+      # テストは緑のままになるので、走ったこと自体を検査する。
+      - name: Postgres のテストが実行されたことを確認
+        env:
+          TEST_DATABASE_URL: postgres://liftplan:liftplan@127.0.0.1:5432/liftplan
+        run: |
+          out=$(go test ./internal/infrastructure/postgres/ -run TestPostgres_SetLogSatisfiesTheContract -v)
+          echo "$out"
+          if echo "$out" | grep -q "SKIP"; then
+            echo "Postgres のテストがスキップされている"
+            exit 1
+          fi
