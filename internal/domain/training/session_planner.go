@@ -63,12 +63,22 @@ func (s PlannedSession) DeloadProposal() (DeloadProposal, bool) {
 
 // PlanRequest は導出の入力すべて。ドメインは自分でデータを取りに行かない。
 type PlanRequest struct {
-	Program        *Program
-	Pool           []*Exercise
-	History        History
-	Conditions     ConditionLog
-	Date           Date
-	DeloadAccepted bool
+	Program    *Program
+	Pool       []*Exercise
+	History    History
+	Conditions ConditionLog
+	Date       Date
+
+	// DeloadAccepted はユーザーがデロードを承認した種目。
+	//
+	// bool ではなく種目の一覧なのは、承認の粒度を提案の粒度に合わせるため。
+	// 単一の bool だと、ベンチの提案を承認した状態のまま後からスクワットが
+	// 停滞判定に入ったとき、新しい承認を経ずにスクワットまで下がる。
+	//
+	// 提案の有無とは独立に効く。提案は毎回計算し直されるので、体重の記録が
+	// 数日途切れただけで消えることがある。提案が消えたら承認も無効、では
+	// 「承認したのに重量が下がらない」という説明のつかない挙動になる。
+	DeloadAccepted []ExerciseID
 }
 
 // SessionPlanner はドメインの入口となるドメインサービス。無状態。
@@ -79,6 +89,13 @@ type SessionPlanner struct {
 	accessory AccessorySelector
 	deload    DeloadPolicy
 }
+
+// analyzer は RIR 補正に使うコンディション分析器。
+//
+// デロード判定と同じものを使う。別々にすると、同じセッションの中で
+// 「デロードは減量中と判定、RIR補正は減量中でないと判定」のような
+// 一貫性の破れが起きる。
+func (p SessionPlanner) analyzer() ConditionAnalyzer { return p.deload.Analyzer() }
 
 func NewSessionPlanner(
 	slots SlotCatalog,
@@ -154,32 +171,42 @@ func (p SessionPlanner) Plan(req PlanRequest) (PlannedSession, error) {
 	}
 	proposal, hasProposal := p.deload.Propose(req.History, mainIDs, req.Conditions, req.Date)
 
-	// デロードは停滞した種目にだけ適用する。伸びている種目まで一律に下げると、
+	// デロードは承認された種目にだけ適用する。伸びている種目まで一律に下げると、
 	// 本人の実感と噛み合わない。
-	deloadTargets := map[ExerciseID]bool{}
-	if hasProposal && req.DeloadAccepted {
-		for _, id := range proposal.StalledExercises() {
-			deloadTargets[id] = true
-		}
+	deloadTargets := make(map[ExerciseID]bool, len(req.DeloadAccepted))
+	for _, id := range req.DeloadAccepted {
+		deloadTargets[id] = true
 	}
 
-	rirBump := DefaultConditionAnalyzer().RIRAdjustment(req.Conditions, req.Date)
+	rirBump := p.analyzer().RIRAdjustment(req.Conditions, req.Date)
+
+	// 週内カバレッジには当日の実績も含める。含めないと、セッション中に
+	// 補助をこなして計画を開き直したとき残差が減らず、同じ補助が
+	// 何度でも提示されてセッションが終わらない。
+	coverage := coveredThisWeek(req.History, pool, req.Date)
+	doneToday := performedOn(req.History, req.Date)
 
 	main := make([]PlannedSet, 0, len(mains))
-	coverage := coveredThisWeek(req.History, pool, req.Date)
 	for _, e := range mains {
 		set, performed := p.planMain(req, pool, e, template, deloadTargets[e.ID()], rirBump)
 		main = append(main, set)
-		coverage = coverage.Plus(performed.Stimulus(), set.Sets())
+
+		// 当日すでに記録済みのメインは、カバレッジに二重計上しない。
+		if !doneToday[performed.ID()] {
+			coverage = coverage.Plus(performed.Stimulus(), set.Sets())
+		}
 	}
 
-	sessionsRemaining := req.Program.Frequency().PerWeek() - sessionIndexInWeek(req.History, req.Date)
+	// 設定より多く通った場合でも、残り1セッション分は狙えるようにする。
+	// 0 以下にすると残差が空になり、補助が1つも出ないまま
+	// メイン種目のフルスロットだけが積まれる。
+	sessionsRemaining := max(1, req.Program.Frequency().PerWeek()-sessionIndexInWeek(req.History, req.Date))
 	gaps := SessionResidual(req.Program.WeeklyTarget(), coverage, sessionsRemaining)
 
-	chosen := p.accessory.Select(gaps, pool, req.History, req.Date)
+	chosen := p.accessory.Select(gaps, remaining(pool, doneToday), req.History, req.Date)
 	accessories := make([]PlannedSet, 0, len(chosen))
 	for _, id := range chosen {
-		accessories = append(accessories, p.planAccessory(req, pool, id, deloadTargets[id], rirBump))
+		accessories = append(accessories, p.planAccessory(req, pool, id, rirBump))
 	}
 
 	return PlannedSession{
@@ -290,17 +317,24 @@ func (p SessionPlanner) pickVariation(req PlanRequest, pool []*Exercise, main *E
 	return best
 }
 
+// planAccessory は補助種目の1枠を埋める。
+//
+// デロードは適用しない。デロードの対象はメイン種目だけで、補助種目は
+// そもそも停滞判定の対象になっていない。
 func (p SessionPlanner) planAccessory(
 	req PlanRequest,
 	pool []*Exercise,
 	id ExerciseID,
-	deloaded bool,
 	rirBump int,
 ) PlannedSet {
+	baseRIR, err := NewRIR(accessoryTargetRIR)
+	if err != nil {
+		return PlannedSet{}
+	}
 	set := PlannedSet{
 		exerciseID: id,
 		sets:       p.accessory.SetsPerAccessory(),
-		targetRIR:  RIR{v: accessoryTargetRIR}.Plus(rirBump),
+		targetRIR:  baseRIR.Plus(rirBump),
 	}
 
 	exercise := findExercise(pool, id)
@@ -311,9 +345,6 @@ func (p SessionPlanner) planAccessory(
 	intensity, err := NewIntensityPct(accessoryIntensityPct)
 	if err != nil {
 		return set
-	}
-	if deloaded {
-		intensity = intensity.Reduce(p.deload.IntensityDropPct())
 	}
 
 	if orm, ok := p.estimator.Estimate(req.History, id, req.Date); ok {
@@ -333,10 +364,13 @@ func findExercise(pool []*Exercise, id ExerciseID) *Exercise {
 	return nil
 }
 
-// coveredThisWeek は週初からその日の前日までに埋めた刺激量。
+// coveredThisWeek は週初からその日までに埋めた刺激量。当日を含む。
 //
-// 当日の記録を含めないのは、当日のメイン種目を計画で積み上げるため。
-// 含めると、セッション中に記録してから計画を開き直したとき二重に数える。
+// 当日を含めるのは、セッション中にこなした補助を残差に反映するため。
+// 含めないと、記録して計画を開き直しても残差が減らず、同じ補助が
+// 何度でも提示されてセッションが終わらない。
+//
+// 当日のメイン種目については、呼び出し側が二重計上を避ける。
 func coveredThisWeek(h History, pool []*Exercise, date Date) StimulusCoverage {
 	coverage := StimulusCoverage{}
 	one, err := NewSetCount(1)
@@ -349,7 +383,7 @@ func coveredThisWeek(h History, pool []*Exercise, date Date) StimulusCoverage {
 		byID[e.ID()] = e
 	}
 
-	for _, l := range h.OnOrAfter(date.WeekStart()).Before(date).Logs() {
+	for _, l := range h.OnOrAfter(date.WeekStart()).OnOrBefore(date).Logs() {
 		e, ok := byID[l.ExerciseID()]
 		if !ok {
 			continue
@@ -357,6 +391,29 @@ func coveredThisWeek(h History, pool []*Exercise, date Date) StimulusCoverage {
 		coverage = coverage.Plus(e.Stimulus(), one)
 	}
 	return coverage
+}
+
+// performedOn はその日に記録がある種目。
+func performedOn(h History, date Date) map[ExerciseID]bool {
+	out := map[ExerciseID]bool{}
+	for _, l := range h.OnOrAfter(date).OnOrBefore(date).Logs() {
+		out[l.ExerciseID()] = true
+	}
+	return out
+}
+
+// remaining は当日すでに実施した種目を除いたプール。
+//
+// 除かないと、こなした補助がもう一度提示される。
+func remaining(pool []*Exercise, doneToday map[ExerciseID]bool) []*Exercise {
+	out := make([]*Exercise, 0, len(pool))
+	for _, e := range pool {
+		if doneToday[e.ID()] {
+			continue
+		}
+		out = append(out, e)
+	}
+	return out
 }
 
 // sessionIndexInWeek はその週で対象日が何本目のセッションか（0始まり）。

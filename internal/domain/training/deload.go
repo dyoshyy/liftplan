@@ -90,6 +90,10 @@ func DefaultDeloadPolicy() DeloadPolicy {
 	}
 }
 
+// Analyzer は判定に使うコンディション分析器。
+// セッション生成器が RIR 補正に同じ分析器を使えるようにする。
+func (p DeloadPolicy) Analyzer() ConditionAnalyzer { return p.analyzer }
+
 func (p DeloadPolicy) StallSessions() int        { return p.stallSessions }
 func (p DeloadPolicy) IntensityDropPct() float64 { return p.intensityDrop.Float() }
 func (p DeloadPolicy) IsZero() bool              { return p == DeloadPolicy{} }
@@ -201,7 +205,15 @@ func (p DeloadPolicy) isStalled(h History, id ExerciseID) bool {
 			peak = v
 		}
 	}
-	return window[last] <= peak
+	if window[last] > peak {
+		return false
+	}
+
+	// すでに窓の最高値から低下率ぶん以上落ちているなら、デロードの効果が
+	// まだ出ていない段階か、体調を崩している段階のどちらか。ここでさらに
+	// 下げると、下げる → 推定1RMが下がる → また停滞判定、の閉ループになり、
+	// 承認するたびに永久に軽くなり続ける。
+	return window[last] >= peak*(1-p.intensityDrop.Float())
 }
 
 // sessionValues は推定できたセッション代表値を古い順に返す。

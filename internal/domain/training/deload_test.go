@@ -551,3 +551,38 @@ func TestDeloadPolicy_ReasonListsExercisesInOrder(t *testing.T) {
 		t.Errorf("種目名が昇順に並んでいない: %v", forward.Reason())
 	}
 }
+
+// デロード直後に再提案しない。するとデロードが下降スパイラルになる。
+func TestDeloadPolicy_DoesNotProposeRightAfterADeload(t *testing.T) {
+	p := training.DefaultDeloadPolicy()
+
+	// 8セッション停滞したあと、承認して10%落とした状態。
+	h := training.NewHistory(benchSessions(t, sessions, func(i int) float64 {
+		if i == sessions-1 {
+			return 75 // 85kg の -10%（2.5kg刻みに丸めた実施重量）
+		}
+		return 85
+	}))
+
+	if _, ok := p.Propose(h, []training.ExerciseID{"bench"},
+		flatWeight(lastDay), baseDay(lastDay)); ok {
+		t.Error("デロード直後にさらにデロードを提案している")
+	}
+}
+
+// 通常の上下動（レップ1本ぶん程度）は停滞のままにする。
+// 上のガードで一律に握りつぶさないこと。
+func TestDeloadPolicy_SmallFluctuationIsStillStalled(t *testing.T) {
+	p := training.DefaultDeloadPolicy()
+	h := training.NewHistory(benchSessions(t, sessions, func(i int) float64 {
+		if i%2 == 1 {
+			return 82.5
+		}
+		return 85
+	}))
+
+	if _, ok := p.Propose(h, []training.ExerciseID{"bench"},
+		flatWeight(lastDay), baseDay(lastDay)); !ok {
+		t.Error("上下動しているだけの停滞が提案されない")
+	}
+}
