@@ -3,14 +3,12 @@ package training_test
 import (
 	"context"
 	"errors"
-	"fmt"
 	"testing"
 
 	"github.com/dyoshyy/liftplan-server/internal/domain/training"
 )
 
 // 各リポジトリインターフェースを満たす最小実装。
-// インターフェースの形が壊れたらコンパイルで気づける。
 type stubExerciseRepo struct{}
 
 func (stubExerciseRepo) FindAll(context.Context) ([]*training.Exercise, error) { return nil, nil }
@@ -34,25 +32,71 @@ type stubProgramRepo struct{}
 func (stubProgramRepo) Get(context.Context) (*training.Program, error) {
 	return nil, training.ErrProgramNotConfigured
 }
+func (stubProgramRepo) Save(context.Context, *training.Program) error { return nil }
 
-func TestRepositoryInterfaces_AreSatisfiable(t *testing.T) {
-	var _ training.ExerciseRepository = stubExerciseRepo{}
-	var _ training.SetLogRepository = stubSetLogRepo{}
-	var _ training.ConditionRepository = stubConditionRepo{}
-	var _ training.ProgramRepository = stubProgramRepo{}
+// インターフェースの形を両方向から固定する。
+//
+// スタブをインターフェースに代入するだけだと、メソッドを削っても
+// スタブは依然として満たすのでコンパイルが通ってしまう。検出できるのは
+// 追加とシグネチャ変更だけ。メソッド値を期待する関数型に取り出す向きが
+// 要る。この2つを揃えて初めて形が固定される。
+func TestRepositoryInterfaces_KeepTheirShape(t *testing.T) {
+	var exercises training.ExerciseRepository = stubExerciseRepo{}
+	var logs training.SetLogRepository = stubSetLogRepo{}
+	var conditions training.ConditionRepository = stubConditionRepo{}
+	var programs training.ProgramRepository = stubProgramRepo{}
+
+	var (
+		_ func(context.Context) ([]*training.Exercise, error)    = exercises.FindAll
+		_ func(context.Context) (training.History, error)        = logs.FindAll
+		_ func(context.Context, []*training.SetLog) error        = logs.Save
+		_ func(context.Context) (training.ConditionLog, error)   = conditions.FindAll
+		_ func(context.Context, []training.DailyCondition) error = conditions.Save
+		_ func(context.Context) (*training.Program, error)       = programs.Get
+		_ func(context.Context, *training.Program) error         = programs.Save
+	)
 }
 
-// 未設定は「エラー」ではなく状態なので、呼び出し側が errors.Is で
-// 判別して初期設定へ誘導できること。文字列比較を強いてはいけない。
-func TestErrProgramNotConfigured_IsIdentifiable(t *testing.T) {
-	if training.ErrProgramNotConfigured == nil {
-		t.Fatal("未設定エラーが定義されていない")
+// 未設定は状態なので、呼び出し側が errors.Is で判別して
+// 初期設定へ誘導できること。文字列比較を強いてはいけない。
+func TestSentinelErrors_AreIdentifiableAndDistinct(t *testing.T) {
+	sentinels := map[string]error{
+		"ErrProgramNotConfigured": training.ErrProgramNotConfigured,
+		"ErrExerciseNotFound":     training.ErrExerciseNotFound,
+		"ErrConflictingSetLog":    training.ErrConflictingSetLog,
 	}
-	wrapped := fmt.Errorf("プログラムの取得: %w", training.ErrProgramNotConfigured)
-	if !errors.Is(wrapped, training.ErrProgramNotConfigured) {
-		t.Error("包んだあとに errors.Is で判別できない")
+
+	for name, err := range sentinels {
+		if err == nil {
+			t.Errorf("%s が定義されていない", name)
+			continue
+		}
+		if err.Error() == "" {
+			t.Errorf("%s の説明が空である", name)
+		}
 	}
-	if training.ErrProgramNotConfigured.Error() == "" {
-		t.Error("エラーの説明が空である")
+
+	// 取り違えて同じ値を割り当てると、呼び出し側が分岐できない。
+	for aName, a := range sentinels {
+		for bName, b := range sentinels {
+			if aName >= bName {
+				continue
+			}
+			if errors.Is(a, b) {
+				t.Errorf("%s と %s が区別できない", aName, bName)
+			}
+		}
+	}
+}
+
+// Get は未設定のとき (nil, nil) を返してはならない。
+// nil を「未設定」と「取得成功」のどちらとも解釈できてしまう。
+func TestProgramRepository_ReportsMissingProgramAsAnError(t *testing.T) {
+	p, err := stubProgramRepo{}.Get(context.Background())
+	if p == nil && err == nil {
+		t.Fatal("未設定を (nil, nil) で返している")
+	}
+	if !errors.Is(err, training.ErrProgramNotConfigured) {
+		t.Errorf("未設定が ErrProgramNotConfigured で表現されていない: %v", err)
 	}
 }

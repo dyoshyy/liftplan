@@ -264,6 +264,10 @@ func (f fakeProgram) Get(context.Context) (*training.Program, error) {
 
 func buildProgram(t *testing.T, pool []*training.Exercise) *training.Program {
 	t.Helper()
+	freq, err := training.NewFrequency(3)
+	if err != nil {
+		t.Fatalf("頻度が不正: %v", err)
+	}
 	target, err := seed.DefaultWeeklyTarget(freq)
 	if err != nil {
 		t.Fatalf("週目標が不正: %v", err)
@@ -455,7 +459,7 @@ import (
 
 type GetSessionInput struct {
 	Date           training.Date
-	DeloadAccepted []ExerciseID
+	DeloadAccepted []training.ExerciseID
 }
 
 // GetSession は指定日のセッションを導出するユースケース。
@@ -593,6 +597,30 @@ git commit -m "feat(application): セッション取得と記録のユースケ�
 ```
 
 ---
+
+> **追加（D-031）:** プログラムを設定する経路が Task 19〜24 のどこにも無く、`ErrProgramNotConfigured` → 409 の分岐が本番で到達不能なデッドコードになっていた。`ProgramRepository.Save` をドメイン層のインターフェースに足し、ここに `ConfigureProgram` ユースケースを追加する。
+>
+> ```go
+> // ConfigureProgram はユーザーのプログラム設定を保存する。
+> //
+> // 選択された種目IDが種目マスタに実在するかを突合するのはここ。
+> // Program は種目マスタを知らないので自分では検証できず、
+> // 実在しないIDは SessionPlanner が黙って落とす。
+> type ConfigureProgram struct {
+> 	exercises training.ExerciseRepository
+> 	programs  training.ProgramRepository
+> }
+>
+> type ConfigureProgramInput struct {
+> 	PerWeek  int
+> 	Target   map[training.MuscleRegion]float64
+> 	Selected []training.ExerciseID
+> }
+>
+> func (u *ConfigureProgram) Execute(ctx context.Context, in ConfigureProgramInput) error
+> ```
+>
+> 実在しないIDが混ざっていたら `training.ErrExerciseNotFound` を包んで返し、プレゼンテーション層は 400 にする。黙って落とすと、ユーザーが選んだ種目が理由の説明なく消える。
 
 ### Task 21: インメモリ Infrastructure
 
@@ -734,6 +762,7 @@ func TestProgramRepository_NotConfigured(t *testing.T) {
 
 func TestProgramRepository_Set(t *testing.T) {
 	pool, _ := seed.Exercises()
+	freq, _ := training.NewFrequency(3)
 	target, _ := seed.DefaultWeeklyTarget(freq)
 	selected := make([]training.ExerciseID, 0, len(pool))
 	for _, e := range pool {
@@ -741,7 +770,6 @@ func TestProgramRepository_Set(t *testing.T) {
 			selected = append(selected, e.ID())
 		}
 	}
-	freq, _ := training.NewFrequency(3)
 	program, err := training.NewProgram(freq, target, selected)
 	if err != nil {
 		t.Fatalf("プログラムが不正: %v", err)
@@ -1017,6 +1045,7 @@ func newServer(t *testing.T, configured bool) http.Handler {
 
 	programs := memory.NewProgramRepository(nil)
 	if configured {
+		freq, _ := training.NewFrequency(3)
 		target, err := seed.DefaultWeeklyTarget(freq)
 		if err != nil {
 			t.Fatalf("週目標が不正: %v", err)
@@ -1027,7 +1056,6 @@ func newServer(t *testing.T, configured bool) http.Handler {
 				selected = append(selected, e.ID())
 			}
 		}
-		freq, _ := training.NewFrequency(3)
 		program, err := training.NewProgram(freq, target, selected)
 		if err != nil {
 			t.Fatalf("プログラムが不正: %v", err)
@@ -1374,7 +1402,7 @@ func (h *Handler) handleGetSession(w http.ResponseWriter, r *http.Request) {
 
 	session, err := h.getSession.Execute(r.Context(), usecase.GetSessionInput{
 		Date:           date,
-		DeloadAccepted: r.URL.Query().Get("deload_accepted") == "true",
+		DeloadAccepted: parseExerciseIDs(r.URL.Query().Get("deload_accepted")),
 	})
 	if err != nil {
 		if errors.Is(err, training.ErrProgramNotConfigured) {
@@ -1495,6 +1523,8 @@ func (h *Handler) Routes() *http.ServeMux {
 	mux.HandleFunc("GET /api/sessions", h.handleGetSession)
 	mux.HandleFunc("POST /api/set-logs", h.handlePostSetLogs)
 	mux.HandleFunc("POST /api/conditions", h.handlePostConditions)
+	mux.HandleFunc("GET /api/program", h.handleGetProgram)
+	mux.HandleFunc("PUT /api/program", h.handlePutProgram)
 	return mux
 }
 ```
@@ -1647,6 +1677,11 @@ func buildHandler() (http.Handler, error) {
 // defaultProgram はシードから初期プログラムを組む。
 // バリエーションはメインに付随して自動で回るため、選択には含めない。
 func defaultProgram(pool []*training.Exercise) (*training.Program, error) {
+	freq, err := training.NewFrequency(defaultFrequencyPerWeek)
+	if err != nil {
+		return nil, fmt.Errorf("既定の頻度が不正: %w", err)
+	}
+
 	target, err := seed.DefaultWeeklyTarget(freq)
 	if err != nil {
 		return nil, fmt.Errorf("週目標シードが不正: %w", err)
@@ -1659,10 +1694,6 @@ func defaultProgram(pool []*training.Exercise) (*training.Program, error) {
 		}
 	}
 
-	freq, err := training.NewFrequency(defaultFrequencyPerWeek)
-	if err != nil {
-		return nil, err
-	}
 	return training.NewProgram(freq, target, selected)
 }
 ```
@@ -1698,9 +1729,11 @@ go run ./cmd/api
 | メソッド | パス | 説明 |
 |---|---|---|
 | GET | `/healthz` | ヘルスチェック |
-| GET | `/api/sessions?date=YYYY-MM-DD&deload_accepted=true` | その日のセッションを導出する |
+| GET | `/api/sessions?date=YYYY-MM-DD&deload_accepted=bench,squat` | その日のセッションを導出する |
 | POST | `/api/set-logs` | 実績ログを保存する（冪等） |
 | POST | `/api/conditions` | 日次コンディションを保存する（冪等） |
+| GET | `/api/program` | プログラム（頻度・週目標・選択種目）を取得する。未設定なら 404 |
+| PUT | `/api/program` | プログラムを設定する（冪等） |
 
 ### セッション取得の例
 
