@@ -1051,7 +1051,7 @@ git commit -m "feat(domain): 残差から補助種目を選ぶサービスを追
 - Produces:
   - `type DailyCondition struct{...}` / `func NewDailyCondition(date Date) DailyCondition` / `func (c DailyCondition) WithBodyWeight(kg float64) DailyCondition` / `func (c DailyCondition) WithSleepHours(h float64) DailyCondition` / アクセサ `Date()` / `BodyWeightKg() (float64, bool)` / `SleepHours() (float64, bool)`
   - `type ConditionLog struct{...}` / `func NewConditionLog(items []DailyCondition) ConditionLog`
-  - `type ConditionAnalyzer struct{...}` / `func NewConditionAnalyzer(baselineDays int, sleepDeficitHours float64, trendWindowDays int) (ConditionAnalyzer, error)` / `func DefaultConditionAnalyzer() ConditionAnalyzer`
+  - `type ConditionAnalyzer struct{...}` / `func NewConditionAnalyzer(baselineDays int, sleepDeficitHours float64, trendWindowDays int) (ConditionAnalyzer, error)（窓は最低サンプル数以上・365日以下）` / `func DefaultConditionAnalyzer() ConditionAnalyzer`
   - `func (a ConditionAnalyzer) RIRAdjustment(log ConditionLog, date Date) int`
   - `func (a ConditionAnalyzer) BodyWeightTrendKgPerWeek(log ConditionLog, date Date) (float64, bool)`
 
@@ -1303,7 +1303,7 @@ type ConditionAnalyzer struct {
 	trendWindowDays   int
 }
 
-func NewConditionAnalyzer(baselineDays int, sleepDeficitHours float64, trendWindowDays int) (ConditionAnalyzer, error) {
+func NewConditionAnalyzer(baselineDays int, sleepDeficitHours float64, trendWindowDays int) (ConditionAnalyzer, error)（窓は最低サンプル数以上・365日以下） {
 	if baselineDays < 1 {
 		return ConditionAnalyzer{}, fmt.Errorf("基準日数は1以上である必要がある: %d", baselineDays)
 	}

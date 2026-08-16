@@ -2,7 +2,6 @@ package training
 
 import (
 	"fmt"
-	"math"
 	"sort"
 )
 
@@ -16,8 +15,15 @@ const (
 	minBaselineSamples = 5
 	minTrendSamples    = 5
 
+	// 窓の上限。設定を外部から与えるようになったとき、桁を間違えた値で
+	// 巨大な確保を試みたり演算が破綻したりしないようにする。
+	maxWindowDays = 365
+
 	// 体重と睡眠の現実的な範囲。Health Connect から取り込む値なので、
-	// デバイスの誤作動や単位の取り違えが混ざりうる。
+	// デバイスの誤作動が混ざりうる。
+	//
+	// なお単位の取り違え（ポンド）はこの範囲では捕まらない。
+	// 実在する成人のポンド値（100〜300lb）は全て kg の範囲に収まる。
 	minBodyWeightKg = 20
 	maxBodyWeightKg = 300
 	maxSleepHours   = 24
@@ -69,10 +75,27 @@ func (c DailyCondition) SleepHours() (float64, bool)   { return c.sleepHours, c.
 // IsZero はゼロ値（未設定）かどうか。
 func (c DailyCondition) IsZero() bool { return c == DailyCondition{} }
 
+// Merge は同じ日の別の記録を取り込んだ新しい値を返す。
+//
+// フィールド単位で合成するのが要点。レコードごと置き換えると、
+// 体重と睡眠が別々のタイミングで届いたとき、後から届いた方が
+// 先に届いた方を丸ごと消してしまう。
+// Health Connect では睡眠（起床時）と体重（体重計に乗ったとき）が
+// 別のデータ型・別のタイミングで入るので、これは例外ではなく通常。
+func (c DailyCondition) Merge(other DailyCondition) DailyCondition {
+	if other.hasBodyWeight {
+		c.bodyWeightKg, c.hasBodyWeight = other.bodyWeightKg, true
+	}
+	if other.hasSleepHours {
+		c.sleepHours, c.hasSleepHours = other.sleepHours, true
+	}
+	return c
+}
+
 // ConditionLog は日次スナップショットの集まり。日付昇順で保持する。
 //
-// 同じ日付が複数含まれる場合は後のものを採用する。
-// リポジトリが日付をキーに上書きする挙動と揃えている。
+// 同じ日付が複数含まれる場合はフィールド単位で合成する。
+// レコードごと置き換えると、体重だけの記録が睡眠だけの記録を消してしまう。
 type ConditionLog struct {
 	items []DailyCondition
 }
@@ -81,6 +104,10 @@ func NewConditionLog(items []DailyCondition) ConditionLog {
 	byDate := make(map[Date]DailyCondition, len(items))
 	for _, c := range items {
 		if c.Date().IsZero() {
+			continue
+		}
+		if prev, dup := byDate[c.Date()]; dup {
+			byDate[c.Date()] = prev.Merge(c)
 			continue
 		}
 		byDate[c.Date()] = c
@@ -122,14 +149,18 @@ type ConditionAnalyzer struct {
 }
 
 func NewConditionAnalyzer(baselineDays int, sleepDeficitHours float64, trendWindowDays int) (ConditionAnalyzer, error) {
-	if baselineDays < 1 {
-		return ConditionAnalyzer{}, fmt.Errorf("基準日数は1以上である必要がある: %d", baselineDays)
+	// 窓が最低サンプル数を下回ると、標本が集まらず機能が黙って死ぬ。
+	// 「通るのに永久に効かない設定」を作らせない。
+	if baselineDays < minBaselineSamples || baselineDays > maxWindowDays {
+		return ConditionAnalyzer{}, fmt.Errorf(
+			"基準日数は%d〜%dの範囲である必要がある: %d", minBaselineSamples, maxWindowDays, baselineDays)
 	}
-	if math.IsNaN(sleepDeficitHours) || sleepDeficitHours <= 0 {
-		return ConditionAnalyzer{}, fmt.Errorf("睡眠不足の閾値は正の数である必要がある: %v", sleepDeficitHours)
+	if err := validateRange("睡眠不足の閾値", quantize(sleepDeficitHours), smallestPositive, maxSleepHours); err != nil {
+		return ConditionAnalyzer{}, err
 	}
-	if trendWindowDays < 1 {
-		return ConditionAnalyzer{}, fmt.Errorf("トレンド窓は1以上である必要がある: %d", trendWindowDays)
+	if trendWindowDays < minTrendSamples || trendWindowDays > maxWindowDays {
+		return ConditionAnalyzer{}, fmt.Errorf(
+			"トレンド窓は%d〜%dの範囲である必要がある: %d", minTrendSamples, maxWindowDays, trendWindowDays)
 	}
 	return ConditionAnalyzer{
 		baselineDays:      baselineDays,
@@ -186,7 +217,7 @@ func (a ConditionAnalyzer) RIRAdjustment(log ConditionLog, date Date) int {
 // baselineSleep は基準となる睡眠時間の標本。当日は含めない。
 func (a ConditionAnalyzer) baselineSleep(log ConditionLog, date Date) []float64 {
 	from := date.AddDays(-a.baselineDays)
-	out := make([]float64, 0, a.baselineDays)
+	out := make([]float64, 0, log.Len())
 
 	for _, c := range log.items {
 		if c.Date().Before(from) || !c.Date().Before(date) {
@@ -199,51 +230,53 @@ func (a ConditionAnalyzer) baselineSleep(log ConditionLog, date Date) []float64 
 	return out
 }
 
-// BodyWeightTrendKgPerWeek は体重トレンド（kg/週）。最小二乗法の傾きを週換算する。
+// BodyWeightTrendKgPerWeek は体重トレンド（kg/週）。
 //
 // 減量中かどうかの判定に使う。データが足りなければ false を返し、
 // 呼び出し側は「判定できない」として扱う。
 //
 // 減量中の停滞とオーバーリーチによる停滞は、トレーニング記録だけ見ると
 // 同じ形をしている。この2つを見分けるためだけに体重を取り込んでいる。
+//
+// 傾きは Theil-Sen 推定（全ペアの傾きの中央値）で求める。最小二乗法だと、
+// 食後や着衣による 0.4kg 程度のずれ1点で傾きが 0.1kg/週 以上動き、
+// 「減量中かどうか」の判定が反転する。体重は日々ノイズが乗る量なので、
+// 睡眠の基準に中央値を使っているのと同じ理由でロバストな推定が要る。
 func (a ConditionAnalyzer) BodyWeightTrendKgPerWeek(log ConditionLog, date Date) (float64, bool) {
 	if a.IsZero() || date.IsZero() {
 		return 0, false
 	}
 
 	from := date.AddDays(-a.trendWindowDays)
-	type point struct{ x, y float64 }
-	points := make([]point, 0, a.trendWindowDays)
+	type point struct {
+		day int
+		kg  float64
+	}
+	points := make([]point, 0, log.Len())
 
 	for _, c := range log.items {
-		if c.Date().Before(from) || c.Date().After(date) {
+		// 窓は (date - trendWindowDays, date] の半開区間。ちょうど N 日ぶん。
+		if !c.Date().After(from) || c.Date().After(date) {
 			continue
 		}
 		if kg, ok := c.BodyWeightKg(); ok {
-			points = append(points, point{x: float64(c.Date().DaysSince(from)), y: kg})
+			points = append(points, point{day: c.Date().DaysSince(from), kg: kg})
 		}
 	}
 	if len(points) < minTrendSamples {
 		return 0, false
 	}
 
-	n := float64(len(points))
-	var sumX, sumY float64
-	for _, p := range points {
-		sumX += p.x
-		sumY += p.y
+	// 全ペアの傾き。日付は一意なので分母が0になることはない。
+	slopes := make([]float64, 0, len(points)*(len(points)-1)/2)
+	for i := range points {
+		for j := i + 1; j < len(points); j++ {
+			dx := float64(points[j].day - points[i].day)
+			slopes = append(slopes, (points[j].kg-points[i].kg)/dx)
+		}
 	}
-	meanX, meanY := sumX/n, sumY/n
-
-	var numerator, denominator float64
-	for _, p := range points {
-		numerator += (p.x - meanX) * (p.y - meanY)
-		denominator += (p.x - meanX) * (p.x - meanX)
+	if len(slopes) == 0 {
+		return 0, false
 	}
-	if denominator == 0 {
-		// 全サンプルが同じ日。傾きは定義できないが、
-		// 「変化していない」とみなす方が呼び出し側にとって扱いやすい。
-		return 0, true
-	}
-	return quantize(numerator / denominator * 7), true
+	return quantize(median(slopes) * 7), true
 }

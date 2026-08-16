@@ -298,14 +298,17 @@ func TestDomain_StimulusProfileIsNotMutated(t *testing.T) {
 	t.Logf("%d ファイルを検査した", checked)
 }
 
-// エンティティは生成後に状態を変えない。
+// ドメインの値は生成後に状態を変えない。
 //
 // 実績は「唯一の真実」であり、書き換わると過去のセッションの導出結果まで変わる。
 // 値渡しのテストでは「セッターを生やしても通ってしまう」ため検出できない。
-// ポインタレシーバのメソッドがフィールドへ代入していないことを AST で検査する。
 //
-// 値レシーバは対象外。代入してもコピーが変わるだけで呼び出し側には波及せず、
-// `WithBodyWeight` のような「新しい値を返す」ビルダーで正当に使われる。
+// 検査対象は次の2つ。
+//   - ポインタレシーバのフィールド代入（呼び出し側に直接波及する）
+//   - 値レシーバでも添字経由の代入（内部のマップやスライスを共有しているため波及する）
+//
+// 値レシーバへの平フィールド代入だけは許す。コピーを変えるだけなので
+// 波及せず、「新しい値を返す」ビルダーで正当に使われる。
 func TestDomain_MethodsDoNotMutateReceiver(t *testing.T) {
 	root := domainRoot(t)
 	fset := token.NewFileSet()
@@ -339,10 +342,7 @@ func TestDomain_MethodsDoNotMutateReceiver(t *testing.T) {
 			if len(names) == 0 || names[0].Name == "_" {
 				continue
 			}
-			// 値レシーバはコピーを触るだけなので対象外。
-			if _, isPointer := fn.Recv.List[0].Type.(*ast.StarExpr); !isPointer {
-				continue
-			}
+			_, isPointer := fn.Recv.List[0].Type.(*ast.StarExpr)
 			receiver := names[0].Name
 			checked++
 
@@ -352,7 +352,17 @@ func TestDomain_MethodsDoNotMutateReceiver(t *testing.T) {
 					return true
 				}
 				for _, lhs := range assign.Lhs {
-					if !mutatesReceiver(lhs, receiver) {
+					indexed, ok := mutatesReceiver(lhs, receiver)
+					if !ok {
+						continue
+					}
+					// 値レシーバへの平フィールド代入はコピーを変えるだけで
+					// 呼び出し側に波及しない。「新しい値を返す」ビルダーで
+					// 正当に使われるので許す。
+					//
+					// ただし r.field[k] = x は、値レシーバでも内部のマップや
+					// スライスを共有しているため呼び出し側に波及する。
+					if !isPointer && !indexed {
 						continue
 					}
 					t.Errorf("%s:%d: メソッド %s がレシーバの状態を変更している。"+
@@ -374,15 +384,15 @@ func TestDomain_MethodsDoNotMutateReceiver(t *testing.T) {
 }
 
 // mutatesReceiver は代入先がレシーバのフィールドかどうか。
-// r.field = x と r.field[k] = x の両方を検出する。
-func mutatesReceiver(lhs ast.Expr, receiver string) bool {
-	if index, ok := lhs.(*ast.IndexExpr); ok {
-		lhs = index.X
+// 2つ目の戻り値が、添字経由（r.field[k] = x）かどうかを表す。
+func mutatesReceiver(lhs ast.Expr, receiver string) (indexed, ok bool) {
+	if index, isIndex := lhs.(*ast.IndexExpr); isIndex {
+		lhs, indexed = index.X, true
 	}
-	sel, ok := lhs.(*ast.SelectorExpr)
-	if !ok {
-		return false
+	sel, isSelector := lhs.(*ast.SelectorExpr)
+	if !isSelector {
+		return false, false
 	}
-	ident, ok := sel.X.(*ast.Ident)
-	return ok && ident.Name == receiver
+	ident, isIdent := sel.X.(*ast.Ident)
+	return indexed, isIdent && ident.Name == receiver
 }

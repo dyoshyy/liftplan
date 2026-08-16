@@ -400,16 +400,29 @@ func TestNewConditionAnalyzer_RejectsBadParams(t *testing.T) {
 		trendWindowDays   int
 	}{
 		{0, 1.5, 21}, {-1, 1.5, 21},
-		{14, 0, 21}, {14, -1, 21}, {14, math.NaN(), 21},
+		{14, 0, 21}, {14, -1, 21}, {14, math.NaN(), 21}, {14, math.Inf(1), 21},
+		{14, 25, 21}, // 睡眠不足の閾値が1日を超える
 		{14, 1.5, 0}, {14, 1.5, -1},
+		// 窓が最低サンプル数を下回る設定は、通っても機能が黙って死ぬ。
+		{4, 1.5, 21}, {14, 1.5, 4},
+		// 桁を間違えた設定で巨大な確保を試みない。
+		{366, 1.5, 21}, {14, 1.5, 366}, {1 << 30, 1.5, 21},
 	}
 	for _, c := range cases {
 		if _, err := training.NewConditionAnalyzer(c.baselineDays, c.sleepDeficitHours, c.trendWindowDays); err == nil {
 			t.Errorf("不正なパラメータが通ってしまう: %+v", c)
 		}
 	}
-	if _, err := training.NewConditionAnalyzer(1, 0.1, 1); err != nil {
-		t.Errorf("境界値が弾かれた: %v", err)
+	for _, c := range []struct {
+		baselineDays      int
+		sleepDeficitHours float64
+		trendWindowDays   int
+	}{
+		{5, 0.1, 5}, {365, 24, 365},
+	} {
+		if _, err := training.NewConditionAnalyzer(c.baselineDays, c.sleepDeficitHours, c.trendWindowDays); err != nil {
+			t.Errorf("境界値が弾かれた: %+v (%v)", c, err)
+		}
 	}
 }
 
@@ -446,5 +459,170 @@ func TestConditionAnalyzer_ZeroDateIsSafe(t *testing.T) {
 	}
 	if _, ok := a.BodyWeightTrendKgPerWeek(weightLog(21, func(int) float64 { return 75 }), training.Date{}); ok {
 		t.Error("基準日が無いのにトレンドが返る")
+	}
+}
+
+// 同じ日の記録はフィールド単位で合成すること。
+//
+// レコードごと置き換えると、体重だけの記録が睡眠だけの記録を消す。
+// Health Connect では睡眠（起床時）と体重（体重計に乗ったとき）が
+// 別のデータ型・別のタイミングで入るので、これは通常の経路。
+func TestNewConditionLog_MergesPartialRecordsOfTheSameDay(t *testing.T) {
+	date := condDate(0)
+	log := training.NewConditionLog([]training.DailyCondition{
+		training.NewDailyCondition(date).WithSleepHours(4),
+		training.NewDailyCondition(date).WithBodyWeight(75),
+	})
+
+	got, ok := log.On(date)
+	if !ok {
+		t.Fatal("記録が取れない")
+	}
+	if h, ok := got.SleepHours(); !ok || h != 4 {
+		t.Errorf("睡眠が消えている: %v %v", h, ok)
+	}
+	if kg, ok := got.BodyWeightKg(); !ok || kg != 75 {
+		t.Errorf("体重が消えている: %v %v", kg, ok)
+	}
+
+	// 同じフィールドが二度来たら後のものを採用する。
+	log2 := training.NewConditionLog([]training.DailyCondition{
+		training.NewDailyCondition(date).WithBodyWeight(75),
+		training.NewDailyCondition(date).WithBodyWeight(74),
+	})
+	got2, _ := log2.On(date)
+	if kg, _ := got2.BodyWeightKg(); kg != 74 {
+		t.Errorf("後の記録が採用されていない: %v", kg)
+	}
+}
+
+// 部分レコードの合成が RIR 補正を生かすこと。
+func TestConditionAnalyzer_AdjustsWhenSleepArrivesSeparately(t *testing.T) {
+	a := training.DefaultConditionAnalyzer()
+
+	items := make([]training.DailyCondition, 0, 16)
+	for i := 1; i <= 14; i++ {
+		items = append(items, training.NewDailyCondition(condDate(i)).WithSleepHours(7))
+	}
+	// 当日は睡眠が先、体重が後から届く。
+	items = append(items,
+		training.NewDailyCondition(condDate(0)).WithSleepHours(4),
+		training.NewDailyCondition(condDate(0)).WithBodyWeight(75),
+	)
+
+	if got := a.RIRAdjustment(training.NewConditionLog(items), condDate(0)); got != 1 {
+		t.Errorf("後着の体重が睡眠を消している: %d", got)
+	}
+}
+
+// 体重の傾きが計測ノイズで反転しないこと。
+//
+// 最小二乗法だと、食後や着衣による 0.4kg 程度のずれ1点で傾きが
+// 0.1kg/週 以上動き、「減量中かどうか」の判定が反転する。
+// 減量中と誤判定されると、本物のオーバーリーチによる停滞で
+// デロードが永久に出なくなる。
+func TestConditionAnalyzer_TrendResistsMeasurementNoise(t *testing.T) {
+	a := training.DefaultConditionAnalyzer()
+
+	// 体重は完全に横ばい。週2回計測で、最も古い1点だけ +0.4kg。
+	items := []training.DailyCondition{}
+	for _, daysAgo := range []int{0, 5, 10, 15, 20} {
+		kg := 75.0
+		if daysAgo == 20 {
+			kg = 75.4
+		}
+		items = append(items, training.NewDailyCondition(condDate(daysAgo)).WithBodyWeight(kg))
+	}
+
+	got, ok := a.BodyWeightTrendKgPerWeek(training.NewConditionLog(items), condDate(0))
+	if !ok {
+		t.Fatal("トレンドが取れない")
+	}
+	if got < -0.1 {
+		t.Errorf("計測ノイズで減量中と誤判定される: %v kg/週", got)
+	}
+}
+
+// 本当に減量しているとき、当日1点のノイズで判定が消えないこと。
+func TestConditionAnalyzer_TrendSurvivesASingleOutlier(t *testing.T) {
+	a := training.DefaultConditionAnalyzer()
+
+	// 週 -0.3kg で減量中。今日だけ服を着たまま測って +1kg。
+	items := []training.DailyCondition{}
+	for daysAgo := 0; daysAgo <= 20; daysAgo++ {
+		kg := 75 + float64(daysAgo)*0.3/7
+		if daysAgo == 0 {
+			kg += 1
+		}
+		items = append(items, training.NewDailyCondition(condDate(daysAgo)).WithBodyWeight(kg))
+	}
+
+	got, ok := a.BodyWeightTrendKgPerWeek(training.NewConditionLog(items), condDate(0))
+	if !ok {
+		t.Fatal("トレンドが取れない")
+	}
+	if got >= -0.1 {
+		t.Errorf("1点の外れ値で減量判定が消えた: %v kg/週", got)
+	}
+}
+
+// 基準日数が実際に窓幅として使われていること。
+// ゲッターの値だけ見ても、窓に使われているかは分からない。
+func TestConditionAnalyzer_BaselineDaysIsUsedAsTheWindow(t *testing.T) {
+	narrow, err := training.NewConditionAnalyzer(5, 1.5, 21)
+	if err != nil {
+		t.Fatalf("NewConditionAnalyzer: %v", err)
+	}
+	wide := training.DefaultConditionAnalyzer() // 14日
+
+	// 直近5日は4時間、それより前は8時間。今日は3時間。
+	// 5日窓の中央値は4なので閾値2.5、補正されない。
+	// 14日窓の中央値は8なので閾値6.5、補正される。
+	log := sleepLog(15, func(daysAgo int) float64 {
+		switch {
+		case daysAgo == 0:
+			return 3
+		case daysAgo <= 5:
+			return 4
+		default:
+			return 8
+		}
+	})
+
+	if got := narrow.RIRAdjustment(log, condDate(0)); got != 0 {
+		t.Errorf("5日窓が広く取られている: %d", got)
+	}
+	if got := wide.RIRAdjustment(log, condDate(0)); got != 1 {
+		t.Errorf("14日窓が狭く取られている: %d", got)
+	}
+}
+
+// トレンド窓はちょうど N 日ぶんであること。
+//
+// 下限と上限の扱いが非対称だと、同じ設定で21日窓と22日窓が混在し、
+// 「先週と同じデータのはずなのに傾きが違う」という再現しにくい挙動になる。
+//
+// 窓の内外は、サンプル数が最低値に届くかどうかで判定する。
+// Theil-Sen は外れ値に強いので、値の変化では境界を検出できない。
+func TestConditionAnalyzer_TrendWindowIsExactlyNDays(t *testing.T) {
+	a := training.DefaultConditionAnalyzer()
+
+	// 窓の内側に4点だけ置く。最低サンプル数は5なので、
+	// 5点目が窓に入るかどうかで ok が切り替わる。
+	build := func(fifthDaysAgo int) training.ConditionLog {
+		items := []training.DailyCondition{}
+		for _, daysAgo := range []int{0, 5, 10, 15} {
+			items = append(items, training.NewDailyCondition(condDate(daysAgo)).WithBodyWeight(75))
+		}
+		items = append(items, training.NewDailyCondition(condDate(fifthDaysAgo)).WithBodyWeight(75))
+		return training.NewConditionLog(items)
+	}
+
+	// 既定の窓は21日。0〜20日前が内側。
+	if _, ok := a.BodyWeightTrendKgPerWeek(build(20), condDate(0)); !ok {
+		t.Error("20日前が窓の外になっている")
+	}
+	if _, ok := a.BodyWeightTrendKgPerWeek(build(21), condDate(0)); ok {
+		t.Error("21日前が窓の内側になっている。窓が22日ぶんある")
 	}
 }
