@@ -115,15 +115,13 @@ func (r *ConditionRepository) FindAll(context.Context) (training.ConditionLog, e
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
-	keys := make([]string, 0, len(r.byDate))
-	for k := range r.byDate {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-
-	out := make([]training.DailyCondition, 0, len(keys))
-	for _, k := range keys {
-		out = append(out, r.byDate[k])
+	// 並べ替えはしない。NewConditionLog が日付で整列し、同じ日付は
+	// 項目ごとに合成するので、渡す順序は結果に影響しない。
+	// ここで整列すると、意味のある処理に見えて実は何もしていない
+	// コードが残る（実際、消しても全テストが通る状態だった）。
+	out := make([]training.DailyCondition, 0, len(r.byDate))
+	for _, c := range r.byDate {
+		out = append(out, c)
 	}
 	return training.NewConditionLog(out), nil
 }
