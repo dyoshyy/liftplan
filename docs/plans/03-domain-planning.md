@@ -1714,7 +1714,7 @@ git commit -m "feat(domain): デロード提案のポリシーを追加する"
 - Produces:
   - `type PlannedSet struct{...}` / `func (s PlannedSet) ExerciseID() ExerciseID` / `func (s PlannedSet) Weight() (Weight, bool)` / `func (s PlannedSet) Sets() SetCount` / `func (s PlannedSet) TargetRIR() RIR` / `func (s PlannedSet) Role() (SlotRole, bool)`
   - `type PlannedSession struct{...}` / `func (s PlannedSession) Date() Date` / `func (s PlannedSession) Main() []PlannedSet` / `func (s PlannedSession) Accessories() []PlannedSet` / `func (s PlannedSession) DeloadProposal() (DeloadProposal, bool)`
-  - `type PlanRequest struct{ Program *Program; Pool []*Exercise; History History; Conditions ConditionLog; Date Date; DeloadAccepted bool; AccessorySlots int }`
+  - `type PlanRequest struct{ Program *Program; Pool []*Exercise; History History; Conditions ConditionLog; Date Date; DeloadAccepted []ExerciseID; AccessorySlots int }`
   - `type SessionPlanner struct{...}` / `func NewSessionPlanner(...) SessionPlanner` / `func DefaultSessionPlanner() SessionPlanner`
   - `func (p SessionPlanner) Plan(req PlanRequest) (PlannedSession, error)`
 
@@ -1925,7 +1925,7 @@ func TestSessionPlanner_AcceptedDeloadLowersWeight(t *testing.T) {
 	normal := mustPlan(t, planRequest(t))
 
 	req := planRequest(t)
-	req.DeloadAccepted = true
+	req.DeloadAccepted = proposal.StalledExercises()
 	deloaded := mustPlan(t, req)
 
 	nw, ok1 := normal.Main()[0].Weight()
@@ -1941,7 +1941,7 @@ func TestSessionPlanner_AcceptedDeloadLowersWeight(t *testing.T) {
 func TestSessionPlanner_DeloadKeepsSetCount(t *testing.T) {
 	normal := mustPlan(t, planRequest(t))
 	req := planRequest(t)
-	req.DeloadAccepted = true
+	req.DeloadAccepted = []training.ExerciseID{"bench"}
 	deloaded := mustPlan(t, req)
 
 	if normal.Main()[0].Sets().Int() != deloaded.Main()[0].Sets().Int() {
@@ -2067,7 +2067,7 @@ type PlanRequest struct {
 	History        History
 	Conditions     ConditionLog
 	Date           Date
-	DeloadAccepted bool
+	DeloadAccepted []ExerciseID
 	AccessorySlots int
 }
 
@@ -2139,13 +2139,10 @@ func (p SessionPlanner) Plan(req PlanRequest) (PlannedSession, error) {
 			deloadTargets[id] = true
 		}
 	}
-	intensityScale := 1.0
-	if req.DeloadAccepted {
-		drop := defaultIntensityDropPct
-		if hasProposal {
-			drop = proposal.IntensityDropPct()
-		}
-		intensityScale = 1 - drop
+	// 承認された種目にだけ適用する（D-022）。提案の有無とは独立。
+	deloadTargets := make(map[ExerciseID]bool, len(req.DeloadAccepted))
+	for _, id := range req.DeloadAccepted {
+		deloadTargets[id] = true
 	}
 
 	rirBump := DefaultConditionAnalyzer().RIRAdjustment(req.Conditions, req.Date)

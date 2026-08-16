@@ -181,7 +181,7 @@ git commit -m "feat(domain): リポジトリインターフェースを定義す
 - Consumes: Task 19 のリポジトリインターフェース、Task 16 の `SessionPlanner`
 - Produces:
   - `type GetSession struct{...}` / `func NewGetSession(exercises training.ExerciseRepository, logs training.SetLogRepository, conditions training.ConditionRepository, programs training.ProgramRepository, planner training.SessionPlanner) *GetSession`
-  - `type GetSessionInput struct{ Date training.Date; DeloadAccepted bool; AccessorySlots int }`
+  - `type GetSessionInput struct{ Date training.Date; DeloadAccepted []ExerciseID; AccessorySlots int }`
   - `func (u *GetSession) Execute(ctx context.Context, in GetSessionInput) (training.PlannedSession, error)`
   - `type RecordSets struct{...}` / `func NewRecordSets(repo training.SetLogRepository) *RecordSets` / `func (u *RecordSets) Execute(ctx context.Context, logs []*training.SetLog) error`
   - `type RecordConditions struct{...}` / `func NewRecordConditions(repo training.ConditionRepository) *RecordConditions` / `func (u *RecordConditions) Execute(ctx context.Context, items []training.DailyCondition) error`
@@ -453,7 +453,7 @@ import (
 
 type GetSessionInput struct {
 	Date           training.Date
-	DeloadAccepted bool
+	DeloadAccepted []ExerciseID
 	AccessorySlots int
 }
 
@@ -974,7 +974,7 @@ git commit -m "feat(infrastructure): インメモリのリポジトリ実装を�
   - `type Handler struct{...}` / `func NewHandler(get *usecase.GetSession, sets *usecase.RecordSets, conditions *usecase.RecordConditions) *Handler`
   - `func (h *Handler) Routes() *http.ServeMux`
   - エンドポイント:
-    - `GET /api/sessions?date=2026-08-17&deload_accepted=true`
+    - `GET /api/sessions?date=2026-08-17&deload_accepted=bench,squat`（承認した種目IDをカンマ区切り。D-022）
     - `POST /api/set-logs`
     - `POST /api/conditions`
     - `GET /healthz`
