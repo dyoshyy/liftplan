@@ -9,12 +9,21 @@ import (
 
 // RecordSets は実績ログを保存するユースケース。
 // リポジトリ側が冪等なので、同じログを二度受け取っても壊れない。
+//
+// 種目マスタとの突合を行うのはここ。SetLog は ExerciseID しか持たず
+// 実在を検証できない。実在しない種目のログを受け取ると、その実績は
+// どの筋区分にも計上されないまま履歴に残り続ける。削除の口が無く、
+// 同じIDの再送は衝突になるので、打ち間違い1回で復旧できなくなる。
 type RecordSets struct {
-	repo training.SetLogRepository
+	repo      training.SetLogRepository
+	exercises training.ExerciseRepository
 }
 
-func NewRecordSets(repo training.SetLogRepository) *RecordSets {
-	return &RecordSets{repo: repo}
+func NewRecordSets(
+	repo training.SetLogRepository,
+	exercises training.ExerciseRepository,
+) *RecordSets {
+	return &RecordSets{repo: repo, exercises: exercises}
 }
 
 func (u *RecordSets) Execute(ctx context.Context, logs []*training.SetLog) error {
@@ -29,6 +38,29 @@ func (u *RecordSets) Execute(ctx context.Context, logs []*training.SetLog) error
 	for i, l := range logs {
 		if l == nil {
 			return fmt.Errorf("%w: %d番目のセットログが nil である", ErrInvalidInput, i)
+		}
+	}
+
+	// 切断済みのクライアントに 204 を返しつつ書き込むのを避ける。
+	if err := ctx.Err(); err != nil {
+		return fmt.Errorf("保存が中断された: %w", err)
+	}
+
+	pool, err := u.exercises.FindAll(ctx)
+	if err != nil {
+		return fmt.Errorf("種目の取得に失敗: %w", err)
+	}
+	known := make(map[training.ExerciseID]bool, len(pool))
+	for _, e := range pool {
+		if e == nil {
+			continue
+		}
+		known[e.ID()] = true
+	}
+	for i, l := range logs {
+		if !known[l.ExerciseID()] {
+			return fmt.Errorf("%w: %w: logs[%d] %s",
+				ErrInvalidInput, training.ErrExerciseNotFound, i, l.ExerciseID())
 		}
 	}
 

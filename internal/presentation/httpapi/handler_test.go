@@ -55,10 +55,10 @@ func newServer(t *testing.T, configured bool) http.Handler {
 
 	handler := httpapi.NewHandler(
 		usecase.NewGetSession(exercises, logs, conditions, programs, training.DefaultSessionPlanner()),
-		usecase.NewRecordSets(logs),
+		usecase.NewRecordSets(logs, exercises),
 		usecase.NewRecordConditions(conditions),
 		usecase.NewConfigureProgram(exercises, programs),
-		programs,
+		usecase.NewGetProgram(programs),
 	)
 	return handler.Routes()
 }
@@ -233,6 +233,7 @@ func do(t *testing.T, mux http.Handler, method, path, body string) *httptest.Res
 		r = httptest.NewRequest(method, path, nil)
 	} else {
 		r = httptest.NewRequest(method, path, strings.NewReader(body))
+		r.Header.Set("Content-Type", "application/json")
 	}
 	rec := httptest.NewRecorder()
 	mux.ServeHTTP(rec, r)
@@ -435,10 +436,10 @@ func TestGetSession_InternalErrorDoesNotLeak(t *testing.T) {
 
 	mux := httpapi.NewHandler(
 		usecase.NewGetSession(brokenExercises{}, logs, conditions, programs, training.DefaultSessionPlanner()),
-		usecase.NewRecordSets(logs),
+		usecase.NewRecordSets(logs, brokenExercises{}),
 		usecase.NewRecordConditions(conditions),
 		usecase.NewConfigureProgram(brokenExercises{}, programs),
-		programs,
+		usecase.NewGetProgram(programs),
 	).Routes()
 
 	rec := do(t, mux, http.MethodGet, "/api/sessions?date=2026-08-17", "")
@@ -585,6 +586,236 @@ func TestGetSession_DeloadAcceptanceReachesTheDomain(t *testing.T) {
 		if m.WeightKg != nil && *m.WeightKg != *got.WeightKg {
 			t.Errorf("承認していない %s の重量が変わった: %v → %v",
 				m.ExerciseID, *m.WeightKg, *got.WeightKg)
+		}
+	}
+}
+
+// --- HTTP 境界の入力検証 ---
+
+// ボディに上限があること。無認証のエンドポイントに巨大なボディを
+// 投げるだけでメモリを食い潰せてはいけない。
+func TestPostSetLogs_RejectsHugeBody(t *testing.T) {
+	huge := strings.Repeat("a", 2<<20)
+	body := `{"logs":[{"id":"a","date":"2026-08-17","exercise_id":"` + huge +
+		`","weight_kg":85,"reps":8,"rir":2}]}`
+
+	rec := do(t, newServer(t, true), http.MethodPost, "/api/set-logs", body)
+	if rec.Code != http.StatusRequestEntityTooLarge {
+		t.Errorf("巨大なボディが 413 でない: %d body=%s", rec.Code, rec.Body.String())
+	}
+	if rec.Body.Len() > 1024 {
+		t.Errorf("エラー応答が入力を反射している: %dバイト", rec.Body.Len())
+	}
+}
+
+// 上限内でも、入力をそのまま反射するエラー応答を返さないこと。
+func TestErrors_DoNotReflectTheInput(t *testing.T) {
+	long := strings.Repeat("b", 100_000)
+	body := `{"logs":[{"id":"a","date":"2026-08-17","exercise_id":"` + long +
+		`","weight_kg":85,"reps":8,"rir":2}]}`
+
+	rec := do(t, newServer(t, true), http.MethodPost, "/api/set-logs", body)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("ステータスが誤り: %d", rec.Code)
+	}
+	if rec.Body.Len() > 1024 {
+		t.Errorf("エラー応答が入力を反射している: %dバイト", rec.Body.Len())
+	}
+}
+
+// JSON の後ろに続くドキュメントを黙って捨てないこと。
+// 捨てると、クライアントは保存されたと受け取ったまま実績が消える。
+func TestPostSetLogs_RejectsTrailingData(t *testing.T) {
+	one := `{"logs":[{"id":"t1","date":"2026-08-17","exercise_id":"bench","weight_kg":85,"reps":8,"rir":2}]}`
+	for name, body := range map[string]string{
+		"2つのドキュメント": one + one,
+		"末尾のゴミ":     `{"logs":[]} これは JSON ではない`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			rec := do(t, newServer(t, true), http.MethodPost, "/api/set-logs", body)
+			if rec.Code != http.StatusBadRequest {
+				t.Errorf("余分なデータが 400 でない: %d body=%s", rec.Code, rec.Body.String())
+			}
+		})
+	}
+}
+
+// Content-Type を検証すること。検証しないと、認証を入れた時点で
+// form-urlencoded がプリフライト無しで送れて CSRF が通る。
+func TestRequests_RequireJSONContentType(t *testing.T) {
+	body := `{"logs":[]}`
+	for name, ct := range map[string]string{
+		"無し":         "",
+		"text/plain": "text/plain",
+		"フォーム":       "application/x-www-form-urlencoded",
+		"text/html":  "text/html",
+	} {
+		t.Run(name, func(t *testing.T) {
+			r := httptest.NewRequest(http.MethodPost, "/api/set-logs", strings.NewReader(body))
+			if ct != "" {
+				r.Header.Set("Content-Type", ct)
+			}
+			rec := httptest.NewRecorder()
+			newServer(t, true).ServeHTTP(rec, r)
+			if rec.Code != http.StatusBadRequest {
+				t.Errorf("Content-Type %q が通った: %d", ct, rec.Code)
+			}
+		})
+	}
+
+	// charset 付きは通す。
+	r := httptest.NewRequest(http.MethodPost, "/api/set-logs", strings.NewReader(body))
+	r.Header.Set("Content-Type", "application/json; charset=utf-8")
+	rec := httptest.NewRecorder()
+	newServer(t, true).ServeHTTP(rec, r)
+	if rec.Code != http.StatusNoContent {
+		t.Errorf("charset 付きが弾かれた: %d body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+// 種目マスタに無い種目のログを受け取らないこと。
+func TestPostSetLogs_RejectsUnknownExercise(t *testing.T) {
+	body := `{"logs":[{"id":"x","date":"2026-08-17","exercise_id":"存在しない種目",` +
+		`"weight_kg":85,"reps":8,"rir":2}]}`
+	rec := do(t, newServer(t, true), http.MethodPost, "/api/set-logs", body)
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("未知の種目が 400 でない: %d body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+// 範囲外のコンディションを黙って捨てないこと。
+// 取得口が無いので、捨てられるとクライアントは検知できない。
+func TestPostConditions_RejectsOutOfRangeValues(t *testing.T) {
+	for name, body := range map[string]string{
+		"体重が負":    `{"conditions":[{"date":"2026-08-16","body_weight_kg":-500}]}`,
+		"体重が巨大":   `{"conditions":[{"date":"2026-08-16","body_weight_kg":1e308}]}`,
+		"睡眠が負":    `{"conditions":[{"date":"2026-08-16","sleep_hours":-3}]}`,
+		"睡眠が1日超":  `{"conditions":[{"date":"2026-08-16","sleep_hours":480}]}`,
+		"値が1つも無い": `{"conditions":[{"date":"2026-08-16"}]}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			rec := do(t, newServer(t, true), http.MethodPost, "/api/conditions", body)
+			if rec.Code != http.StatusBadRequest {
+				t.Errorf("範囲外の値が 400 でない: %d body=%s", rec.Code, rec.Body.String())
+			}
+		})
+	}
+}
+
+// 睡眠時間が HTTP から計画まで届くこと。
+func TestPostConditions_SleepReachesThePlan(t *testing.T) {
+	mux := newServer(t, true)
+
+	var items []string
+	for i := 1; i <= 14; i++ {
+		date := training.MustDate(2026, time.August, 17).AddDays(-i)
+		items = append(items, fmt.Sprintf(`{"date":"%s","sleep_hours":8}`, date.String()))
+	}
+	items = append(items, `{"date":"2026-08-17","sleep_hours":3}`)
+	if rec := do(t, mux, http.MethodPost, "/api/conditions",
+		`{"conditions":[`+strings.Join(items, ",")+`]}`); rec.Code != http.StatusNoContent {
+		t.Fatalf("保存に失敗: %d body=%s", rec.Code, rec.Body.String())
+	}
+
+	rec := do(t, mux, http.MethodGet, "/api/sessions?date=2026-08-17", "")
+	var got struct {
+		Main []struct {
+			Sets      int    `json:"sets"`
+			TargetRIR int    `json:"target_rir"`
+			Role      string `json:"role"`
+		} `json:"main"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatalf("応答を解釈できない: %v", err)
+	}
+	if len(got.Main) == 0 {
+		t.Fatal("メイン種目が無い")
+	}
+	if got.Main[0].TargetRIR != 3 {
+		t.Errorf("睡眠不足の補正が届いていない: target_rir=%d（期待 3）", got.Main[0].TargetRIR)
+	}
+	if got.Main[0].Sets != 4 {
+		t.Errorf("セット数が誤り: %d（期待 4）", got.Main[0].Sets)
+	}
+	if got.Main[0].Role != "STANDARD" {
+		t.Errorf("役割が載っていない: %q", got.Main[0].Role)
+	}
+}
+
+// 応答の Content-Type が JSON であること。
+func TestResponses_AreJSON(t *testing.T) {
+	rec := do(t, newServer(t, true), http.MethodGet, "/api/sessions?date=2026-08-17", "")
+	if ct := rec.Header().Get("Content-Type"); !strings.HasPrefix(ct, "application/json") {
+		t.Errorf("Content-Type が誤り: %q", ct)
+	}
+}
+
+// タイムアウトは 504。500 にすると、遅いだけの処理が
+// サーバー障害として警報を上げる。
+func TestGetSession_TimeoutIs504(t *testing.T) {
+	ctx, cancel := context.WithDeadline(context.Background(), time.Unix(0, 0))
+	defer cancel()
+
+	req := httptest.NewRequest(http.MethodGet, "/api/sessions?date=2026-08-17", nil).WithContext(ctx)
+	rec := httptest.NewRecorder()
+	newServer(t, true).ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusGatewayTimeout {
+		t.Errorf("タイムアウトが 504 でない: %d", rec.Code)
+	}
+}
+
+// 書き込みも切断済みなら実行しないこと。
+func TestWrites_StopOnClientDisconnect(t *testing.T) {
+	for name, c := range map[string]struct{ path, body string }{
+		"set-logs":   {"/api/set-logs", `{"logs":[{"id":"d","date":"2026-08-17","exercise_id":"bench","weight_kg":85,"reps":8,"rir":2}]}`},
+		"conditions": {"/api/conditions", `{"conditions":[{"date":"2026-08-17","body_weight_kg":75}]}`},
+		"program":    {"/api/program", `{"per_week":3,"weekly_target":{"QUAD":12},"selected_exercises":["squat"]}`},
+	} {
+		t.Run(name, func(t *testing.T) {
+			ctx, cancel := context.WithCancel(context.Background())
+			cancel()
+
+			method := http.MethodPost
+			if name == "program" {
+				method = http.MethodPut
+			}
+			r := httptest.NewRequest(method, c.path, strings.NewReader(c.body)).WithContext(ctx)
+			r.Header.Set("Content-Type", "application/json")
+			rec := httptest.NewRecorder()
+			newServer(t, true).ServeHTTP(rec, r)
+
+			if rec.Code != 499 {
+				t.Errorf("切断済みなのに %d を返した", rec.Code)
+			}
+		})
+	}
+}
+
+// 取得もキャンセルの扱いを揃えること。
+func TestGetProgram_ClientDisconnectIsNot200(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	req := httptest.NewRequest(http.MethodGet, "/api/program", nil).WithContext(ctx)
+	rec := httptest.NewRecorder()
+	newServer(t, true).ServeHTTP(rec, req)
+
+	if rec.Code != 499 {
+		t.Errorf("切断済みなのに %d を返した", rec.Code)
+	}
+}
+
+// 解釈エラーで Go の型名・フィールド名を返さないこと。
+// ユーザーが直せる情報ではない。
+func TestDecodeError_DoesNotLeakGoTypes(t *testing.T) {
+	rec := do(t, newServer(t, true), http.MethodPost, "/api/set-logs", `{"logs":123}`)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("ステータスが誤り: %d", rec.Code)
+	}
+	for _, leak := range []string{"httpapi", "setLogsRequest", "setLogDTO", "Go value", "struct field"} {
+		if strings.Contains(rec.Body.String(), leak) {
+			t.Errorf("内部の型名が漏れている（%q）: %s", leak, rec.Body.String())
 		}
 	}
 }

@@ -12,9 +12,20 @@ import (
 const maxStimulusRegions = 8
 
 // ExerciseID は種目の同一性。
+// maxExerciseIDLen は種目IDの長さの上限。
+//
+// シードの最長は "incline_barbell_press" の21文字。ユーザーが自分で
+// 追加する余地を見て64に置く。SetLogID と同じ上限。
+const maxExerciseIDLen = 64
+
 type ExerciseID string
 
 func NewExerciseID(s string) (ExerciseID, error) {
+	// 長さを先に見る。エラー文に入力を埋め込むので、上限が無いと
+	// 20MB の ID が 20MB のエラー応答になって返る。
+	if len(s) > maxExerciseIDLen {
+		return "", fmt.Errorf("種目IDが長すぎる: %d文字（上限 %d）", len(s), maxExerciseIDLen)
+	}
 	trimmed := strings.TrimSpace(s)
 	if trimmed == "" {
 		return "", errors.New("種目IDが空である")

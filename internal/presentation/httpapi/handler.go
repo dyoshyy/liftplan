@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
+	"mime"
 	"net/http"
 	"strings"
 
@@ -17,7 +19,7 @@ type Handler struct {
 	recordSets       *usecase.RecordSets
 	recordConditions *usecase.RecordConditions
 	configureProgram *usecase.ConfigureProgram
-	programs         training.ProgramRepository
+	getProgram       *usecase.GetProgram
 }
 
 func NewHandler(
@@ -25,14 +27,14 @@ func NewHandler(
 	recordSets *usecase.RecordSets,
 	recordConditions *usecase.RecordConditions,
 	configureProgram *usecase.ConfigureProgram,
-	programs training.ProgramRepository,
+	getProgram *usecase.GetProgram,
 ) *Handler {
 	return &Handler{
 		getSession:       getSession,
 		recordSets:       recordSets,
 		recordConditions: recordConditions,
 		configureProgram: configureProgram,
-		programs:         programs,
+		getProgram:       getProgram,
 	}
 }
 
@@ -51,9 +53,12 @@ const clientClosedRequest = 499
 func respondError(w http.ResponseWriter, err error) {
 	switch {
 	case errors.Is(err, context.Canceled):
+		// ボディを返さないのは、読む相手がもう居ないから。
 		w.WriteHeader(clientClosedRequest)
 	case errors.Is(err, context.DeadlineExceeded):
 		writeError(w, http.StatusGatewayTimeout, "処理が時間内に終わらなかった")
+	case errors.Is(err, errBodyTooLarge):
+		writeError(w, http.StatusRequestEntityTooLarge, err.Error())
 	case errors.Is(err, usecase.ErrInvalidInput):
 		writeError(w, http.StatusBadRequest, err.Error())
 	case errors.Is(err, training.ErrProgramNotConfigured):
@@ -61,6 +66,10 @@ func respondError(w http.ResponseWriter, err error) {
 	case errors.Is(err, training.ErrConflictingSetLog):
 		writeError(w, http.StatusConflict, err.Error())
 	default:
+		// クライアントから隠すことと、記録に残さないことは別。
+		// 記録しないと、障害時に運用者へ残るのは「内部エラーが発生した」だけで
+		// 原因が完全に消える。
+		slog.Error("リクエストの処理に失敗", "error", err)
 		writeError(w, http.StatusInternalServerError, "内部エラーが発生した")
 	}
 }
@@ -115,7 +124,7 @@ func (h *Handler) handleGetSession(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) handlePostSetLogs(w http.ResponseWriter, r *http.Request) {
 	var req setLogsRequest
 	if err := decodeJSON(r, &req); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		respondError(w, err)
 		return
 	}
 
@@ -156,7 +165,7 @@ func (h *Handler) handlePostSetLogs(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) handlePostConditions(w http.ResponseWriter, r *http.Request) {
 	var req conditionsRequest
 	if err := decodeJSON(r, &req); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		respondError(w, err)
 		return
 	}
 
@@ -167,12 +176,31 @@ func (h *Handler) handlePostConditions(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusBadRequest, fmt.Sprintf("conditions[%d]: %v", i, err))
 			return
 		}
+		// ドメインは範囲外の値を「無かったこと」にする。1日ぶんの異常値で
+		// 取り込み全体を止めないための判断で、集めた記録を扱う場面では正しい。
+		// だが保存要求では別で、黙って捨てるとクライアントは成功したと
+		// 受け取ったまま記録が消える。しかも取得口が無いので検知できない。
 		c := training.NewDailyCondition(date)
 		if dto.BodyWeightKg != nil {
 			c = c.WithBodyWeight(*dto.BodyWeightKg)
+			if _, ok := c.BodyWeightKg(); !ok {
+				writeError(w, http.StatusBadRequest,
+					fmt.Sprintf("conditions[%d]: 体重が範囲外である: %v", i, *dto.BodyWeightKg))
+				return
+			}
 		}
 		if dto.SleepHours != nil {
 			c = c.WithSleepHours(*dto.SleepHours)
+			if _, ok := c.SleepHours(); !ok {
+				writeError(w, http.StatusBadRequest,
+					fmt.Sprintf("conditions[%d]: 睡眠時間が範囲外である: %v", i, *dto.SleepHours))
+				return
+			}
+		}
+		if dto.BodyWeightKg == nil && dto.SleepHours == nil {
+			writeError(w, http.StatusBadRequest,
+				fmt.Sprintf("conditions[%d]: body_weight_kg か sleep_hours のどちらかが必要である", i))
+			return
 		}
 		items = append(items, c)
 	}
@@ -185,19 +213,15 @@ func (h *Handler) handlePostConditions(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) handleGetProgram(w http.ResponseWriter, r *http.Request) {
-	program, err := h.programs.Get(r.Context())
+	program, err := h.getProgram.Execute(r.Context())
 	if err != nil {
+		// 取得の文脈では 404。まだ存在しないという意味であって、
+		// 状態の衝突ではない。
 		if errors.Is(err, training.ErrProgramNotConfigured) {
-			// 取得の文脈では 404。まだ存在しないという意味であって、
-			// 状態の衝突ではない。
 			writeError(w, http.StatusNotFound, "プログラムが未設定である")
 			return
 		}
 		respondError(w, err)
-		return
-	}
-	if program == nil {
-		writeError(w, http.StatusNotFound, "プログラムが未設定である")
 		return
 	}
 	writeJSON(w, http.StatusOK, toProgramDTO(program))
@@ -206,7 +230,7 @@ func (h *Handler) handleGetProgram(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) handlePutProgram(w http.ResponseWriter, r *http.Request) {
 	var req programDTO
 	if err := decodeJSON(r, &req); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		respondError(w, err)
 		return
 	}
 	if err := h.configureProgram.Execute(r.Context(), req.toInput()); err != nil {
@@ -216,11 +240,58 @@ func (h *Handler) handlePutProgram(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// maxBodyBytes はリクエストボディの上限。
+//
+// 1セッション25セットとして、1件200バイト弱でも5KB程度。1MBは
+// 数週間ぶんをまとめて同期しても足りる。上限が無いと、無認証の
+// エンドポイントに巨大なボディを投げるだけでメモリを食い潰せる。
+const maxBodyBytes = 1 << 20
+
+// errBodyTooLarge はボディが上限を超えたことを表す。413 に翻訳する。
+var errBodyTooLarge = errors.New("リクエストボディが大きすぎる")
+
+// decodeJSON はボディを1つの JSON ドキュメントとして読む。
+//
+// 末尾に続くトークンを検査するのは、`{"logs":[...]} {"logs":[...]}` のような
+// 2つ目以降を黙って捨てて 204 を返さないため。クライアントは保存に
+// 成功したと受け取ったまま実績が消える。
 func decodeJSON(r *http.Request, dst any) error {
-	dec := json.NewDecoder(r.Body)
+	if err := requireJSONContentType(r); err != nil {
+		return err
+	}
+
+	body := http.MaxBytesReader(nil, r.Body, maxBodyBytes)
+	dec := json.NewDecoder(body)
 	dec.DisallowUnknownFields()
+
 	if err := dec.Decode(dst); err != nil {
-		return fmt.Errorf("リクエストボディを解釈できない: %w", err)
+		var tooLarge *http.MaxBytesError
+		if errors.As(err, &tooLarge) {
+			return fmt.Errorf("%w: 上限 %dバイト", errBodyTooLarge, maxBodyBytes)
+		}
+		// 標準ライブラリのエラーには Go の型名・フィールド名が載る。
+		// ユーザーが直せる情報ではないので外に出さない。
+		return fmt.Errorf("%w: リクエストボディを解釈できない", usecase.ErrInvalidInput)
+	}
+	if dec.More() {
+		return fmt.Errorf("%w: リクエストボディに余分なデータがある", usecase.ErrInvalidInput)
+	}
+	return nil
+}
+
+// requireJSONContentType は Content-Type を検証する。
+//
+// 検証しないと、text/plain や form-urlencoded でも受け付けてしまう。
+// これらはブラウザがプリフライト無しで送れるので、認証を入れた時点で
+// CSRF がそのまま通る。境界で閉じておく。
+func requireJSONContentType(r *http.Request) error {
+	raw := r.Header.Get("Content-Type")
+	if raw == "" {
+		return fmt.Errorf("%w: Content-Type が無い", usecase.ErrInvalidInput)
+	}
+	mediaType, _, err := mime.ParseMediaType(raw)
+	if err != nil || mediaType != "application/json" {
+		return fmt.Errorf("%w: Content-Type は application/json である必要がある", usecase.ErrInvalidInput)
 	}
 	return nil
 }

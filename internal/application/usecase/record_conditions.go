@@ -23,6 +23,11 @@ func (u *RecordConditions) Execute(ctx context.Context, items []training.DailyCo
 	if len(items) == 0 {
 		return nil
 	}
+	// 切断済みのクライアントに 204 を返しつつ書き込むのを避ける。
+	if err := ctx.Err(); err != nil {
+		return fmt.Errorf("保存が中断された: %w", err)
+	}
+
 	if err := u.repo.Save(ctx, items); err != nil {
 		return fmt.Errorf("コンディションの保存に失敗: %w", err)
 	}
