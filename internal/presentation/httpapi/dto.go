@@ -1,0 +1,149 @@
+// Package httpapi は HTTP のプレゼンテーション層。
+//
+// DTO をドメインモデルとして使わない。JSON の形が変わってもドメインが
+// 揺れないよう、この層で必ず変換する。
+package httpapi
+
+import (
+	"github.com/dyoshyy/liftplan-server/internal/application/usecase"
+	"github.com/dyoshyy/liftplan-server/internal/domain/training"
+)
+
+// plannedSetDTO の WeightKg が null になるのはバグではなく仕様。
+// 履歴が足りず重量を推定できない場合で、クライアントは
+// 「初回だけ自分で決める」UI を出す。
+type plannedSetDTO struct {
+	ExerciseID string   `json:"exercise_id"`
+	WeightKg   *float64 `json:"weight_kg"`
+	Sets       int      `json:"sets"`
+	TargetRIR  int      `json:"target_rir"`
+	Role       string   `json:"role,omitempty"`
+}
+
+type deloadProposalDTO struct {
+	Reason           string  `json:"reason"`
+	IntensityDropPct float64 `json:"intensity_drop_pct"`
+}
+
+type sessionDTO struct {
+	Date        string             `json:"date"`
+	Main        []plannedSetDTO    `json:"main"`
+	Accessories []plannedSetDTO    `json:"accessories"`
+	Deload      *deloadProposalDTO `json:"deload_proposal"`
+}
+
+func toPlannedSetDTO(s training.PlannedSet) plannedSetDTO {
+	dto := plannedSetDTO{
+		ExerciseID: string(s.ExerciseID()),
+		Sets:       s.Sets().Int(),
+		TargetRIR:  s.TargetRIR().Int(),
+	}
+	if w, ok := s.Weight(); ok {
+		kg := w.Kg()
+		dto.WeightKg = &kg
+	}
+	if role, ok := s.Role(); ok {
+		dto.Role = string(role)
+	}
+	return dto
+}
+
+func toSessionDTO(s training.PlannedSession) sessionDTO {
+	main := make([]plannedSetDTO, 0, len(s.Main()))
+	for _, v := range s.Main() {
+		main = append(main, toPlannedSetDTO(v))
+	}
+	accessories := make([]plannedSetDTO, 0, len(s.Accessories()))
+	for _, v := range s.Accessories() {
+		accessories = append(accessories, toPlannedSetDTO(v))
+	}
+
+	out := sessionDTO{
+		Date:        s.Date().String(),
+		Main:        main,
+		Accessories: accessories,
+	}
+	if p, ok := s.DeloadProposal(); ok {
+		out.Deload = &deloadProposalDTO{
+			Reason:           p.Reason(),
+			IntensityDropPct: p.IntensityDropPct(),
+		}
+	}
+	return out
+}
+
+// ポインタなのは、フィールドの欠落を検出するため。
+//
+// 非ポインタだと weight_kg の欠落が 0kg（正当な自重セット）になり、
+// rir の欠落が RIR 0（限界まで追い込んだ）になる。どちらも有意味な値なので、
+// 「送られなかった」と区別できない。
+// RIR は毎セットを1RM測定に変えるための必須情報であり、欠落を黙って
+// 0 と解釈すると推定1RMが実態より低くなる。
+type setLogDTO struct {
+	ID         string   `json:"id"`
+	Date       string   `json:"date"`
+	ExerciseID string   `json:"exercise_id"`
+	WeightKg   *float64 `json:"weight_kg"`
+	Reps       *int     `json:"reps"`
+	RIR        *int     `json:"rir"`
+}
+
+type setLogsRequest struct {
+	Logs []setLogDTO `json:"logs"`
+}
+
+type conditionDTO struct {
+	Date         string   `json:"date"`
+	BodyWeightKg *float64 `json:"body_weight_kg"`
+	SleepHours   *float64 `json:"sleep_hours"`
+}
+
+type conditionsRequest struct {
+	Conditions []conditionDTO `json:"conditions"`
+}
+
+type errorResponse struct {
+	Error string `json:"error"`
+}
+
+// programDTO はプログラム設定の入出力。
+//
+// 週目標をマップで受けるのは、区分ごとに独立して調整するため。
+// 配列だと順序に意味が生まれ、区分の追加でクライアントが壊れる。
+type programDTO struct {
+	PerWeek  int                `json:"per_week"`
+	Target   map[string]float64 `json:"weekly_target"`
+	Selected []string           `json:"selected_exercises"`
+}
+
+func toProgramDTO(p *training.Program) programDTO {
+	target := map[string]float64{}
+	for _, r := range p.WeeklyTarget().Regions() {
+		target[string(r)] = p.WeeklyTarget().Sets(r)
+	}
+
+	selected := make([]string, 0)
+	for _, id := range p.SelectedExercises() {
+		selected = append(selected, string(id))
+	}
+
+	return programDTO{
+		PerWeek:  p.Frequency().PerWeek(),
+		Target:   target,
+		Selected: selected,
+	}
+}
+
+func (d programDTO) toInput() usecase.ConfigureProgramInput {
+	target := make(map[training.MuscleRegion]float64, len(d.Target))
+	for k, v := range d.Target {
+		target[training.MuscleRegion(k)] = v
+	}
+	selected := make([]training.ExerciseID, 0, len(d.Selected))
+	for _, id := range d.Selected {
+		selected = append(selected, training.ExerciseID(id))
+	}
+	return usecase.ConfigureProgramInput{
+		PerWeek: d.PerWeek, Target: target, Selected: selected,
+	}
+}
