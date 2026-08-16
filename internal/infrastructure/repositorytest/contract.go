@@ -161,11 +161,17 @@ func RunSetLogContract(t *testing.T, newRepo func(*testing.T) training.SetLogRep
 
 	// 順序が揺れると、History の重複解決や推定1RMの畳み込みが
 	// 呼び出しごとに変わり、同じ入力から違う計画が出る。
+	//
+	// 「毎回同じ」だけでは足りない。挿入順のまま返る実装は、行が
+	// 削除・再利用されるまで安定して見える。ID の昇順という
+	// 決まった順序を要求する。
 	t.Run("取得順が安定している", func(t *testing.T) {
 		repo := newRepo(t)
 		logs := make([]*training.SetLog, 0, 32)
+		// 挿入順と辞書順をずらす。一致していると、並べ替えを
+		// していない実装も通ってしまう。
 		for i := range 32 {
-			logs = append(logs, mkSetLog(t, fmt.Sprintf("o%03d", i), 85))
+			logs = append(logs, mkSetLog(t, fmt.Sprintf("o%03d", 31-i), 85))
 		}
 		if err := repo.Save(ctx, logs); err != nil {
 			t.Fatalf("保存に失敗: %v", err)
@@ -173,6 +179,15 @@ func RunSetLogContract(t *testing.T, newRepo func(*testing.T) training.SetLogRep
 
 		first, _ := repo.FindAll(ctx)
 		want := logIDs(first)
+		if len(want) != 32 {
+			t.Fatalf("件数が誤り: %d", len(want))
+		}
+		for i := 1; i < len(want); i++ {
+			if want[i-1] >= want[i] {
+				t.Fatalf("IDの昇順でない: %s の後に %s", want[i-1], want[i])
+			}
+		}
+
 		for n := range 10 {
 			got, _ := repo.FindAll(ctx)
 			gotIDs := logIDs(got)
@@ -212,6 +227,40 @@ func RunSetLogContract(t *testing.T, newRepo func(*testing.T) training.SetLogRep
 		h, _ := repo.FindAll(ctx)
 		if len(h.Logs()) != 16 {
 			t.Errorf("並行保存で件数が合わない: %d", len(h.Logs()))
+		}
+	})
+
+	// 同じIDに内容の違う書き込みが並行したとき、失敗の理由が
+	// 衝突として返ること。生のエラーのままだと 500 になり、
+	// クライアントは自分のID採番ミスに気づかず再送を繰り返す。
+	t.Run("並行時の衝突も衝突として返る", func(t *testing.T) {
+		repo := newRepo(t)
+		results := make(chan error, 8)
+		for i := range 8 {
+			go func(i int) {
+				results <- repo.Save(ctx, []*training.SetLog{
+					mkSetLog(t, "race", 80+float64(i)*2.5),
+				})
+			}(i)
+		}
+
+		succeeded := 0
+		for range 8 {
+			switch err := <-results; {
+			case err == nil:
+				succeeded++
+			case errors.Is(err, training.ErrConflictingSetLog):
+			default:
+				t.Errorf("衝突以外の失敗が返った: %v", err)
+			}
+		}
+		if succeeded != 1 {
+			t.Errorf("内容の違う並行書き込みが %d 件成功した（期待 1）", succeeded)
+		}
+
+		h, _ := repo.FindAll(ctx)
+		if len(h.Logs()) != 1 {
+			t.Errorf("件数が誤り: %d", len(h.Logs()))
 		}
 	})
 }
