@@ -620,6 +620,8 @@ git commit -m "feat(application): セッション取得と記録のユースケ�
 >
 > 実在しないIDが混ざっていたら `training.ErrExerciseNotFound` を包んで返し、プレゼンテーション層は 400 にする。黙って落とすと、ユーザーが選んだ種目が理由の説明なく消える。
 
+> **契約の修正（D-031 / D-033）:** `ProgramRepository.Set(p)` は廃止し、インターフェースの `Save(ctx, p) error` にする。`SetLogRepository.Save` は同じIDで内容が違えば `ErrConflictingSetLog` を返し、全か無かで書く（黙って上書きしない）。`ConditionRepository.Save` は日付ごと置き換えず、`DailyCondition.Merge` と同じ規則で項目ごとに上書きする（体重だけ送ると睡眠時間が消えるため）。
+
 ### Task 21: インメモリ Infrastructure
 
 **Files:**
