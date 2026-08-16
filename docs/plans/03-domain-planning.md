@@ -943,9 +943,12 @@ func (s AccessorySelector) Select(
 
 // recentlyStimulated は回復期間内に刺激された筋区分。
 func (s AccessorySelector) recentlyStimulated(h History, byID map[ExerciseID]*Exercise, date Date) map[MuscleRegion]bool {
+	// 半開区間 [cutoff, date) で見る。上限を閉じないと、セッション中に
+	// 記録してから計画を開き直したとき、たった今やった種目の筋区分が
+	// 「最近刺激した」と判定され、そのセッションの補助枠から自分自身が消える。
 	cutoff := date.AddDays(-s.recoveryDays)
 	blocked := map[MuscleRegion]bool{}
-	for _, l := range h.OnOrAfter(cutoff).Logs() {
+	for _, l := range h.OnOrAfter(cutoff).Before(date).Logs() {
 		e, ok := byID[l.ExerciseID()]
 		if !ok {
 			continue
