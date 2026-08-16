@@ -339,6 +339,9 @@ func RunConditionContract(t *testing.T, newRepo func(*testing.T) training.Condit
 		repo := newRepo(t)
 		if err := repo.Save(ctx, []training.DailyCondition{
 			training.NewDailyCondition(day).WithSleepHours(6),
+			// 同じ項目が2度来たら後勝ち。合成の向きが逆だと、
+			// 送り直した値が古い値に負けて反映されない。
+			training.NewDailyCondition(day).WithBodyWeight(99),
 			training.NewDailyCondition(day).WithBodyWeight(73),
 		}); err != nil {
 			t.Fatalf("保存に失敗: %v", err)
