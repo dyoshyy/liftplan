@@ -177,11 +177,13 @@ git commit -m "feat(domain): リポジトリインターフェースを定義す
 - Test: `internal/application/usecase/get_session_test.go`
 - Test: `internal/application/usecase/record_test.go`
 
+> **契約の修正:** `AccessorySlots` は廃止した。補助種目の枠数は残差から導出するので外から渡さない（D-018）。`training.NewDate` は `(Date, error)` を返すので、テストでは `MustDate` を使う。
+
 **Interfaces:**
 - Consumes: Task 19 のリポジトリインターフェース、Task 16 の `SessionPlanner`
 - Produces:
   - `type GetSession struct{...}` / `func NewGetSession(exercises training.ExerciseRepository, logs training.SetLogRepository, conditions training.ConditionRepository, programs training.ProgramRepository, planner training.SessionPlanner) *GetSession`
-  - `type GetSessionInput struct{ Date training.Date; DeloadAccepted []ExerciseID; AccessorySlots int }`
+  - `type GetSessionInput struct{ Date training.Date; DeloadAccepted []training.ExerciseID }`
   - `func (u *GetSession) Execute(ctx context.Context, in GetSessionInput) (training.PlannedSession, error)`
   - `type RecordSets struct{...}` / `func NewRecordSets(repo training.SetLogRepository) *RecordSets` / `func (u *RecordSets) Execute(ctx context.Context, logs []*training.SetLog) error`
   - `type RecordConditions struct{...}` / `func NewRecordConditions(repo training.ConditionRepository) *RecordConditions` / `func (u *RecordConditions) Execute(ctx context.Context, items []training.DailyCondition) error`
@@ -206,7 +208,7 @@ import (
 	"github.com/dyoshyy/liftplan-server/internal/domain/training/seed"
 )
 
-var testDate = training.NewDate(2026, time.August, 17)
+var testDate = training.MustDate(2026, time.August, 17)
 
 type fakeExercises struct {
 	all []*training.Exercise
@@ -454,7 +456,6 @@ import (
 type GetSessionInput struct {
 	Date           training.Date
 	DeloadAccepted []ExerciseID
-	AccessorySlots int
 }
 
 // GetSession は指定日のセッションを導出するユースケース。
@@ -508,7 +509,6 @@ func (u *GetSession) Execute(ctx context.Context, in GetSessionInput) (training.
 		Conditions:     conditions,
 		Date:           in.Date,
 		DeloadAccepted: in.DeloadAccepted,
-		AccessorySlots: in.AccessorySlots,
 	})
 }
 ```
