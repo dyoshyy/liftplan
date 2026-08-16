@@ -65,6 +65,10 @@ func respondError(w http.ResponseWriter, err error) {
 		writeError(w, http.StatusConflict, "プログラムが未設定である")
 	case errors.Is(err, training.ErrConflictingSetLog):
 		writeError(w, http.StatusConflict, err.Error())
+	case errors.Is(err, training.ErrRepositoryUnavailable):
+		// 後で送り直せば通る。500 と混ぜるとクライアントが諦める。
+		slog.Error("保存先に到達できない", "error", err)
+		writeError(w, http.StatusServiceUnavailable, "一時的に利用できない")
 	default:
 		// クライアントから隠すことと、記録に残さないことは別。
 		// 記録しないと、障害時に運用者へ残るのは「内部エラーが発生した」だけで

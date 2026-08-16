@@ -29,7 +29,7 @@ func (r *ConditionRepository) FindAll(ctx context.Context) (training.ConditionLo
 	rows, err := r.pool.Query(ctx, `
 		SELECT date, body_weight_kg, sleep_hours FROM daily_conditions`)
 	if err != nil {
-		return training.ConditionLog{}, fmt.Errorf("コンディションを読めない: %w", err)
+		return training.ConditionLog{}, wrapUnavailable(err, "コンディションを読めない")
 	}
 	defer rows.Close()
 
@@ -42,7 +42,7 @@ func (r *ConditionRepository) FindAll(ctx context.Context) (training.ConditionLo
 		out = append(out, c)
 	}
 	if err := rows.Err(); err != nil {
-		return training.ConditionLog{}, fmt.Errorf("コンディションを読めない: %w", err)
+		return training.ConditionLog{}, wrapUnavailable(err, "コンディションを読めない")
 	}
 	return training.NewConditionLog(out), nil
 }
@@ -54,7 +54,7 @@ func scanCondition(rows pgx.Rows) (training.DailyCondition, error) {
 		sleepHours *float64
 	)
 	if err := rows.Scan(&date, &bodyWeight, &sleepHours); err != nil {
-		return training.DailyCondition{}, fmt.Errorf("コンディションを読めない: %w", err)
+		return training.DailyCondition{}, wrapUnavailable(err, "コンディションを読めない")
 	}
 
 	d, err := training.FromTime(date, time.UTC)
@@ -108,7 +108,7 @@ func (r *ConditionRepository) Save(ctx context.Context, items []training.DailyCo
 
 	tx, err := r.pool.Begin(ctx)
 	if err != nil {
-		return fmt.Errorf("トランザクションを開始できない: %w", err)
+		return wrapUnavailable(err, "トランザクションを開始できない")
 	}
 	defer func() { _ = tx.Rollback(context.WithoutCancel(ctx)) }()
 

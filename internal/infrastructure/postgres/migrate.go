@@ -2,13 +2,16 @@ package postgres
 
 import (
 	"context"
+	"crypto/sha256"
 	"embed"
+	"encoding/hex"
 	"fmt"
 	"io/fs"
 	"sort"
 	"strings"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -50,9 +53,16 @@ func Migrate(ctx context.Context, pool *pgxpool.Pool) error {
 	if _, err := conn.Exec(ctx, `
 		CREATE TABLE IF NOT EXISTS schema_migrations (
 			version    text PRIMARY KEY,
-			applied_at timestamptz NOT NULL DEFAULT now()
+			applied_at timestamptz NOT NULL DEFAULT now(),
+			checksum   text
 		)`); err != nil {
 		return fmt.Errorf("適用履歴のテーブルを作れない: %w", err)
+	}
+	// 適用履歴の形自体はマイグレーションの管理対象にしない。
+	// SQL ファイル側で足すと、その SQL を流す前に読み出しが走って失敗する。
+	if _, err := conn.Exec(ctx,
+		"ALTER TABLE schema_migrations ADD COLUMN IF NOT EXISTS checksum text"); err != nil {
+		return fmt.Errorf("適用履歴の形を整えられない: %w", err)
 	}
 
 	applied, err := appliedVersions(ctx, conn)
@@ -65,7 +75,25 @@ func Migrate(ctx context.Context, pool *pgxpool.Pool) error {
 		return err
 	}
 	for _, f := range files {
-		if applied[f.version] {
+		stored, ok := applied[f.version]
+		if ok {
+			// 適用済みのファイルが書き換えられていないか確かめる。
+			// バージョンだけを見ていると、内容を変えても永久に
+			// スキップされ、開発と本番がスキーマ違いのまま同じ
+			// 「適用済み」を名乗る。
+			//
+			// 記録が古くてチェックサムが空の場合は、後から埋める。
+			switch {
+			case stored == "":
+				if err := recordChecksum(ctx, conn, f); err != nil {
+					return err
+				}
+			case stored != f.checksum:
+				return fmt.Errorf(
+					"%s は適用済みだが内容が変わっている（記録 %s / 現在 %s）。"+
+						"適用済みのマイグレーションは書き換えず、新しいファイルを足すこと",
+					f.version, stored[:8], f.checksum[:8])
+			}
 			continue
 		}
 		if err := applyOne(ctx, conn, f); err != nil {
@@ -75,9 +103,21 @@ func Migrate(ctx context.Context, pool *pgxpool.Pool) error {
 	return nil
 }
 
+func recordChecksum(ctx context.Context, conn interface {
+	Exec(context.Context, string, ...any) (pgconn.CommandTag, error)
+}, f migrationFile) error {
+	if _, err := conn.Exec(ctx,
+		"UPDATE schema_migrations SET checksum = $1 WHERE version = $2",
+		f.checksum, f.version); err != nil {
+		return fmt.Errorf("%s: チェックサムを記録できない: %w", f.version, err)
+	}
+	return nil
+}
+
 type migrationFile struct {
-	version string
-	sql     string
+	version  string
+	sql      string
+	checksum string
 }
 
 // migrationFiles は埋め込んだ SQL をファイル名の昇順で返す。
@@ -99,9 +139,11 @@ func migrationFiles() ([]migrationFile, error) {
 		if err != nil {
 			return nil, fmt.Errorf("%s を読めない: %w", e.Name(), err)
 		}
+		sum := sha256.Sum256(body)
 		out = append(out, migrationFile{
-			version: strings.TrimSuffix(e.Name(), ".sql"),
-			sql:     string(body),
+			version:  strings.TrimSuffix(e.Name(), ".sql"),
+			sql:      string(body),
+			checksum: hex.EncodeToString(sum[:]),
 		})
 	}
 	if len(out) == 0 {
@@ -111,22 +153,24 @@ func migrationFiles() ([]migrationFile, error) {
 	return out, nil
 }
 
+// appliedVersions は適用済みのバージョンとチェックサムを返す。
 func appliedVersions(ctx context.Context, conn interface {
 	Query(context.Context, string, ...any) (pgx.Rows, error)
-}) (map[string]bool, error) {
-	rows, err := conn.Query(ctx, "SELECT version FROM schema_migrations")
+}) (map[string]string, error) {
+	rows, err := conn.Query(ctx,
+		"SELECT version, coalesce(checksum, '') FROM schema_migrations")
 	if err != nil {
 		return nil, fmt.Errorf("適用履歴を読めない: %w", err)
 	}
 	defer rows.Close()
 
-	out := map[string]bool{}
+	out := map[string]string{}
 	for rows.Next() {
-		var v string
-		if err := rows.Scan(&v); err != nil {
+		var v, sum string
+		if err := rows.Scan(&v, &sum); err != nil {
 			return nil, fmt.Errorf("適用履歴を読めない: %w", err)
 		}
-		out[v] = true
+		out[v] = sum
 	}
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("適用履歴を読めない: %w", err)
@@ -147,11 +191,26 @@ func applyOne(ctx context.Context, conn interface {
 		return fmt.Errorf("%s: 適用に失敗: %w", f.version, err)
 	}
 	if _, err := tx.Exec(ctx,
-		"INSERT INTO schema_migrations (version) VALUES ($1)", f.version); err != nil {
+		"INSERT INTO schema_migrations (version, checksum) VALUES ($1, $2)",
+		f.version, f.checksum); err != nil {
 		return fmt.Errorf("%s: 適用履歴を記録できない: %w", f.version, err)
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return fmt.Errorf("%s: コミットに失敗: %w", f.version, err)
 	}
 	return nil
+}
+
+// MigrationVersions は埋め込まれたマイグレーションのバージョン一覧。
+// テストが件数を直書きせずに済むようにする。
+func MigrationVersions() ([]string, error) {
+	files, err := migrationFiles()
+	if err != nil {
+		return nil, err
+	}
+	out := make([]string, 0, len(files))
+	for _, f := range files {
+		out = append(out, f.version)
+	}
+	return out, nil
 }

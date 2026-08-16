@@ -2,6 +2,7 @@ package postgres_test
 
 import (
 	"context"
+	"strings"
 	"sync"
 	"testing"
 
@@ -27,15 +28,19 @@ func TestMigrate_CreatesEverySchemaObject(t *testing.T) {
 		}
 	}
 
-	// 索引が無いと、履歴が増えたときの絞り込みが全表走査になる。
+	// 0002 で落とした索引が残っていないこと。
+	//
+	// set_logs を読む SQL は FindAll の1本だけで WHERE 句が無く、
+	// 日付や種目での絞り込みは Go 側で行う。走査されない索引は
+	// INSERT ごとの更新コストを払うだけになる。
 	for _, index := range []string{"set_logs_performed_on_idx", "set_logs_exercise_idx"} {
 		var exists bool
 		if err := pool.QueryRow(ctx,
 			"SELECT to_regclass($1) IS NOT NULL", index).Scan(&exists); err != nil {
 			t.Fatalf("%s の存在を確認できない: %v", index, err)
 		}
-		if !exists {
-			t.Errorf("%s が作られていない", index)
+		if exists {
+			t.Errorf("使われない索引 %s が残っている", index)
 		}
 	}
 }
@@ -55,8 +60,8 @@ func TestMigrate_IsIdempotent(t *testing.T) {
 	if err := pool.QueryRow(ctx, "SELECT count(*) FROM schema_migrations").Scan(&count); err != nil {
 		t.Fatalf("適用履歴を読めない: %v", err)
 	}
-	if count != 1 {
-		t.Errorf("適用履歴の件数が誤り: %d（期待 1）", count)
+	if count != len(migrationCount(t)) {
+		t.Errorf("適用履歴の件数が誤り: %d（期待 %d）", count, len(migrationCount(t)))
 	}
 }
 
@@ -92,8 +97,8 @@ func TestMigrate_IsSafeForConcurrentStartup(t *testing.T) {
 	if err := pool.QueryRow(ctx, "SELECT count(*) FROM schema_migrations").Scan(&count); err != nil {
 		t.Fatalf("適用履歴を読めない: %v", err)
 	}
-	if count != 1 {
-		t.Errorf("二重に適用された: %d件", count)
+	if count != len(migrationCount(t)) {
+		t.Errorf("二重に適用された: %d件（期待 %d）", count, len(migrationCount(t)))
 	}
 }
 
@@ -147,5 +152,60 @@ func TestOpen_RejectsUnreachableDatabase(t *testing.T) {
 func TestOpen_RejectsMalformedURL(t *testing.T) {
 	if _, err := postgres.Open(context.Background(), "これは接続文字列ではない"); err == nil {
 		t.Error("不正な接続文字列で成功した")
+	}
+}
+
+// migrationCount は埋め込まれたマイグレーションの一覧。
+// 件数を直書きすると、ファイルを足すたびにテストが落ちる。
+func migrationCount(t *testing.T) []string {
+	t.Helper()
+	names, err := postgres.MigrationVersions()
+	if err != nil {
+		t.Fatalf("マイグレーションを列挙できない: %v", err)
+	}
+	return names
+}
+
+// 適用済みのマイグレーションを書き換えたら気づくこと。
+//
+// バージョンだけを見ていると、内容を変えても永久にスキップされ、
+// 開発と本番がスキーマ違いのまま同じ「適用済み」を名乗る。
+func TestMigrate_DetectsRewrittenMigration(t *testing.T) {
+	pool := migratedDB(t)
+	ctx := context.Background()
+
+	if _, err := pool.Exec(ctx,
+		"UPDATE schema_migrations SET checksum = 'ちがう内容のチェックサム'"); err != nil {
+		t.Fatalf("準備に失敗: %v", err)
+	}
+
+	err := postgres.Migrate(ctx, pool)
+	if err == nil {
+		t.Fatal("書き換えを検出できていない")
+	}
+	if !strings.Contains(err.Error(), "内容が変わっている") {
+		t.Errorf("原因が読めないエラー: %v", err)
+	}
+}
+
+// チェックサムの記録が無い古い DB でも動くこと。
+func TestMigrate_BackfillsMissingChecksum(t *testing.T) {
+	pool := migratedDB(t)
+	ctx := context.Background()
+
+	if _, err := pool.Exec(ctx, "UPDATE schema_migrations SET checksum = NULL"); err != nil {
+		t.Fatalf("準備に失敗: %v", err)
+	}
+	if err := postgres.Migrate(ctx, pool); err != nil {
+		t.Fatalf("チェックサムが無い DB で失敗: %v", err)
+	}
+
+	var missing int
+	if err := pool.QueryRow(ctx,
+		"SELECT count(*) FROM schema_migrations WHERE checksum IS NULL").Scan(&missing); err != nil {
+		t.Fatalf("確認できない: %v", err)
+	}
+	if missing != 0 {
+		t.Errorf("チェックサムが埋められていない: %d件", missing)
 	}
 }

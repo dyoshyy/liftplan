@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sort"
 	"time"
 
 	"github.com/jackc/pgerrcode"
@@ -31,9 +32,12 @@ func (r *SetLogRepository) FindAll(ctx context.Context) (training.History, error
 	rows, err := r.pool.Query(ctx, `
 		SELECT id, performed_on, exercise_id, weight_kg, reps, rir
 		FROM set_logs
-		ORDER BY id`)
+		-- 照合順序を "C" に固定する。DB の既定に委ねると、ICU 照合の
+		-- 環境で大小文字混在のIDの順序が変わり、インメモリ実装と
+		-- 食い違う。順序が揺れると同じ入力から違う計画が出る。
+		ORDER BY id COLLATE "C"`)
 	if err != nil {
-		return training.History{}, fmt.Errorf("実績を読めない: %w", err)
+		return training.History{}, wrapUnavailable(err, "実績を読めない")
 	}
 	defer rows.Close()
 
@@ -46,7 +50,7 @@ func (r *SetLogRepository) FindAll(ctx context.Context) (training.History, error
 		out = append(out, log)
 	}
 	if err := rows.Err(); err != nil {
-		return training.History{}, fmt.Errorf("実績を読めない: %w", err)
+		return training.History{}, wrapUnavailable(err, "実績を読めない")
 	}
 	return training.NewHistory(out), nil
 }
@@ -59,7 +63,7 @@ func scanSetLog(rows pgx.Rows) (*training.SetLog, error) {
 		reps, rir      int
 	)
 	if err := rows.Scan(&id, &performedOn, &exerciseID, &weightKg, &reps, &rir); err != nil {
-		return nil, fmt.Errorf("実績を読めない: %w", err)
+		return nil, wrapUnavailable(err, "実績を読めない")
 	}
 
 	date, err := training.FromTime(performedOn, time.UTC)
@@ -79,99 +83,131 @@ func scanSetLog(rows pgx.Rows) (*training.SetLog, error) {
 	return log, nil
 }
 
+// maxSaveAttempts は一時的な失敗に対する再試行の回数。
+//
+// デッドロックとシリアライズ失敗は、やり直せば成功する類の失敗。
+// 500 を返すと、クライアントは「送り直しても無駄」と読んで諦める。
+const maxSaveAttempts = 3
+
 // Save は実績ログを保存する。
 //
-// トランザクションで包むことが、そのまま「全か無か」の実装になる。
-// 衝突を1件でも見つけたら1件も書かない。半分だけ保存された状態は、
-// その週の刺激量を実態とずらしたまま計画に効き続ける。
+// INSERT ... ON CONFLICT DO NOTHING を撃ってから、対象の行を読み直して
+// 内容を比べる。SELECT FOR UPDATE で先に締める形は使えない。
+// READ COMMITTED では存在しない行を締められない（述語ロックが無い）ので、
+// 同じIDがまだ無いとき全員が「新規」と判断し、後発が主キー違反を踏む。
+// その経路で内容を見ずに衝突と決めつけると、内容が同一の再送まで 409 になる。
+// 再送はこの設計が日常的に起こると想定しているものなので、これは致命的。
 //
-// ON CONFLICT DO NOTHING を使わないのは、「入らなかった理由が
-// 同一だからか衝突だからか」を後から判別する必要があり、往復が増えるため。
+// トランザクションで包むことが、そのまま「全か無か」の実装になる。
 func (r *SetLogRepository) Save(ctx context.Context, logs []*training.SetLog) error {
 	if len(logs) == 0 {
 		return nil
 	}
 
+	staged, ids, err := stageSetLogs(logs)
+	if err != nil {
+		return err
+	}
+
+	var lastErr error
+	for attempt := range maxSaveAttempts {
+		err := r.saveOnce(ctx, staged, ids)
+		if err == nil {
+			return nil
+		}
+		if !isRetryable(err) {
+			return err
+		}
+		lastErr = err
+		_ = attempt
+	}
+	return fmt.Errorf("実績の保存が競合し続けた: %w", lastErr)
+}
+
+// stageSetLogs は保存対象を重複解決してID順に並べる。
+//
+// ID順に固定するのは、行ロックを取る順序を揃えてデッドロックを消すため。
+// map の反復順のまま流すと、同じ入力でも呼び出しごとに INSERT 順が変わり、
+// 同一リクエストの二重送信どうしが互いを待って詰まる。
+func stageSetLogs(logs []*training.SetLog) (map[training.SetLogID]*training.SetLog, []string, error) {
 	staged := make(map[training.SetLogID]*training.SetLog, len(logs))
-	ids := make([]string, 0, len(logs))
 	for i, l := range logs {
 		if l == nil {
-			return fmt.Errorf("%d番目のセットログが nil である", i)
+			return nil, nil, fmt.Errorf("%d番目のセットログが nil である", i)
 		}
 		if prev, dup := staged[l.ID()]; dup {
 			if !prev.Equals(l) {
-				return fmt.Errorf("%w: %s", training.ErrConflictingSetLog, l.ID())
+				return nil, nil, fmt.Errorf("%w: %s", training.ErrConflictingSetLog, l.ID())
 			}
 			continue
 		}
 		staged[l.ID()] = l
-		ids = append(ids, string(l.ID()))
 	}
 
+	ids := make([]string, 0, len(staged))
+	for id := range staged {
+		ids = append(ids, string(id))
+	}
+	sort.Strings(ids)
+	return staged, ids, nil
+}
+
+func (r *SetLogRepository) saveOnce(
+	ctx context.Context,
+	staged map[training.SetLogID]*training.SetLog,
+	ids []string,
+) error {
 	tx, err := r.pool.Begin(ctx)
 	if err != nil {
-		return fmt.Errorf("トランザクションを開始できない: %w", err)
+		return wrapUnavailable(err, "トランザクションを開始できない")
 	}
 	defer func() { _ = tx.Rollback(context.WithoutCancel(ctx)) }()
 
-	// 対象の行を締めてから比較する。締めないと、比較と INSERT の間に
-	// 別のトランザクションが同じIDを書き、衝突を見逃す。
+	batch := &pgx.Batch{}
+	for _, id := range ids {
+		l := staged[training.SetLogID(id)]
+		batch.Queue(`
+			INSERT INTO set_logs (id, performed_on, exercise_id, weight_kg, reps, rir)
+			VALUES ($1, $2, $3, $4, $5, $6)
+			ON CONFLICT (id) DO NOTHING`,
+			string(l.ID()), toTime(l.PerformedOn()), string(l.ExerciseID()),
+			l.Weight().Kg(), l.Reps().Int(), l.RIR().Int())
+	}
+	if err := tx.SendBatch(ctx, batch).Close(); err != nil {
+		return fmt.Errorf("実績を保存できない: %w", err)
+	}
+
+	// 入らなかった行が「同じ内容だから」なのか「衝突だから」なのかを
+	// ここで判別する。同じ内容なら黙って受け入れる。
 	rows, err := tx.Query(ctx, `
 		SELECT id, performed_on, exercise_id, weight_kg, reps, rir
 		FROM set_logs
-		WHERE id = ANY($1)
-		FOR UPDATE`, ids)
+		WHERE id = ANY($1)`, ids)
 	if err != nil {
-		return fmt.Errorf("既存の実績を読めない: %w", err)
+		return fmt.Errorf("保存後の実績を読めない: %w", err)
 	}
-
-	existing := make(map[training.SetLogID]*training.SetLog, len(ids))
+	stored := make(map[training.SetLogID]*training.SetLog, len(ids))
 	for rows.Next() {
 		log, err := scanSetLog(rows)
 		if err != nil {
 			rows.Close()
 			return err
 		}
-		existing[log.ID()] = log
+		stored[log.ID()] = log
 	}
 	rows.Close()
 	if err := rows.Err(); err != nil {
-		return fmt.Errorf("既存の実績を読めない: %w", err)
+		return fmt.Errorf("保存後の実績を読めない: %w", err)
 	}
 
-	insert := make([]*training.SetLog, 0, len(staged))
-	for id, l := range staged {
-		prev, ok := existing[id]
+	for _, id := range ids {
+		want := staged[training.SetLogID(id)]
+		got, ok := stored[training.SetLogID(id)]
 		if !ok {
-			insert = append(insert, l)
-			continue
+			return fmt.Errorf("実績 %s が保存されていない", id)
 		}
-		// 同じ内容の再送は黙って受け入れる。クライアントは
-		// タイムアウト後に再送するので、これは日常的に起きる。
-		if !prev.Equals(l) {
+		if !got.Equals(want) {
 			return fmt.Errorf("%w: %s", training.ErrConflictingSetLog, id)
-		}
-	}
-
-	if len(insert) > 0 {
-		batch := &pgx.Batch{}
-		for _, l := range insert {
-			batch.Queue(`
-				INSERT INTO set_logs (id, performed_on, exercise_id, weight_kg, reps, rir)
-				VALUES ($1, $2, $3, $4, $5, $6)`,
-				string(l.ID()), toTime(l.PerformedOn()), string(l.ExerciseID()),
-				l.Weight().Kg(), l.Reps().Int(), l.RIR().Int())
-		}
-		if err := tx.SendBatch(ctx, batch).Close(); err != nil {
-			// FOR UPDATE で読めなかった行を、別のトランザクションが
-			// 先に入れた場合。主キー違反として返るので衝突に翻訳する。
-			// 生のエラーのままだと 500 になり、クライアントは自分の
-			// ID 採番ミスに気づかず再送を繰り返す。
-			var pgErr *pgconn.PgError
-			if errors.As(err, &pgErr) && pgErr.Code == pgerrcode.UniqueViolation {
-				return fmt.Errorf("%w: 保存中に別の書き込みと衝突した", training.ErrConflictingSetLog)
-			}
-			return fmt.Errorf("実績を保存できない: %w", err)
 		}
 	}
 
@@ -179,6 +215,16 @@ func (r *SetLogRepository) Save(ctx context.Context, logs []*training.SetLog) er
 		return fmt.Errorf("実績の保存をコミットできない: %w", err)
 	}
 	return nil
+}
+
+// isRetryable はやり直せば成功しうる失敗か。
+func isRetryable(err error) bool {
+	var pgErr *pgconn.PgError
+	if !errors.As(err, &pgErr) {
+		return false
+	}
+	return pgErr.Code == pgerrcode.DeadlockDetected ||
+		pgErr.Code == pgerrcode.SerializationFailure
 }
 
 // toTime はドメインの日付を DB に渡せる形にする。

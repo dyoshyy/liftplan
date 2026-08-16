@@ -40,7 +40,7 @@ func (r *ProgramRepository) Get(ctx context.Context) (*training.Program, error) 
 		return nil, training.ErrProgramNotConfigured
 	}
 	if err != nil {
-		return nil, fmt.Errorf("プログラムを読めない: %w", err)
+		return nil, wrapUnavailable(err, "プログラムを読めない")
 	}
 
 	var target map[training.MuscleRegion]float64

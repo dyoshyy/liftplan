@@ -230,6 +230,92 @@ func RunSetLogContract(t *testing.T, newRepo func(*testing.T) training.SetLogRep
 		}
 	})
 
+	// 同じ内容の再送が並行しても全部成功すること。
+	//
+	// クライアントはタイムアウト後に再送するので、元のリクエストが
+	// まだ生きている状態での再送は日常的に起きる。ここで 409 を返すと、
+	// 保存に成功したセットが二度と送れなくなる。削除の口が無いので
+	// 復旧手段もない。
+	t.Run("同じ内容の並行再送は全部成功する", func(t *testing.T) {
+		repo := newRepo(t)
+		results := make(chan error, 16)
+		for range 16 {
+			go func() {
+				results <- repo.Save(ctx, []*training.SetLog{mkSetLog(t, "resend", 85)})
+			}()
+		}
+		for range 16 {
+			if err := <-results; err != nil {
+				t.Errorf("同じ内容の並行再送が失敗した: %v", err)
+			}
+		}
+
+		h, _ := repo.FindAll(ctx)
+		if len(h.Logs()) != 1 {
+			t.Errorf("件数が誤り: %d", len(h.Logs()))
+		}
+	})
+
+	// 同じバッチをそのまま二重送信しても壊れないこと。
+	//
+	// 保存順が呼び出しごとに変わると、二重送信どうしが互いの行を
+	// 待って詰まる。順序を固定していない実装はここで落ちる。
+	t.Run("同じバッチの二重送信が詰まらない", func(t *testing.T) {
+		repo := newRepo(t)
+		batch := make([]*training.SetLog, 0, 40)
+		for i := range 40 {
+			batch = append(batch, mkSetLog(t, fmt.Sprintf("b%03d", i), 85))
+		}
+
+		results := make(chan error, 4)
+		for range 4 {
+			go func() { results <- repo.Save(ctx, batch) }()
+		}
+		for range 4 {
+			if err := <-results; err != nil {
+				t.Errorf("同じバッチの二重送信が失敗した: %v", err)
+			}
+		}
+
+		h, _ := repo.FindAll(ctx)
+		if len(h.Logs()) != 40 {
+			t.Errorf("件数が誤り: %d", len(h.Logs()))
+		}
+	})
+
+	// 小数がそのまま往復すること。
+	//
+	// ドメインは小数6桁まで受け付ける。保存側が丸めると、同じ内容を
+	// 再送したときに「内容が違う」と判定されて 409 になる。
+	t.Run("小数がそのまま往復する", func(t *testing.T) {
+		repo := newRepo(t)
+		want := []float64{87.125, 0.125, 1.0625, 62.505}
+		logs := make([]*training.SetLog, 0, len(want))
+		for i, kg := range want {
+			logs = append(logs, mkSetLog(t, fmt.Sprintf("d%d", i), kg))
+		}
+		if err := repo.Save(ctx, logs); err != nil {
+			t.Fatalf("保存に失敗: %v", err)
+		}
+
+		h, _ := repo.FindAll(ctx)
+		got := make(map[training.SetLogID]float64, len(h.Logs()))
+		for _, l := range h.Logs() {
+			got[l.ID()] = l.Weight().Kg()
+		}
+		for i, kg := range want {
+			id := training.SetLogID(fmt.Sprintf("d%d", i))
+			if got[id] != kg {
+				t.Errorf("%vkg が %v になった", kg, got[id])
+			}
+		}
+
+		// 丸められていれば、同じ内容の再送が衝突として弾かれる。
+		if err := repo.Save(ctx, logs); err != nil {
+			t.Errorf("同じ内容の再送が失敗した（保存時に丸められている）: %v", err)
+		}
+	})
+
 	// 同じIDに内容の違う書き込みが並行したとき、失敗の理由が
 	// 衝突として返ること。生のエラーのままだと 500 になり、
 	// クライアントは自分のID採番ミスに気づかず再送を繰り返す。

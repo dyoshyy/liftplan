@@ -39,7 +39,7 @@ DATABASE_URL='postgres://liftplan:liftplan@127.0.0.1:5433/liftplan' go run ./cmd
 
 | メソッド | パス | 説明 |
 |---|---|---|
-| GET | `/healthz` | ヘルスチェック |
+| GET | `/healthz` | ヘルスチェック。保存先への疎通を含む（到達できなければ 503） |
 | GET | `/api/sessions?date=YYYY-MM-DD&deload_accepted=bench,squat` | その日のセッションを導出する |
 | POST | `/api/set-logs` | 実績ログを保存する（冪等） |
 | POST | `/api/conditions` | 日次コンディションを保存する（冪等） |
@@ -107,6 +107,7 @@ curl -X PUT http://localhost:8080/api/program \
 | 499 | クライアントが応答を待たずに切断した |
 | 504 | 処理が20秒で終わらなかった |
 | 500 | 内部エラー。詳細はクライアントに返さずサーバーのログに記録する |
+| 503 | 保存先に到達できない。送り直せば通る（500 と区別する） |
 
 `/api/program` の 404 とセッション導出時の 409 は、どちらも「プログラムが未設定」を表す。このバイナリは起動時に初期プログラムを入れるので、通常は起きない。Postgres に差し替えて空のデータベースから始めたときに出る。
 

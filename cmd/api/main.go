@@ -46,6 +46,10 @@ const (
 	// 短いと、サーバー自身が許可した長さのリクエストを必ず切ることになり、
 	// クライアントは保存できたのか分からないまま再送する。
 	shutdownTimeout = writeTimeout + 5*time.Second
+
+	// healthCheckTimeout はヘルスチェックが保存先の応答を待つ上限。
+	// 長いと、詰まった DB のせいでヘルスチェック自体が詰まる。
+	healthCheckTimeout = 2 * time.Second
 )
 
 func main() {
@@ -165,7 +169,9 @@ type repositories struct {
 	logs       training.SetLogRepository
 	conditions training.ConditionRepository
 	programs   training.ProgramRepository
-	close      func()
+	// ping は保存先に到達できるかを確かめる。インメモリなら常に成功する。
+	ping  func(context.Context) error
+	close func()
 }
 
 // buildHandler は依存を組み立てる。テストからも呼べるよう main と分けている。
@@ -194,7 +200,34 @@ func buildHandler(ctx context.Context) (http.Handler, func(), error) {
 		usecase.NewConfigureProgram(exercises, programs),
 		usecase.NewGetProgram(programs),
 	)
-	return handler.Routes(), repos.close, nil
+	return withHealthCheck(handler.Routes(), repos.ping), repos.close, nil
+}
+
+// withHealthCheck は /healthz を保存先の疎通込みに差し替える。
+//
+// プレゼンテーション層は保存先を知らないので、ここで被せる。
+// 疎通を見ないヘルスチェックは、何も処理できないインスタンスを
+// 「健全」と報告し続け、ロードバランサがトラフィックを流し込む。
+func withHealthCheck(next http.Handler, ping func(context.Context) error) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet || r.URL.Path != "/healthz" {
+			next.ServeHTTP(w, r)
+			return
+		}
+
+		ctx, cancel := context.WithTimeout(r.Context(), healthCheckTimeout)
+		defer cancel()
+
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		if err := ping(ctx); err != nil {
+			slog.Error("ヘルスチェックが失敗", "error", err)
+			w.WriteHeader(http.StatusServiceUnavailable)
+			_, _ = w.Write([]byte(`{"status":"unavailable"}`))
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"status":"ok"}`))
+	})
 }
 
 // openRepositories は DATABASE_URL があれば Postgres、無ければインメモリを返す。
@@ -220,6 +253,7 @@ func openRepositories(ctx context.Context, pool []*training.Exercise) (repositor
 			logs:       memory.NewSetLogRepository(),
 			conditions: memory.NewConditionRepository(),
 			programs:   memory.NewProgramRepository(program),
+			ping:       func(context.Context) error { return nil },
 			close:      func() {},
 		}, nil
 	}
@@ -247,6 +281,7 @@ func openRepositories(ctx context.Context, pool []*training.Exercise) (repositor
 		logs:       postgres.NewSetLogRepository(db),
 		conditions: postgres.NewConditionRepository(db),
 		programs:   programs,
+		ping:       db.Ping,
 		close:      db.Close,
 	}, nil
 }

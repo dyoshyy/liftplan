@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
@@ -469,5 +470,39 @@ func TestBuildHandler_FailsFastOnBadDatabaseURL(t *testing.T) {
 
 	if _, _, err := buildHandler(context.Background()); err == nil {
 		t.Error("到達できない接続先で起動した")
+	}
+}
+
+// 保存先に到達できないとき、ヘルスチェックが失敗すること。
+// 何も処理できないインスタンスを「健全」と報告すると、
+// ロードバランサがトラフィックを流し込み続ける。
+func TestHealthz_ReflectsTheRepositoryState(t *testing.T) {
+	healthy := withHealthCheck(http.NotFoundHandler(), func(context.Context) error { return nil })
+	rec := httptest.NewRecorder()
+	healthy.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/healthz", nil))
+	if rec.Code != http.StatusOK {
+		t.Errorf("健全なのに %d を返した", rec.Code)
+	}
+
+	broken := withHealthCheck(http.NotFoundHandler(), func(context.Context) error {
+		return errors.New("接続できない")
+	})
+	rec = httptest.NewRecorder()
+	broken.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/healthz", nil))
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Errorf("保存先に到達できないのに %d を返した", rec.Code)
+	}
+	if !strings.Contains(rec.Body.String(), "unavailable") {
+		t.Errorf("状態が返っていない: %s", rec.Body.String())
+	}
+
+	// /healthz 以外は素通しすること。
+	var reached bool
+	pass := withHealthCheck(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		reached = true
+	}), func(context.Context) error { return errors.New("接続できない") })
+	pass.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/api/sessions", nil))
+	if !reached {
+		t.Error("/healthz 以外が素通しされていない")
 	}
 }
