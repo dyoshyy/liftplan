@@ -948,9 +948,9 @@ git commit -m "feat(domain): History と TrainingSession を追加する"
 - Consumes: Task 8 の `History`、Task 5 の `OneRepMax`
 - Produces:
   - `type OneRepMaxEstimator struct{...}`（無状態のドメインサービス）
-  - `func NewOneRepMaxEstimator(alpha, hysteresis float64) (OneRepMaxEstimator, error)`
-  - `func DefaultOneRepMaxEstimator() OneRepMaxEstimator` — alpha 0.3、ヒステリシス 0.02
-  - `func (e OneRepMaxEstimator) Estimate(h History, id ExerciseID, previous *OneRepMax) (OneRepMax, bool)`
+  - `func NewOneRepMaxEstimator(alpha float64, maxStaleDays int) (OneRepMaxEstimator, error)`
+  - `func DefaultOneRepMaxEstimator() OneRepMaxEstimator` — alpha 0.3、鮮度の上限 42日
+  - `func (e OneRepMaxEstimator) Estimate(h History, id ExerciseID, asOf Date) (OneRepMax, bool)`
 
 単発の記録で全スロットの重量が動くと不安定になる。調子が良かった日の1セットで重量が跳ね上がり、翌週それを引きずって潰れるのを防ぐ。手順は「セッションごとの中央値 → 古い順に EWMA → ヒステリシス」。
 
@@ -1088,7 +1088,7 @@ type OneRepMaxEstimator struct {
 	hysteresis float64
 }
 
-func NewOneRepMaxEstimator(alpha, hysteresis float64) (OneRepMaxEstimator, error) {
+func NewOneRepMaxEstimator(alpha float64, maxStaleDays int) (OneRepMaxEstimator, error) {
 	if math.IsNaN(alpha) || alpha <= 0 || alpha > 1 {
 		return OneRepMaxEstimator{}, fmt.Errorf("alpha は0より大きく1以下である必要がある: %v", alpha)
 	}
@@ -1164,7 +1164,7 @@ git commit -m "feat(domain): 推定1RMの平滑化サービスを追加する"
 - Consumes: Task 6 の `Exercise`、Task 8 の `History`、Task 9 の `OneRepMaxEstimator`
 - Produces:
   - `type VariationRatioResolver struct{...}`
-  - `func NewVariationRatioResolver(est OneRepMaxEstimator, minSessions int) (VariationRatioResolver, error)`
+  - `func NewVariationRatioResolver(est OneRepMaxEstimator, minSessions int) (VariationRatioResolver, error)`（`Resolve` は `asOf Date` を受け取る）
   - `func DefaultVariationRatioResolver() VariationRatioResolver` — minSessions 3
   - `func (r VariationRatioResolver) Resolve(h History, variation *Exercise, mainID ExerciseID) Ratio`
 
@@ -1336,11 +1336,11 @@ func (r VariationRatioResolver) Resolve(h History, variation *Exercise, mainID E
 		return fallback
 	}
 
-	variationOneRM, ok := r.estimator.Estimate(h, variation.ID(), nil)
+	variationOneRM, ok := r.estimator.Estimate(h, variation.ID(), asOf)
 	if !ok {
 		return fallback
 	}
-	mainOneRM, ok := r.estimator.Estimate(h, mainID, nil)
+	mainOneRM, ok := r.estimator.Estimate(h, mainID, asOf)
 	if !ok || mainOneRM.Kg() <= 0 {
 		return fallback
 	}
