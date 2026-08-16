@@ -7,6 +7,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -16,10 +17,11 @@ import (
 )
 
 func TestBuildHandler_ServesSession(t *testing.T) {
-	handler, err := buildHandler()
+	handler, closeRepos, err := buildHandler(context.Background())
 	if err != nil {
 		t.Fatalf("組み立てに失敗: %v", err)
 	}
+	t.Cleanup(closeRepos)
 
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/sessions?date=2026-08-17", nil))
@@ -30,10 +32,11 @@ func TestBuildHandler_ServesSession(t *testing.T) {
 }
 
 func TestBuildHandler_Healthz(t *testing.T) {
-	handler, err := buildHandler()
+	handler, closeRepos, err := buildHandler(context.Background())
 	if err != nil {
 		t.Fatalf("組み立てに失敗: %v", err)
 	}
+	t.Cleanup(closeRepos)
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/healthz", nil))
 	if rec.Code != http.StatusOK {
@@ -44,10 +47,11 @@ func TestBuildHandler_Healthz(t *testing.T) {
 // 初期プログラムでセッションが導出できること。
 // 起動直後に PUT /api/program を叩かないと何も使えない状態を避ける。
 func TestBuildHandler_WorksOutOfTheBox(t *testing.T) {
-	handler, err := buildHandler()
+	handler, closeRepos, err := buildHandler(context.Background())
 	if err != nil {
 		t.Fatalf("組み立てに失敗: %v", err)
 	}
+	t.Cleanup(closeRepos)
 
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/sessions?date=2026-08-17", nil))
@@ -73,10 +77,11 @@ func TestBuildHandler_WorksOutOfTheBox(t *testing.T) {
 // 実績を記録してから計画を取り直すと重量が確定すること。
 // 層をまたいだ往復がここで初めて通る。
 func TestBuildHandler_RecordThenPlan(t *testing.T) {
-	handler, err := buildHandler()
+	handler, closeRepos, err := buildHandler(context.Background())
 	if err != nil {
 		t.Fatalf("組み立てに失敗: %v", err)
 	}
+	t.Cleanup(closeRepos)
 
 	post := func(t *testing.T, path, body string) {
 		t.Helper()
@@ -332,10 +337,11 @@ func TestRun_WiresTheRequestTimeout(t *testing.T) {
 func TestBuildHandler_FailsFastOnBadSeed(t *testing.T) {
 	// シードが正しいことは他のテストが確かめている。ここでは
 	// 「エラーを握り潰していないか」を型で担保する。
-	handler, err := buildHandler()
+	handler, closeRepos, err := buildHandler(context.Background())
 	if err != nil {
 		t.Fatalf("シードが正しいのに失敗: %v", err)
 	}
+	t.Cleanup(closeRepos)
 	if handler == nil {
 		t.Fatal("ハンドラが nil である")
 	}
@@ -351,5 +357,117 @@ func TestBuildHandler_FailsFastOnBadSeed(t *testing.T) {
 	// 失敗しないなら、シードが空でもサーバーが起動してしまう。
 	if _, err := defaultProgram(nil); err == nil {
 		t.Error("空のプールで初期プログラムが組めてしまう")
+	}
+}
+
+// DATABASE_URL があれば Postgres を使い、記録が組み立て直しても残ること。
+//
+// 「差し替えが cmd に閉じる」という受け入れ基準の裏取り。ここが通れば、
+// ドメイン・アプリケーション・プレゼンテーションを1行も変えずに
+// 永続化が入ったことになる。
+func TestBuildHandler_UsesPostgresWhenConfigured(t *testing.T) {
+	url := os.Getenv("TEST_DATABASE_URL")
+	if url == "" {
+		t.Skip("TEST_DATABASE_URL が未設定のため実行しない（make test-db で回せる）")
+	}
+	t.Setenv("DATABASE_URL", url)
+
+	post := func(t *testing.T, h http.Handler, path, body string) int {
+		t.Helper()
+		r := httptest.NewRequest(http.MethodPost, path, strings.NewReader(body))
+		r.Header.Set("Content-Type", "application/json")
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, r)
+		return rec.Code
+	}
+	benchWeight := func(t *testing.T, h http.Handler) *float64 {
+		t.Helper()
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/sessions?date=2026-08-17", nil))
+		if rec.Code != http.StatusOK {
+			t.Fatalf("セッションの取得に失敗: %d body=%s", rec.Code, rec.Body.String())
+		}
+		var got struct {
+			Main []struct {
+				ExerciseID string   `json:"exercise_id"`
+				WeightKg   *float64 `json:"weight_kg"`
+			} `json:"main"`
+		}
+		if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+			t.Fatalf("応答を解釈できない: %v", err)
+		}
+		for _, m := range got.Main {
+			if m.ExerciseID == "bench" {
+				return m.WeightKg
+			}
+		}
+		t.Fatal("bench がメインに無い")
+		return nil
+	}
+
+	first, closeFirst, err := buildHandler(context.Background())
+	if err != nil {
+		t.Fatalf("組み立てに失敗: %v", err)
+	}
+
+	// 前のテスト実行の残りを消してから始める。
+	id := fmt.Sprintf("e2e-%d", time.Now().UnixNano())
+	logs := make([]string, 0, 3)
+	for i := range 3 {
+		logs = append(logs, fmt.Sprintf(
+			`{"id":"%s-%d","date":"2026-08-10","exercise_id":"bench",`+
+				`"weight_kg":85,"reps":8,"rir":2}`, id, i))
+	}
+	if code := post(t, first, "/api/set-logs",
+		`{"logs":[`+strings.Join(logs, ",")+`]}`); code != http.StatusNoContent {
+		t.Fatalf("記録に失敗: %d", code)
+	}
+	before := benchWeight(t, first)
+	if before == nil {
+		t.Fatal("記録したのに重量が未確定")
+	}
+	closeFirst()
+
+	// 組み立て直す＝再起動に相当する。
+	second, closeSecond, err := buildHandler(context.Background())
+	if err != nil {
+		t.Fatalf("2度目の組み立てに失敗: %v", err)
+	}
+	t.Cleanup(closeSecond)
+
+	after := benchWeight(t, second)
+	if after == nil {
+		t.Fatal("組み立て直したら記録が消えた")
+	}
+	if *after != *before {
+		t.Errorf("組み立て直しで重量が変わった: %v → %v", *before, *after)
+	}
+}
+
+// DATABASE_URL が無ければインメモリで動くこと。
+// ドメインの検証を DB 無しで回せる状態を捨てない。
+func TestBuildHandler_FallsBackToMemory(t *testing.T) {
+	t.Setenv("DATABASE_URL", "")
+
+	handler, closeRepos, err := buildHandler(context.Background())
+	if err != nil {
+		t.Fatalf("組み立てに失敗: %v", err)
+	}
+	t.Cleanup(closeRepos)
+
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/sessions?date=2026-08-17", nil))
+	if rec.Code != http.StatusOK {
+		t.Errorf("インメモリで動いていない: %d", rec.Code)
+	}
+}
+
+// 接続先が誤っていたら起動しないこと。
+// 遅延させると、最初のリクエストが来るまで気づけない。
+func TestBuildHandler_FailsFastOnBadDatabaseURL(t *testing.T) {
+	t.Setenv("DATABASE_URL", "postgres://nobody:nobody@127.0.0.1:1/nothing")
+
+	if _, _, err := buildHandler(context.Background()); err == nil {
+		t.Error("到達できない接続先で起動した")
 	}
 }
