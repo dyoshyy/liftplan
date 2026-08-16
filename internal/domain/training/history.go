@@ -69,12 +69,19 @@ func median(values []float64) float64 {
 // だから予定と実績が食い違う状態が原理的に発生しない。
 type History struct {
 	logs []*SetLog
+
+	// lastPerformed は種目ごとの最終実施日の索引。
+	// LastPerformed が何度も呼ばれるため、生成時に一度だけ構築する。
+	lastPerformed map[ExerciseID]Date
 }
 
 // NewHistory は nil を除いたログの集まりを作る。
 //
-// 同じ ID のログが複数含まれる場合は、後のものを採用する。
-// リポジトリが冪等に上書きする挙動と揃えている。
+// 同じ ID のログが複数含まれる場合は、渡されたスライスの中で後にあるものを採用する。
+// これは呼び出し側が渡した順序に依存する規則であって、リポジトリへの到着順とは
+// 一致しない。リポジトリは ID をキーにしたマップで潰すため、そもそも重複が
+// ここへ届かない。この規則が効くのは、既存の履歴に仮のログを重ねて
+// 「もしこう記録したら」を試す場合だけ。
 func NewHistory(logs []*SetLog) History {
 	seen := make(map[SetLogID]int, len(logs))
 	out := make([]*SetLog, 0, len(logs))
@@ -90,7 +97,21 @@ func NewHistory(logs []*SetLog) History {
 		seen[l.ID()] = len(out)
 		out = append(out, l)
 	}
-	return History{logs: out}
+	return newHistory(out)
+}
+
+// newHistory は検証済みのログから History を組み立てる。
+//
+// 最終実施日を先に索引化しておく。LastPerformed は1回のセッション生成で
+// 200回以上呼ばれるため、毎回全ログを走査すると履歴が伸びたときに効いてくる。
+func newHistory(logs []*SetLog) History {
+	index := make(map[ExerciseID]Date, len(logs))
+	for _, l := range logs {
+		if last, ok := index[l.ExerciseID()]; !ok || last.Before(l.PerformedOn()) {
+			index[l.ExerciseID()] = l.PerformedOn()
+		}
+	}
+	return History{logs: logs, lastPerformed: index}
 }
 
 func (h History) IsEmpty() bool { return len(h.logs) == 0 }
@@ -110,14 +131,19 @@ func (h History) filter(keep func(*SetLog) bool) History {
 			out = append(out, l)
 		}
 	}
-	return History{logs: out}
+	return newHistory(out)
 }
 
 func (h History) ForExercise(id ExerciseID) History {
 	return h.filter(func(l *SetLog) bool { return l.ExerciseID() == id })
 }
 
-// OnOrAfter は d を含むそれ以降。
+// OnOrAfter は d を含むそれ以降。上限を持たないので、対象日そのもののログも含む。
+//
+// 回復期間の判定に使うときは必ず `.Before(date)` で閉じること。
+// 閉じないと、セッション中に記録してから計画を開き直したとき、
+// たった今やった種目の筋区分が「最近刺激した」と判定され、
+// そのセッションの補助枠から自分自身が消える。
 func (h History) OnOrAfter(d Date) History {
 	return h.filter(func(l *SetLog) bool { return !l.PerformedOn().Before(d) })
 }
@@ -125,6 +151,11 @@ func (h History) OnOrAfter(d Date) History {
 // Before は d を含まないそれ以前。
 func (h History) Before(d Date) History {
 	return h.filter(func(l *SetLog) bool { return l.PerformedOn().Before(d) })
+}
+
+// After は d を含まないそれ以降。
+func (h History) After(d Date) History {
+	return h.filter(func(l *SetLog) bool { return l.PerformedOn().After(d) })
 }
 
 // Sessions は同一日ごとにまとめ、日付昇順で返す。
@@ -157,16 +188,6 @@ func (h History) SessionCount() int {
 
 // LastPerformed はその種目を最後に実施した日。履歴が無ければ false。
 func (h History) LastPerformed(id ExerciseID) (Date, bool) {
-	var last Date
-	found := false
-	for _, l := range h.logs {
-		if l.ExerciseID() != id {
-			continue
-		}
-		if !found || last.Before(l.PerformedOn()) {
-			last = l.PerformedOn()
-			found = true
-		}
-	}
-	return last, found
+	d, ok := h.lastPerformed[id]
+	return d, ok
 }
