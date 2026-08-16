@@ -351,27 +351,145 @@ func TestExercise_SameIdentity(t *testing.T) {
 	}
 }
 
-func TestExercise_BelongsTo(t *testing.T) {
+func TestExercise_IsVariationOf(t *testing.T) {
+	// メイン自身が候補に混ざると、差し替えたつもりで同じ種目が選ばれる。
 	bench := mustExercise(t, benchParams())
-	if !bench.BelongsTo(training.LiftBench) {
-		t.Error("メイン種目が自身のリフトに属さない")
-	}
-	if bench.BelongsTo(training.LiftSquat) {
-		t.Error("別のリフトに属している")
+	for _, lift := range training.AllMainLifts() {
+		if bench.IsVariationOf(lift) {
+			t.Errorf("メイン種目が %s のバリエーションと判定された", lift)
+		}
 	}
 
 	p := benchParams()
 	p.ID, p.Kind, p.DefaultRatioToMain = "larsen", training.KindVariation, 0.9
-	if !mustExercise(t, p).BelongsTo(training.LiftBench) {
-		t.Error("バリエーションが所属リフトに属さない")
+	larsen := mustExercise(t, p)
+	if !larsen.IsVariationOf(training.LiftBench) {
+		t.Error("バリエーションが所属リフトのものと判定されない")
+	}
+	if larsen.IsVariationOf(training.LiftSquat) {
+		t.Error("別のリフトのバリエーションと判定された")
 	}
 
 	p2 := benchParams()
 	p2.ID, p2.Kind, p2.MainLift = "pec_fly", training.KindAccessory, ""
 	accessory := mustExercise(t, p2)
 	for _, lift := range training.AllMainLifts() {
-		if accessory.BelongsTo(lift) {
-			t.Errorf("補助種目が %s に属している", lift)
+		if accessory.IsVariationOf(lift) {
+			t.Errorf("補助種目が %s のバリエーションと判定された", lift)
 		}
+	}
+}
+
+// 筋区分数の上限そのものを固定する。
+// 全21区分という極端な値だけで検査すると、上限を 9〜20 のどれに変えても通ってしまう。
+func TestNewExercise_StimulusRegionLimitBoundary(t *testing.T) {
+	const max = 8
+	all := training.AllMuscleRegions()
+	if len(all) < max+1 {
+		t.Fatalf("検査に必要な筋区分が足りない: %d", len(all))
+	}
+
+	build := func(n int) training.ExerciseParams {
+		p := benchParams()
+		p.Stimulus = map[training.MuscleRegion]float64{}
+		for _, r := range all[:n] {
+			p.Stimulus[r] = 0.5
+		}
+		return p
+	}
+
+	if _, err := training.NewExercise(build(max)); err != nil {
+		t.Errorf("上限ちょうど %d 区分が弾かれた: %v", max, err)
+	}
+	if got, err := training.NewExercise(build(max + 1)); err == nil {
+		t.Errorf("上限を超える %d 区分が通ってしまう: %+v", max+1, got)
+	} else if !strings.Contains(err.Error(), "筋区分") {
+		t.Errorf("区分数以外の理由でエラーになっている: %v", err)
+	}
+}
+
+// 対メイン係数の異常系。検証を外しても誰も気づかない状態だった。
+// 壊れると、検証されていない係数が処方重量の計算に流れる。
+func TestNewExercise_ValidatesDefaultRatio(t *testing.T) {
+	variation := func(ratio float64) training.ExerciseParams {
+		p := benchParams()
+		p.ID, p.Kind = "larsen", training.KindVariation
+		p.DefaultRatioToMain = ratio
+		return p
+	}
+
+	for _, v := range []float64{-0.9, 1.21, 3, 100} {
+		if got, err := training.NewExercise(variation(v)); err == nil {
+			t.Errorf("不正な対メイン係数が通ってしまう: %v → %+v", v, got)
+		}
+	}
+	for _, v := range []float64{0.7, 0.85, 1.0, 1.2} {
+		if _, err := training.NewExercise(variation(v)); err != nil {
+			t.Errorf("正当な対メイン係数が弾かれた: %v (%v)", v, err)
+		}
+	}
+
+	// 保持された値が量子化・検証を通っていること。
+	e := mustExercise(t, variation(0.85))
+	got, ok := e.DefaultRatioToMain()
+	if !ok {
+		t.Fatal("係数が保持されていない")
+	}
+	if _, err := training.NewRatio(got.Float()); err != nil {
+		t.Errorf("保持された係数が無効: %v", err)
+	}
+}
+
+// IDが不正なとき、種目名で特定できること。
+// 36種目のシードで1つのIDをタイプミスで消したとき、
+// 「種目IDが空である」だけではどれか分からない。
+func TestNewExercise_IdentifiesExerciseWhenIDIsInvalid(t *testing.T) {
+	p := benchParams()
+	p.ID = ""
+	_, err := training.NewExercise(p)
+	if err == nil {
+		t.Fatal("エラーにならない")
+	}
+	if !strings.Contains(err.Error(), "ベンチプレス") {
+		t.Errorf("エラーメッセージに種目名が含まれない: %v", err)
+	}
+}
+
+// 各検証経路のエラーが種目を特定できること。
+func TestNewExercise_AllErrorsIdentifyTheExercise(t *testing.T) {
+	cases := []struct {
+		name   string
+		mutate func(*training.ExerciseParams)
+	}{
+		{"増加単位", func(p *training.ExerciseParams) { p.IncrementKg = 0 }},
+		{"種別", func(p *training.ExerciseParams) { p.Kind = "WARMUP" }},
+		{"メインリフト", func(p *training.ExerciseParams) { p.MainLift = "PRESS" }},
+		{"刺激が空", func(p *training.ExerciseParams) { p.Stimulus = nil }},
+		{
+			"未知の筋区分",
+			func(p *training.ExerciseParams) {
+				p.Stimulus = map[training.MuscleRegion]float64{"NOPE": 1.0}
+			},
+		},
+		{
+			"寄与度",
+			func(p *training.ExerciseParams) {
+				p.Stimulus = map[training.MuscleRegion]float64{training.ChestMid: 5}
+			},
+		},
+		{"名前が空", func(p *training.ExerciseParams) { p.Name = "" }},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			p := benchParams()
+			c.mutate(&p)
+			_, err := training.NewExercise(p)
+			if err == nil {
+				t.Fatal("エラーにならない")
+			}
+			if !strings.Contains(err.Error(), "bench") {
+				t.Errorf("エラーメッセージに種目IDが含まれない: %v", err)
+			}
+		})
 	}
 }

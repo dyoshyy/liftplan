@@ -186,3 +186,64 @@ func checkImport(t *testing.T, file, importPath string, isTest bool) {
 	t.Errorf("%s: 本番コードで許可されていない標準ライブラリ: %s（意図的なら productionStdlib に追加すること）",
 		file, importPath)
 }
+
+// StimulusProfile は構造体の値コピーでも内部マップを共有する。
+// パッケージ内で m に書き込むと、そのエンティティの刺激分布が黙って壊れ、
+// 同じポインタを共有する全セッションに波及する。
+//
+// 消費者（残差計算・補助種目選択・セッション生成）は全て同じパッケージにいるので、
+// 「書くな」を規約で守らせても必ず破られる。AST で機械的に禁止する。
+func TestDomain_StimulusProfileIsNotMutated(t *testing.T) {
+	root := domainRoot(t)
+	fset := token.NewFileSet()
+	checked := 0
+
+	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() || !strings.HasSuffix(path, ".go") {
+			return nil
+		}
+		// 宣言とコンストラクタがある exercise.go だけが m を組み立てられる。
+		if d.Name() == "exercise.go" {
+			return nil
+		}
+
+		rel, err := filepath.Rel(root, path)
+		if err != nil {
+			return err
+		}
+		checked++
+
+		file, err := parser.ParseFile(fset, path, nil, 0)
+		if err != nil {
+			return err
+		}
+		ast.Inspect(file, func(n ast.Node) bool {
+			assign, ok := n.(*ast.AssignStmt)
+			if !ok {
+				return true
+			}
+			for _, lhs := range assign.Lhs {
+				index, ok := lhs.(*ast.IndexExpr)
+				if !ok {
+					continue
+				}
+				sel, ok := index.X.(*ast.SelectorExpr)
+				if !ok || sel.Sel == nil || sel.Sel.Name != "m" {
+					continue
+				}
+				t.Errorf("%s:%d: 内部マップ m への書き込みは禁止されている。"+
+					"エンティティの状態が黙って壊れる",
+					rel, fset.Position(assign.Pos()).Line)
+			}
+			return true
+		})
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("ドメイン層の走査に失敗: %v", err)
+	}
+	t.Logf("%d ファイルを検査した", checked)
+}

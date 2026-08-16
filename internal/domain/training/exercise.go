@@ -25,7 +25,12 @@ func NewExerciseID(s string) (ExerciseID, error) {
 	return ExerciseID(trimmed), nil
 }
 
-// StimulusProfile は種目が各筋区分へ与える刺激の分布。不変。
+// StimulusProfile は種目が各筋区分へ与える刺激の分布。
+//
+// パッケージ外からは不変。ただし構造体の値コピーは内部マップを共有するため、
+// パッケージ内で m に書き込むとエンティティの状態が壊れる。
+// 消費者（残差計算・補助種目選択・セッション生成）は全て同じパッケージにいるので、
+// この禁止は TestDomain_StimulusProfileIsNotMutated が機械的に検査する。
 type StimulusProfile struct {
 	m map[MuscleRegion]Contribution
 }
@@ -100,11 +105,17 @@ type Exercise struct {
 }
 
 func NewExercise(p ExerciseParams) (*Exercise, error) {
+	name := strings.TrimSpace(p.Name)
+
 	id, err := NewExerciseID(p.ID)
 	if err != nil {
+		// ID が不正だと種目を特定する手がかりが消える。36種目のシードのうち
+		// どれが壊れているのか分からないと直せないので、名前で補う。
+		if name != "" {
+			return nil, fmt.Errorf("種目 %q: %w", name, err)
+		}
 		return nil, err
 	}
-	name := strings.TrimSpace(p.Name)
 	if name == "" {
 		return nil, fmt.Errorf("種目 %s の名前が空である", id)
 	}
@@ -201,8 +212,10 @@ func (e *Exercise) SameIdentity(o *Exercise) bool {
 	return e.id == o.id
 }
 
-// BelongsTo はこの種目が指定のメインリフトに属するか。
-// メイン種目とそのバリエーションの両方が true になる。
-func (e *Exercise) BelongsTo(lift MainLift) bool {
-	return e.hasMainLift && e.mainLift == lift
+// IsVariationOf はこの種目が指定のメインリフトのバリエーションか。
+//
+// メイン種目自身は false を返す。バリエーションのスロットにメイン自身が
+// 候補として混ざると、差し替えたつもりで同じ種目が選ばれる。
+func (e *Exercise) IsVariationOf(lift MainLift) bool {
+	return e.kind == KindVariation && e.mainLift == lift
 }
