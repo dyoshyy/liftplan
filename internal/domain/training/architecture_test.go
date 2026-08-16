@@ -1,6 +1,7 @@
 package training_test
 
 import (
+	"go/ast"
 	"go/parser"
 	"go/token"
 	"io/fs"
@@ -33,6 +34,7 @@ var productionStdlib = map[string]bool{
 // 本番コードにも許してしまうと、ドメイン層がファイルシステムを触れるようになるため。
 var testOnlyStdlib = map[string]bool{
 	"testing":       true,
+	"go/ast":        true,
 	"go/parser":     true,
 	"go/token":      true,
 	"io/fs":         true,
@@ -96,6 +98,60 @@ func TestDomain_DependsOnNothingOutside(t *testing.T) {
 		t.Fatalf("%s に .go ファイルが1つも見つからない。検査が空振りしている", root)
 	}
 	t.Logf("%d ファイルを検査した", scanned)
+}
+
+// MustDate は不正な入力で panic する。コンパイル時に確定するリテラル専用であり、
+// 本番コードに現れてはならない。外部入力は ParseDate か FromTime を通すこと。
+//
+// 「テスト専用」を規約で守らせると必ず破られるので、AST で機械的に禁止する。
+func TestDomain_MustDateIsTestOnly(t *testing.T) {
+	root := domainRoot(t)
+	fset := token.NewFileSet()
+	checked := 0
+
+	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() || !strings.HasSuffix(path, ".go") {
+			return nil
+		}
+		// テストコードでの使用は正当。宣言そのものがある date.go も対象外。
+		if strings.HasSuffix(d.Name(), "_test.go") || d.Name() == "date.go" {
+			return nil
+		}
+
+		rel, err := filepath.Rel(root, path)
+		if err != nil {
+			return err
+		}
+		checked++
+
+		file, err := parser.ParseFile(fset, path, nil, 0)
+		if err != nil {
+			return err
+		}
+		ast.Inspect(file, func(n ast.Node) bool {
+			switch v := n.(type) {
+			case *ast.Ident:
+				if v.Name == "MustDate" {
+					t.Errorf("%s:%d: 本番コードで MustDate を使っている。外部入力は ParseDate か FromTime を通すこと",
+						rel, fset.Position(v.Pos()).Line)
+				}
+			case *ast.SelectorExpr:
+				if v.Sel != nil && v.Sel.Name == "MustDate" {
+					t.Errorf("%s:%d: 本番コードで MustDate を使っている。外部入力は ParseDate か FromTime を通すこと",
+						rel, fset.Position(v.Pos()).Line)
+				}
+			}
+			return true
+		})
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("ドメイン層の走査に失敗: %v", err)
+	}
+	t.Logf("%d ファイルを検査した", checked)
 }
 
 func checkImport(t *testing.T, file, importPath string, isTest bool) {
