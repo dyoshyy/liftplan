@@ -98,7 +98,12 @@ func contains(s, sub string) bool {
 }
 
 func TestWeeklyVolumeTarget_RegionsAreSorted(t *testing.T) {
-	regions := simpleTarget(t).Regions()
+	// 2区分だとマップの反復順が偶然合うことがあるので、多めに入れる。
+	target := mustTarget(t, map[training.MuscleRegion]float64{
+		training.Quad: 16, training.Abs: 8, training.ChestMid: 12,
+		training.Lat: 12, training.Calf: 8, training.Biceps: 10,
+	})
+	regions := target.Regions()
 	if !sort.SliceIsSorted(regions, func(i, j int) bool { return regions[i] < regions[j] }) {
 		t.Errorf("ソートされていない: %v", regions)
 	}
@@ -123,52 +128,6 @@ func TestWeeklyVolumeTarget_IsImmutableAgainstInputMutation(t *testing.T) {
 func TestWeeklyVolumeTarget_UnknownRegionIsZero(t *testing.T) {
 	if got := simpleTarget(t).Sets(training.Calf); got != 0 {
 		t.Errorf("未設定の区分が0でない: %v", got)
-	}
-}
-
-func TestWeeklyVolumeTarget_PerSession(t *testing.T) {
-	per := simpleTarget(t).PerSession(mustFrequency(t, 3))
-
-	if got := per.Sets(training.ChestMid); math.Abs(got-4) > 1e-9 {
-		t.Errorf("1セッションあたりの目標が誤り: %v", got)
-	}
-	if got := per.Sets(training.ChestUpper); math.Abs(got-3) > 1e-9 {
-		t.Errorf("1セッションあたりの目標が誤り: %v", got)
-	}
-}
-
-// 割り切れない値でも端数が残らないこと。残差の比較に使われる。
-func TestWeeklyVolumeTarget_PerSessionIsQuantized(t *testing.T) {
-	per := mustTarget(t, map[training.MuscleRegion]float64{training.ChestMid: 10}).
-		PerSession(mustFrequency(t, 3))
-
-	got := per.Sets(training.ChestMid)
-	if n := decimalPlaces(strconv.FormatFloat(got, 'f', -1, 64)); n > 6 {
-		t.Errorf("端数が残っている: %v（小数点以下 %d 桁）", got, n)
-	}
-}
-
-// 割った結果が下限を下回る区分は落とす。
-// 週0.5セットを頻度4で割ると0.125になり、補助種目1つ（3セット）で
-// 大幅に超過する。そういう区分はこのセッションでは狙わない。
-func TestWeeklyVolumeTarget_PerSessionDropsNegligibleRegions(t *testing.T) {
-	per := mustTarget(t, map[training.MuscleRegion]float64{
-		training.ChestMid: 12,
-		training.Calf:     0.5,
-	}).PerSession(mustFrequency(t, 4))
-
-	if got := per.Sets(training.ChestMid); math.Abs(got-3) > 1e-9 {
-		t.Errorf("主要な区分が落ちている: %v", got)
-	}
-	if got := per.Sets(training.Calf); got != 0 {
-		t.Errorf("無視できる区分が残っている: %v", got)
-	}
-}
-
-func TestWeeklyVolumeTarget_PerSessionWithZeroFrequency(t *testing.T) {
-	var zero training.Frequency
-	if got := simpleTarget(t).PerSession(zero); !got.IsEmpty() {
-		t.Errorf("ゼロ値の頻度で目標が返る: %v", got.Regions())
 	}
 }
 
@@ -251,106 +210,58 @@ func TestProgram_IsImmutableAgainstInputMutation(t *testing.T) {
 	}
 }
 
-func TestStimulusCoverage_Add(t *testing.T) {
-	bench := mustExercise(t, benchParams())
-	coverage := training.StimulusCoverage{}
-	coverage.Add(bench.Stimulus(), mustSetCount(t, 4))
-
-	if got := coverage[training.ChestMid]; math.Abs(got-4) > 1e-9 {
-		t.Errorf("大胸筋中部のカバレッジが誤り: %v", got)
-	}
-	if got := coverage[training.TricepsLateral]; math.Abs(got-2) > 1e-9 {
-		t.Errorf("三頭のカバレッジが誤り: %v", got)
-	}
-}
-
-func TestStimulusCoverage_Accumulates(t *testing.T) {
-	bench := mustExercise(t, benchParams())
-	coverage := training.StimulusCoverage{}
-	coverage.Add(bench.Stimulus(), mustSetCount(t, 4))
-	coverage.Add(bench.Stimulus(), mustSetCount(t, 3))
-
-	if got := coverage[training.ChestMid]; math.Abs(got-7) > 1e-9 {
-		t.Errorf("積み上がっていない: %v", got)
-	}
-}
-
-// 端数が残ると、残差の比較で「わずかに残っている」区分が生まれ、
-// 補助種目の選択が不安定になる。
-func TestStimulusCoverage_IsQuantized(t *testing.T) {
-	p := benchParams()
-	p.Stimulus = map[training.MuscleRegion]float64{training.ChestMid: 0.3}
-	e := mustExercise(t, p)
-
-	coverage := training.StimulusCoverage{}
-	for range 7 {
-		coverage.Add(e.Stimulus(), mustSetCount(t, 3))
+// 週目標のアクセサ。Task 16 の入口で使われるので、空を返すと
+// 全セッションの補助種目が消える。
+func TestProgram_WeeklyTarget(t *testing.T) {
+	target := simpleTarget(t)
+	p, err := training.NewProgram(mustFrequency(t, 3), target, []training.ExerciseID{"bench"})
+	if err != nil {
+		t.Fatalf("生成に失敗: %v", err)
 	}
 
-	got := coverage[training.ChestMid]
-	if n := decimalPlaces(strconv.FormatFloat(got, 'f', -1, 64)); n > 6 {
-		t.Errorf("端数が残っている: %v（小数点以下 %d 桁）", got, n)
+	got := p.WeeklyTarget()
+	if got.IsEmpty() {
+		t.Fatal("週目標が空で返る")
 	}
-}
-
-func TestResidual_SubtractsCoverage(t *testing.T) {
-	target := mustTarget(t, map[training.MuscleRegion]float64{
-		training.ChestMid:   12,
-		training.ChestUpper: 8,
-	})
-	coverage := training.StimulusCoverage{training.ChestMid: 4}
-
-	got := training.Residual(target, coverage)
-	if math.Abs(got[training.ChestMid]-8) > 1e-9 {
-		t.Errorf("残差が誤り: %v", got[training.ChestMid])
+	if len(got.Regions()) != len(target.Regions()) {
+		t.Errorf("区分数が誤り: got %d, want %d", len(got.Regions()), len(target.Regions()))
 	}
-	if math.Abs(got[training.ChestUpper]-8) > 1e-9 {
-		t.Errorf("カバーされていない区分の残差が誤り: %v", got[training.ChestUpper])
-	}
-}
-
-func TestResidual_DropsSatisfiedRegions(t *testing.T) {
-	target := mustTarget(t, map[training.MuscleRegion]float64{training.ChestMid: 4})
-
-	for _, covered := range []float64{4, 6} {
-		got := training.Residual(target, training.StimulusCoverage{training.ChestMid: covered})
-		if len(got) != 0 {
-			t.Errorf("カバレッジ %v で残差が残っている: %v", covered, got)
+	for _, r := range target.Regions() {
+		if math.Abs(got.Sets(r)-target.Sets(r)) > 1e-9 {
+			t.Errorf("%s の目標が誤り: got %v, want %v", r, got.Sets(r), target.Sets(r))
 		}
 	}
 }
 
-// 目標に無い区分はカバレッジがあっても残差に現れないこと。
-// 現れると、目標を設定していない区分に補助種目が割り当てられる。
-func TestResidual_IgnoresRegionsOutsideTheTarget(t *testing.T) {
-	target := mustTarget(t, map[training.MuscleRegion]float64{training.ChestMid: 12})
-	coverage := training.StimulusCoverage{training.Calf: 5}
-
-	got := training.Residual(target, coverage)
-	if _, ok := got[training.Calf]; ok {
-		t.Errorf("目標に無い区分が残差に現れている: %v", got)
+// 種目IDの検証を NewExerciseID に委ねていること。
+// 独自判定だと前後に空白のあるIDが通り、種目マスタと永久に一致しない。
+// 一致しないIDは黙って無視されるので、選んだ種目が理由なく消える。
+func TestNewProgram_ValidatesExerciseIDs(t *testing.T) {
+	for _, id := range []training.ExerciseID{"   ", " bench", "bench ", "\tbench"} {
+		got, err := training.NewProgram(mustFrequency(t, 3), simpleTarget(t),
+			[]training.ExerciseID{id})
+		if err == nil {
+			t.Errorf("不正な種目ID %q が通ってしまう: %+v", id, got)
+		}
 	}
 }
 
-func TestResidual_IsQuantized(t *testing.T) {
-	target := mustTarget(t, map[training.MuscleRegion]float64{training.ChestMid: 10})
-	coverage := training.StimulusCoverage{training.ChestMid: 3.333333}
+// 量子化がコンストラクタで効いていること。
+// 境界のすぐ外側でも、量子化して境界に乗る値は通す。
+func TestNewWeeklyVolumeTarget_Quantizes(t *testing.T) {
+	for _, v := range []float64{0.4999996, 40.0000004} {
+		if _, err := training.NewWeeklyVolumeTarget(map[training.MuscleRegion]float64{
+			training.ChestMid: v,
+		}); err != nil {
+			t.Errorf("量子化すれば境界に収まる %v が弾かれた: %v", v, err)
+		}
+	}
 
-	got := training.Residual(target, coverage)[training.ChestMid]
+	target := mustTarget(t, map[training.MuscleRegion]float64{
+		training.ChestMid: 12.12345678901234,
+	})
+	got := target.Sets(training.ChestMid)
 	if n := decimalPlaces(strconv.FormatFloat(got, 'f', -1, 64)); n > 6 {
-		t.Errorf("端数が残っている: %v（小数点以下 %d 桁）", got, n)
-	}
-}
-
-func TestResidual_EmptyInputs(t *testing.T) {
-	var zero training.WeeklyVolumeTarget
-	if got := training.Residual(zero, training.StimulusCoverage{}); len(got) != 0 {
-		t.Errorf("ゼロ値の目標から残差が出る: %v", got)
-	}
-
-	target := simpleTarget(t)
-	got := training.Residual(target, nil)
-	if len(got) != len(target.Regions()) {
-		t.Errorf("カバレッジ無しで全区分が残差にならない: %v", got)
+		t.Errorf("量子化されていない: %v（小数点以下 %d 桁）", got, n)
 	}
 }

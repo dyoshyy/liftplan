@@ -3,7 +3,6 @@ package training
 import (
 	"errors"
 	"fmt"
-	"math"
 	"sort"
 )
 
@@ -32,7 +31,8 @@ func NewWeeklyVolumeTarget(m map[MuscleRegion]float64) (WeeklyVolumeTarget, erro
 			return WeeklyVolumeTarget{}, fmt.Errorf("未知の筋区分: %q", region)
 		}
 		q := quantize(v)
-		if err := validateRange(fmt.Sprintf("筋区分 %s の目標セット数", region), q, minWeeklySets, maxWeeklySets); err != nil {
+		name := fmt.Sprintf("筋区分 %s の目標セット数", region)
+		if err := validateRange(name, q, minWeeklySets, maxWeeklySets); err != nil {
 			return WeeklyVolumeTarget{}, err
 		}
 		out[region] = q
@@ -58,29 +58,6 @@ func (t WeeklyVolumeTarget) Regions() []MuscleRegion {
 
 func (t WeeklyVolumeTarget) IsEmpty() bool { return len(t.m) == 0 }
 
-// PerSession は週目標を頻度で割った、1セッションあたりの目標。
-//
-// 割った結果が下限を下回る区分は落とす。週0.5セットの区分を頻度4で割ると
-// 0.125 になり、補助種目1つ（3セット）で大幅に超過する。
-// そういう区分は「このセッションでは狙わない」とみなす方が素直。
-func (t WeeklyVolumeTarget) PerSession(f Frequency) WeeklyVolumeTarget {
-	if t.IsEmpty() || f.IsZero() {
-		return WeeklyVolumeTarget{}
-	}
-
-	out := make(map[MuscleRegion]float64, len(t.m))
-	for r, v := range t.m {
-		q := quantize(v / float64(f.PerWeek()))
-		if q >= minWeeklySets {
-			out[r] = q
-		}
-	}
-	if len(out) == 0 {
-		return WeeklyVolumeTarget{}
-	}
-	return WeeklyVolumeTarget{m: out}
-}
-
 // Program はユーザーの設定を保持する集約ルート。
 // 頻度・週目標・使う種目を一貫した単位で扱う。
 type Program struct {
@@ -102,9 +79,14 @@ func NewProgram(freq Frequency, target WeeklyVolumeTarget, selected []ExerciseID
 
 	seen := make(map[ExerciseID]bool, len(selected))
 	copied := make([]ExerciseID, 0, len(selected))
-	for _, id := range selected {
-		if id == "" {
-			return nil, errors.New("空の種目IDが含まれている")
+	for _, raw := range selected {
+		// 種目IDの検証は NewExerciseID に委ねる。ここで独自に判定すると、
+		// 前後に空白のあるIDが通り、種目マスタのIDと永久に一致しなくなる。
+		// 一致しないIDは黙って無視されるため、ユーザーが選んだ種目が
+		// 理由の説明なく消える。
+		id, err := NewExerciseID(string(raw))
+		if err != nil {
+			return nil, fmt.Errorf("選択された種目: %w", err)
 		}
 		if seen[id] {
 			return nil, fmt.Errorf("種目が重複している: %s", id)
@@ -132,32 +114,4 @@ func (p *Program) Includes(id ExerciseID) bool {
 		}
 	}
 	return false
-}
-
-// StimulusCoverage は各筋区分がすでに何セット分埋まっているか。
-type StimulusCoverage map[MuscleRegion]float64
-
-// Add は種目を実施したときの刺激を積み上げる。
-func (c StimulusCoverage) Add(p StimulusProfile, sets SetCount) {
-	for _, region := range p.Regions() {
-		contribution, ok := p.Contribution(region)
-		if !ok {
-			continue
-		}
-		c[region] = quantize(c[region] + contribution.TimesSets(sets))
-	}
-}
-
-// Residual は目標に対して埋まっていない分。0以下の区分は落とす。
-//
-// 補助種目の選択を「自分で設計する」から「メインの残差を解く」に変える土台。
-func Residual(target WeeklyVolumeTarget, coverage StimulusCoverage) map[MuscleRegion]float64 {
-	out := map[MuscleRegion]float64{}
-	for _, region := range target.Regions() {
-		gap := quantize(target.Sets(region) - coverage[region])
-		if gap > 0 && !math.IsNaN(gap) {
-			out[region] = gap
-		}
-	}
-	return out
 }

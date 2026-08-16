@@ -656,7 +656,20 @@ git commit -m "feat(domain): Program 集約と残差計算を追加する"
   - `type AccessorySelector struct{...}`
   - `func NewAccessorySelector(recoveryDays, setsPerAccessory int) (AccessorySelector, error)`
   - `func DefaultAccessorySelector() AccessorySelector` — recoveryDays 2、setsPerAccessory 3
-  - `func (s AccessorySelector) Select(residual map[MuscleRegion]float64, pool []*Exercise, h History, date Date, slots int) []ExerciseID`
+  - `func (s AccessorySelector) Select(residual map[MuscleRegion]float64, pool []*Exercise, h History, date Date) []ExerciseID` — スロット数は残差から導く
+
+**補助スロット数は残差から決める（重要）:**
+
+固定の3スロットでは、週目標を構造的に達成できない。シードの週目標は21区分合計で198セット相当だが、3スロット×3セット×寄与合計では1セッションあたり15セット相当が上限で、頻度4でも週合計85%程度にしか届かない。
+
+`slots` を固定値ではなく、次のように残差から導くこと。
+
+```
+必要スロット数 = ceil(残差の合計 / setsPerAccessory)
+実際のスロット数 = min(必要スロット数, maxAccessorySlots)
+```
+
+`maxAccessorySlots` はセッションの長さの上限（8程度）。これで、残差が小さい日は短く、大きい日は長くなる。
 
 **アルゴリズム:**
 
@@ -1704,6 +1717,10 @@ git commit -m "feat(domain): デロード提案のポリシーを追加する"
   - `type PlanRequest struct{ Program *Program; Pool []*Exercise; History History; Conditions ConditionLog; Date Date; DeloadAccepted bool; AccessorySlots int }`
   - `type SessionPlanner struct{...}` / `func NewSessionPlanner(...) SessionPlanner` / `func DefaultSessionPlanner() SessionPlanner`
   - `func (p SessionPlanner) Plan(req PlanRequest) (PlannedSession, error)`
+
+**メイン種目が1つも選ばれていないプログラムはエラーにすること。** `Plan` が空のメインを返すと、ユーザーには空のワークアウトが返り、どこにもエラーが立たない。集約は種目マスタを知らないので検証できず、ここが唯一の検出点になる。
+
+**週内カバレッジは履歴から求める。** `coveredThisWeek` は週初からその日までの実績を走査し、種目の刺激分布とセット数から `StimulusCoverage` を組み立てる。これが無いと残差の繰り越しが成立しない。
 
 **この関数がドメインの入口。** 未来のセッションは保存せず、今日のメニューも来週のメニューもこの関数を対象日で呼んだ結果でしかない。だから予定と実績が食い違う状態が発生しない。
 
