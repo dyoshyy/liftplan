@@ -561,7 +561,7 @@ func TestGetSession_DeloadAcceptanceReachesTheDomain(t *testing.T) {
 	mux := stalledServer(t)
 	normal := fetchSession(t, mux, "").weightOf(t, "bench")
 
-	for _, raw := range []string{"bench", ",bench,", " bench ", "bench,無い種目"} {
+	for _, raw := range []string{"bench", ",bench,", " bench "} {
 		got := fetchSession(t, mux, "&deload_accepted="+url.QueryEscape(raw)).weightOf(t, "bench")
 		if got >= normal {
 			t.Errorf("deload_accepted=%q が届いていない: %v → %v", raw, normal, got)
@@ -817,5 +817,46 @@ func TestDecodeError_DoesNotLeakGoTypes(t *testing.T) {
 		if strings.Contains(rec.Body.String(), leak) {
 			t.Errorf("内部の型名が漏れている（%q）: %s", leak, rec.Body.String())
 		}
+	}
+}
+
+// 承認された種目が実在しないなら 400。黙って無視すると、
+// ユーザーは承認したつもりでいるのに重量が下がらない。
+func TestGetSession_RejectsUnknownDeloadAcceptance(t *testing.T) {
+	rec := do(t, newServer(t, true),
+		http.MethodGet, "/api/sessions?date=2026-08-17&deload_accepted=無い種目", "")
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("実在しない種目の承認が 400 でない: %d body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+// 停滞した種目が機械可読な形で応答に載ること。
+// 根拠の散文から抜き出させると、文言を変えた瞬間に
+// デロードが静かに効かなくなる。
+func TestGetSession_ExposesStalledExercises(t *testing.T) {
+	rec := do(t, stalledServer(t), http.MethodGet, "/api/sessions?date=2026-08-17", "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("ステータスが誤り: %d", rec.Code)
+	}
+
+	var got struct {
+		Deload *struct {
+			StalledExercises []string `json:"stalled_exercises"`
+		} `json:"deload_proposal"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatalf("応答を解釈できない: %v", err)
+	}
+	if got.Deload == nil {
+		t.Fatal("提案が無い")
+	}
+	if len(got.Deload.StalledExercises) != 1 || got.Deload.StalledExercises[0] != "bench" {
+		t.Errorf("停滞種目が載っていない: %v", got.Deload.StalledExercises)
+	}
+
+	// 載っている ID をそのまま承認に渡せること。
+	query := "&deload_accepted=" + url.QueryEscape(strings.Join(got.Deload.StalledExercises, ","))
+	if rec := do(t, stalledServer(t), http.MethodGet, "/api/sessions?date=2026-08-17"+query, ""); rec.Code != http.StatusOK {
+		t.Errorf("載っている ID を承認に渡せない: %d body=%s", rec.Code, rec.Body.String())
 	}
 }
