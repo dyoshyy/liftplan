@@ -5,27 +5,51 @@ import (
 	"math"
 )
 
-// maxRatio は対メイン係数の現実的な上限。
-// バリエーションが通常フォームより大きく挙がることは無いが、フォームの違いで
-// わずかに上回る種目はあるため 1.0 ちょうどでは切らない。
-const maxRatio = 1.2
+// 現実的な上限。
+//
+// 上限を設ける目的は2つある。ひとつは入力ミスを早期に弾くこと。もうひとつは、
+// int の加算や float の演算がオーバーフローする領域へ値を到達させないこと。
+// 例えば Reps と RIR に上限が無いと、Epley 式の reps+rir が int を溢れて負になり、
+// 推定1RMが負になる。
+const (
+	maxWeightKg    = 1000
+	maxIncrementKg = 50
+	maxReps        = 1000
+	maxRIR         = 100
+	maxSetCount    = 100
 
-// quantum は浮動小数点演算の残差を落とすための桁数。
-// 0.1 刻みのような増加単位で math.Round を使うと 82.50000000000001 のような値が出る。
+	// maxRatio は比率の現実的な上限。バリエーションが通常フォームを大きく上回ることは
+	// 無いが、フォームの違いでわずかに上回る種目はあるため 1.0 ちょうどでは切らない。
+	maxRatio = 1.2
+)
+
+// quantum は浮動小数点演算の残差を落とす桁数。
+// math.Round(v/inc)*inc は 3.7000000000000006 のような値を生み、
+// それが JSON に出るとユーザーの目に触れる。
 const quantum = 1e6
 
 // quantize は浮動小数点の計算残差を落とす。
+//
+// 検証の「前」に適用すること。後に適用すると、検証を通った値が量子化で
+// +Inf になったり 0 に潰れたりして、コンストラクタが自分で不変条件を破る。
 func quantize(v float64) float64 { return math.Round(v*quantum) / quantum }
 
-func rejectNonFinite(name string, v float64) error {
+// validateRange は量子化済みの値が [min, max] に収まるかを検査する。
+func validateRange(name string, v, min, max float64) error {
 	if math.IsNaN(v) {
 		return fmt.Errorf("%sが数値ではない", name)
 	}
 	if math.IsInf(v, 0) {
 		return fmt.Errorf("%sが無限大である", name)
 	}
+	if v < min || v > max {
+		return fmt.Errorf("%sは%v〜%vの範囲である必要がある: %v", name, min, max, v)
+	}
 	return nil
 }
+
+// smallestPositive は量子化後に0に潰れない最小の正の値。
+const smallestPositive = 1 / quantum
 
 // Increment はジムのプレート構成に対応する重量の刻み。
 type Increment struct {
@@ -33,13 +57,11 @@ type Increment struct {
 }
 
 func NewIncrement(kg float64) (Increment, error) {
-	if err := rejectNonFinite("増加単位", kg); err != nil {
+	q := quantize(kg)
+	if err := validateRange("増加単位", q, smallestPositive, maxIncrementKg); err != nil {
 		return Increment{}, err
 	}
-	if kg <= 0 {
-		return Increment{}, fmt.Errorf("増加単位は正の数である必要がある: %v", kg)
-	}
-	return Increment{kg: quantize(kg)}, nil
+	return Increment{kg: q}, nil
 }
 
 func (i Increment) Kg() float64 { return i.kg }
@@ -53,40 +75,38 @@ type Weight struct {
 }
 
 func NewWeight(kg float64) (Weight, error) {
-	if err := rejectNonFinite("重量", kg); err != nil {
+	q := quantize(kg)
+	// 自重種目を0kgで記録する運用があるため下限は0。
+	if err := validateRange("重量", q, 0, maxWeightKg); err != nil {
 		return Weight{}, err
 	}
-	if kg < 0 {
-		return Weight{}, fmt.Errorf("重量は0以上である必要がある: %v", kg)
-	}
-	return Weight{kg: quantize(kg)}, nil
+	return Weight{kg: q}, nil
 }
 
 func (w Weight) Kg() float64 { return w.kg }
 
+// IsZero はゼロ値かどうか。0kg の自重種目と区別できない点に注意。
+func (w Weight) IsZero() bool { return w == Weight{} }
+
 // RoundTo は増加単位へ丸める。
 //
-// 丸めた結果は必ず0以上の有効な重量になるためエラーを返さない。
-// ゼロ値の Increment を渡された場合は丸めずそのまま返す（0除算を避ける）。
-func (w Weight) RoundTo(inc Increment) Weight {
+// ゼロ値の Increment はエラーにする。黙って丸めずに返すと、バーに載らない
+// 半端な重量がそのまま処方され、しかも誰も気づけない。
+func (w Weight) RoundTo(inc Increment) (Weight, error) {
 	if inc.IsZero() {
-		return w
+		return Weight{}, fmt.Errorf("増加単位が未設定のため丸められない")
 	}
-	rounded := quantize(math.Round(w.kg/inc.kg) * inc.kg)
-	if rounded < 0 {
-		rounded = 0
-	}
-	return Weight{kg: rounded}
+	return NewWeight(math.Round(w.kg/inc.kg) * inc.kg)
 }
 
-// Reps は実際に挙げた回数。1以上。
+// Reps は実際に挙げた回数。
 type Reps struct {
 	v int
 }
 
 func NewReps(v int) (Reps, error) {
-	if v < 1 {
-		return Reps{}, fmt.Errorf("レップ数は1以上である必要がある: %d", v)
+	if v < 1 || v > maxReps {
+		return Reps{}, fmt.Errorf("レップ数は1〜%dの範囲である必要がある: %d", maxReps, v)
 	}
 	return Reps{v: v}, nil
 }
@@ -102,8 +122,8 @@ type RIR struct {
 }
 
 func NewRIR(v int) (RIR, error) {
-	if v < 0 {
-		return RIR{}, fmt.Errorf("RIRは0以上である必要がある: %d", v)
+	if v < 0 || v > maxRIR {
+		return RIR{}, fmt.Errorf("RIRは0〜%dの範囲である必要がある: %d", maxRIR, v)
 	}
 	return RIR{v: v}, nil
 }
@@ -111,11 +131,16 @@ func NewRIR(v int) (RIR, error) {
 func (r RIR) Int() int { return r.v }
 
 // Plus は補正を加える。睡眠不足の日に目標RIRを上げるために使う。
-// 下限0で丸めるため、常に有効な値を返す。
+// 有効範囲に丸めるため、常に有効な値を返す。
 func (r RIR) Plus(n int) RIR {
 	v := r.v + n
-	if v < 0 {
+	switch {
+	case n > 0 && v < r.v: // int のオーバーフロー
+		v = maxRIR
+	case v < 0:
 		v = 0
+	case v > maxRIR:
+		v = maxRIR
 	}
 	return RIR{v: v}
 }
@@ -126,42 +151,47 @@ type IntensityPct struct {
 }
 
 func NewIntensityPct(v float64) (IntensityPct, error) {
-	if err := rejectNonFinite("強度", v); err != nil {
+	q := quantize(v)
+	if err := validateRange("強度", q, smallestPositive, 1); err != nil {
 		return IntensityPct{}, err
 	}
-	if v <= 0 || v > 1 {
-		return IntensityPct{}, fmt.Errorf("強度は0より大きく1以下である必要がある: %v", v)
-	}
-	return IntensityPct{v: quantize(v)}, nil
+	return IntensityPct{v: q}, nil
 }
 
 func (i IntensityPct) Float() float64 { return i.v }
 
-// Scale は係数を掛ける。デロードで強度を下げるために使う。
+// maxReduction は一度に下げられる強度の上限。
 //
-// 引数を検証済みの Ratio に限ることで、結果が0以下になる経路を型で塞いでいる。
-// 上限は 1.0 に丸める（1RM を超える強度は意味を持たないため）。
-func (i IntensityPct) Scale(r Ratio) IntensityPct {
-	v := quantize(i.v * r.v)
-	if v > 1 {
-		v = 1
+// 設定ミスで極端な低下率が入っても、トレーニングとして意味のある強度を保つ。
+// また、これを 0.5 に抑えることで結果が0に潰れないことが保証される。
+// 強度の最小値 1/quantum に対して (1-0.5) を掛けても、量子化で切り上がるため。
+const maxReduction = 0.5
+
+// Reduce は強度を pct の割合だけ下げる。デロードで使う。
+//
+// エラーを返さないのは、呼び出し側に `NewRatio(1-drop)` のような
+// 握り潰されがちなエラー処理を強いないため。pct は (0, maxReduction] に丸める。
+func (i IntensityPct) Reduce(pct float64) IntensityPct {
+	if math.IsNaN(pct) || pct <= 0 {
+		return i
 	}
-	return IntensityPct{v: v}
+	if pct > maxReduction {
+		pct = maxReduction
+	}
+	return IntensityPct{v: quantize(i.v * (1 - pct))}
 }
 
-// Ratio は比率。バリエーションの対メイン係数と、デロードの強度低下に使う。
+// Ratio は比率。バリエーションの対メイン係数に使う。
 type Ratio struct {
 	v float64
 }
 
 func NewRatio(v float64) (Ratio, error) {
-	if err := rejectNonFinite("比率", v); err != nil {
+	q := quantize(v)
+	if err := validateRange("比率", q, smallestPositive, maxRatio); err != nil {
 		return Ratio{}, err
 	}
-	if v <= 0 || v > maxRatio {
-		return Ratio{}, fmt.Errorf("比率は0より大きく%v以下である必要がある: %v", maxRatio, v)
-	}
-	return Ratio{v: quantize(v)}, nil
+	return Ratio{v: q}, nil
 }
 
 func (r Ratio) Float() float64 { return r.v }
@@ -172,8 +202,8 @@ type SetCount struct {
 }
 
 func NewSetCount(v int) (SetCount, error) {
-	if v < 1 {
-		return SetCount{}, fmt.Errorf("セット数は1以上である必要がある: %d", v)
+	if v < 1 || v > maxSetCount {
+		return SetCount{}, fmt.Errorf("セット数は1〜%dの範囲である必要がある: %d", maxSetCount, v)
 	}
 	return SetCount{v: v}, nil
 }
@@ -186,13 +216,16 @@ type Contribution struct {
 }
 
 func NewContribution(v float64) (Contribution, error) {
-	if err := rejectNonFinite("寄与度", v); err != nil {
+	q := quantize(v)
+	if err := validateRange("寄与度", q, smallestPositive, 1); err != nil {
 		return Contribution{}, err
 	}
-	if v <= 0 || v > 1 {
-		return Contribution{}, fmt.Errorf("寄与度は0より大きく1以下である必要がある: %v", v)
-	}
-	return Contribution{v: quantize(v)}, nil
+	return Contribution{v: q}, nil
 }
 
 func (c Contribution) Float() float64 { return c.v }
+
+// TimesSets は指定セット数ぶんの刺激量。StimulusCoverage の積み上げに使う。
+func (c Contribution) TimesSets(s SetCount) float64 {
+	return quantize(c.v * float64(s.v))
+}
