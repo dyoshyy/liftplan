@@ -3,6 +3,7 @@ package training_test
 import (
 	"fmt"
 	"math"
+	"sort"
 	"strconv"
 	"testing"
 	"time"
@@ -129,9 +130,12 @@ func TestHistory_SessionsAreDefensivelyCopied(t *testing.T) {
 		t.Error("Logs の書き換えが内部状態に波及している")
 	}
 
-	sessionLogs := h.Sessions()[0].Logs()
+	// 同じ TrainingSession 値に対して2回呼ぶ。Sessions() を2回呼ぶと
+	// マップから組み直されるため、防御的コピーを外しても検出できない。
+	session := h.Sessions()[0]
+	sessionLogs := session.Logs()
 	sessionLogs[0] = nil
-	if h.Sessions()[0].Logs()[0] == nil {
+	if session.Logs()[0] == nil {
 		t.Error("Session.Logs の書き換えが内部状態に波及している")
 	}
 }
@@ -155,22 +159,56 @@ func TestHistory_ForExercise(t *testing.T) {
 }
 
 func TestHistory_DateFilters(t *testing.T) {
+	// 境界の前後に隣接日を置く。5日刻みのデータだと、境界が1日ずれても
+	// 件数が変わらず、48時間ルールの1日ズレを検出できない。
 	h := training.NewHistory([]*training.SetLog{
-		mkLog(t, "a", 10, "bench", 80, 8, 2),
-		mkLog(t, "b", 15, "bench", 82.5, 8, 2),
-		mkLog(t, "c", 20, "bench", 85, 8, 2),
+		mkLog(t, "d13", 13, "bench", 80, 8, 2),
+		mkLog(t, "d14", 14, "bench", 80, 8, 2),
+		mkLog(t, "d15", 15, "bench", 82.5, 8, 2),
+		mkLog(t, "d16", 16, "bench", 85, 8, 2),
+		mkLog(t, "d17", 17, "bench", 85, 8, 2),
 	})
 	cut := training.MustDate(2026, time.August, 15)
 
-	// 境界日を含むかどうかは 48時間ルールの判定に直結する。
-	if got := h.OnOrAfter(cut).Len(); got != 2 {
-		t.Errorf("OnOrAfter が境界日を含んでいない: %d", got)
+	cases := []struct {
+		name string
+		got  training.History
+		want []string
+	}{
+		{"OnOrAfter は境界日を含む", h.OnOrAfter(cut), []string{"d15", "d16", "d17"}},
+		{"Before は境界日を含まない", h.Before(cut), []string{"d13", "d14"}},
+		{"After は境界日を含まない", h.After(cut), []string{"d16", "d17"}},
+		{"半開区間で閉じられる", h.OnOrAfter(cut).Before(training.MustDate(2026, time.August, 17)),
+			[]string{"d15", "d16"}},
+		{"重ねると空になる", h.OnOrAfter(cut).Before(cut), nil},
 	}
-	if got := h.Before(cut).Len(); got != 1 {
-		t.Errorf("Before が境界日を含んでしまっている: %d", got)
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			assertLogIDs(t, c.got, c.want)
+		})
 	}
-	if got := h.OnOrAfter(cut).Before(cut).Len(); got != 0 {
-		t.Errorf("両方の条件を満たすログがある: %d", got)
+}
+
+func assertLogIDs(t *testing.T, h training.History, want []string) {
+	t.Helper()
+
+	got := make([]string, 0, h.Len())
+	for _, l := range h.Logs() {
+		got = append(got, string(l.ID()))
+	}
+	sort.Strings(got)
+
+	wantSorted := append([]string(nil), want...)
+	sort.Strings(wantSorted)
+
+	if len(got) != len(wantSorted) {
+		t.Fatalf("件数が誤り: got %v, want %v", got, wantSorted)
+	}
+	for i := range got {
+		if got[i] != wantSorted[i] {
+			t.Fatalf("含まれるログが誤り: got %v, want %v", got, wantSorted)
+		}
 	}
 }
 
@@ -195,20 +233,69 @@ func TestHistory_LastPerformed(t *testing.T) {
 }
 
 func TestTrainingSession_MedianResistsOutlier(t *testing.T) {
-	// 同日3セット。1セットだけ異常に高い記録が混ざっている。
-	h := training.NewHistory([]*training.SetLog{
-		mkLog(t, "a", 10, "bench", 85, 9, 2),
-		mkLog(t, "b", 10, "bench", 85, 9, 2),
-		mkLog(t, "c", 10, "bench", 200, 9, 2), // 外れ値
-	})
-
-	got, ok := h.Sessions()[0].MedianOneRepMax()
-	if !ok {
-		t.Fatal("中央値が取れない")
+	// 外れ値がセッション内のどこにあっても中央値は変わらないこと。
+	// ログの順序はリポジトリの ID ソートが決めるので、外れ値が先頭に来ることは
+	// 日常的に起きる。同値を並べたデータだと、ソートを外しても最小値を返しても
+	// 同じ結果になってしまい、中央値であることを検証できない。
+	positions := []struct {
+		name    string
+		weights []float64
+	}{
+		{"先頭", []float64{200, 80, 90}},
+		{"中央", []float64{80, 200, 90}},
+		{"末尾", []float64{80, 90, 200}},
 	}
-	want := 85.0 * (1 + 11.0/30.0)
-	if math.Abs(got.Kg()-want) > 1e-5 {
-		t.Errorf("外れ値に引きずられている: got %v, want %v", got.Kg(), want)
+
+	// 80, 90, 200 の推定1RM のうち中央は 90 のもの。
+	want := 90.0 * (1 + 11.0/30.0)
+
+	for _, p := range positions {
+		t.Run(p.name, func(t *testing.T) {
+			logs := make([]*training.SetLog, 0, len(p.weights))
+			for i, w := range p.weights {
+				logs = append(logs, mkLog(t, fmt.Sprintf("s%d", i), 10, "bench", w, 9, 2))
+			}
+
+			got, ok := training.NewHistory(logs).Sessions()[0].MedianOneRepMax()
+			if !ok {
+				t.Fatal("中央値が取れない")
+			}
+			if math.Abs(got.Kg()-want) > 1e-4 {
+				t.Errorf("外れ値の位置で結果が変わる: got %v, want %v", got.Kg(), want)
+			}
+		})
+	}
+}
+
+// 全値が相異なる場合の中央値。同値が混ざっていると、最小値を返す実装でも通ってしまう。
+func TestTrainingSession_MedianOfDistinctValues(t *testing.T) {
+	cases := []struct {
+		name    string
+		weights []float64
+		want    float64
+	}{
+		{"3件", []float64{100, 60, 80}, 80},
+		{"5件", []float64{120, 60, 100, 70, 80}, 80},
+		{"5件・昇順", []float64{60, 70, 80, 100, 120}, 80},
+		{"5件・降順", []float64{120, 100, 80, 70, 60}, 80},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			logs := make([]*training.SetLog, 0, len(c.weights))
+			for i, w := range c.weights {
+				logs = append(logs, mkLog(t, fmt.Sprintf("s%d", i), 10, "bench", w, 9, 2))
+			}
+
+			got, ok := training.NewHistory(logs).Sessions()[0].MedianOneRepMax()
+			if !ok {
+				t.Fatal("中央値が取れない")
+			}
+			want := c.want * (1 + 11.0/30.0)
+			if math.Abs(got.Kg()-want) > 1e-4 {
+				t.Errorf("got %v, want %v（%vkg の推定1RM）", got.Kg(), want, c.want)
+			}
+		})
 	}
 }
 
@@ -321,5 +408,51 @@ func TestTrainingSession_MedianIsQuantized(t *testing.T) {
 	if n := decimalPlaces(strconv.FormatFloat(got.Kg(), 'f', -1, 64)); n > 6 {
 		t.Errorf("中央値に端数が残っている: %s（小数点以下 %d 桁）",
 			strconv.FormatFloat(got.Kg(), 'f', -1, 64), n)
+	}
+}
+
+// SessionCount と Sessions() は別実装なので、定義が食い違わないことを保証する。
+func TestHistory_SessionCountMatchesSessions(t *testing.T) {
+	cases := [][]*training.SetLog{
+		nil,
+		{mkLog(t, "a", 10, "bench", 80, 8, 2)},
+		{mkLog(t, "a", 10, "bench", 80, 8, 2), mkLog(t, "b", 10, "squat", 100, 8, 2)},
+		{mkLog(t, "a", 10, "bench", 80, 8, 2), mkLog(t, "b", 11, "bench", 80, 8, 2)},
+	}
+	for i, logs := range cases {
+		h := training.NewHistory(logs)
+		if got, want := h.SessionCount(), len(h.Sessions()); got != want {
+			t.Errorf("ケース%d: SessionCount=%d だが Sessions()=%d 件", i, got, want)
+		}
+	}
+}
+
+// 空でないセッションが IsEmpty を返さないこと。
+func TestTrainingSession_IsEmptyReflectsContent(t *testing.T) {
+	h := training.NewHistory([]*training.SetLog{mkLog(t, "a", 10, "bench", 80, 8, 2)})
+	if h.Sessions()[0].IsEmpty() {
+		t.Error("ログのあるセッションが空と判定された")
+	}
+}
+
+// 絞り込んだ履歴でも最終実施日が正しいこと。
+// 索引を持つ実装では、絞り込みのたびに索引を作り直す必要がある。
+func TestHistory_LastPerformedAfterFiltering(t *testing.T) {
+	h := training.NewHistory([]*training.SetLog{
+		mkLog(t, "a", 10, "bench", 80, 8, 2),
+		mkLog(t, "b", 20, "bench", 85, 8, 2),
+		mkLog(t, "c", 25, "squat", 120, 8, 2),
+	})
+
+	got, ok := h.Before(training.MustDate(2026, time.August, 15)).LastPerformed("bench")
+	if !ok {
+		t.Fatal("絞り込み後に最終実施日が取れない")
+	}
+	if want := training.MustDate(2026, time.August, 10); !got.Equal(want) {
+		t.Errorf("絞り込みが索引に反映されていない: got %v, want %v", got, want)
+	}
+
+	if _, ok := h.ForExercise("bench").LastPerformed("squat"); ok {
+		t.Error("絞り込みで除いた種目の最終実施日が取れる")
 	}
 }
