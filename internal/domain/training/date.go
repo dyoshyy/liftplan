@@ -38,7 +38,13 @@ func (d Date) DaysSince(o Date) int {
 	return int(d.t.Sub(o.t).Hours() / 24)
 }
 
+// Weekday は曜日。週初の算出とテストの前提確認に使う。
+func (d Date) Weekday() time.Weekday { return d.t.Weekday() }
+
 // WeekStart はその日が属する週の月曜日を返す。
+//
+// 週の開始を月曜に固定するのは、セッションが週内で何本目かを数えるため。
+// 日曜開始にすると土日のトレーニングが別の週に割れる。
 func (d Date) WeekStart() Date {
 	offset := (int(d.t.Weekday()) + 6) % 7 // 月曜を0にする
 	return d.AddDays(-offset)
