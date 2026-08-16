@@ -13,9 +13,15 @@ import (
 
 func mkLog(t *testing.T, id string, day int, exercise string, kg float64, reps, rir int) *training.SetLog {
 	t.Helper()
+	return mkLogOn(t, id, training.MustDate(2026, time.August, 1).AddDays(day-1), exercise, kg, reps, rir)
+}
+
+// mkLogOn は日付を直接指定する。月をまたぐ長期の履歴を組むときに使う。
+func mkLogOn(t *testing.T, id string, date training.Date, exercise string, kg float64, reps, rir int) *training.SetLog {
+	t.Helper()
 	s, err := training.NewSetLog(training.SetLogParams{
 		ID:          id,
-		PerformedOn: training.MustDate(2026, time.August, day),
+		PerformedOn: date,
 		ExerciseID:  exercise,
 		WeightKg:    kg,
 		Reps:        reps,

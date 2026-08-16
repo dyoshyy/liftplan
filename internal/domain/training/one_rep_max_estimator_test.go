@@ -10,8 +10,11 @@ import (
 	"github.com/dyoshyy/liftplan-server/internal/domain/training"
 )
 
-// asOf は履歴のテストデータ（2026年8月）から見て十分近い基準日。
-func asOf(day int) training.Date { return training.MustDate(2026, time.August, day) }
+// asOf は履歴のテストデータの起点（2026年8月1日）から数えた n 日目。
+// 月をまたいでも破綻しないよう、加算で組み立てる。
+func asOf(day int) training.Date {
+	return training.MustDate(2026, time.August, 1).AddDays(day - 1)
+}
 
 func mustEstimator(t *testing.T, alpha float64, maxStaleDays int) training.OneRepMaxEstimator {
 	t.Helper()
