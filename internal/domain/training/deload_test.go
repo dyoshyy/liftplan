@@ -34,11 +34,14 @@ func flatWeight(from int) training.ConditionLog {
 	return steadyWeight(from, func(int) float64 { return 75 })
 }
 
-const lastDay = 1 + 3*7 // 4セッション目の日
+const (
+	sessions = 9 // 既定の停滞セッション数 8 + 1
+	lastDay  = 1 + (sessions-1)*7
+)
 
 func TestDeloadPolicy_ProposesWhenStalledAtStableWeight(t *testing.T) {
 	p := training.DefaultDeloadPolicy()
-	h := training.NewHistory(benchSessions(t, 4, func(int) float64 { return 85 }))
+	h := training.NewHistory(benchSessions(t, sessions, func(int) float64 { return 85 }))
 
 	got, ok := p.Propose(h, []training.ExerciseID{"bench"}, flatWeight(lastDay), baseDay(lastDay))
 	if !ok {
@@ -57,7 +60,7 @@ func TestDeloadPolicy_ProposesWhenStalledAtStableWeight(t *testing.T) {
 
 func TestDeloadPolicy_DoesNotProposeWhenImproving(t *testing.T) {
 	p := training.DefaultDeloadPolicy()
-	h := training.NewHistory(benchSessions(t, 4, func(i int) float64 { return 80 + float64(i)*2.5 }))
+	h := training.NewHistory(benchSessions(t, sessions, func(i int) float64 { return 80 + float64(i)*2.5 }))
 
 	if got, ok := p.Propose(h, []training.ExerciseID{"bench"}, flatWeight(lastDay), baseDay(lastDay)); ok {
 		t.Errorf("伸びているのに提案されている: %v", got.Reason())
@@ -71,8 +74,14 @@ func TestDeloadPolicy_ComparesAgainstTheWindowReference(t *testing.T) {
 	p := training.DefaultDeloadPolicy()
 
 	// 85 → 82.5 → 85 → 82.5 と振れているだけ。一度も 85 を超えていない。
-	oscillating := []float64{85, 82.5, 85, 82.5}
-	h := training.NewHistory(benchSessions(t, 4, func(i int) float64 { return oscillating[i] }))
+	oscillating := make([]float64, sessions)
+	for i := range oscillating {
+		oscillating[i] = 85
+		if i%2 == 1 {
+			oscillating[i] = 82.5
+		}
+	}
+	h := training.NewHistory(benchSessions(t, sessions, func(i int) float64 { return oscillating[i] }))
 
 	if _, ok := p.Propose(h, []training.ExerciseID{"bench"}, flatWeight(lastDay), baseDay(lastDay)); !ok {
 		t.Error("振れているだけの状態が更新と誤判定されている")
@@ -83,9 +92,13 @@ func TestDeloadPolicy_ComparesAgainstTheWindowReference(t *testing.T) {
 func TestDeloadPolicy_OneImprovementBreaksTheStall(t *testing.T) {
 	p := training.DefaultDeloadPolicy()
 
-	// 3回目だけ更新している。
-	weights := []float64{85, 85, 87.5, 85}
-	h := training.NewHistory(benchSessions(t, 4, func(i int) float64 { return weights[i] }))
+	// 途中で一度だけ更新している。
+	weights := make([]float64, sessions)
+	for i := range weights {
+		weights[i] = 85
+	}
+	weights[sessions-3] = 87.5
+	h := training.NewHistory(benchSessions(t, sessions, func(i int) float64 { return weights[i] }))
 
 	if got, ok := p.Propose(h, []training.ExerciseID{"bench"}, flatWeight(lastDay), baseDay(lastDay)); ok {
 		t.Errorf("窓の中で更新があるのに提案された: %v", got.Reason())
@@ -101,8 +114,8 @@ func TestDeloadPolicy_AnyImprovementCounts(t *testing.T) {
 	p := training.DefaultDeloadPolicy()
 
 	// 最終回だけ、レップを1本だけ増やした（重量は同じ）。
-	logs := benchSessions(t, 3, func(int) float64 { return 85 })
-	logs = append(logs, mkLogOn(t, "b03", baseDay(lastDay), "bench", 85, 9, 2))
+	logs := benchSessions(t, sessions-1, func(int) float64 { return 85 })
+	logs = append(logs, mkLogOn(t, "bLast", baseDay(lastDay), "bench", 85, 9, 2))
 
 	if got, ok := p.Propose(training.NewHistory(logs), []training.ExerciseID{"bench"},
 		flatWeight(lastDay), baseDay(lastDay)); ok {
@@ -111,8 +124,8 @@ func TestDeloadPolicy_AnyImprovementCounts(t *testing.T) {
 
 	// ごくわずかな更新（+0.3%）でも停滞ではない。
 	// 許容幅を置くと、この伸びが停滞と誤判定される。
-	tiny := benchSessions(t, 3, func(int) float64 { return 85 })
-	tiny = append(tiny, mkLogOn(t, "t03", baseDay(lastDay), "bench", 85.25, 8, 2))
+	tiny := benchSessions(t, sessions-1, func(int) float64 { return 85 })
+	tiny = append(tiny, mkLogOn(t, "tLast", baseDay(lastDay), "bench", 85.25, 8, 2))
 
 	if got, ok := p.Propose(training.NewHistory(tiny), []training.ExerciseID{"bench"},
 		flatWeight(lastDay), baseDay(lastDay)); ok {
@@ -127,9 +140,9 @@ func TestDeloadPolicy_AnyImprovementCounts(t *testing.T) {
 func TestDeloadPolicy_SkipsUnestimableSessions(t *testing.T) {
 	p := training.DefaultDeloadPolicy()
 
-	// 5セッション。2回目だけ全セット自重で、それ以外は 85kg で停滞。
-	logs := make([]*training.SetLog, 0, 5)
-	for i := range 5 {
+	// 2回目だけ全セット自重で、それ以外は 85kg で停滞。
+	logs := make([]*training.SetLog, 0, sessions+1)
+	for i := range sessions + 1 {
 		kg := 85.0
 		if i == 1 {
 			kg = 0
@@ -137,7 +150,7 @@ func TestDeloadPolicy_SkipsUnestimableSessions(t *testing.T) {
 		logs = append(logs, mkLogOn(t, fmt.Sprintf("u%02d", i),
 			baseDay(1+i*7), "bench", kg, 8, 2))
 	}
-	day := 1 + 4*7
+	day := 1 + sessions*7
 
 	if _, ok := p.Propose(training.NewHistory(logs), []training.ExerciseID{"bench"},
 		flatWeight(day), baseDay(day)); !ok {
@@ -148,7 +161,7 @@ func TestDeloadPolicy_SkipsUnestimableSessions(t *testing.T) {
 // 減量中の停滞は正常なので提案しない。
 func TestDeloadPolicy_DoesNotProposeWhileCutting(t *testing.T) {
 	p := training.DefaultDeloadPolicy()
-	h := training.NewHistory(benchSessions(t, 4, func(int) float64 { return 85 }))
+	h := training.NewHistory(benchSessions(t, sessions, func(int) float64 { return 85 }))
 
 	// 過去ほど重い＝減量中。
 	cutting := steadyWeight(lastDay, func(daysAgo int) float64 { return 75 + float64(daysAgo)*0.05 })
@@ -161,7 +174,7 @@ func TestDeloadPolicy_DoesNotProposeWhileCutting(t *testing.T) {
 // 増量中の停滞は提案する。減量中とは扱いが違う。
 func TestDeloadPolicy_ProposesWhileBulking(t *testing.T) {
 	p := training.DefaultDeloadPolicy()
-	h := training.NewHistory(benchSessions(t, 4, func(int) float64 { return 85 }))
+	h := training.NewHistory(benchSessions(t, sessions, func(int) float64 { return 85 }))
 
 	bulking := steadyWeight(lastDay, func(daysAgo int) float64 { return 75 - float64(daysAgo)*0.05 })
 
@@ -174,7 +187,7 @@ func TestDeloadPolicy_ProposesWhileBulking(t *testing.T) {
 // 減量による停滞とオーバーリーチによる停滞を見分けられないため。
 func TestDeloadPolicy_DoesNotProposeWithoutBodyWeight(t *testing.T) {
 	p := training.DefaultDeloadPolicy()
-	h := training.NewHistory(benchSessions(t, 4, func(int) float64 { return 85 }))
+	h := training.NewHistory(benchSessions(t, sessions, func(int) float64 { return 85 }))
 
 	sleepOnly := make([]training.DailyCondition, 0, 28)
 	for i := range 28 {
@@ -191,14 +204,15 @@ func TestDeloadPolicy_DoesNotProposeWithoutBodyWeight(t *testing.T) {
 func TestDeloadPolicy_NeedsEnoughSessions(t *testing.T) {
 	p := training.DefaultDeloadPolicy()
 
-	// 3セッションでは判定できない（stallSessions+1 が必要）。
-	three := training.NewHistory(benchSessions(t, 3, func(int) float64 { return 85 }))
-	if _, ok := p.Propose(three, []training.ExerciseID{"bench"}, flatWeight(15), baseDay(15)); ok {
+	// stallSessions+1 に1つ足りないと判定できない。
+	short := training.NewHistory(benchSessions(t, sessions-1, func(int) float64 { return 85 }))
+	shortDay := 1 + (sessions-2)*7
+	if _, ok := p.Propose(short, []training.ExerciseID{"bench"}, flatWeight(shortDay), baseDay(shortDay)); ok {
 		t.Error("セッション数が足りないのに提案されている")
 	}
 
-	four := training.NewHistory(benchSessions(t, 4, func(int) float64 { return 85 }))
-	if _, ok := p.Propose(four, []training.ExerciseID{"bench"}, flatWeight(lastDay), baseDay(lastDay)); !ok {
+	enough := training.NewHistory(benchSessions(t, sessions, func(int) float64 { return 85 }))
+	if _, ok := p.Propose(enough, []training.ExerciseID{"bench"}, flatWeight(lastDay), baseDay(lastDay)); !ok {
 		t.Error("最低セッション数で提案されない")
 	}
 }
@@ -208,7 +222,7 @@ func TestDeloadPolicy_IgnoresFutureSessions(t *testing.T) {
 	p := training.DefaultDeloadPolicy()
 
 	// 停滞中だが、基準日より後に大きく更新している。
-	logs := benchSessions(t, 4, func(int) float64 { return 85 })
+	logs := benchSessions(t, sessions, func(int) float64 { return 85 })
 	logs = append(logs, mkLogOn(t, "future", baseDay(lastDay+7), "bench", 120, 8, 2))
 
 	if _, ok := p.Propose(training.NewHistory(logs), []training.ExerciseID{"bench"},
@@ -221,8 +235,8 @@ func TestDeloadPolicy_IgnoresFutureSessions(t *testing.T) {
 func TestDeloadPolicy_ReportsAllStalledLifts(t *testing.T) {
 	p := training.DefaultDeloadPolicy()
 
-	logs := benchSessions(t, 4, func(int) float64 { return 85 })
-	for i := range 4 {
+	logs := benchSessions(t, sessions, func(int) float64 { return 85 })
+	for i := range sessions {
 		logs = append(logs, mkLogOn(t, fmt.Sprintf("s%02d", i),
 			baseDay(1+i*7), "squat", 120, 8, 2))
 		logs = append(logs, mkLogOn(t, fmt.Sprintf("d%02d", i),
@@ -249,8 +263,8 @@ func TestDeloadPolicy_ReportsAllStalledLifts(t *testing.T) {
 func TestDeloadPolicy_ReasonIsDeterministic(t *testing.T) {
 	p := training.DefaultDeloadPolicy()
 
-	logs := benchSessions(t, 4, func(int) float64 { return 85 })
-	for i := range 4 {
+	logs := benchSessions(t, sessions, func(int) float64 { return 85 })
+	for i := range sessions {
 		logs = append(logs, mkLogOn(t, fmt.Sprintf("s%02d", i), baseDay(1+i*7), "squat", 120, 8, 2))
 	}
 	h := training.NewHistory(logs)
@@ -262,7 +276,9 @@ func TestDeloadPolicy_ReasonIsDeterministic(t *testing.T) {
 	}
 	for range 30 {
 		got, _ := p.Propose(h, ids, flatWeight(lastDay), baseDay(lastDay))
-		if got != first {
+		if got.Reason() != first.Reason() ||
+			got.IntensityDropPct() != first.IntensityDropPct() ||
+			len(got.StalledExercises()) != len(first.StalledExercises()) {
 			t.Fatalf("実行ごとに提案が変わる: %q vs %q", first.Reason(), got.Reason())
 		}
 	}
@@ -270,7 +286,7 @@ func TestDeloadPolicy_ReasonIsDeterministic(t *testing.T) {
 
 func TestDeloadPolicy_EmptyInputs(t *testing.T) {
 	p := training.DefaultDeloadPolicy()
-	h := training.NewHistory(benchSessions(t, 4, func(int) float64 { return 85 }))
+	h := training.NewHistory(benchSessions(t, sessions, func(int) float64 { return 85 }))
 
 	if _, ok := p.Propose(h, nil, flatWeight(lastDay), baseDay(lastDay)); ok {
 		t.Error("メイン種目が指定されていないのに提案された")
@@ -317,7 +333,7 @@ func TestNewDeloadPolicy_RejectsBadParams(t *testing.T) {
 
 func TestDefaultDeloadPolicy_Constants(t *testing.T) {
 	p := training.DefaultDeloadPolicy()
-	if p.StallSessions() != 3 {
+	if p.StallSessions() != 8 {
 		t.Errorf("停滞セッション数が誤り: %d", p.StallSessions())
 	}
 	if math.Abs(p.IntensityDropPct()-0.10) > 1e-9 {
@@ -328,7 +344,7 @@ func TestDefaultDeloadPolicy_Constants(t *testing.T) {
 // 減量判定の境界。
 func TestDeloadPolicy_CuttingThreshold(t *testing.T) {
 	p := training.DefaultDeloadPolicy()
-	h := training.NewHistory(benchSessions(t, 4, func(int) float64 { return 85 }))
+	h := training.NewHistory(benchSessions(t, sessions, func(int) float64 { return 85 }))
 
 	cases := []struct {
 		name         string
@@ -349,5 +365,189 @@ func TestDeloadPolicy_CuttingThreshold(t *testing.T) {
 				t.Errorf("提案=%v（期待 %v）", ok, c.wantProposal)
 			}
 		})
+	}
+}
+
+// 回復・上昇の途中を停滞と呼ばないこと。
+//
+// 窓の先頭だけを基準にすると、病み上がりやデロード直後のように
+// 「窓の入口が高くてそこから回復している」状態を停滞と判定する。
+// 毎回更新しているのに過去の値に届いていないだけ、という状況で
+// さらに10%下げるのは誤り。
+func TestDeloadPolicy_DoesNotProposeWhileRecovering(t *testing.T) {
+	p := training.DefaultDeloadPolicy()
+
+	// 最初が高く、そこから毎回わずかに更新しながら戻っている。
+	weights := make([]float64, sessions)
+	weights[0] = 100
+	for i := 1; i < sessions; i++ {
+		weights[i] = 80 + float64(i)*1.5
+	}
+	h := training.NewHistory(benchSessions(t, sessions, func(i int) float64 { return weights[i] }))
+
+	if got, ok := p.Propose(h, []training.ExerciseID{"bench"}, flatWeight(lastDay), baseDay(lastDay)); ok {
+		t.Errorf("回復中に提案された: %v", got.Reason())
+	}
+}
+
+// 停滞した種目を機械可読で返すこと。
+//
+// 根拠の文字列からしか取れないと、呼び出し側が「どの種目を下げるか」を
+// 選べず、伸びている種目まで一律に下げることになる。
+func TestDeloadProposal_ReportsStalledExercises(t *testing.T) {
+	p := training.DefaultDeloadPolicy()
+
+	logs := benchSessions(t, sessions, func(int) float64 { return 85 })
+	for i := range sessions {
+		logs = append(logs, mkLogOn(t, fmt.Sprintf("s%02d", i), baseDay(1+i*7), "squat", 120, 8, 2))
+		logs = append(logs, mkLogOn(t, fmt.Sprintf("d%02d", i), baseDay(1+i*7),
+			"deadlift", 140+float64(i)*5, 8, 2))
+	}
+
+	got, ok := p.Propose(training.NewHistory(logs),
+		[]training.ExerciseID{"deadlift", "bench", "squat"}, flatWeight(lastDay), baseDay(lastDay))
+	if !ok {
+		t.Fatal("提案されない")
+	}
+
+	stalled := got.StalledExercises()
+	want := []training.ExerciseID{"bench", "squat"}
+	if len(stalled) != len(want) {
+		t.Fatalf("停滞種目の数が誤り: %v", stalled)
+	}
+	for i := range want {
+		if stalled[i] != want[i] {
+			t.Errorf("停滞種目が誤り（昇順であるべき）: %v", stalled)
+		}
+	}
+
+	// 返り値を書き換えても提案は変わらない。
+	stalled[0] = "tampered"
+	if got.StalledExercises()[0] == "tampered" {
+		t.Error("返り値の書き換えが提案に波及している")
+	}
+}
+
+// 同じ種目を複数回渡しても、重複して報告しないこと。
+func TestDeloadPolicy_DeduplicatesMainIDs(t *testing.T) {
+	p := training.DefaultDeloadPolicy()
+	h := training.NewHistory(benchSessions(t, sessions, func(int) float64 { return 85 }))
+
+	got, ok := p.Propose(h, []training.ExerciseID{"bench", "bench", "bench"},
+		flatWeight(lastDay), baseDay(lastDay))
+	if !ok {
+		t.Fatal("提案されない")
+	}
+	if len(got.StalledExercises()) != 1 {
+		t.Errorf("重複が除かれていない: %v", got.StalledExercises())
+	}
+	if strings.Count(got.Reason(), "bench") != 1 {
+		t.Errorf("根拠に重複がある: %v", got.Reason())
+	}
+}
+
+// 既定以外のパラメータが実際に効くこと。
+//
+// 生成できるかどうかだけ見ても、その値が判定や提案に使われているかは分からない。
+func TestDeloadPolicy_HonoursConfiguredParameters(t *testing.T) {
+	a := training.DefaultConditionAnalyzer()
+	h := training.NewHistory(benchSessions(t, sessions, func(int) float64 { return 85 }))
+
+	strict, err := training.NewDeloadPolicy(a, 2, 0.25)
+	if err != nil {
+		t.Fatalf("NewDeloadPolicy: %v", err)
+	}
+	got, ok := strict.Propose(h, []training.ExerciseID{"bench"}, flatWeight(lastDay), baseDay(lastDay))
+	if !ok {
+		t.Fatal("提案されない")
+	}
+	if math.Abs(got.IntensityDropPct()-0.25) > 1e-9 {
+		t.Errorf("設定した低下率が使われていない: %v", got.IntensityDropPct())
+	}
+	if !strings.Contains(got.Reason(), "2セッション") {
+		t.Errorf("設定した停滞セッション数が根拠に反映されていない: %v", got.Reason())
+	}
+
+	// 窓の長さで結果が変わること。
+	//
+	// 5セッション前に更新があり、それ以降は停滞している履歴を使う。
+	// 窓が短ければ「最近は停滞」、長ければ「窓の中に更新がある」になる。
+	weights := make([]float64, sessions)
+	for i := range weights {
+		weights[i] = 85
+	}
+	weights[sessions-5] = 90
+	mixed := training.NewHistory(benchSessions(t, sessions, func(i int) float64 { return weights[i] }))
+
+	if _, ok := strict.Propose(mixed, []training.ExerciseID{"bench"},
+		flatWeight(lastDay), baseDay(lastDay)); !ok {
+		t.Error("短い窓で最近の停滞が検出されない")
+	}
+	if got, ok := training.DefaultDeloadPolicy().Propose(mixed, []training.ExerciseID{"bench"},
+		flatWeight(lastDay), baseDay(lastDay)); ok {
+		t.Errorf("長い窓なのに窓内の更新が無視された: %v", got.Reason())
+	}
+
+	// 窓が履歴より長ければ判定できない。
+	lenient, err := training.NewDeloadPolicy(a, 20, 0.1)
+	if err != nil {
+		t.Fatalf("NewDeloadPolicy: %v", err)
+	}
+	if _, ok := lenient.Propose(h, []training.ExerciseID{"bench"},
+		flatWeight(lastDay), baseDay(lastDay)); ok {
+		t.Error("履歴より長い窓で提案された")
+	}
+}
+
+// 減量判定の境界そのものを固定する。
+func TestDeloadPolicy_CuttingThresholdBoundary(t *testing.T) {
+	p := training.DefaultDeloadPolicy()
+	h := training.NewHistory(benchSessions(t, sessions, func(int) float64 { return 85 }))
+
+	// 傾きは1日あたり kgPerDay。週換算は7倍。
+	cases := []struct {
+		name         string
+		kgPerWeek    float64
+		wantProposal bool
+	}{
+		{"閾値ちょうど（-0.1kg/週）は減量とみなさない", 0.1, true},
+		{"閾値をわずかに超える減量", 0.11, false},
+		{"閾値にわずかに足りない減量", 0.09, true},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			log := steadyWeight(lastDay, func(daysAgo int) float64 {
+				return 75 + float64(daysAgo)*c.kgPerWeek/7
+			})
+			_, ok := p.Propose(h, []training.ExerciseID{"bench"}, log, baseDay(lastDay))
+			if ok != c.wantProposal {
+				t.Errorf("提案=%v（期待 %v）", ok, c.wantProposal)
+			}
+		})
+	}
+}
+
+// 根拠の種目名は昇順であること。渡された順序に依存すると、
+// 同じ状況で違う文言が出る。
+func TestDeloadPolicy_ReasonListsExercisesInOrder(t *testing.T) {
+	p := training.DefaultDeloadPolicy()
+
+	logs := benchSessions(t, sessions, func(int) float64 { return 85 })
+	for i := range sessions {
+		logs = append(logs, mkLogOn(t, fmt.Sprintf("s%02d", i), baseDay(1+i*7), "squat", 120, 8, 2))
+	}
+	h := training.NewHistory(logs)
+
+	forward, ok := p.Propose(h, []training.ExerciseID{"bench", "squat"}, flatWeight(lastDay), baseDay(lastDay))
+	if !ok {
+		t.Fatal("提案されない")
+	}
+	backward, _ := p.Propose(h, []training.ExerciseID{"squat", "bench"}, flatWeight(lastDay), baseDay(lastDay))
+
+	if forward.Reason() != backward.Reason() {
+		t.Errorf("渡す順序で根拠が変わる: %q vs %q", forward.Reason(), backward.Reason())
+	}
+	if !strings.Contains(forward.Reason(), "bench, squat") {
+		t.Errorf("種目名が昇順に並んでいない: %v", forward.Reason())
 	}
 }

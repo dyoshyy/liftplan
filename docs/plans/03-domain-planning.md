@@ -2131,6 +2131,14 @@ func (p SessionPlanner) Plan(req PlanRequest) (PlannedSession, error) {
 
 	proposal, hasProposal := p.deload.Propose(req.History, mainIDs, req.Conditions, req.Date)
 
+	// デロードは停滞した種目にだけ適用する。伸びている種目まで
+	// 一律に下げると、本人の実感と噛み合わない。
+	deloadTargets := map[ExerciseID]bool{}
+	if hasProposal {
+		for _, id := range proposal.StalledExercises() {
+			deloadTargets[id] = true
+		}
+	}
 	intensityScale := 1.0
 	if req.DeloadAccepted {
 		drop := defaultIntensityDropPct
