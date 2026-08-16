@@ -298,11 +298,14 @@ func TestDomain_StimulusProfileIsNotMutated(t *testing.T) {
 	t.Logf("%d ファイルを検査した", checked)
 }
 
-// エンティティと値オブジェクトは生成後に状態を変えない。
+// エンティティは生成後に状態を変えない。
 //
 // 実績は「唯一の真実」であり、書き換わると過去のセッションの導出結果まで変わる。
 // 値渡しのテストでは「セッターを生やしても通ってしまう」ため検出できない。
-// メソッドがレシーバのフィールドへ代入していないことを AST で検査する。
+// ポインタレシーバのメソッドがフィールドへ代入していないことを AST で検査する。
+//
+// 値レシーバは対象外。代入してもコピーが変わるだけで呼び出し側には波及せず、
+// `WithBodyWeight` のような「新しい値を返す」ビルダーで正当に使われる。
 func TestDomain_MethodsDoNotMutateReceiver(t *testing.T) {
 	root := domainRoot(t)
 	fset := token.NewFileSet()
@@ -334,6 +337,10 @@ func TestDomain_MethodsDoNotMutateReceiver(t *testing.T) {
 			// 名前の無いレシーバ（func (Type) M()）は状態を触れない。
 			names := fn.Recv.List[0].Names
 			if len(names) == 0 || names[0].Name == "_" {
+				continue
+			}
+			// 値レシーバはコピーを触るだけなので対象外。
+			if _, isPointer := fn.Recv.List[0].Type.(*ast.StarExpr); !isPointer {
 				continue
 			}
 			receiver := names[0].Name
