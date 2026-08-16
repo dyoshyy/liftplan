@@ -402,7 +402,7 @@ git commit -m "feat(domain): Exercise エンティティと StimulusProfile を�
   - `type SetLogParams struct{ ID string; PerformedOn Date; ExerciseID string; WeightKg float64; Reps int; RIR int }`
   - `func NewSetLog(p SetLogParams) (*SetLog, error)`
   - アクセサ `ID()` / `PerformedOn()` / `ExerciseID()` / `Weight()` / `Reps()` / `RIR()`
-  - `func (s *SetLog) EstimatedOneRepMax() OneRepMax`
+  - `func (s *SetLog) EstimatedOneRepMax() (OneRepMax, bool)` — 推定できない場合は false
 
 ID はクライアントが採番した ULID を受け取る。サーバーが振り直さないのは、同じログを二度送っても壊れない冪等性のため。
 
@@ -798,15 +798,28 @@ func (s TrainingSession) Logs() []*SetLog {
 //
 // 中央値を使うのは、セッション内に1セットだけ異常な記録が混ざっても
 // 引きずられないため。仕様の「明らかな外れ値は除外する」をこの形で満たす。
+// 推定できないセット（自重種目、Epley 式の適用範囲外）は必ず除外する。
+// 0 として混ぜると、加重ディップス2セット + 自重3セットのような
+// 日常的なセッションで代表値が 0 に崩壊する。
+//
+// 生成は必ず NewOneRepMax を通す。構造体リテラルで組み立てると、
+// コンストラクタが拒否する値（0 など）が ok=true で流通してしまう。
 func (s TrainingSession) MedianOneRepMax() (OneRepMax, bool) {
-	if len(s.logs) == 0 {
-		return OneRepMax{}, false
-	}
 	values := make([]float64, 0, len(s.logs))
 	for _, l := range s.logs {
-		values = append(values, l.EstimatedOneRepMax().Kg())
+		if v, ok := l.EstimatedOneRepMax(); ok {
+			values = append(values, v.Kg())
+		}
 	}
-	return OneRepMax{kg: median(values)}, true
+	if len(values) == 0 {
+		return OneRepMax{}, false
+	}
+
+	orm, err := NewOneRepMax(median(values))
+	if err != nil {
+		return OneRepMax{}, false
+	}
+	return orm, true
 }
 
 // median は昇順ソートした上での中央値。呼び出し側が非空を保証すること。
