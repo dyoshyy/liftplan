@@ -82,7 +82,7 @@ func TestEstimateOneRepMax_IsMonotonic(t *testing.T) {
 
 	// 同じ重量ならレップが増えるほど1RMも増える。
 	prev = 0
-	for reps := 1; reps <= 20; reps++ {
+	for reps := 1; reps <= 18; reps++ {
 		got := estimate(t, 85, reps, 2).Kg()
 		if got <= prev {
 			t.Fatalf("%dレップで1RMが増えていない: %v", reps, got)
@@ -109,8 +109,8 @@ func TestEstimateOneRepMax_NeverOverflows(t *testing.T) {
 	// 値オブジェクトの上限内であれば、どんな組み合わせでも有効な1RMになる。
 	// レップと RIR に上限が無いと int が溢れて負の1RMが生まれる。
 	weights := []float64{0.5, 1, 85, 500, 1000}
-	repsList := []int{1, 10, 100, 1000}
-	rirList := []int{0, 5, 100}
+	repsList := []int{1, 5, 10, 18}
+	rirList := []int{0, 1, 2}
 
 	for _, kg := range weights {
 		for _, reps := range repsList {
@@ -235,41 +235,11 @@ func TestOneRepMax_WorkWeightIsAlwaysOnTheIncrementGrid(t *testing.T) {
 }
 
 func TestOneRepMax_WorkWeightRejectsOverflow(t *testing.T) {
-	// 1RMの上限は実重量の上限より遥かに大きいので、高強度では重量の上限を超えうる。
+	// 1RMの上限は実重量の上限より大きいので、高強度では重量の上限を超えうる。
 	// そのとき黙って飽和させず、エラーにする。
-	huge := mustOneRepMax(t, 30000)
+	huge := mustOneRepMax(t, 1900)
 	if got, err := huge.WorkWeight(mustIntensity(t, 1.0), mustRatio(t, 1.0), mustIncrement(t, 2.5)); err == nil {
 		t.Errorf("重量の上限を超えたのに通ってしまう: %v", got.Kg())
-	}
-}
-
-func TestOneRepMax_RatioTo(t *testing.T) {
-	main := mustOneRepMax(t, 100)
-	variation := mustOneRepMax(t, 85)
-
-	got, ok := main.RatioTo(variation)
-	if !ok {
-		t.Fatal("比率が取れない")
-	}
-	if math.Abs(got.Float()-0.85) > 1e-9 {
-		t.Errorf("got %v, want 0.85", got.Float())
-	}
-}
-
-func TestOneRepMax_RatioToRejectsUnrealistic(t *testing.T) {
-	// 記録ミスで係数が壊れると、以後の全セッションの重量が狂う。
-	main := mustOneRepMax(t, 50)
-	absurd := mustOneRepMax(t, 200)
-
-	if got, ok := main.RatioTo(absurd); ok {
-		t.Errorf("非現実的な比率が通ってしまう: %v", got.Float())
-	}
-}
-
-func TestOneRepMax_RatioToWithZeroValue(t *testing.T) {
-	var zero training.OneRepMax
-	if _, ok := zero.RatioTo(mustOneRepMax(t, 100)); ok {
-		t.Error("ゼロ値を基準に比率が取れてしまう")
 	}
 }
 
@@ -277,5 +247,174 @@ func TestOneRepMax_IsComparable(t *testing.T) {
 	// 同じ入力から同じ値になること。ヒステリシス判定で == を使う。
 	if estimate(t, 85, 9, 2) != estimate(t, 85, 9, 2) {
 		t.Error("同じ入力から違う値が生まれる")
+	}
+}
+
+// 推定1RMは量子化されていること。
+//
+// 量子化しないと 118.08333350000001 のような値が JSON にそのまま出る。
+// また同じ意味の値が別のビット列になり、ヒステリシス判定の == が成立しなくなる。
+func TestOneRepMax_IsQuantized(t *testing.T) {
+	for _, c := range []struct {
+		kg   float64
+		reps int
+		rir  int
+	}{
+		{85, 9, 2}, {102.5, 7, 1}, {62.5, 11, 3}, {137.5, 5, 2}, {47.5, 13, 2},
+	} {
+		got := estimate(t, c.kg, c.reps, c.rir).Kg()
+		if n := decimalPlaces(strconv.FormatFloat(got, 'f', -1, 64)); n > 6 {
+			t.Errorf("%vkg × %d @RIR%d の推定1RMに端数が残っている: %s（小数点以下 %d 桁）",
+				c.kg, c.reps, c.rir, strconv.FormatFloat(got, 'f', -1, 64), n)
+		}
+	}
+
+	if _, err := training.NewOneRepMax(118.08333350000001); err != nil {
+		t.Fatalf("NewOneRepMax: %v", err)
+	}
+	a, _ := training.NewOneRepMax(118.08333350000001)
+	b, _ := training.NewOneRepMax(118.0833335)
+	if a != b {
+		t.Errorf("同じ意味の1RMが等しくない: %v vs %v", a.Kg(), b.Kg())
+	}
+}
+
+// RIR の寄与を値で固定する。この PR の主張の中核。
+//
+// RIR を足さない、あるいは途中で飽和させる実装に変えても、
+// 「正で有限か」しか見ないテストでは検出できない。
+func TestEstimateOneRepMax_GoldenValues(t *testing.T) {
+	cases := []struct {
+		kg   float64
+		reps int
+		rir  int
+		want float64
+	}{
+		{100, 1, 0, 100 * (1 + 1.0/30)},
+		{85, 9, 2, 85 * (1 + 11.0/30)},
+		{85, 5, 6, 85 * (1 + 11.0/30)},
+		{85, 5, 10, 85 * (1 + 15.0/30)},
+		{85, 2, 18, 85 * (1 + 20.0/30)},
+		{60, 12, 8, 60 * (1 + 20.0/30)},
+		{140, 3, 1, 140 * (1 + 4.0/30)},
+	}
+	for _, c := range cases {
+		got := estimate(t, c.kg, c.reps, c.rir).Kg()
+		if math.Abs(got-c.want) > 1e-5 {
+			t.Errorf("%vkg × %d @RIR%d: got %v, want %v", c.kg, c.reps, c.rir, got, c.want)
+		}
+	}
+}
+
+// Epley 式の適用範囲外は推定しない。
+//
+// 高レップの記録から算出した1RMは実際に挙げられる重量を大きく上回る。
+// 20kg×100レップから 86.7kg を推定し、その 0.81 倍を処方すると、
+// 実際に扱った重量の3.5倍になる。
+func TestEstimateOneRepMax_RejectsOutOfRangeReps(t *testing.T) {
+	cases := []struct {
+		kg   float64
+		reps int
+		rir  int
+	}{
+		{20, 100, 0},
+		{40, 50, 0},
+		{60, 30, 3},
+		{60, 20, 2},
+		{85, 19, 2},
+	}
+	for _, c := range cases {
+		w, _ := training.NewWeight(c.kg)
+		r, _ := training.NewReps(c.reps)
+		ri, _ := training.NewRIR(c.rir)
+		if got, ok := training.EstimateOneRepMax(w, r, ri); ok {
+			t.Errorf("適用範囲外の %vkg × %d @RIR%d から推定できてしまう: %v",
+				c.kg, c.reps, c.rir, got.Kg())
+		}
+	}
+
+	// 境界のすぐ内側は通ること。
+	w, _ := training.NewWeight(85)
+	r, _ := training.NewReps(18)
+	ri, _ := training.NewRIR(2)
+	if _, ok := training.EstimateOneRepMax(w, r, ri); !ok {
+		t.Error("適用範囲内なのに推定できない")
+	}
+}
+
+// 丸めた結果が0kgになるなら、0kg を処方せずエラーにする。
+//
+// 粗い増加単位（プレートローディング式マシンの20kg刻みなど）と軽い補助種目の
+// 組み合わせで到達する。0kg のセットを処方するのは、
+// 「推定できないなら重量を出さない」という設計を 0kg という捏造で貫通すること。
+func TestOneRepMax_WorkWeightRejectsRoundingToZero(t *testing.T) {
+	cases := []struct {
+		orm       float64
+		intensity float64
+		increment float64
+	}{
+		{1.2, 0.81, 2.5},
+		{10, 0.81, 20},
+		{30, 0.81, 50},
+	}
+	for _, c := range cases {
+		got, err := mustOneRepMax(t, c.orm).WorkWeight(
+			mustIntensity(t, c.intensity), mustRatio(t, 1.0), mustIncrement(t, c.increment))
+		if err == nil {
+			t.Errorf("1RM %v・強度 %v・刻み %v で 0kg が処方された: %v",
+				c.orm, c.intensity, c.increment, got.Kg())
+		}
+	}
+}
+
+// 処方された重量は常に正であること。
+func TestOneRepMax_WorkWeightIsAlwaysPositive(t *testing.T) {
+	for _, incKg := range []float64{0.5, 1, 2.5, 5, 20, 50} {
+		inc := mustIncrement(t, incKg)
+		for ormKg := 1.0; ormKg <= 300; ormKg += 3.7 {
+			got, err := mustOneRepMax(t, ormKg).WorkWeight(
+				mustIntensity(t, 0.71), mustRatio(t, 0.85), inc)
+			if err != nil {
+				continue // 丸めて0になる組み合わせはエラーになるのが正しい
+			}
+			if got.Kg() <= 0 {
+				t.Fatalf("1RM %v・刻み %v で 0kg 以下が処方された: %v", ormKg, incKg, got.Kg())
+			}
+		}
+	}
+}
+
+// 上限そのものを固定する。「1900 は通る／2100 は落ちる」だけでは、
+// 上限を 1e9 に緩める改変を検出できない。
+// DB から復元した壊れた値が値オブジェクトを素通りするのを防ぐ。
+func TestOneRepMax_BoundaryConstant(t *testing.T) {
+	const max = 2000
+
+	if _, err := training.NewOneRepMax(max); err != nil {
+		t.Errorf("上限ちょうど %v が弾かれた: %v", float64(max), err)
+	}
+	if got, err := training.NewOneRepMax(max + 0.000001); err == nil {
+		t.Errorf("上限をわずかに超える値が通ってしまう: %v", got.Kg())
+	}
+
+	// 有効な入力から生まれうる最大の推定1RMが、上限に収まっていること。
+	w, err := training.NewWeight(1000)
+	if err != nil {
+		t.Fatalf("NewWeight: %v", err)
+	}
+	r, err := training.NewReps(18)
+	if err != nil {
+		t.Fatalf("NewReps: %v", err)
+	}
+	ri, err := training.NewRIR(2)
+	if err != nil {
+		t.Fatalf("NewRIR: %v", err)
+	}
+	got, ok := training.EstimateOneRepMax(w, r, ri)
+	if !ok {
+		t.Fatal("有効な入力の上限で推定できない")
+	}
+	if got.Kg() > max {
+		t.Errorf("有効な入力から上限を超える1RMが生まれる: %v", got.Kg())
 	}
 }
