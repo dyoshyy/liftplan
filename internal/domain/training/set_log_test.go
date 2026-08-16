@@ -55,7 +55,7 @@ func TestNewSetLog_RejectsInvalidFields(t *testing.T) {
 		mutate func(*training.SetLogParams)
 	}{
 		{"IDが空", func(p *training.SetLogParams) { p.ID = "" }},
-		{"IDが空白のみ", func(p *training.SetLogParams) { p.ID = "   " }},
+		{"IDが空白のみ（前後空白として弾かれる）", func(p *training.SetLogParams) { p.ID = "   " }},
 		{"IDの前後に空白", func(p *training.SetLogParams) { p.ID = " 01J " }},
 		{"IDが長すぎる", func(p *training.SetLogParams) { p.ID = strings.Repeat("x", 65) }},
 		{"実施日が無い", func(p *training.SetLogParams) { p.PerformedOn = training.Date{} }},
@@ -195,34 +195,83 @@ func TestSetLog_PreservesClientAssignedID(t *testing.T) {
 	}
 }
 
-// 生成後に状態が変わらないこと。実績は唯一の真実で、書き換わると
-// 過去のセッションの導出結果まで変わってしまう。
-func TestSetLog_IsImmutable(t *testing.T) {
+// ID は永続化キーとログ出力に乗る。制御文字を通すとログが分断され、
+// キーとして扱えない値が入り込む。
+func TestNewSetLog_RejectsControlCharactersInID(t *testing.T) {
+	for _, id := range []string{
+		"01J\nDROP", "01J\tX", "01J\x00X", "\x01\x02\x03", "01J\x7fX", "01J\rX",
+	} {
+		p := setLogParams()
+		p.ID = id
+		if got, err := training.NewSetLog(p); err == nil {
+			t.Errorf("制御文字を含むIDが通ってしまう: %q → %+v", id, got)
+		}
+	}
+
+	// 通常の識別子は通ること。
+	for _, id := range []string{
+		"01ARZ3NDEKTSV4RRFFQ69G5FAV",
+		"550e8400-e29b-41d4-a716-446655440000",
+		"1",
+	} {
+		p := setLogParams()
+		p.ID = id
+		if _, err := training.NewSetLog(p); err != nil {
+			t.Errorf("正当なIDが弾かれた: %q (%v)", id, err)
+		}
+	}
+}
+
+// 「同じIDだが内容が違う」を検出できること。
+//
+// リポジトリは ID をキーに上書きするので、クライアントの採番ミスで
+// 異なるセットに同じ ID が振られると実績が黙って1件消える。
+// SameIdentity だけでは区別できないため、値等価が必要。
+func TestSetLog_Equals(t *testing.T) {
+	a := mustSetLog(t, setLogParams())
+
+	same := mustSetLog(t, setLogParams())
+	if !a.Equals(same) {
+		t.Error("同じ内容のログが等しくない")
+	}
+
+	// 同じID・違う内容＝採番ミス。SameIdentity は true だが Equals は false。
 	p := setLogParams()
-	s := mustSetLog(t, p)
-
-	before := struct {
-		date   training.Date
-		weight float64
-		reps   int
-		rir    int
-	}{s.PerformedOn(), s.Weight().Kg(), s.Reps().Int(), s.RIR().Int()}
-
-	// 生成に使ったパラメータを書き換える。
-	p.WeightKg, p.Reps, p.RIR = 999, 1, 0
-	p.PerformedOn = training.MustDate(2000, time.January, 1)
-
-	// 返り値を書き換える（値型なのでコピーが返る）。
-	w := s.Weight()
-	_ = w
-
-	if !s.PerformedOn().Equal(before.date) {
-		t.Errorf("実施日が変わった: %v", s.PerformedOn())
+	p.WeightKg, p.Reps = 100, 5
+	mistaken := mustSetLog(t, p)
+	if !a.SameIdentity(mistaken) {
+		t.Error("同じIDが別物と判定された")
 	}
-	if s.Weight().Kg() != before.weight {
-		t.Errorf("重量が変わった: %v", s.Weight().Kg())
+	if a.Equals(mistaken) {
+		t.Error("内容が違うのに等しいと判定された。採番ミスを検出できない")
 	}
-	if s.Reps().Int() != before.reps || s.RIR().Int() != before.rir {
-		t.Errorf("レップ/RIRが変わった: %d %d", s.Reps().Int(), s.RIR().Int())
+
+	// 各フィールドの違いを検出すること。
+	for _, c := range []struct {
+		name   string
+		mutate func(*training.SetLogParams)
+	}{
+		{"ID", func(p *training.SetLogParams) { p.ID = "OTHER" }},
+		{"実施日", func(p *training.SetLogParams) { p.PerformedOn = training.MustDate(2026, time.August, 17) }},
+		{"種目", func(p *training.SetLogParams) { p.ExerciseID = "squat" }},
+		{"重量", func(p *training.SetLogParams) { p.WeightKg = 90 }},
+		{"レップ", func(p *training.SetLogParams) { p.Reps = 10 }},
+		{"RIR", func(p *training.SetLogParams) { p.RIR = 1 }},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			q := setLogParams()
+			c.mutate(&q)
+			if a.Equals(mustSetLog(t, q)) {
+				t.Errorf("%s が違うのに等しいと判定された", c.name)
+			}
+		})
+	}
+
+	if a.Equals(nil) {
+		t.Error("nil と等しいと判定された")
+	}
+	var nilLog *training.SetLog
+	if !nilLog.Equals(nil) {
+		t.Error("nil 同士が等しくない")
 	}
 }

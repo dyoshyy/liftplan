@@ -23,11 +23,15 @@ func NewSetLogID(s string) (SetLogID, error) {
 	if strings.TrimSpace(s) != s {
 		return "", fmt.Errorf("セットログIDの前後に空白がある: %q", s)
 	}
-	if strings.TrimSpace(s) == "" {
-		return "", errors.New("セットログIDが空白のみである")
-	}
 	if len(s) > maxSetLogIDLen {
-		return "", fmt.Errorf("セットログIDが長すぎる: %d文字", len(s))
+		return "", fmt.Errorf("セットログIDが長すぎる: %dバイト", len(s))
+	}
+	// ID は永続化キーとログ出力に乗る。制御文字や改行を通すと、
+	// ログが分断されたり、キーとして扱えない値が入り込む。
+	for i, r := range s {
+		if r < 0x20 || r == 0x7f {
+			return "", fmt.Errorf("セットログIDに制御文字が含まれる: 位置 %d", i)
+		}
 	}
 	return SetLogID(s), nil
 }
@@ -114,4 +118,17 @@ func (s *SetLog) SameIdentity(o *SetLog) bool {
 		return false
 	}
 	return s.id == o.id
+}
+
+// Equals は ID を含む全ての値が一致するか。
+//
+// SameIdentity と併用して「同じIDだが内容が違う」を検出するために使う。
+// リポジトリは ID をキーに上書きするので、クライアントの採番ミスで
+// 異なるセットに同じ ID が振られると、実績が黙って1件消える。
+// 保存側がこれで検出し、エラーとして弾けるようにする。
+func (s *SetLog) Equals(o *SetLog) bool {
+	if s == nil || o == nil {
+		return s == o
+	}
+	return *s == *o
 }

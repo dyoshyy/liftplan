@@ -247,3 +247,85 @@ func TestDomain_StimulusProfileIsNotMutated(t *testing.T) {
 	}
 	t.Logf("%d ファイルを検査した", checked)
 }
+
+// エンティティと値オブジェクトは生成後に状態を変えない。
+//
+// 実績は「唯一の真実」であり、書き換わると過去のセッションの導出結果まで変わる。
+// 値渡しのテストでは「セッターを生やしても通ってしまう」ため検出できない。
+// メソッドがレシーバのフィールドへ代入していないことを AST で検査する。
+func TestDomain_MethodsDoNotMutateReceiver(t *testing.T) {
+	root := domainRoot(t)
+	fset := token.NewFileSet()
+	checked := 0
+
+	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() || !strings.HasSuffix(path, ".go") || strings.HasSuffix(d.Name(), "_test.go") {
+			return nil
+		}
+
+		rel, err := filepath.Rel(root, path)
+		if err != nil {
+			return err
+		}
+
+		file, err := parser.ParseFile(fset, path, nil, 0)
+		if err != nil {
+			return err
+		}
+
+		for _, decl := range file.Decls {
+			fn, ok := decl.(*ast.FuncDecl)
+			if !ok || fn.Recv == nil || len(fn.Recv.List) == 0 || fn.Body == nil {
+				continue
+			}
+			// 名前の無いレシーバ（func (Type) M()）は状態を触れない。
+			names := fn.Recv.List[0].Names
+			if len(names) == 0 || names[0].Name == "_" {
+				continue
+			}
+			receiver := names[0].Name
+			checked++
+
+			ast.Inspect(fn.Body, func(n ast.Node) bool {
+				assign, ok := n.(*ast.AssignStmt)
+				if !ok {
+					return true
+				}
+				for _, lhs := range assign.Lhs {
+					if !mutatesReceiver(lhs, receiver) {
+						continue
+					}
+					t.Errorf("%s:%d: メソッド %s がレシーバの状態を変更している。"+
+						"ドメインの値は生成後に変わってはいけない",
+						rel, fset.Position(assign.Pos()).Line, fn.Name.Name)
+				}
+				return true
+			})
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("ドメイン層の走査に失敗: %v", err)
+	}
+	if checked == 0 {
+		t.Fatal("レシーバ付きのメソッドを1つも見つけられなかった。検査が空振りしている")
+	}
+	t.Logf("%d メソッドを検査した", checked)
+}
+
+// mutatesReceiver は代入先がレシーバのフィールドかどうか。
+// r.field = x と r.field[k] = x の両方を検出する。
+func mutatesReceiver(lhs ast.Expr, receiver string) bool {
+	if index, ok := lhs.(*ast.IndexExpr); ok {
+		lhs = index.X
+	}
+	sel, ok := lhs.(*ast.SelectorExpr)
+	if !ok {
+		return false
+	}
+	ident, ok := sel.X.(*ast.Ident)
+	return ok && ident.Name == receiver
+}

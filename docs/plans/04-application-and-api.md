@@ -1286,13 +1286,20 @@ func toSessionDTO(s training.PlannedSession) sessionDTO {
 	return out
 }
 
+// ポインタなのは、フィールドの欠落を検出するため。
+//
+// 非ポインタだと weight_kg の欠落が 0kg（正当な自重セット）になり、
+// rir の欠落が RIR 0（限界まで追い込んだ）になる。どちらも有意味な値なので、
+// 「送られなかった」と区別できない。
+// RIR は毎セットを1RM測定に変えるための必須情報であり、欠落を黙って
+// 0 と解釈すると推定1RMが実態より低くなる。
 type setLogDTO struct {
-	ID         string  `json:"id"`
-	Date       string  `json:"date"`
-	ExerciseID string  `json:"exercise_id"`
-	WeightKg   float64 `json:"weight_kg"`
-	Reps       int     `json:"reps"`
-	RIR        int     `json:"rir"`
+	ID         string   `json:"id"`
+	Date       string   `json:"date"`
+	ExerciseID string   `json:"exercise_id"`
+	WeightKg   *float64 `json:"weight_kg"`
+	Reps       *int     `json:"reps"`
+	RIR        *int     `json:"rir"`
 }
 
 type setLogsRequest struct {
@@ -1395,13 +1402,18 @@ func (h *Handler) handlePostSetLogs(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusBadRequest, fmt.Sprintf("logs[%d]: %v", i, err))
 			return
 		}
+		if dto.WeightKg == nil || dto.Reps == nil || dto.RIR == nil {
+			writeError(w, http.StatusBadRequest,
+				fmt.Sprintf("logs[%d]: weight_kg / reps / rir は必須である", i))
+			return
+		}
 		log, err := training.NewSetLog(training.SetLogParams{
 			ID:          dto.ID,
 			PerformedOn: date,
 			ExerciseID:  dto.ExerciseID,
-			WeightKg:    dto.WeightKg,
-			Reps:        dto.Reps,
-			RIR:         dto.RIR,
+			WeightKg:    *dto.WeightKg,
+			Reps:        *dto.Reps,
+			RIR:         *dto.RIR,
 		})
 		if err != nil {
 			writeError(w, http.StatusBadRequest, fmt.Sprintf("logs[%d]: %v", i, err))
