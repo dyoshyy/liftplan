@@ -51,6 +51,8 @@ type SetLogParams struct {
 // エンジンにとって唯一の真実であり、生成後は変更しない。
 // 未来のセッションを保存せずここから毎回導出するため、
 // 予定と実績が食い違う状態が原理的に発生しない。
+//
+//ddd:aggregate
 type SetLog struct {
 	id          SetLogID
 	performedOn Date

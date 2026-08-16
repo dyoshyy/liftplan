@@ -172,7 +172,10 @@ git commit -m "chore: ドメイン層の骨格と依存方向の検査を用意�
 - Consumes: Task 1 のパッケージ
 - Produces:
   - `type Date struct{ ... }`（不変）
-  - `func NewDate(year int, month time.Month, day int) Date`
+  - `func NewDate(year int, month time.Month, day int) (Date, error)`
+  - `func MustDate(year int, month time.Month, day int) Date` — テスト専用。実装では `NewDate` を使う
+
+> **契約の修正:** `NewDate` はエラーを返す（2026-08-50 のような日付を黙って正規化しないため）。この文書の以降のサンプルは `NewDate` が値だけを返す前提で書かれているので、テストを書くときは `MustDate` に読み替えること。
   - `func ParseDate(s string) (Date, error)` — `2006-01-02` 形式
   - `func (d Date) AddDays(n int) Date`
   - `func (d Date) Before(o Date) bool` / `After` / `Equal`

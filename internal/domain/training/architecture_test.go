@@ -100,11 +100,29 @@ func TestDomain_DependsOnNothingOutside(t *testing.T) {
 	t.Logf("%d ファイルを検査した", scanned)
 }
 
-// MustDate は不正な入力で panic する。コンパイル時に確定するリテラル専用であり、
-// 本番コードに現れてはならない。外部入力は ParseDate か FromTime を通すこと。
+// panic する関数は使える場所を限定する。
 //
-// 「テスト専用」を規約で守らせると必ず破られるので、AST で機械的に禁止する。
-func TestDomain_MustDateIsTestOnly(t *testing.T) {
+// 「ここでしか使わない」を規約で守らせると必ず破られるので、AST で機械的に禁止する。
+var panickingFunctions = []struct {
+	name string
+	// allowedFiles に無いファイルから呼ばれたら失敗させる。
+	// 空文字は「テストファイルなら許可」を意味する。
+	allowedFiles []string
+	reason       string
+}{
+	{
+		name:         "MustDate",
+		allowedFiles: []string{"date.go", ""},
+		reason:       "コンパイル時に確定するリテラル専用。外部入力は ParseDate か FromTime を通すこと",
+	},
+	{
+		name:         "newSlotTemplate",
+		allowedFiles: []string{"slot.go"},
+		reason:       "カタログ定義専用。実行時の値を渡すとパッケージのロード自体が失敗する",
+	},
+}
+
+func TestDomain_PanickingFunctionsStayWhereTheyBelong(t *testing.T) {
 	root := domainRoot(t)
 	fset := token.NewFileSet()
 	checked := 0
@@ -114,10 +132,6 @@ func TestDomain_MustDateIsTestOnly(t *testing.T) {
 			return err
 		}
 		if d.IsDir() || !strings.HasSuffix(path, ".go") {
-			return nil
-		}
-		// テストコードでの使用は正当。宣言そのものがある date.go も対象外。
-		if strings.HasSuffix(d.Name(), "_test.go") || d.Name() == "date.go" {
 			return nil
 		}
 
@@ -131,18 +145,22 @@ func TestDomain_MustDateIsTestOnly(t *testing.T) {
 		if err != nil {
 			return err
 		}
+		isTest := strings.HasSuffix(d.Name(), "_test.go")
+
 		ast.Inspect(file, func(n ast.Node) bool {
-			switch v := n.(type) {
-			case *ast.Ident:
-				if v.Name == "MustDate" {
-					t.Errorf("%s:%d: 本番コードで MustDate を使っている。外部入力は ParseDate か FromTime を通すこと",
-						rel, fset.Position(v.Pos()).Line)
+			name := calledFunctionName(n)
+			if name == "" {
+				return true
+			}
+			for _, fn := range panickingFunctions {
+				if fn.name != name {
+					continue
 				}
-			case *ast.SelectorExpr:
-				if v.Sel != nil && v.Sel.Name == "MustDate" {
-					t.Errorf("%s:%d: 本番コードで MustDate を使っている。外部入力は ParseDate か FromTime を通すこと",
-						rel, fset.Position(v.Pos()).Line)
+				if allowedIn(fn.allowedFiles, d.Name(), isTest) {
+					continue
 				}
+				t.Errorf("%s:%d: %s をここで使ってはいけない。%s",
+					rel, fset.Position(n.Pos()).Line, name, fn.reason)
 			}
 			return true
 		})
@@ -151,7 +169,39 @@ func TestDomain_MustDateIsTestOnly(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ドメイン層の走査に失敗: %v", err)
 	}
+	if checked == 0 {
+		t.Fatal("走査対象が0件。検査が空振りしている")
+	}
 	t.Logf("%d ファイルを検査した", checked)
+}
+
+// calledFunctionName は呼び出し式から関数名を取り出す。
+func calledFunctionName(n ast.Node) string {
+	call, ok := n.(*ast.CallExpr)
+	if !ok {
+		return ""
+	}
+	switch fn := call.Fun.(type) {
+	case *ast.Ident:
+		return fn.Name
+	case *ast.SelectorExpr:
+		if fn.Sel != nil {
+			return fn.Sel.Name
+		}
+	}
+	return ""
+}
+
+func allowedIn(allowed []string, fileName string, isTest bool) bool {
+	for _, a := range allowed {
+		if a == "" && isTest {
+			return true
+		}
+		if a == fileName {
+			return true
+		}
+	}
+	return false
 }
 
 func checkImport(t *testing.T, file, importPath string, isTest bool) {
@@ -248,11 +298,17 @@ func TestDomain_StimulusProfileIsNotMutated(t *testing.T) {
 	t.Logf("%d ファイルを検査した", checked)
 }
 
-// エンティティと値オブジェクトは生成後に状態を変えない。
+// ドメインの値は生成後に状態を変えない。
 //
 // 実績は「唯一の真実」であり、書き換わると過去のセッションの導出結果まで変わる。
 // 値渡しのテストでは「セッターを生やしても通ってしまう」ため検出できない。
-// メソッドがレシーバのフィールドへ代入していないことを AST で検査する。
+//
+// 検査対象は次の2つ。
+//   - ポインタレシーバのフィールド代入（呼び出し側に直接波及する）
+//   - 値レシーバでも添字経由の代入（内部のマップやスライスを共有しているため波及する）
+//
+// 値レシーバへの平フィールド代入だけは許す。コピーを変えるだけなので
+// 波及せず、「新しい値を返す」ビルダーで正当に使われる。
 func TestDomain_MethodsDoNotMutateReceiver(t *testing.T) {
 	root := domainRoot(t)
 	fset := token.NewFileSet()
@@ -286,6 +342,7 @@ func TestDomain_MethodsDoNotMutateReceiver(t *testing.T) {
 			if len(names) == 0 || names[0].Name == "_" {
 				continue
 			}
+			_, isPointer := fn.Recv.List[0].Type.(*ast.StarExpr)
 			receiver := names[0].Name
 			checked++
 
@@ -295,7 +352,17 @@ func TestDomain_MethodsDoNotMutateReceiver(t *testing.T) {
 					return true
 				}
 				for _, lhs := range assign.Lhs {
-					if !mutatesReceiver(lhs, receiver) {
+					indexed, ok := mutatesReceiver(lhs, receiver)
+					if !ok {
+						continue
+					}
+					// 値レシーバへの平フィールド代入はコピーを変えるだけで
+					// 呼び出し側に波及しない。「新しい値を返す」ビルダーで
+					// 正当に使われるので許す。
+					//
+					// ただし r.field[k] = x は、値レシーバでも内部のマップや
+					// スライスを共有しているため呼び出し側に波及する。
+					if !isPointer && !indexed {
 						continue
 					}
 					t.Errorf("%s:%d: メソッド %s がレシーバの状態を変更している。"+
@@ -317,15 +384,15 @@ func TestDomain_MethodsDoNotMutateReceiver(t *testing.T) {
 }
 
 // mutatesReceiver は代入先がレシーバのフィールドかどうか。
-// r.field = x と r.field[k] = x の両方を検出する。
-func mutatesReceiver(lhs ast.Expr, receiver string) bool {
-	if index, ok := lhs.(*ast.IndexExpr); ok {
-		lhs = index.X
+// 2つ目の戻り値が、添字経由（r.field[k] = x）かどうかを表す。
+func mutatesReceiver(lhs ast.Expr, receiver string) (indexed, ok bool) {
+	if index, isIndex := lhs.(*ast.IndexExpr); isIndex {
+		lhs, indexed = index.X, true
 	}
-	sel, ok := lhs.(*ast.SelectorExpr)
-	if !ok {
-		return false
+	sel, isSelector := lhs.(*ast.SelectorExpr)
+	if !isSelector {
+		return false, false
 	}
-	ident, ok := sel.X.(*ast.Ident)
-	return ok && ident.Name == receiver
+	ident, isIdent := sel.X.(*ast.Ident)
+	return indexed, isIdent && ident.Name == receiver
 }

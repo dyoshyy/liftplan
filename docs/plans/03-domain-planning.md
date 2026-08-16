@@ -656,7 +656,20 @@ git commit -m "feat(domain): Program 集約と残差計算を追加する"
   - `type AccessorySelector struct{...}`
   - `func NewAccessorySelector(recoveryDays, setsPerAccessory int) (AccessorySelector, error)`
   - `func DefaultAccessorySelector() AccessorySelector` — recoveryDays 2、setsPerAccessory 3
-  - `func (s AccessorySelector) Select(residual map[MuscleRegion]float64, pool []*Exercise, h History, date Date, slots int) []ExerciseID`
+  - `func (s AccessorySelector) Select(residual map[MuscleRegion]float64, pool []*Exercise, h History, date Date) []ExerciseID` — スロット数は残差から導く
+
+**補助スロット数は残差から決める（重要）:**
+
+固定の3スロットでは、週目標を構造的に達成できない。シードの週目標は21区分合計で198セット相当だが、3スロット×3セット×寄与合計では1セッションあたり15セット相当が上限で、頻度4でも週合計85%程度にしか届かない。
+
+`slots` を固定値ではなく、次のように残差から導くこと。
+
+```
+必要スロット数 = ceil(残差の合計 / setsPerAccessory)
+実際のスロット数 = min(必要スロット数, maxAccessorySlots)
+```
+
+`maxAccessorySlots` はセッションの長さの上限（8程度）。これで、残差が小さい日は短く、大きい日は長くなる。
 
 **アルゴリズム:**
 
@@ -1038,7 +1051,7 @@ git commit -m "feat(domain): 残差から補助種目を選ぶサービスを追
 - Produces:
   - `type DailyCondition struct{...}` / `func NewDailyCondition(date Date) DailyCondition` / `func (c DailyCondition) WithBodyWeight(kg float64) DailyCondition` / `func (c DailyCondition) WithSleepHours(h float64) DailyCondition` / アクセサ `Date()` / `BodyWeightKg() (float64, bool)` / `SleepHours() (float64, bool)`
   - `type ConditionLog struct{...}` / `func NewConditionLog(items []DailyCondition) ConditionLog`
-  - `type ConditionAnalyzer struct{...}` / `func NewConditionAnalyzer(baselineDays int, sleepDeficitHours float64, trendWindowDays int) (ConditionAnalyzer, error)` / `func DefaultConditionAnalyzer() ConditionAnalyzer`
+  - `type ConditionAnalyzer struct{...}` / `func NewConditionAnalyzer(baselineDays int, sleepDeficitHours float64, trendWindowDays int) (ConditionAnalyzer, error)（窓は最低サンプル数以上・365日以下）` / `func DefaultConditionAnalyzer() ConditionAnalyzer`
   - `func (a ConditionAnalyzer) RIRAdjustment(log ConditionLog, date Date) int`
   - `func (a ConditionAnalyzer) BodyWeightTrendKgPerWeek(log ConditionLog, date Date) (float64, bool)`
 
@@ -1290,7 +1303,7 @@ type ConditionAnalyzer struct {
 	trendWindowDays   int
 }
 
-func NewConditionAnalyzer(baselineDays int, sleepDeficitHours float64, trendWindowDays int) (ConditionAnalyzer, error) {
+func NewConditionAnalyzer(baselineDays int, sleepDeficitHours float64, trendWindowDays int) (ConditionAnalyzer, error)（窓は最低サンプル数以上・365日以下） {
 	if baselineDays < 1 {
 		return ConditionAnalyzer{}, fmt.Errorf("基準日数は1以上である必要がある: %d", baselineDays)
 	}
@@ -1701,9 +1714,13 @@ git commit -m "feat(domain): デロード提案のポリシーを追加する"
 - Produces:
   - `type PlannedSet struct{...}` / `func (s PlannedSet) ExerciseID() ExerciseID` / `func (s PlannedSet) Weight() (Weight, bool)` / `func (s PlannedSet) Sets() SetCount` / `func (s PlannedSet) TargetRIR() RIR` / `func (s PlannedSet) Role() (SlotRole, bool)`
   - `type PlannedSession struct{...}` / `func (s PlannedSession) Date() Date` / `func (s PlannedSession) Main() []PlannedSet` / `func (s PlannedSession) Accessories() []PlannedSet` / `func (s PlannedSession) DeloadProposal() (DeloadProposal, bool)`
-  - `type PlanRequest struct{ Program *Program; Pool []*Exercise; History History; Conditions ConditionLog; Date Date; DeloadAccepted bool; AccessorySlots int }`
+  - `type PlanRequest struct{ Program *Program; Pool []*Exercise; History History; Conditions ConditionLog; Date Date; DeloadAccepted []ExerciseID; AccessorySlots int }`
   - `type SessionPlanner struct{...}` / `func NewSessionPlanner(...) SessionPlanner` / `func DefaultSessionPlanner() SessionPlanner`
   - `func (p SessionPlanner) Plan(req PlanRequest) (PlannedSession, error)`
+
+**メイン種目が1つも選ばれていないプログラムはエラーにすること。** `Plan` が空のメインを返すと、ユーザーには空のワークアウトが返り、どこにもエラーが立たない。集約は種目マスタを知らないので検証できず、ここが唯一の検出点になる。
+
+**週内カバレッジは履歴から求める。** `coveredThisWeek` は週初からその日までの実績を走査し、種目の刺激分布とセット数から `StimulusCoverage` を組み立てる。これが無いと残差の繰り越しが成立しない。
 
 **この関数がドメインの入口。** 未来のセッションは保存せず、今日のメニューも来週のメニューもこの関数を対象日で呼んだ結果でしかない。だから予定と実績が食い違う状態が発生しない。
 
@@ -1908,7 +1925,7 @@ func TestSessionPlanner_AcceptedDeloadLowersWeight(t *testing.T) {
 	normal := mustPlan(t, planRequest(t))
 
 	req := planRequest(t)
-	req.DeloadAccepted = true
+	req.DeloadAccepted = proposal.StalledExercises()
 	deloaded := mustPlan(t, req)
 
 	nw, ok1 := normal.Main()[0].Weight()
@@ -1924,7 +1941,7 @@ func TestSessionPlanner_AcceptedDeloadLowersWeight(t *testing.T) {
 func TestSessionPlanner_DeloadKeepsSetCount(t *testing.T) {
 	normal := mustPlan(t, planRequest(t))
 	req := planRequest(t)
-	req.DeloadAccepted = true
+	req.DeloadAccepted = []training.ExerciseID{"bench"}
 	deloaded := mustPlan(t, req)
 
 	if normal.Main()[0].Sets().Int() != deloaded.Main()[0].Sets().Int() {
@@ -2050,7 +2067,7 @@ type PlanRequest struct {
 	History        History
 	Conditions     ConditionLog
 	Date           Date
-	DeloadAccepted bool
+	DeloadAccepted []ExerciseID
 	AccessorySlots int
 }
 
@@ -2100,7 +2117,10 @@ func (p SessionPlanner) Plan(req PlanRequest) (PlannedSession, error) {
 	}
 
 	selectedPool := p.selectedPool(req)
-	template := p.slots.Select(req.Program.Frequency(), sessionIndexInWeek(req.History, req.Date))
+	template, ok := p.slots.Select(req.Program.Frequency(), sessionIndexInWeek(req.History, req.Date))
+	if !ok {
+		return PlannedSession{}, errors.New("週の頻度に対応するスロット構成が無い")
+	}
 
 	mainIDs := make([]ExerciseID, 0, 3)
 	for _, e := range selectedPool {
@@ -2111,13 +2131,18 @@ func (p SessionPlanner) Plan(req PlanRequest) (PlannedSession, error) {
 
 	proposal, hasProposal := p.deload.Propose(req.History, mainIDs, req.Conditions, req.Date)
 
-	intensityScale := 1.0
-	if req.DeloadAccepted {
-		drop := defaultIntensityDropPct
-		if hasProposal {
-			drop = proposal.IntensityDropPct()
+	// デロードは停滞した種目にだけ適用する。伸びている種目まで
+	// 一律に下げると、本人の実感と噛み合わない。
+	deloadTargets := map[ExerciseID]bool{}
+	if hasProposal {
+		for _, id := range proposal.StalledExercises() {
+			deloadTargets[id] = true
 		}
-		intensityScale = 1 - drop
+	}
+	// 承認された種目にだけ適用する（D-022）。提案の有無とは独立。
+	deloadTargets := make(map[ExerciseID]bool, len(req.DeloadAccepted))
+	for _, id := range req.DeloadAccepted {
+		deloadTargets[id] = true
 	}
 
 	rirBump := DefaultConditionAnalyzer().RIRAdjustment(req.Conditions, req.Date)
@@ -2318,7 +2343,7 @@ git commit -m "feat(domain): SessionPlanner でドメインを統合する"
 - Consumes: Task 6 の `Exercise`、Task 12 の `WeeklyVolumeTarget`
 - Produces:
   - `func Exercises() ([]*training.Exercise, error)`
-  - `func DefaultWeeklyTarget() (training.WeeklyVolumeTarget, error)`
+  - `func DefaultWeeklyTarget(f training.Frequency) (training.WeeklyVolumeTarget, error)`
 
 `internal/domain/training/seed` は domain 配下なので、Task 1 の依存方向テストの制約（`/internal/domain/` を含むパスのみ許可）を満たす。
 
@@ -2440,7 +2465,7 @@ func TestExercises_AccessoriesCoverEveryRegion(t *testing.T) {
 }
 
 func TestDefaultWeeklyTarget_CoversEveryRegion(t *testing.T) {
-	target, err := seed.DefaultWeeklyTarget()
+	target, err := seed.DefaultWeeklyTarget(freq)
 	if err != nil {
 		t.Fatalf("週目標が不正: %v", err)
 	}
@@ -2629,11 +2654,12 @@ package seed
 import "github.com/dyoshyy/liftplan-server/internal/domain/training"
 
 // DefaultWeeklyTarget は筋区分ごとの週目標セット数のプリセット。
+// （実装では週3回を基準にしたプロファイルを頻度で線形にスケールする。D-027）
 //
 // パワーリフティング寄りに、BIG3 が直接使う区分（大腿四頭筋・ハム・臀筋・
 // 脊柱起立筋・大胸筋中部）を厚くし、装飾的な区分は薄くしている。
 // 不満が出た区分だけ後から調整すればよく、最初から自分で全部決める必要はない。
-func DefaultWeeklyTarget() (training.WeeklyVolumeTarget, error) {
+func DefaultWeeklyTarget(f training.Frequency) (training.WeeklyVolumeTarget, error) {
 	return training.NewWeeklyVolumeTarget(map[training.MuscleRegion]float64{
 		training.ChestUpper: 8,
 		training.ChestMid:   14,
@@ -2685,6 +2711,8 @@ git commit -m "feat(domain): 種目マスタと週目標のシードを追加す
 
 ---
 
+> **実装時の変更（D-027 / D-028 / D-029 / D-030）:** 週目標は頻度でスケールする形に変えた。固定値だと週1回・2回のユーザーは全区分が永久に赤字になる。また、Task 18 の通し検証は Task 17 に前倒しし、`seed/simulation_test.go` として常設化した。シードは「値が入っていること」を確かめても意味がなく、セッション生成器を通した挙動でしか検証できない。実際の数値は `internal/domain/training/seed/` を参照。
+
 ### Task 18: シードを使った通し検証
 
 **Files:**
@@ -2721,7 +2749,7 @@ func fullProgram(t *testing.T) (*training.Program, []*training.Exercise) {
 	if err != nil {
 		t.Fatalf("シードが不正: %v", err)
 	}
-	target, err := seed.DefaultWeeklyTarget()
+	target, err := seed.DefaultWeeklyTarget(freq)
 	if err != nil {
 		t.Fatalf("週目標が不正: %v", err)
 	}

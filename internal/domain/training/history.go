@@ -158,6 +158,14 @@ func (h History) After(d Date) History {
 	return h.filter(func(l *SetLog) bool { return l.PerformedOn().After(d) })
 }
 
+// OnOrBefore は d を含むそれ以前。
+//
+// ある時点での推定を「その時点までに分かっていた情報だけ」で行うために使う。
+// 絞り込まずに過去の推定をやり直すと、未来の記録が混ざる。
+func (h History) OnOrBefore(d Date) History {
+	return h.filter(func(l *SetLog) bool { return !l.PerformedOn().After(d) })
+}
+
 // Sessions は同一日ごとにまとめ、日付昇順で返す。
 func (h History) Sessions() []TrainingSession {
 	grouped := map[Date][]*SetLog{}

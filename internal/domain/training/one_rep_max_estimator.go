@@ -66,11 +66,14 @@ func (e OneRepMaxEstimator) Estimate(h History, id ExerciseID, asOf Date) (OneRe
 		return OneRepMax{}, false
 	}
 
-	if e.isStale(h, id, asOf) {
+	// asOf より後の記録は使わない。過去のある時点の推定をやり直すとき、
+	// 未来の記録が混ざると「その時点で分かっていたこと」にならない。
+	known := h.OnOrBefore(asOf).ForExercise(id)
+	if e.isStale(known, id, asOf) {
 		return OneRepMax{}, false
 	}
 
-	acc, ok := e.smooth(h.ForExercise(id))
+	acc, ok := e.smooth(known)
 	if !ok {
 		return OneRepMax{}, false
 	}
