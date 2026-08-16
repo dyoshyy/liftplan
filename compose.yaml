@@ -1,0 +1,23 @@
+# 開発とテスト用の Postgres。
+#
+# 本番は Neon を想定しているが、接続文字列の形は同じなので
+# ここで検証したものがそのまま動く。
+services:
+  db:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_PASSWORD: liftplan
+      POSTGRES_USER: liftplan
+      POSTGRES_DB: liftplan
+    ports:
+      - "5433:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U liftplan"]
+      interval: 2s
+      timeout: 3s
+      retries: 15
+    volumes:
+      - db:/var/lib/postgresql/data
+
+volumes:
+  db:
