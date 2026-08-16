@@ -49,15 +49,18 @@ func (r *SetLogRepository) FindAll(context.Context) (training.History, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
-	ids := make([]string, 0, len(r.byID))
+	// 取得順を安定させる。map の反復順は保証されないので、揺れると
+	// History の重複解決や推定1RMの畳み込みが呼び出しごとに変わり、
+	// 同じ入力から違う計画が出る。
+	ids := make([]training.SetLogID, 0, len(r.byID))
 	for id := range r.byID {
-		ids = append(ids, string(id))
+		ids = append(ids, id)
 	}
-	sort.Strings(ids) // 取得順を安定させる
+	sort.Slice(ids, func(i, j int) bool { return ids[i] < ids[j] })
 
 	out := make([]*training.SetLog, 0, len(ids))
 	for _, id := range ids {
-		out = append(out, r.byID[training.SetLogID(id)])
+		out = append(out, r.byID[id])
 	}
 	return training.NewHistory(out), nil
 }
@@ -134,9 +137,11 @@ func (r *ConditionRepository) Save(_ context.Context, items []training.DailyCond
 	defer r.mu.Unlock()
 
 	staged := make(map[string]training.DailyCondition, len(items))
-	for _, c := range items {
+	for i, c := range items {
+		// 日付の無い記録を黙って捨てない。捨てると、クライアントは
+		// 保存に成功したと思ったまま記録が消える。
 		if c.Date().IsZero() {
-			continue
+			return fmt.Errorf("%d番目のコンディションに日付が無い", i)
 		}
 		key := c.Date().String()
 		base, ok := staged[key]

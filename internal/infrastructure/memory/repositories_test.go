@@ -401,3 +401,19 @@ func TestProgramRepository_RejectsNil(t *testing.T) {
 		t.Errorf("未設定のままでない: %v", err)
 	}
 }
+
+// 日付の無い記録を黙って捨てないこと。
+// 捨てると、クライアントは保存に成功したと思ったまま記録が消える。
+func TestConditionRepository_RejectsUndatedItems(t *testing.T) {
+	repo := memory.NewConditionRepository()
+	err := repo.Save(context.Background(), []training.DailyCondition{
+		training.NewDailyCondition(day).WithBodyWeight(75),
+		{},
+	})
+	if err == nil {
+		t.Error("日付の無い記録が弾かれていない")
+	}
+	if repo.Size() != 0 {
+		t.Errorf("全か無かで書いていない: %d件", repo.Size())
+	}
+}
