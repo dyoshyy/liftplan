@@ -1,0 +1,132 @@
+package training_test
+
+import (
+	"go/parser"
+	"go/token"
+	"io/fs"
+	"path/filepath"
+	"runtime"
+	"strings"
+	"testing"
+)
+
+const modulePath = "github.com/dyoshyy/liftplan-server"
+
+// productionStdlib はドメイン層の本番コードで使ってよい標準ライブラリ。
+//
+// ここに無いものを import したらテストが落ちる。意図的な追加なら明示的にここへ足すこと。
+// os / path/filepath / net/http / database/sql が入っていないのは意図的で、
+// ドメイン層が外界に触れないという制約そのものを表している。
+var productionStdlib = map[string]bool{
+	"context": true,
+	"errors":  true,
+	"fmt":     true,
+	"math":    true,
+	"sort":    true,
+	"strings": true,
+	"time":    true,
+}
+
+// testOnlyStdlib はテストファイルにのみ追加で許可する標準ライブラリ。
+//
+// 本番コードと分けているのは、この検査テスト自身が必要とする os や go/parser を
+// 本番コードにも許してしまうと、ドメイン層がファイルシステムを触れるようになるため。
+var testOnlyStdlib = map[string]bool{
+	"testing":       true,
+	"go/parser":     true,
+	"go/token":      true,
+	"io/fs":         true,
+	"path/filepath": true,
+	"runtime":       true,
+	"strconv":       true,
+	"sync":          true,
+}
+
+// domainRoot はこのテストファイルの位置から internal/domain を解決する。
+//
+// os.Getwd に頼らないのは、`go test -c` したバイナリを別ディレクトリで実行すると
+// 走査対象が消えてテストが素通りしてしまうため。
+func domainRoot(t *testing.T) string {
+	t.Helper()
+
+	_, thisFile, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("テストファイルの位置を解決できない")
+	}
+	// .../internal/domain/training/architecture_test.go → .../internal/domain
+	return filepath.Dir(filepath.Dir(thisFile))
+}
+
+func TestDomain_DependsOnNothingOutside(t *testing.T) {
+	root := domainRoot(t)
+	fset := token.NewFileSet()
+	scanned := 0
+
+	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() || !strings.HasSuffix(path, ".go") {
+			return nil
+		}
+
+		rel, err := filepath.Rel(root, path)
+		if err != nil {
+			return err
+		}
+		scanned++
+
+		file, err := parser.ParseFile(fset, path, nil, parser.ImportsOnly)
+		if err != nil {
+			return err
+		}
+
+		isTest := strings.HasSuffix(d.Name(), "_test.go")
+		for _, imp := range file.Imports {
+			checkImport(t, rel, strings.Trim(imp.Path.Value, `"`), isTest)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("ドメイン層の走査に失敗: %v", err)
+	}
+
+	// 走査対象が0件なら、検査したつもりで何も守っていない状態になる。
+	if scanned == 0 {
+		t.Fatalf("%s に .go ファイルが1つも見つからない。検査が空振りしている", root)
+	}
+	t.Logf("%d ファイルを検査した", scanned)
+}
+
+func checkImport(t *testing.T, file, importPath string, isTest bool) {
+	t.Helper()
+
+	if importPath == modulePath || strings.HasPrefix(importPath, modulePath+"/") {
+		rest := strings.TrimPrefix(strings.TrimPrefix(importPath, modulePath), "/")
+		if rest != "internal/domain" && !strings.HasPrefix(rest, "internal/domain/") {
+			t.Errorf("%s: ドメイン層が外側に依存している: %s", file, importPath)
+		}
+		return
+	}
+
+	// 先頭セグメントにドットを含めばホスト名、すなわち外部モジュール。
+	if strings.Contains(strings.Split(importPath, "/")[0], ".") {
+		t.Errorf("%s: ドメイン層が外部ライブラリに依存している: %s", file, importPath)
+		return
+	}
+
+	if productionStdlib[importPath] {
+		return
+	}
+	if isTest && testOnlyStdlib[importPath] {
+		return
+	}
+
+	if isTest {
+		t.Errorf("%s: 許可されていない標準ライブラリ: %s（意図的なら testOnlyStdlib に追加すること）",
+			file, importPath)
+		return
+	}
+	t.Errorf("%s: 本番コードで許可されていない標準ライブラリ: %s（意図的なら productionStdlib に追加すること）",
+		file, importPath)
+}
