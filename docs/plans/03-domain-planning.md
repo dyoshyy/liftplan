@@ -2343,7 +2343,7 @@ git commit -m "feat(domain): SessionPlanner でドメインを統合する"
 - Consumes: Task 6 の `Exercise`、Task 12 の `WeeklyVolumeTarget`
 - Produces:
   - `func Exercises() ([]*training.Exercise, error)`
-  - `func DefaultWeeklyTarget() (training.WeeklyVolumeTarget, error)`
+  - `func DefaultWeeklyTarget(f training.Frequency) (training.WeeklyVolumeTarget, error)`
 
 `internal/domain/training/seed` は domain 配下なので、Task 1 の依存方向テストの制約（`/internal/domain/` を含むパスのみ許可）を満たす。
 
@@ -2465,7 +2465,7 @@ func TestExercises_AccessoriesCoverEveryRegion(t *testing.T) {
 }
 
 func TestDefaultWeeklyTarget_CoversEveryRegion(t *testing.T) {
-	target, err := seed.DefaultWeeklyTarget()
+	target, err := seed.DefaultWeeklyTarget(freq)
 	if err != nil {
 		t.Fatalf("週目標が不正: %v", err)
 	}
@@ -2654,11 +2654,12 @@ package seed
 import "github.com/dyoshyy/liftplan-server/internal/domain/training"
 
 // DefaultWeeklyTarget は筋区分ごとの週目標セット数のプリセット。
+// （実装では週3回を基準にしたプロファイルを頻度で線形にスケールする。D-027）
 //
 // パワーリフティング寄りに、BIG3 が直接使う区分（大腿四頭筋・ハム・臀筋・
 // 脊柱起立筋・大胸筋中部）を厚くし、装飾的な区分は薄くしている。
 // 不満が出た区分だけ後から調整すればよく、最初から自分で全部決める必要はない。
-func DefaultWeeklyTarget() (training.WeeklyVolumeTarget, error) {
+func DefaultWeeklyTarget(f training.Frequency) (training.WeeklyVolumeTarget, error) {
 	return training.NewWeeklyVolumeTarget(map[training.MuscleRegion]float64{
 		training.ChestUpper: 8,
 		training.ChestMid:   14,
@@ -2710,6 +2711,8 @@ git commit -m "feat(domain): 種目マスタと週目標のシードを追加す
 
 ---
 
+> **実装時の変更（D-027 / D-028 / D-029 / D-030）:** 週目標は頻度でスケールする形に変えた。固定値だと週1回・2回のユーザーは全区分が永久に赤字になる。また、Task 18 の通し検証は Task 17 に前倒しし、`seed/simulation_test.go` として常設化した。シードは「値が入っていること」を確かめても意味がなく、セッション生成器を通した挙動でしか検証できない。実際の数値は `internal/domain/training/seed/` を参照。
+
 ### Task 18: シードを使った通し検証
 
 **Files:**
@@ -2746,7 +2749,7 @@ func fullProgram(t *testing.T) (*training.Program, []*training.Exercise) {
 	if err != nil {
 		t.Fatalf("シードが不正: %v", err)
 	}
-	target, err := seed.DefaultWeeklyTarget()
+	target, err := seed.DefaultWeeklyTarget(freq)
 	if err != nil {
 		t.Fatalf("週目標が不正: %v", err)
 	}

@@ -262,7 +262,7 @@ func (f fakeProgram) Get(context.Context) (*training.Program, error) {
 
 func buildProgram(t *testing.T, pool []*training.Exercise) *training.Program {
 	t.Helper()
-	target, err := seed.DefaultWeeklyTarget()
+	target, err := seed.DefaultWeeklyTarget(freq)
 	if err != nil {
 		t.Fatalf("週目標が不正: %v", err)
 	}
@@ -734,7 +734,7 @@ func TestProgramRepository_NotConfigured(t *testing.T) {
 
 func TestProgramRepository_Set(t *testing.T) {
 	pool, _ := seed.Exercises()
-	target, _ := seed.DefaultWeeklyTarget()
+	target, _ := seed.DefaultWeeklyTarget(freq)
 	selected := make([]training.ExerciseID, 0, len(pool))
 	for _, e := range pool {
 		if e.Kind() != training.KindVariation {
@@ -1017,7 +1017,7 @@ func newServer(t *testing.T, configured bool) http.Handler {
 
 	programs := memory.NewProgramRepository(nil)
 	if configured {
-		target, err := seed.DefaultWeeklyTarget()
+		target, err := seed.DefaultWeeklyTarget(freq)
 		if err != nil {
 			t.Fatalf("週目標が不正: %v", err)
 		}
@@ -1647,7 +1647,7 @@ func buildHandler() (http.Handler, error) {
 // defaultProgram はシードから初期プログラムを組む。
 // バリエーションはメインに付随して自動で回るため、選択には含めない。
 func defaultProgram(pool []*training.Exercise) (*training.Program, error) {
-	target, err := seed.DefaultWeeklyTarget()
+	target, err := seed.DefaultWeeklyTarget(freq)
 	if err != nil {
 		return nil, fmt.Errorf("週目標シードが不正: %w", err)
 	}

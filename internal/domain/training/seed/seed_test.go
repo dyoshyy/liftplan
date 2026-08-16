@@ -107,13 +107,19 @@ func TestExercises_AccessoriesCoverEveryRegion(t *testing.T) {
 }
 
 func TestDefaultWeeklyTarget_CoversEveryRegion(t *testing.T) {
-	target, err := seed.DefaultWeeklyTarget()
-	if err != nil {
-		t.Fatalf("週目標が不正: %v", err)
-	}
-	for _, r := range training.AllMuscleRegions() {
-		if target.Sets(r) <= 0 {
-			t.Errorf("筋区分 %s の目標が設定されていない", r)
+	for f := 1; f <= 4; f++ {
+		freq, err := training.NewFrequency(f)
+		if err != nil {
+			t.Fatalf("頻度が不正: %v", err)
+		}
+		target, err := seed.DefaultWeeklyTarget(freq)
+		if err != nil {
+			t.Fatalf("週目標が不正: %v", err)
+		}
+		for _, r := range training.AllMuscleRegions() {
+			if target.Sets(r) <= 0 {
+				t.Errorf("週%d回: 筋区分 %s の目標が設定されていない", f, r)
+			}
 		}
 	}
 }
@@ -131,7 +137,11 @@ func TestExercises_VariationRatiosAreRealistic(t *testing.T) {
 		if !ok {
 			continue
 		}
-		if r := ratio.Float(); r < 0.5 || r > 1.0 {
+		// 帯を外した値は VariationRatioResolver が実測で上書きするまで
+		// そのまま重量に効く。上書きには同じ種目の3セッション分が要り、
+		// バリエーション枠は週1回で3種目を回すので9〜12週かかる。
+		// 初期値の誤りが1シーズン効き続けるので、帯は狭く取る。
+		if r := ratio.Float(); r < 0.65 || r > 0.95 {
 			t.Errorf("%s の対メイン係数が現実的でない: %v", e.ID(), r)
 		}
 	}
@@ -173,7 +183,11 @@ func TestExercises_ReturnsFreshInstances(t *testing.T) {
 // 目標へ届かせる方法が無くなる。
 func TestSeed_EveryTargetRegionHasANonMainExercise(t *testing.T) {
 	all, _ := seed.Exercises()
-	target, err := seed.DefaultWeeklyTarget()
+	freq, err := training.NewFrequency(3)
+	if err != nil {
+		t.Fatalf("頻度が不正: %v", err)
+	}
+	target, err := seed.DefaultWeeklyTarget(freq)
 	if err != nil {
 		t.Fatalf("週目標が不正: %v", err)
 	}
@@ -190,6 +204,65 @@ func TestSeed_EveryTargetRegionHasANonMainExercise(t *testing.T) {
 	for _, r := range training.AllMuscleRegions() {
 		if target.Sets(r) > 0 && !covered[r] {
 			t.Errorf("%s はメイン種目でしか刺激できない", r)
+		}
+	}
+}
+
+// 各筋区分に、それを主働筋とする補助種目が最低1つあること。
+//
+// 副次刺激（0.3〜0.5）だけで週目標を埋めることになる区分があると、
+// その区分は他の種目のついでにしか動かず、狙って埋められない。
+func TestExercises_EveryRegionHasAPrimaryAccessory(t *testing.T) {
+	all, _ := seed.Exercises()
+
+	primary := map[training.MuscleRegion]bool{}
+	for _, e := range all {
+		if e.Kind() != training.KindAccessory {
+			continue
+		}
+		for _, r := range e.Stimulus().Regions() {
+			if c, ok := e.Stimulus().Contribution(r); ok && c.Float() >= 1.0 {
+				primary[r] = true
+			}
+		}
+	}
+	for _, r := range training.AllMuscleRegions() {
+		if !primary[r] {
+			t.Errorf("%s を主働筋とする補助種目が無い", r)
+		}
+	}
+}
+
+// メインリフトの主働筋が取り違えられていないこと。
+func TestExercises_MainLiftsHaveTheRightPrimaryMover(t *testing.T) {
+	want := map[training.ExerciseID]training.MuscleRegion{
+		"squat":    training.Quad,
+		"bench":    training.ChestMid,
+		"deadlift": training.Hamstring,
+	}
+
+	all, _ := seed.Exercises()
+	for _, e := range all {
+		region, ok := want[e.ID()]
+		if !ok {
+			continue
+		}
+		c, has := e.Stimulus().Contribution(region)
+		if !has || c.Float() < 1.0 {
+			t.Errorf("%s の主働筋が %s になっていない", e.ID(), region)
+		}
+	}
+}
+
+// 増加単位が実在の器具で刻める範囲にあること。
+//
+// 小さすぎると推定1RMのわずかな揺れがそのまま重量の変化として出て、
+// 大きすぎると丸めた結果が実力から離れる。
+func TestExercises_IncrementsArePracticable(t *testing.T) {
+	all, _ := seed.Exercises()
+	for _, e := range all {
+		if inc := e.Increment().Kg(); inc < 0.5 || inc > 5.0 {
+			t.Errorf("%s の増加単位が実用的でない: %vkg", e.ID(), inc)
 		}
 	}
 }
