@@ -21,6 +21,7 @@ import (
 	"github.com/dyoshyy/liftplan-server/internal/domain/training"
 	"github.com/dyoshyy/liftplan-server/internal/domain/training/seed"
 	"github.com/dyoshyy/liftplan-server/internal/infrastructure/memory"
+	"github.com/dyoshyy/liftplan-server/internal/infrastructure/postgres"
 	"github.com/dyoshyy/liftplan-server/internal/presentation/httpapi"
 )
 
@@ -58,13 +59,14 @@ func main() {
 }
 
 func run() error {
-	handler, err := buildHandler()
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	handler, closeRepos, err := buildHandler(ctx)
 	if err != nil {
 		return err
 	}
-
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer stop()
+	defer closeRepos()
 
 	return serve(ctx, stop, newServer(handler, ":"+port()))
 }
@@ -153,21 +155,35 @@ func port() string {
 	return "8080"
 }
 
+// repositories は差し替えの対象になる口の集まり。
+//
+// この構造体があるのは、インメモリと Postgres の選択を1箇所に閉じるため。
+// 組み立ての途中に条件分岐が散ると、どちらの実装が使われているかが
+// 読めなくなる。
+type repositories struct {
+	exercises  training.ExerciseRepository
+	logs       training.SetLogRepository
+	conditions training.ConditionRepository
+	programs   training.ProgramRepository
+	close      func()
+}
+
 // buildHandler は依存を組み立てる。テストからも呼べるよう main と分けている。
-func buildHandler() (http.Handler, error) {
+func buildHandler(ctx context.Context) (http.Handler, func(), error) {
 	pool, err := seed.Exercises()
 	if err != nil {
-		return nil, fmt.Errorf("種目シードが不正: %w", err)
-	}
-	program, err := defaultProgram(pool)
-	if err != nil {
-		return nil, err
+		return nil, nil, fmt.Errorf("種目シードが不正: %w", err)
 	}
 
-	exercises := memory.NewExerciseRepository(pool)
-	logs := memory.NewSetLogRepository()
-	conditions := memory.NewConditionRepository()
-	programs := memory.NewProgramRepository(program)
+	repos, err := openRepositories(ctx, pool)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	exercises := repos.exercises
+	logs := repos.logs
+	conditions := repos.conditions
+	programs := repos.programs
 
 	planner := training.DefaultSessionPlanner()
 
@@ -178,7 +194,88 @@ func buildHandler() (http.Handler, error) {
 		usecase.NewConfigureProgram(exercises, programs),
 		usecase.NewGetProgram(programs),
 	)
-	return handler.Routes(), nil
+	return handler.Routes(), repos.close, nil
+}
+
+// openRepositories は DATABASE_URL があれば Postgres、無ければインメモリを返す。
+//
+// インメモリを残すのは、ドメインの検証を DB 無しで回せる状態を捨てないため。
+// 「とりあえず動かす」ための逃げ道でもある。
+//
+// 種目マスタだけは常にインメモリ。シードはバイナリ同梱の静的なマスタで、
+// DB に置くとマイグレーションのたびに種目の追加・改名が絡み、
+// ErrExerciseNotFound の意味が「まだ流していない」と混ざる。
+func openRepositories(ctx context.Context, pool []*training.Exercise) (repositories, error) {
+	exercises := memory.NewExerciseRepository(pool)
+
+	url := os.Getenv("DATABASE_URL")
+	if url == "" {
+		slog.Warn("DATABASE_URL が無いのでインメモリで動く。再起動すると記録は消える")
+		program, err := defaultProgram(pool)
+		if err != nil {
+			return repositories{}, err
+		}
+		return repositories{
+			exercises:  exercises,
+			logs:       memory.NewSetLogRepository(),
+			conditions: memory.NewConditionRepository(),
+			programs:   memory.NewProgramRepository(program),
+			close:      func() {},
+		}, nil
+	}
+
+	db, err := postgres.Open(ctx, url)
+	if err != nil {
+		return repositories{}, err
+	}
+	// マイグレーションは起動時に流す。手で流す運用にすると、
+	// 流し忘れたインスタンスが古いスキーマに書き込む。
+	if err := postgres.Migrate(ctx, db); err != nil {
+		db.Close()
+		return repositories{}, err
+	}
+
+	programs := postgres.NewProgramRepository(db)
+	if err := seedProgramIfMissing(ctx, programs, pool); err != nil {
+		db.Close()
+		return repositories{}, err
+	}
+
+	slog.Info("Postgres に接続した")
+	return repositories{
+		exercises:  exercises,
+		logs:       postgres.NewSetLogRepository(db),
+		conditions: postgres.NewConditionRepository(db),
+		programs:   programs,
+		close:      db.Close,
+	}, nil
+}
+
+// seedProgramIfMissing は未設定なら初期プログラムを入れる。
+//
+// 空のデータベースから始めたユーザーが、PUT /api/program を叩かないと
+// 何も使えない状態を避ける。すでに設定があれば触らない。
+func seedProgramIfMissing(
+	ctx context.Context,
+	programs training.ProgramRepository,
+	pool []*training.Exercise,
+) error {
+	switch _, err := programs.Get(ctx); {
+	case err == nil:
+		return nil
+	case !errors.Is(err, training.ErrProgramNotConfigured):
+		return fmt.Errorf("プログラムの確認に失敗: %w", err)
+	}
+
+	program, err := defaultProgram(pool)
+	if err != nil {
+		return err
+	}
+	if err := programs.Save(ctx, program); err != nil {
+		return fmt.Errorf("初期プログラムを保存できない: %w", err)
+	}
+	slog.Info("初期プログラムを保存した", "per_week", program.Frequency().PerWeek())
+	return nil
 }
 
 // defaultProgram はシードから初期プログラムを組む。
