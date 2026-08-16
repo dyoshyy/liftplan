@@ -34,7 +34,7 @@ func TestMuscleRegion_AllAreValid(t *testing.T) {
 }
 
 func TestMuscleRegion_ListIsSorted(t *testing.T) {
-	// 走査順が補助種目の選択結果に影響しうるため、順序は一意に固定されている必要がある。
+	// この一覧を走査するコードが常に同じ結果を返すよう、順序を一意に固定する。
 	all := training.AllMuscleRegions()
 	if !sort.SliceIsSorted(all, func(i, j int) bool { return all[i] < all[j] }) {
 		t.Errorf("筋区分の一覧がソートされていない: %v", all)

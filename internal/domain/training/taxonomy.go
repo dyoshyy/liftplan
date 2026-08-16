@@ -40,11 +40,13 @@ const (
 	Oblique MuscleRegion = "OBLIQUE"
 )
 
-// allMuscleRegions は全筋区分。識別子の昇順で保持する。
+// allMuscleRegions は全筋区分。文字列値の昇順で保持する。
 //
-// 順序を固定するのは、週ボリュームの走査順が補助種目の選択結果に影響しうるため。
-// 定義順のまま持つと、定数を並べ替えただけで生成されるセッションが変わる。
-var allMuscleRegions = sortedRegions(
+// 順序を固定するのは、この一覧を走査するコードが常に同じ結果を返すようにするため。
+// 定義順のまま持つと、定数を並べ替えただけで走査順が変わる。
+// なお補助種目の貪欲選択における同点処理は、選択側が自前でソートして担保している。
+// この一覧の順序はそこには届かない。
+var allMuscleRegions = sortedValues(
 	ChestUpper, ChestMid, ChestLower,
 	Lat, TrapMid, TrapUpper, Erector,
 	FrontDelt, SideDelt, RearDelt,
@@ -54,26 +56,12 @@ var allMuscleRegions = sortedRegions(
 	Abs, Oblique,
 )
 
-func sortedRegions(regions ...MuscleRegion) []MuscleRegion {
-	sort.Slice(regions, func(i, j int) bool { return regions[i] < regions[j] })
-	return regions
-}
+// validMuscleRegions は allMuscleRegions から導出する。
+// 手書きの switch と併存させると、一覧に足し忘れても Valid だけ通る非対称が生まれる。
+var validMuscleRegions = lookup(allMuscleRegions)
 
-// validMuscleRegions は Valid の定数時間判定用。
-var validMuscleRegions = func() map[MuscleRegion]bool {
-	m := make(map[MuscleRegion]bool, len(allMuscleRegions))
-	for _, r := range allMuscleRegions {
-		m[r] = true
-	}
-	return m
-}()
-
-// AllMuscleRegions は全筋区分を識別子の昇順で返す。呼び出し側が書き換えても影響しない。
-func AllMuscleRegions() []MuscleRegion {
-	out := make([]MuscleRegion, len(allMuscleRegions))
-	copy(out, allMuscleRegions)
-	return out
-}
+// AllMuscleRegions は全筋区分を文字列値の昇順で返す。呼び出し側が書き換えても影響しない。
+func AllMuscleRegions() []MuscleRegion { return clone(allMuscleRegions) }
 
 func (r MuscleRegion) Valid() bool { return validMuscleRegions[r] }
 
@@ -90,19 +78,15 @@ const (
 	KindAccessory ExerciseKind = "ACCESSORY"
 )
 
-func (k ExerciseKind) Valid() bool {
-	switch k {
-	case KindMain, KindVariation, KindAccessory:
-		return true
-	default:
-		return false
-	}
-}
+var (
+	allExerciseKinds   = sortedValues(KindMain, KindVariation, KindAccessory)
+	validExerciseKinds = lookup(allExerciseKinds)
+)
 
-// AllExerciseKinds は全種別。網羅性を検査するテストのために公開する。
-func AllExerciseKinds() []ExerciseKind {
-	return []ExerciseKind{KindAccessory, KindMain, KindVariation}
-}
+// AllExerciseKinds は全種別を文字列値の昇順で返す。
+func AllExerciseKinds() []ExerciseKind { return clone(allExerciseKinds) }
+
+func (k ExerciseKind) Valid() bool { return validExerciseKinds[k] }
 
 // MainLift は週内スロットで強度帯を振り分ける対象。
 type MainLift string
@@ -113,16 +97,36 @@ const (
 	LiftDeadlift MainLift = "DEADLIFT"
 )
 
-func (l MainLift) Valid() bool {
-	switch l {
-	case LiftSquat, LiftBench, LiftDeadlift:
-		return true
-	default:
-		return false
-	}
+var (
+	allMainLifts   = sortedValues(LiftSquat, LiftBench, LiftDeadlift)
+	validMainLifts = lookup(allMainLifts)
+)
+
+// AllMainLifts は全メインリフトを文字列値の昇順で返す。
+func AllMainLifts() []MainLift { return clone(allMainLifts) }
+
+func (l MainLift) Valid() bool { return validMainLifts[l] }
+
+// sortedValues は可変長で受けた値を昇順に並べた新しいスライスを返す。
+//
+// 引数のスライスをその場でソートすると、`sortedValues(s...)` と書かれたときに
+// 呼び出し側の s を破壊する。必ずコピーしてから並べ替える。
+func sortedValues[T ~string](values ...T) []T {
+	out := clone(values)
+	sort.Slice(out, func(i, j int) bool { return out[i] < out[j] })
+	return out
 }
 
-// AllMainLifts は全メインリフト。網羅性を検査するテストのために公開する。
-func AllMainLifts() []MainLift {
-	return []MainLift{LiftBench, LiftDeadlift, LiftSquat}
+func clone[T ~string](values []T) []T {
+	out := make([]T, len(values))
+	copy(out, values)
+	return out
+}
+
+func lookup[T ~string](values []T) map[T]bool {
+	m := make(map[T]bool, len(values))
+	for _, v := range values {
+		m[v] = true
+	}
+	return m
 }
