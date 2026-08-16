@@ -92,6 +92,8 @@ type ExerciseParams struct {
 }
 
 // Exercise は種目エンティティ。同一性は ID で決まる。
+//
+//ddd:aggregate
 type Exercise struct {
 	id                 ExerciseID
 	name               string

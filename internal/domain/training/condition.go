@@ -35,6 +35,8 @@ const (
 // 範囲外の値は「無かったこと」にする。エラーを返さないのは、
 // 1日ぶんの異常値で取り込み全体を止めるより、その日を欠損として
 // 扱う方が運用として素直だから。
+//
+//ddd:aggregate
 type DailyCondition struct {
 	date          Date
 	bodyWeightKg  float64

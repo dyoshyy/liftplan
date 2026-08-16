@@ -60,6 +60,8 @@ func (t WeeklyVolumeTarget) IsEmpty() bool { return len(t.m) == 0 }
 
 // Program はユーザーの設定を保持する集約ルート。
 // 頻度・週目標・使う種目を一貫した単位で扱う。
+//
+//ddd:aggregate
 type Program struct {
 	frequency Frequency
 	target    WeeklyVolumeTarget
