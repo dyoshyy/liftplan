@@ -17,6 +17,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/dyoshyy/liftplan-server/internal/application/query"
 	"github.com/dyoshyy/liftplan-server/internal/application/usecase"
 	"github.com/dyoshyy/liftplan-server/internal/domain/training"
 	"github.com/dyoshyy/liftplan-server/internal/domain/training/seed"
@@ -199,6 +200,10 @@ func buildHandler(ctx context.Context) (http.Handler, func(), error) {
 		usecase.NewRecordConditions(conditions),
 		usecase.NewConfigureProgram(exercises, programs),
 		usecase.NewGetProgram(programs),
+		usecase.NewDeleteSetLog(logs),
+		query.NewExercises(exercises),
+		query.NewHistory(logs, exercises),
+		query.NewStats(logs, exercises, programs, training.DefaultOneRepMaxEstimator()),
 	)
 	guarded, err := withAuth(handler.Routes())
 	if err != nil {

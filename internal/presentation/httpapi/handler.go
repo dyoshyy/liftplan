@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/dyoshyy/liftplan-server/internal/application/query"
 	"github.com/dyoshyy/liftplan-server/internal/application/usecase"
 	"github.com/dyoshyy/liftplan-server/internal/domain/training"
 )
@@ -20,6 +21,10 @@ type Handler struct {
 	recordConditions *usecase.RecordConditions
 	configureProgram *usecase.ConfigureProgram
 	getProgram       *usecase.GetProgram
+	deleteSetLog     *usecase.DeleteSetLog
+	exercises        *query.Exercises
+	history          *query.History
+	stats            *query.Stats
 }
 
 func NewHandler(
@@ -28,6 +33,10 @@ func NewHandler(
 	recordConditions *usecase.RecordConditions,
 	configureProgram *usecase.ConfigureProgram,
 	getProgram *usecase.GetProgram,
+	deleteSetLog *usecase.DeleteSetLog,
+	exercises *query.Exercises,
+	history *query.History,
+	stats *query.Stats,
 ) *Handler {
 	return &Handler{
 		getSession:       getSession,
@@ -35,6 +44,10 @@ func NewHandler(
 		recordConditions: recordConditions,
 		configureProgram: configureProgram,
 		getProgram:       getProgram,
+		deleteSetLog:     deleteSetLog,
+		exercises:        exercises,
+		history:          history,
+		stats:            stats,
 	}
 }
 
@@ -76,6 +89,11 @@ func respondError(w http.ResponseWriter, err error) {
 		slog.Error("リクエストの処理に失敗", "error", err)
 		writeError(w, http.StatusInternalServerError, "内部エラーが発生した")
 	}
+}
+
+// invalidInput は入力の不正を、分類できる形で作る。
+func invalidInput(message string) error {
+	return fmt.Errorf("%w: %s", usecase.ErrInvalidInput, message)
 }
 
 // parseExerciseIDs はカンマ区切りの種目IDを分解する。

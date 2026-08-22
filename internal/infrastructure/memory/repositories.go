@@ -94,6 +94,14 @@ func (r *SetLogRepository) Save(_ context.Context, logs []*training.SetLog) erro
 	return nil
 }
 
+// Delete は打ち間違いの訂正。存在しないIDでも成功として扱う。
+func (r *SetLogRepository) Delete(_ context.Context, id training.SetLogID) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	delete(r.byID, id)
+	return nil
+}
+
 func (r *SetLogRepository) Size() int {
 	r.mu.RLock()
 	defer r.mu.RUnlock()

@@ -18,7 +18,8 @@ type stubSetLogRepo struct{}
 func (stubSetLogRepo) FindAll(context.Context) (training.History, error) {
 	return training.NewHistory(nil), nil
 }
-func (stubSetLogRepo) Save(context.Context, []*training.SetLog) error { return nil }
+func (stubSetLogRepo) Save(context.Context, []*training.SetLog) error  { return nil }
+func (stubSetLogRepo) Delete(context.Context, training.SetLogID) error { return nil }
 
 type stubConditionRepo struct{}
 
@@ -50,6 +51,7 @@ func TestRepositoryInterfaces_KeepTheirShape(t *testing.T) {
 		_ func(context.Context) ([]*training.Exercise, error)    = exercises.FindAll
 		_ func(context.Context) (training.History, error)        = logs.FindAll
 		_ func(context.Context, []*training.SetLog) error        = logs.Save
+		_ func(context.Context, training.SetLogID) error         = logs.Delete
 		_ func(context.Context) (training.ConditionLog, error)   = conditions.FindAll
 		_ func(context.Context, []training.DailyCondition) error = conditions.Save
 		_ func(context.Context) (*training.Program, error)       = programs.Get

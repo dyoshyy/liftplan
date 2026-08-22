@@ -41,6 +41,7 @@ type fakeLogs struct {
 	mu      sync.Mutex
 	history training.History
 	saved   []*training.SetLog
+	deleted []training.SetLogID
 	calls   int
 	finds   int
 	err     error
@@ -66,6 +67,12 @@ func (f *fakeLogs) Save(_ context.Context, logs []*training.SetLog) error {
 	}
 	f.saved = append(f.saved, logs...)
 	return nil
+}
+func (f *fakeLogs) Delete(_ context.Context, id training.SetLogID) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.deleted = append(f.deleted, id)
+	return f.err
 }
 func (f *fakeLogs) callCount() int {
 	f.mu.Lock()

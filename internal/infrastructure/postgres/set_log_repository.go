@@ -227,6 +227,18 @@ func isRetryable(err error) bool {
 		pgErr.Code == pgerrcode.SerializationFailure
 }
 
+// Delete は打ち間違いの訂正。存在しないIDでも成功として扱う。
+//
+// 影響行数を見ないのは、再送で二度目が来たときにエラーにしないため。
+// 「消えているのに消せない」という状態を作らない。
+func (r *SetLogRepository) Delete(ctx context.Context, id training.SetLogID) error {
+	if _, err := r.pool.Exec(ctx,
+		"DELETE FROM set_logs WHERE id = $1", string(id)); err != nil {
+		return wrapUnavailable(err, "実績を削除できない")
+	}
+	return nil
+}
+
 // toTime はドメインの日付を DB に渡せる形にする。
 //
 // 場所を UTC に固定するのは、date 型に時刻もタイムゾーンも無いため。

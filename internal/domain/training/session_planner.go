@@ -372,6 +372,18 @@ func findExercise(pool []*Exercise, id ExerciseID) *Exercise {
 //
 // 当日のメイン種目については、呼び出し側が二重計上を避ける。
 func coveredThisWeek(h History, pool []*Exercise, date Date) StimulusCoverage {
+	return CoverageBetween(h, pool, date.WeekStart(), date)
+}
+
+// CoverageBetween は期間内に埋めた刺激量を数える。両端を含む。
+//
+// 記録1件を1セットとして数える。SetLog は「確定した実績1セット」なので、
+// 件数がそのままセット数になる。
+//
+// 公開しているのは、週目標の充足を見せる読み取り経路が同じ数え方を
+// 必要とするため。別々に実装すると、画面に出る数字とエンジンが使う数字が
+// ずれる。ずれた瞬間、どちらが正しいのか誰にも分からなくなる。
+func CoverageBetween(h History, pool []*Exercise, from, to Date) StimulusCoverage {
 	coverage := StimulusCoverage{}
 	one, err := NewSetCount(1)
 	if err != nil {
@@ -380,10 +392,13 @@ func coveredThisWeek(h History, pool []*Exercise, date Date) StimulusCoverage {
 
 	byID := make(map[ExerciseID]*Exercise, len(pool))
 	for _, e := range pool {
+		if e == nil {
+			continue
+		}
 		byID[e.ID()] = e
 	}
 
-	for _, l := range h.OnOrAfter(date.WeekStart()).OnOrBefore(date).Logs() {
+	for _, l := range h.OnOrAfter(from).OnOrBefore(to).Logs() {
 		e, ok := byID[l.ExerciseID()]
 		if !ok {
 			continue
