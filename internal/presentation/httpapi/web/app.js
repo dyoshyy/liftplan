@@ -130,9 +130,24 @@ const state = {
   doneToday: new Map(),  // exercise_id -> [{id, weight, reps}]
   program: null,
   selected: new Set(),
+  // いま出している画面。読み込み直しても、見ていた画面に戻る。
+  view: null,
 };
 
 const nameOf = (id) => state.names.get(id) || id;
+
+// 筋区分の日本語。表示の都合なのでここに置く。ドメインに持たせると、
+// 画面の言語がドメインに漏れる。
+const REGION = {
+  CHEST_UPPER: '胸（上部）', CHEST_MID: '胸（中部）', CHEST_LOWER: '胸（下部）',
+  LAT: '広背筋', TRAP_MID: '僧帽筋（中部）', TRAP_UPPER: '僧帽筋（上部）', ERECTOR: '脊柱起立筋',
+  FRONT_DELT: '三角筋（前）', SIDE_DELT: '三角筋（横）', REAR_DELT: '三角筋（後）',
+  TRICEPS_LONG: '三頭（長頭）', TRICEPS_LATERAL: '三頭（外側）',
+  BICEPS: '二頭', FOREARM: '前腕',
+  QUAD: '大腿四頭筋', HAMSTRING: 'ハムストリング', GLUTE: '臀筋',
+  ADDUCTOR: '内転筋', CALF: 'ふくらはぎ', ABS: '腹直筋', OBLIQUE: '腹斜筋',
+};
+const regionName = (r) => REGION[r] || r;
 
 // --- 今日 -----------------------------------------------------------
 
@@ -147,22 +162,21 @@ function exerciseCard(planned) {
   card.append(top);
 
   card.append(el('div', 'target', planned.weight_kg === null
-    ? `<span class="kg unset num">重量は自分で決める</span><span class="spec">${planned.sets}セット・RIR ${planned.target_rir}</span>`
+    ? `<span class="kg unset num">自分で決める</span><span class="spec">${planned.sets}セット・RIR ${planned.target_rir}</span>`
     : `<span class="kg num">${planned.weight_kg}<small>kg</small></span>` +
       `<span class="spec">${planned.sets}セット・目標RIR ${planned.target_rir}</span>`));
 
   const last = state.last[planned.exercise_id];
   if (last) {
-    const diff = planned.weight_kg === null ? 0
-      : Math.round((planned.weight_kg - last.weight_kg) * 100) / 100;
-    const badge = diff > 0 ? `<span class="delta up num">+${diff}kg</span>`
-      : diff < 0 ? `<span class="delta down num">${diff}kg</span>`
-      : `<span class="delta same num">±0</span>`;
+    // 今日との差分は出さない。前回が標準日で今日が高強度日なら重量は
+    // 当然変わるので、その差は「伸び」ではない。増減を要約すると
+    // 「増えた＝良い」という誤った読み方を押し付けることになる。
+    // 伸びているかは履歴の推定1RMの推移で見る。
     card.append(el('div', 'last',
       `前回 <b class="num">${last.weight_kg}kg</b> <span class="num">× ${last.reps.join(', ')}</span>` +
-      badge + `<span class="ago">${last.days_ago}日前</span>`));
+      `<span class="ago">${last.days_ago}日前</span>`));
   } else {
-    card.append(el('div', 'last', '記録がまだありません。初回は自分で決めて入れてください'));
+    card.append(el('div', 'last small', '記録がまだありません'));
   }
 
   const recorded = state.doneToday.get(planned.exercise_id) || [];
@@ -277,7 +291,9 @@ function undoSet() {
 
 function sparkline(pts) {
   const w = 280, h = 44, pad = 4;
-  if (pts.length < 2) return '';
+  // 2点では線が引けるだけで、推移として読めるものにならない。
+  // 面まで塗ると、無い情報があるように見える。
+  if (pts.length < 3) return '';
   const vals = pts.map((p) => p.kg);
   const min = Math.min(...vals), max = Math.max(...vals);
   const span = max - min || 1;
@@ -292,15 +308,30 @@ function sparkline(pts) {
   </svg>`;
 }
 
+let volumeExpanded = false;
+
 function paintHistory(stats, days) {
-  $('volume').innerHTML = (stats.weekly_volume || []).map((v) => {
+  // 21区分すべてを並べると長い。埋まっていない順に並んでいるので、
+  // 上から数件だけ見えれば「次に何を足すか」は分かる。
+  const all = stats.weekly_volume || [];
+  const shown = volumeExpanded ? all : all.slice(0, 6);
+
+  $('volume').innerHTML = shown.map((v) => {
     const pct = Math.min(100, Math.round((v.done_sets / Math.max(v.target_sets, .001)) * 100));
     return `<div class="vol-row">
-        <span class="vol-name">${esc(v.region)}</span>
+        <span class="vol-name">${esc(regionName(v.region))}</span>
         <span class="vol-num">${v.done_sets.toFixed(1)} / ${v.target_sets.toFixed(1)}</span>
       </div>
       <div class="meter"><i class="${pct >= 100 ? 'full' : ''}" style="width:${pct}%"></i></div>`;
   }).join('') || '<p class="note">まだ記録がありません</p>';
+
+  if (all.length > shown.length || volumeExpanded) {
+    const more = el('button', 'chip', volumeExpanded
+      ? '上位だけ表示' : `残り ${all.length - shown.length} 区分を表示`);
+    more.style.marginTop = '10px';
+    more.onclick = () => { volumeExpanded = !volumeExpanded; paintHistory(stats, days); };
+    $('volume').append(more);
+  }
 
   $('trend').innerHTML = (stats.trends || []).map((t) => {
     const sign = t.change_kg > 0 ? '+' : '';
@@ -375,6 +406,7 @@ function showSetup(message) {
 }
 
 function showView(name) {
+  state.view = name;
   ['setup', 'today', 'history', 'settings'].forEach((v) => { $(v).hidden = v !== name; });
   document.querySelectorAll('.tab').forEach((t) =>
     t.setAttribute('aria-selected', String(t.dataset.view === name)));
@@ -436,7 +468,9 @@ async function loadAll() {
     paintHistory(state.stats, state.days);
     paintSettings();
 
-    if ($('setup').hidden === false) showView('today');
+    // 初期状態は全ての画面が hidden なので、必ずどれかに切り替える。
+    // 「setup が隠れているか」で判定すると、初回に何も表示されない。
+    showView(state.view && state.view !== 'setup' ? state.view : 'today');
     paintStatus();
     flush();
   } catch (e) {
