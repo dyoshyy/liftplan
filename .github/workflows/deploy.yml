@@ -86,8 +86,18 @@ jobs:
       - name: Cloud Run へデプロイ
         run: |
           IMAGE="${REGION}-docker.pkg.dev/${PROJECT_ID}/${REPOSITORY}/${SERVICE}"
+
+          # リビジョン名に短縮SHAを入れる。自動採番の 00004-fgj だけだと、
+          # 一覧を見ても何のコードが動いているのか分からない。
+          #
+          # 実行番号を足すのは、同じコミットを出し直したときに名前が
+          # 衝突してデプロイが失敗するため（再実行やロールバックで起きる）。
+          SUFFIX="${GITHUB_SHA:0:7}-${GITHUB_RUN_NUMBER}"
+
           gcloud run deploy "${SERVICE}" \
             --image "${IMAGE}:${GITHUB_SHA}" \
+            --revision-suffix "${SUFFIX}" \
+            --labels "commit=${GITHUB_SHA},run-id=${GITHUB_RUN_ID}" \
             --project "${PROJECT_ID}" \
             --region "${REGION}" \
             --min-instances=0 \
