@@ -69,6 +69,7 @@ Neon プロジェクトと Google Cloud プロジェクトは**本人のアカ�
 
 **判断:**
 
-- **Neon は直接接続の文字列を使う**（`-pooler` ではない）。pgbouncer のトランザクションモードは prepared statement と相性が悪く、pgx の既定（statement cache 有効）だとエラーになる。単一ユーザーの接続数なら pooler は要らない
+- **Neon は直接接続の文字列を使う**（`-pooler` ではない）。理由は D-071。当初「prepared statement と相性が悪い」と書いていたが、これは実際に流して**再現しなかった**。本当の理由はマイグレーションのアドバイザリロック
 - **秘密は Secret Manager**。環境変数に直書きすると、コンソールの表示にも `gcloud run services describe` にも出る
 - **`--min-instances=0`**。使わない間は課金しない。コールドスタートは数秒だが、ジムで最初に開くとき以外は効かない
+- **リージョンは `asia-southeast1`（シンガポール）**。Neon に東京リージョンが無く、最寄りがシンガポールになるため。DB に近づけるほうが速い（D-071）
