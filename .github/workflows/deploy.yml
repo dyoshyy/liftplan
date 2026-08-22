@@ -3,7 +3,7 @@ name: Deploy
 # main に入ったものだけを出す。テストが通ってからでないと出さない。
 on:
   push:
-    branches: [main]
+    branches: [main, feat/30-auth]  # feat/30-auth はマージ前の検証用。マージ前に外す
   workflow_dispatch:
 
 # 同時に走らせない。古いリビジョンが新しいものを上書きするのを防ぐ。
