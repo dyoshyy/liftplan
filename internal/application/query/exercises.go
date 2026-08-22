@@ -1,0 +1,60 @@
+package query
+
+import (
+	"context"
+	"fmt"
+	"sort"
+
+	"github.com/dyoshyy/liftplan-server/internal/domain/training"
+)
+
+// Exercise は種目マスタの1件。
+//
+// 画面が種目IDを日本語で出すために要る。`bench` のままだと、
+// ジムで一瞬見て何の種目か分からない。
+type Exercise struct {
+	ID          training.ExerciseID
+	Name        string
+	Kind        training.ExerciseKind
+	IncrementKg float64
+	MainLift    string
+}
+
+// Exercises は種目マスタを読む経路。
+type Exercises struct {
+	repo training.ExerciseRepository
+}
+
+func NewExercises(repo training.ExerciseRepository) *Exercises {
+	return &Exercises{repo: repo}
+}
+
+func (q *Exercises) All(ctx context.Context) ([]Exercise, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, fmt.Errorf("読み取りが中断された: %w", err)
+	}
+
+	pool, err := q.repo.FindAll(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("種目の取得に失敗: %w", err)
+	}
+
+	out := make([]Exercise, 0, len(pool))
+	for _, e := range pool {
+		if e == nil {
+			continue
+		}
+		item := Exercise{
+			ID:          e.ID(),
+			Name:        e.Name(),
+			Kind:        e.Kind(),
+			IncrementKg: e.Increment().Kg(),
+		}
+		if lift, ok := e.MainLift(); ok {
+			item.MainLift = string(lift)
+		}
+		out = append(out, item)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
+	return out, nil
+}

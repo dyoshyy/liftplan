@@ -316,6 +316,42 @@ func RunSetLogContract(t *testing.T, newRepo func(*testing.T) training.SetLogRep
 		}
 	})
 
+	// 打ち間違いを直せること。訂正の手段が無いと、間違った記録が
+	// 推定1RMを汚したまま残り続ける。
+	t.Run("記録を削除できる", func(t *testing.T) {
+		repo := newRepo(t)
+		if err := repo.Save(ctx, []*training.SetLog{
+			mkSetLog(t, "keep", 85), mkSetLog(t, "wrong", 200),
+		}); err != nil {
+			t.Fatalf("保存に失敗: %v", err)
+		}
+
+		if err := repo.Delete(ctx, "wrong"); err != nil {
+			t.Fatalf("削除に失敗: %v", err)
+		}
+
+		h, _ := repo.FindAll(ctx)
+		if len(h.Logs()) != 1 || h.Logs()[0].ID() != "keep" {
+			t.Errorf("削除の結果が誤り: %v", logIDs(h))
+		}
+
+		// 消したIDを使い回せること。訂正の後に同じIDで入れ直す運用があり、
+		// ここで衝突すると直せない。
+		if err := repo.Save(ctx, []*training.SetLog{mkSetLog(t, "wrong", 90)}); err != nil {
+			t.Errorf("削除したIDで保存できない: %v", err)
+		}
+	})
+
+	// 存在しないIDの削除は成功として扱うこと。
+	// 再送で二度目が来たときにエラーにすると、消えているのに
+	// 消せないという状態になる。
+	t.Run("存在しない記録の削除は成功する", func(t *testing.T) {
+		repo := newRepo(t)
+		if err := repo.Delete(ctx, "そんなIDは無い"); err != nil {
+			t.Errorf("存在しないIDの削除で失敗した: %v", err)
+		}
+	})
+
 	// 同じIDに内容の違う書き込みが並行したとき、失敗の理由が
 	// 衝突として返ること。生のエラーのままだと 500 になり、
 	// クライアントは自分のID採番ミスに気づかず再送を繰り返す。

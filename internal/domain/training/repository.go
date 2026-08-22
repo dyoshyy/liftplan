@@ -66,9 +66,22 @@ type ExerciseRepository interface {
 //
 // FindAll が返す History は、リポジトリ内部の可変状態を
 // エイリアスしてはならない。Save と並行に呼ばれる。
+// Delete は打ち間違いの訂正のためにある。
+//
+// SetLog は「確定した実績1セット」で、生成後は変更しない。削除はその
+// 前提と衝突するように見えるが、意味が違う。値を書き換えるのではなく
+// 「これは起きなかった」と言っている。
+//
+// 訂正の手段が無いほうが害が大きい。同じIDで直そうとすると衝突として
+// 弾かれ（D-060）、別IDで正しい値を入れても間違った記録は残り続けて
+// 推定1RMを汚す。単一ユーザーの個人アプリで、消せない記録に価値は無い。
+//
+// 存在しないIDの削除は成功として扱う。再送で二度目が来ることがあり、
+// そこでエラーにすると「消えているのに消せない」という状態になる。
 type SetLogRepository interface {
 	FindAll(ctx context.Context) (History, error)
 	Save(ctx context.Context, logs []*SetLog) error
+	Delete(ctx context.Context, id SetLogID) error
 }
 
 // ConditionRepository は日次コンディションの永続化口。

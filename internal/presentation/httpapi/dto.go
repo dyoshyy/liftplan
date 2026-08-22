@@ -156,3 +156,78 @@ func (d programDTO) toInput() usecase.ConfigureProgramInput {
 		PerWeek: d.PerWeek, Target: target, Selected: selected,
 	}
 }
+
+// --- 読み取り経路の DTO ---
+
+type exerciseDTO struct {
+	ID          string  `json:"id"`
+	Name        string  `json:"name"`
+	Kind        string  `json:"kind"`
+	IncrementKg float64 `json:"increment_kg"`
+	MainLift    string  `json:"main_lift,omitempty"`
+}
+
+type exercisesResponse struct {
+	Exercises []exerciseDTO `json:"exercises"`
+}
+
+type setDTO struct {
+	ID       string  `json:"id"`
+	WeightKg float64 `json:"weight_kg"`
+	Reps     int     `json:"reps"`
+	RIR      int     `json:"rir"`
+}
+
+type exerciseLogDTO struct {
+	ExerciseID string   `json:"exercise_id"`
+	Name       string   `json:"name"`
+	Sets       []setDTO `json:"sets"`
+}
+
+type dayDTO struct {
+	Date      string           `json:"date"`
+	Exercises []exerciseLogDTO `json:"exercises"`
+	TotalSets int              `json:"total_sets"`
+}
+
+// lastDTO は種目ごとの直近の実績。
+// 今日提示された重量を信じる根拠になる。
+type lastDTO struct {
+	Date     string  `json:"date"`
+	WeightKg float64 `json:"weight_kg"`
+	Reps     []int   `json:"reps"`
+	DaysAgo  int     `json:"days_ago"`
+}
+
+type setLogsResponse struct {
+	From string             `json:"from"`
+	To   string             `json:"to"`
+	Days []dayDTO           `json:"days"`
+	Last map[string]lastDTO `json:"last_performances"`
+}
+
+type pointDTO struct {
+	Date string  `json:"date"`
+	Kg   float64 `json:"kg"`
+}
+
+type trendDTO struct {
+	ExerciseID string     `json:"exercise_id"`
+	Name       string     `json:"name"`
+	Points     []pointDTO `json:"points"`
+	CurrentKg  float64    `json:"current_kg"`
+	ChangeKg   float64    `json:"change_kg"`
+}
+
+type volumeDTO struct {
+	Region     string  `json:"region"`
+	TargetSets float64 `json:"target_sets"`
+	DoneSets   float64 `json:"done_sets"`
+}
+
+type statsResponse struct {
+	From         string      `json:"from"`
+	To           string      `json:"to"`
+	Trends       []trendDTO  `json:"trends"`
+	WeeklyVolume []volumeDTO `json:"weekly_volume"`
+}

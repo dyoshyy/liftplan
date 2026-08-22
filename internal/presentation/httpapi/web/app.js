@@ -1,41 +1,54 @@
 'use strict';
 
-// liftplan の最小クライアント。
+// liftplan のクライアント。
 //
-// 設計の要点は3つ。
+// 設計の要点。
 //
 // 1. 記録を失わない。ジムの電波は途切れる。送信は待ち行列に積んでから
-//    投げ、失敗しても消さない。サーバーは同じIDの同じ内容を黙って
-//    受け入れるので（冪等）、何度でも再送してよい。
-// 2. IDはクライアントが採番する。サーバーが採番すると、応答が届かなかった
-//    ときに「保存されたのか分からない」が発生する。
-// 3. 未来のメニューを持たない。表示は常にサーバーから取り直す。
-//    手元で持つと、記録した結果が反映されているのか分からなくなる。
+//    投げ、失敗しても消さない。IDはクライアントが採番するので、
+//    サーバーが冪等に受け止める（同じ内容の再送は成功、内容違いは 409）。
+// 2. 未来のメニューを手元に持たない。表示は常にサーバーから取り直す。
+//    持つと、記録した結果が反映されているのか分からなくなる。
+// 3. 「どこまでやったか」はサーバーの実績から復元する。端末の中だけに
+//    持つと、画面を閉じた瞬間に分からなくなる。
 
 const KEY_TOKEN = 'liftplan.token';
 const KEY_QUEUE = 'liftplan.queue';
 
 const $ = (id) => document.getElementById(id);
+const el = (tag, cls, html) => {
+  const n = document.createElement(tag);
+  if (cls) n.className = cls;
+  if (html !== undefined) n.innerHTML = html;
+  return n;
+};
+const esc = (s) => String(s).replace(/[&<>"]/g, (c) =>
+  ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 
-/** 今日の日付を YYYY-MM-DD で返す。端末のローカル日付で扱う。 */
 function today() {
   const d = new Date();
   const p = (n) => String(n).padStart(2, '0');
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
 }
-
-/** 衝突しないIDを作る。時刻順に並ぶので、後から見て追いやすい。 */
+function addDays(iso, days) {
+  const d = new Date(iso + 'T00:00:00');
+  d.setDate(d.getDate() + days);
+  const p = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+}
+function label(iso) {
+  const d = new Date(iso + 'T00:00:00');
+  return `${d.getMonth() + 1}/${d.getDate()} (${'日月火水木金土'[d.getDay()]})`;
+}
 function newId() {
-  const t = Date.now().toString(36);
-  const r = Math.random().toString(36).slice(2, 10);
-  return `w-${t}-${r}`;
+  return `w-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
 }
 
 const store = {
   token: () => localStorage.getItem(KEY_TOKEN) || '',
   setToken: (v) => localStorage.setItem(KEY_TOKEN, v),
   clearToken: () => localStorage.removeItem(KEY_TOKEN),
-  queue: () => JSON.parse(localStorage.getItem(KEY_QUEUE) || '[]'),
+  queue: () => { try { return JSON.parse(localStorage.getItem(KEY_QUEUE) || '[]'); } catch { return []; } },
   setQueue: (q) => localStorage.setItem(KEY_QUEUE, JSON.stringify(q)),
 };
 
@@ -56,20 +69,18 @@ async function api(path, options = {}) {
   return res;
 }
 
-// --- 送信の待ち行列 ---------------------------------------------------
+// --- 送信の待ち行列 --------------------------------------------------
 
-/** 送るものを積む。まず保存し、それから送る。順序が逆だと失敗時に消える。 */
 function enqueue(item) {
   const q = store.queue();
   q.push(item);
   store.setQueue(q);
-  render.status();
+  paintStatus();
   flush();
 }
 
 let flushing = false;
 
-/** 溜まったものを送る。送れたものだけ消す。 */
 async function flush() {
   if (flushing || !store.token()) return;
   flushing = true;
@@ -77,150 +88,147 @@ async function flush() {
     let q = store.queue();
     while (q.length > 0) {
       const item = q[0];
-      const res = await api(item.path, { method: 'POST', body: JSON.stringify(item.body) });
-
-      if (res.ok) {
-        q = q.slice(1);
-        store.setQueue(q);
-        continue;
-      }
-      if (res.status === 409) {
-        // 同じIDで内容が違う。再送しても永久に通らないので捨てる。
-        // 残すと後続が全部詰まる。
-        console.warn('衝突のため破棄', item);
-        q = q.slice(1);
-        store.setQueue(q);
-        continue;
-      }
+      const res = await api(item.path, {
+        method: item.method || 'POST',
+        body: item.body ? JSON.stringify(item.body) : undefined,
+      });
+      if (res.ok) { q = q.slice(1); store.setQueue(q); continue; }
       if (res.status >= 400 && res.status < 500) {
-        // 入力が不正。送り直しても通らない。
-        console.warn('不正なので破棄', item, await res.text());
-        q = q.slice(1);
-        store.setQueue(q);
-        continue;
+        // 再送しても永久に通らない。残すと後続が全部詰まる。
+        console.warn('破棄', res.status, item, await res.text());
+        q = q.slice(1); store.setQueue(q); continue;
       }
-      // 5xx / 503 はやり直せば通る。残したまま抜ける。
-      break;
+      break; // 5xx / 503 はやり直せば通る
     }
-  } catch (e) {
+  } catch {
     // 電波が無い。次の機会に送る。
   } finally {
     flushing = false;
-    render.status();
+    paintStatus();
   }
 }
 
-// --- 画面 -------------------------------------------------------------
+function paintStatus() {
+  const n = store.queue().length;
+  const dot = $('dot');
+  if (!navigator.onLine) {
+    dot.className = 'dot error';
+    $('status-text').textContent = n > 0 ? `オフライン・未送信 ${n} 件` : 'オフライン（記録は保存されます）';
+    return;
+  }
+  dot.className = 'dot' + (n > 0 ? ' pending' : '');
+  $('status-text').textContent = n > 0 ? `未送信 ${n} 件` : '同期済み';
+}
 
-let session = null;
-const done = new Map(); // "exerciseID#index" -> true
+// --- 状態 -----------------------------------------------------------
 
-const render = {
-  status() {
-    const pending = store.queue().length;
-    const dot = $('dot');
-    dot.className = 'dot' + (pending > 0 ? ' pending' : '');
-    $('status-text').textContent = pending > 0
-      ? `未送信 ${pending} 件`
-      : (navigator.onLine ? '同期済み' : 'オフライン（記録は保存されます）');
-    if (!navigator.onLine) dot.className = 'dot error';
-  },
-
-  session() {
-    const root = $('session');
-    root.innerHTML = '';
-    if (!session) return;
-
-    const group = (title, sets) => {
-      if (sets.length === 0) return;
-      const h = document.createElement('p');
-      h.className = 'small muted';
-      h.style.margin = '18px 4px 8px';
-      h.textContent = title;
-      root.appendChild(h);
-      sets.forEach((s) => root.appendChild(exerciseCard(s)));
-    };
-
-    group('メイン', session.main);
-    group('補助', session.accessories);
-  },
+const state = {
+  session: null,
+  names: new Map(),      // exercise_id -> 日本語名
+  exercises: [],
+  last: {},              // exercise_id -> 前回の実績
+  doneToday: new Map(),  // exercise_id -> [{id, weight, reps}]
+  program: null,
+  selected: new Set(),
 };
 
+const nameOf = (id) => state.names.get(id) || id;
+
+// --- 今日 -----------------------------------------------------------
+
 function exerciseCard(planned) {
-  const card = document.createElement('div');
-  card.className = 'card';
+  const card = el('div', 'card ex');
 
-  const head = document.createElement('div');
-  head.className = 'ex-head';
-  const name = document.createElement('span');
-  name.className = 'ex-name';
-  name.textContent = planned.exercise_id;
-  head.appendChild(name);
+  const top = el('div', 'ex-top');
+  top.append(el('span', 'ex-name', esc(nameOf(planned.exercise_id))));
   if (planned.role) {
-    const badge = document.createElement('span');
-    badge.className = 'badge';
-    badge.textContent = planned.role;
-    head.appendChild(badge);
+    top.append(el('span', 'role' + (planned.role === 'HEAVY' ? ' heavy' : ''), esc(planned.role)));
   }
-  card.appendChild(head);
+  card.append(top);
 
-  const p = document.createElement('div');
-  p.className = 'prescription';
-  const weight = planned.weight_kg === null
-    ? '<strong>未確定</strong>'
-    : `<strong>${planned.weight_kg}</strong> kg`;
-  p.innerHTML = `${weight} × ${planned.sets}セット　目標RIR ${planned.target_rir}`;
-  card.appendChild(p);
+  card.append(el('div', 'target', planned.weight_kg === null
+    ? `<span class="kg unset num">重量は自分で決める</span><span class="spec">${planned.sets}セット・RIR ${planned.target_rir}</span>`
+    : `<span class="kg num">${planned.weight_kg}<small>kg</small></span>` +
+      `<span class="spec">${planned.sets}セット・目標RIR ${planned.target_rir}</span>`));
 
-  if (planned.weight_kg === null) {
-    const note = document.createElement('p');
-    note.className = 'small muted';
-    note.style.marginTop = '-6px';
-    note.textContent = '記録がまだ足りません。初回は自分で決めて入れてください。';
-    card.appendChild(note);
+  const last = state.last[planned.exercise_id];
+  if (last) {
+    const diff = planned.weight_kg === null ? 0
+      : Math.round((planned.weight_kg - last.weight_kg) * 100) / 100;
+    const badge = diff > 0 ? `<span class="delta up num">+${diff}kg</span>`
+      : diff < 0 ? `<span class="delta down num">${diff}kg</span>`
+      : `<span class="delta same num">±0</span>`;
+    card.append(el('div', 'last',
+      `前回 <b class="num">${last.weight_kg}kg</b> <span class="num">× ${last.reps.join(', ')}</span>` +
+      badge + `<span class="ago">${last.days_ago}日前</span>`));
+  } else {
+    card.append(el('div', 'last', '記録がまだありません。初回は自分で決めて入れてください'));
   }
 
-  const sets = document.createElement('div');
-  sets.className = 'sets';
+  const recorded = state.doneToday.get(planned.exercise_id) || [];
+  const sets = el('div', 'sets');
   for (let i = 0; i < planned.sets; i++) {
-    const key = `${planned.exercise_id}#${i}`;
-    const b = document.createElement('button');
-    b.className = 'set' + (done.has(key) ? ' done' : '');
-    const n = document.createElement('span');
-    n.className = 'n';
-    n.textContent = `${i + 1}セット目`;
-    const v = document.createElement('span');
-    v.className = 'v';
-    v.textContent = done.has(key) ? done.get(key) : '記録';
-    b.append(n, v);
-    b.addEventListener('click', () => openSheet(planned, i, key));
-    sets.appendChild(b);
+    const rec = recorded[i];
+    const b = el('button', 'set' + (rec ? ' done' : ''));
+    b.innerHTML = `<span class="idx">${i + 1}セット目</span>` +
+      `<span class="val">${rec ? `${rec.weight_kg}×${rec.reps}` : '記録'}</span>`;
+    b.onclick = () => openSheet(planned, i, rec);
+    sets.append(b);
   }
-  card.appendChild(sets);
+  card.append(sets);
   return card;
 }
 
-// --- 記録のシート -----------------------------------------------------
+function paintToday() {
+  const mains = $('mains');
+  mains.innerHTML = '';
+  (state.session?.main || []).forEach((p) => mains.append(exerciseCard(p)));
+
+  const acc = $('accessories');
+  acc.innerHTML = '';
+  const list = state.session?.accessories || [];
+  if (list.length > 0) {
+    acc.append(el('p', 'card-title', '補助種目'));
+    list.forEach((p) => acc.append(exerciseCard(p)));
+  }
+
+  const d = state.session?.deload_proposal;
+  const stalled = d?.stalled_exercises || [];
+  if (stalled.length > 0) {
+    $('deload').classList.remove('hidden');
+    $('deload-reason').textContent = d.reason;
+    $('accept-deload').textContent =
+      `${stalled.map(nameOf).join('・')}を${Math.round(d.intensity_drop_pct * 100)}%落とす`;
+    $('accept-deload').onclick = () => loadToday(stalled);
+  } else {
+    $('deload').classList.add('hidden');
+  }
+}
+
+// --- 記録シート ------------------------------------------------------
 
 let sheetTarget = null;
 
-function openSheet(planned, index, key) {
-  sheetTarget = { planned, index, key };
-  $('sheet-title').textContent = `${planned.exercise_id} ${index + 1}セット目`;
-  $('w').value = planned.weight_kg === null ? '' : planned.weight_kg;
-  $('reps').value = 8;
-  $('rir').value = planned.target_rir;
+function openSheet(planned, index, recorded) {
+  sheetTarget = { planned, index, recorded };
+  $('sheet-title').textContent = `${nameOf(planned.exercise_id)} ${index + 1}セット目`;
+
+  const last = state.last[planned.exercise_id];
+  $('sheet-last').textContent = last
+    ? `前回 ${last.weight_kg}kg × ${last.reps[index] ?? '–'}` : '';
+
+  $('w').value = recorded ? recorded.weight_kg : (planned.weight_kg ?? last?.weight_kg ?? '');
+  $('reps').value = recorded ? recorded.reps : (last?.reps[index] ?? 8);
+  $('rir').value = recorded ? recorded.rir : planned.target_rir;
+  $('undo').classList.toggle('hidden', !recorded);
   $('sheet').showModal();
 }
 
-function closeSheet() {
-  $('sheet').close();
-  sheetTarget = null;
-}
+function closeSheet() { $('sheet').close(); sheetTarget = null; }
 
 function recordSet() {
   if (!sheetTarget) return;
-  const { planned, key } = sheetTarget;
+  const { planned, recorded } = sheetTarget;
 
   const weight = parseFloat($('w').value);
   const reps = parseInt($('reps').value, 10);
@@ -230,119 +238,270 @@ function recordSet() {
     return;
   }
 
+  // 直す場合は、古い記録を消してから新しく入れる。同じIDで内容を
+  // 変えるとサーバーが衝突として弾く（そういう契約にしてある）。
+  if (recorded) {
+    enqueue({ path: `/api/set-logs/${encodeURIComponent(recorded.id)}`, method: 'DELETE' });
+  }
+
+  const id = newId();
   enqueue({
     path: '/api/set-logs',
-    body: {
-      logs: [{
-        id: newId(),
-        date: today(),
-        exercise_id: planned.exercise_id,
-        weight_kg: weight,
-        reps,
-        rir,
-      }],
-    },
+    body: { logs: [{ id, date: today(), exercise_id: planned.exercise_id, weight_kg: weight, reps, rir }] },
   });
 
-  done.set(key, `${weight}×${reps}`);
+  // 手元の表示も即座に更新する。送信の完了を待つと、
+  // 電波が悪いときに「押したのに反応しない」画面になる。
+  const list = state.doneToday.get(planned.exercise_id) || [];
+  const next = recorded
+    ? list.map((r) => (r.id === recorded.id ? { id, weight_kg: weight, reps, rir } : r))
+    : [...list, { id, weight_kg: weight, reps, rir }];
+  state.doneToday.set(planned.exercise_id, next);
+
   closeSheet();
-  render.session();
+  paintToday();
 }
 
-// --- 読み込み ---------------------------------------------------------
+function undoSet() {
+  if (!sheetTarget?.recorded) return;
+  const { planned, recorded } = sheetTarget;
+  enqueue({ path: `/api/set-logs/${encodeURIComponent(recorded.id)}`, method: 'DELETE' });
+
+  state.doneToday.set(planned.exercise_id,
+    (state.doneToday.get(planned.exercise_id) || []).filter((r) => r.id !== recorded.id));
+  closeSheet();
+  paintToday();
+}
+
+// --- 履歴 -----------------------------------------------------------
+
+function sparkline(pts) {
+  const w = 280, h = 44, pad = 4;
+  if (pts.length < 2) return '';
+  const vals = pts.map((p) => p.kg);
+  const min = Math.min(...vals), max = Math.max(...vals);
+  const span = max - min || 1;
+  const x = (i) => pad + (i * (w - pad * 2)) / (pts.length - 1);
+  const y = (v) => h - pad - ((v - min) / span) * (h - pad * 2);
+  const line = pts.map((p, i) => `${i ? 'L' : 'M'}${x(i).toFixed(1)},${y(p.kg).toFixed(1)}`).join(' ');
+  return `<svg class="spark" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" aria-hidden="true">
+    <path d="${line} L${x(pts.length - 1).toFixed(1)},${h} L${x(0).toFixed(1)},${h} Z" fill="rgba(224,168,46,.13)"></path>
+    <path d="${line}" fill="none" stroke="#e0a82e" stroke-width="1.8" stroke-linecap="round"
+      stroke-linejoin="round" vector-effect="non-scaling-stroke"></path>
+    <circle cx="${x(pts.length - 1).toFixed(1)}" cy="${y(pts.at(-1).kg).toFixed(1)}" r="3" fill="#e0a82e"></circle>
+  </svg>`;
+}
+
+function paintHistory(stats, days) {
+  $('volume').innerHTML = (stats.weekly_volume || []).map((v) => {
+    const pct = Math.min(100, Math.round((v.done_sets / Math.max(v.target_sets, .001)) * 100));
+    return `<div class="vol-row">
+        <span class="vol-name">${esc(v.region)}</span>
+        <span class="vol-num">${v.done_sets.toFixed(1)} / ${v.target_sets.toFixed(1)}</span>
+      </div>
+      <div class="meter"><i class="${pct >= 100 ? 'full' : ''}" style="width:${pct}%"></i></div>`;
+  }).join('') || '<p class="note">まだ記録がありません</p>';
+
+  $('trend').innerHTML = (stats.trends || []).map((t) => {
+    const sign = t.change_kg > 0 ? '+' : '';
+    const cls = t.change_kg > 0 ? 'up' : t.change_kg < 0 ? 'down' : 'same';
+    return `<div class="trend-row">
+        <span class="trend-name">${esc(t.name)}</span>
+        <span class="trend-val num">${t.current_kg.toFixed(1)}<small>kg</small>
+          <span class="delta ${cls} num">${sign}${t.change_kg.toFixed(1)}</span></span>
+      </div>${sparkline(t.points)}`;
+  }).join('') || '<p class="note">推移を出すには、同じ種目の記録が2回以上必要です</p>';
+
+  $('days').innerHTML = (days || []).map((d) => `
+    <div class="card">
+      <div class="day-head">
+        <span class="day-date">${label(d.date)}</span>
+        <span class="day-meta">${d.exercises.length}種目 ${d.total_sets}セット</span>
+      </div>
+      <div class="log">
+        ${d.exercises.map((e) => `
+          <div class="log-row">
+            <span>${esc(e.name || e.exercise_id)}</span>
+            <span class="log-sets">${e.sets[0].weight_kg}kg × ${e.sets.map((s) => s.reps).join(', ')}</span>
+          </div>`).join('')}
+      </div>
+    </div>`).join('') || '<div class="card"><p class="note">記録がまだありません</p></div>';
+}
+
+// --- 設定 -----------------------------------------------------------
+
+function paintSettings() {
+  $('per-week').value = String(state.program?.per_week ?? 3);
+
+  $('pick').innerHTML = '';
+  state.exercises
+    .filter((e) => e.kind !== 'VARIATION')
+    .forEach((e) => {
+      const b = el('button', 'chip', esc(e.name));
+      b.setAttribute('aria-pressed', String(state.selected.has(e.id)));
+      b.onclick = () => {
+        state.selected.has(e.id) ? state.selected.delete(e.id) : state.selected.add(e.id);
+        b.setAttribute('aria-pressed', String(state.selected.has(e.id)));
+      };
+      $('pick').append(b);
+    });
+
+  $('program-msg').textContent =
+    'バリエーションはメインに付随して自動で回るので、ここには出ません。';
+}
+
+async function saveProgram() {
+  const body = {
+    per_week: parseInt($('per-week').value, 10),
+    weekly_target: state.program.weekly_target,
+    selected_exercises: [...state.selected],
+  };
+  const res = await api('/api/program', { method: 'PUT', body: JSON.stringify(body) });
+  if (res.ok) {
+    $('program-msg').textContent = '保存しました';
+    await loadAll();
+    return;
+  }
+  const err = await res.json().catch(() => ({}));
+  $('program-msg').textContent = err.error || `保存に失敗しました (${res.status})`;
+}
+
+// --- 読み込み -------------------------------------------------------
 
 function showSetup(message) {
-  $('setup').classList.remove('hidden');
-  $('app').classList.add('hidden');
+  showView('setup');
+  $('tabs').classList.add('hidden');
   $('setup-error').textContent = message || '';
 }
 
-async function load(deloadAccepted) {
-  if (!store.token()) return showSetup();
-
-  $('date').textContent = today();
-  const query = deloadAccepted && deloadAccepted.length > 0
-    ? `&deload_accepted=${encodeURIComponent(deloadAccepted.join(','))}`
-    : '';
-
-  try {
-    const res = await api(`/api/sessions?date=${today()}${query}`);
-    if (!res.ok) {
-      $('status-text').textContent = `取得に失敗 (${res.status})`;
-      $('dot').className = 'dot error';
-      return;
-    }
-    session = await res.json();
-  } catch (e) {
-    $('status-text').textContent = 'つながりません';
-    $('dot').className = 'dot error';
-    return;
-  }
-
-  $('setup').classList.add('hidden');
-  $('app').classList.remove('hidden');
-
-  const d = session.deload_proposal;
-  if (d && d.stalled_exercises && d.stalled_exercises.length > 0) {
-    $('deload').classList.remove('hidden');
-    $('deload-reason').textContent = d.reason;
-    $('accept-deload').onclick = () => load(d.stalled_exercises);
-  } else {
-    $('deload').classList.add('hidden');
-  }
-
-  render.session();
-  render.status();
-  flush();
+function showView(name) {
+  ['setup', 'today', 'history', 'settings'].forEach((v) => { $(v).hidden = v !== name; });
+  document.querySelectorAll('.tab').forEach((t) =>
+    t.setAttribute('aria-selected', String(t.dataset.view === name)));
+  window.scrollTo(0, 0);
 }
 
-// --- 配線 -------------------------------------------------------------
+async function loadToday(deloadAccepted) {
+  const q = deloadAccepted?.length
+    ? `&deload_accepted=${encodeURIComponent(deloadAccepted.join(','))}` : '';
+  const res = await api(`/api/sessions?date=${today()}${q}`);
+  if (!res.ok) throw new Error(`sessions ${res.status}`);
+  state.session = await res.json();
+  paintToday();
+}
 
-$('save-token').addEventListener('click', () => {
-  const v = $('token').value.trim();
-  if (v.length < 32) {
-    $('setup-error').textContent = 'トークンが短すぎます';
-    return;
+async function loadAll() {
+  if (!store.token()) return showSetup();
+  $('when').textContent = label(today());
+  $('tabs').classList.remove('hidden');
+
+  try {
+    const [exRes, logRes, statRes, progRes] = await Promise.all([
+      api('/api/exercises'),
+      api(`/api/set-logs?from=${addDays(today(), -56)}&to=${today()}`),
+      api(`/api/stats?from=${addDays(today(), -180)}&to=${today()}`),
+      api('/api/program'),
+    ]);
+
+    if (exRes.ok) {
+      const { exercises } = await exRes.json();
+      state.exercises = exercises;
+      state.names = new Map(exercises.map((e) => [e.id, e.name]));
+    }
+
+    if (logRes.ok) {
+      const body = await logRes.json();
+      state.last = body.last_performances || {};
+      state.days = body.days || [];
+
+      // 「どこまでやったか」をサーバーの実績から復元する。
+      // 端末の中だけに持つと、画面を閉じた瞬間に分からなくなる。
+      state.doneToday = new Map();
+      const t = (body.days || []).find((d) => d.date === today());
+      (t?.exercises || []).forEach((e) => {
+        state.doneToday.set(e.exercise_id, e.sets.map((s) => ({
+          id: s.id, weight_kg: s.weight_kg, reps: s.reps, rir: s.rir,
+        })));
+      });
+    }
+
+    state.stats = statRes.ok ? await statRes.json() : { trends: [], weekly_volume: [] };
+
+    if (progRes.ok) {
+      state.program = await progRes.json();
+      state.selected = new Set(state.program.selected_exercises || []);
+    }
+
+    await loadToday();
+    paintHistory(state.stats, state.days);
+    paintSettings();
+
+    if ($('setup').hidden === false) showView('today');
+    paintStatus();
+    flush();
+  } catch (e) {
+    if (String(e.message) === 'unauthorized') return;
+    $('dot').className = 'dot error';
+    $('status-text').textContent = 'つながりません';
   }
+}
+
+// --- 配線 -----------------------------------------------------------
+
+$('save-token').onclick = () => {
+  const v = $('token').value.trim();
+  if (v.length < 32) { $('setup-error').textContent = 'トークンが短すぎます'; return; }
   store.setToken(v);
   $('token').value = '';
-  load();
-});
+  showView('today');
+  loadAll();
+};
 
-$('sheet-close').addEventListener('click', closeSheet);
-$('record').addEventListener('click', recordSet);
-$('reload').addEventListener('click', () => load());
+$('forget').onclick = () => {
+  if (!confirm('この端末からトークンを消します。よろしいですか')) return;
+  store.clearToken();
+  showSetup();
+};
 
-document.querySelectorAll('[data-step]').forEach((b) => {
-  b.addEventListener('click', () => {
-    const input = $(b.dataset.step);
-    const by = parseFloat(b.dataset.by);
-    const now = parseFloat(input.value);
-    const next = (Number.isFinite(now) ? now : 0) + by;
-    input.value = Math.max(0, Math.round(next * 100) / 100);
-  });
-});
+$('record').onclick = recordSet;
+$('undo').onclick = undoSet;
+$('sheet-close').onclick = closeSheet;
+$('reload').onclick = () => loadAll();
+$('save-program').onclick = saveProgram;
 
-$('save-condition').addEventListener('click', () => {
+$('save-condition').onclick = () => {
   const bw = parseFloat($('bw').value);
-  const sleep = parseFloat($('sleep').value);
+  const sl = parseFloat($('sl').value);
   const item = { date: today() };
   if (Number.isFinite(bw)) item.body_weight_kg = bw;
-  if (Number.isFinite(sleep)) item.sleep_hours = sleep;
+  if (Number.isFinite(sl)) item.sleep_hours = sl;
   if (!('body_weight_kg' in item) && !('sleep_hours' in item)) {
     alert('体重か睡眠のどちらかを入れてください');
     return;
   }
   enqueue({ path: '/api/conditions', body: { conditions: [item] } });
   $('bw').value = '';
-  $('sleep').value = '';
+  $('sl').value = '';
+};
+
+document.querySelectorAll('[data-t]').forEach((b) => {
+  b.onclick = () => {
+    const input = $(b.dataset.t);
+    const now = parseFloat(input.value);
+    const next = (Number.isFinite(now) ? now : 0) + parseFloat(b.dataset.by);
+    input.value = Math.max(0, Math.round(next * 100) / 100);
+  };
 });
 
-window.addEventListener('online', () => { render.status(); flush(); });
-window.addEventListener('offline', render.status);
+document.querySelectorAll('.tab').forEach((t) => {
+  t.onclick = () => showView(t.dataset.view);
+});
+
+window.addEventListener('online', () => { paintStatus(); flush(); });
+window.addEventListener('offline', paintStatus);
 
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('/sw.js').catch(() => {});
 }
 
-load();
+loadAll();

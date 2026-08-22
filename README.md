@@ -60,6 +60,10 @@ curl -H 'Authorization: Bearer <トークン>' 'http://localhost:8080/api/sessio
 | POST | `/api/conditions` | 日次コンディションを保存する（冪等） |
 | GET | `/api/program` | プログラム（頻度・週目標・選択種目）を取得する。未設定なら 404 |
 | PUT | `/api/program` | プログラムを設定する（冪等） |
+| GET | `/api/exercises` | 種目マスタ（IDと日本語名） |
+| GET | `/api/set-logs?from=&to=` | 実績と、種目ごとの前回の実績。既定は直近56日 |
+| DELETE | `/api/set-logs/{id}` | 打ち間違いの取り消し |
+| GET | `/api/stats?from=&to=` | 推定1RMの推移と、今週の週目標の充足 |
 
 ### セッション取得の例
 

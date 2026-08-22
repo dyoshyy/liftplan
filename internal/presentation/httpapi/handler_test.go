@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/dyoshyy/liftplan-server/internal/application/query"
 	"github.com/dyoshyy/liftplan-server/internal/application/usecase"
 	"github.com/dyoshyy/liftplan-server/internal/domain/training"
 	"github.com/dyoshyy/liftplan-server/internal/domain/training/seed"
@@ -59,6 +60,10 @@ func newServer(t *testing.T, configured bool) http.Handler {
 		usecase.NewRecordConditions(conditions),
 		usecase.NewConfigureProgram(exercises, programs),
 		usecase.NewGetProgram(programs),
+		usecase.NewDeleteSetLog(logs),
+		query.NewExercises(exercises),
+		query.NewHistory(logs, exercises),
+		query.NewStats(logs, exercises, programs, training.DefaultOneRepMaxEstimator()),
 	)
 	return handler.Routes()
 }
@@ -374,9 +379,11 @@ func TestRoutes_RejectWrongMethod(t *testing.T) {
 	mux := newServer(t, true)
 	for _, c := range []struct{ method, path string }{
 		{http.MethodPost, "/api/sessions"},
-		{http.MethodGet, "/api/set-logs"},
+		{http.MethodPut, "/api/set-logs"},
 		{http.MethodGet, "/api/conditions"},
 		{http.MethodPost, "/api/program"},
+		{http.MethodPost, "/api/exercises"},
+		{http.MethodPost, "/api/stats"},
 	} {
 		if rec := do(t, mux, c.method, c.path, "{}"); rec.Code != http.StatusMethodNotAllowed {
 			t.Errorf("%s %s: ステータスが誤り: %d", c.method, c.path, rec.Code)
@@ -432,6 +439,10 @@ func TestGetSession_InternalErrorDoesNotLeak(t *testing.T) {
 		usecase.NewRecordConditions(conditions),
 		usecase.NewConfigureProgram(brokenExercises{}, programs),
 		usecase.NewGetProgram(programs),
+		usecase.NewDeleteSetLog(logs),
+		query.NewExercises(brokenExercises{}),
+		query.NewHistory(logs, brokenExercises{}),
+		query.NewStats(logs, brokenExercises{}, programs, training.DefaultOneRepMaxEstimator()),
 	).Routes()
 
 	rec := do(t, mux, http.MethodGet, "/api/sessions?date=2026-08-17", "")
@@ -924,14 +935,20 @@ func TestStatic_IsNotCached(t *testing.T) {
 // ビルドは通るが中身が空、という状態を防ぐ。
 func TestStatic_ShellReferencesItsAssets(t *testing.T) {
 	body := do(t, newServer(t, true), http.MethodGet, "/", "").Body.String()
-	for _, want := range []string{"/app.js", "/app.webmanifest", "id=\"session\"", "id=\"setup\""} {
+	for _, want := range []string{
+		"/app.js", "/app.webmanifest",
+		`id="mains"`, `id="accessories"`, `id="setup"`, `id="history"`, `id="settings"`,
+	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("画面に %q が無い", want)
 		}
 	}
 
 	js := do(t, newServer(t, true), http.MethodGet, "/app.js", "").Body.String()
-	for _, want := range []string{"/api/set-logs", "/api/conditions", "/api/sessions", "Bearer"} {
+	for _, want := range []string{
+		"/api/set-logs", "/api/conditions", "/api/sessions",
+		"/api/exercises", "/api/stats", "/api/program", "Bearer",
+	} {
 		if !strings.Contains(js, want) {
 			t.Errorf("app.js に %q が無い", want)
 		}
