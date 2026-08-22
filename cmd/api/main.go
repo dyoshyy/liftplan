@@ -200,7 +200,36 @@ func buildHandler(ctx context.Context) (http.Handler, func(), error) {
 		usecase.NewConfigureProgram(exercises, programs),
 		usecase.NewGetProgram(programs),
 	)
-	return withHealthCheck(handler.Routes(), repos.ping), repos.close, nil
+	guarded, err := withAuth(handler.Routes())
+	if err != nil {
+		repos.close()
+		return nil, nil, err
+	}
+	return withHealthCheck(guarded, repos.ping), repos.close, nil
+}
+
+// minTokenLength は認証トークンの最短の長さ。
+//
+// 短いトークンは総当たりで破れる。32文字は 128bit 相当を16進で書いた長さで、
+// `openssl rand -hex 16` の出力がちょうどこれになる。
+const minTokenLength = 32
+
+// withAuth は認証を要求する。
+//
+// トークンが未設定なら起動しない。「未設定なら認証しない」にすると、
+// 環境変数の設定漏れがそのまま全公開になる。起動しないほうが、
+// 気づかないまま公開されるよりずっとよい。
+func withAuth(next http.Handler) (http.Handler, error) {
+	token := os.Getenv("AUTH_TOKEN")
+	switch {
+	case token == "":
+		return nil, fmt.Errorf(
+			"AUTH_TOKEN が設定されていない。`openssl rand -hex 32` などで生成すること")
+	case len(token) < minTokenLength:
+		return nil, fmt.Errorf(
+			"AUTH_TOKEN が短すぎる: %d文字（最低 %d文字）", len(token), minTokenLength)
+	}
+	return httpapi.RequireBearerToken(token)(next), nil
 }
 
 // withHealthCheck は /healthz を保存先の疎通込みに差し替える。
