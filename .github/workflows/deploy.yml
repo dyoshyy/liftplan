@@ -1,0 +1,130 @@
+name: Deploy
+
+# main に入ったものだけを出す。テストが通ってからでないと出さない。
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# 同時に走らせない。古いリビジョンが新しいものを上書きするのを防ぐ。
+concurrency:
+  group: deploy
+  cancel-in-progress: false
+
+env:
+  PROJECT_ID: liftplan-85309
+  REGION: asia-southeast1
+  SERVICE: liftplan-server
+  REPOSITORY: liftplan
+
+jobs:
+  # テストは CI と同じものを走らせる。デプロイの前提にするために
+  # ここでも回す。CI の成功を当てにすると、CI が動いていない経路
+  # （workflow_dispatch）で無検証のまま出てしまう。
+  test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_PASSWORD: liftplan
+          POSTGRES_USER: liftplan
+          POSTGRES_DB: liftplan
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U liftplan"
+          --health-interval 2s
+          --health-timeout 3s
+          --health-retries 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: go test
+        env:
+          TEST_DATABASE_URL: postgres://liftplan:liftplan@127.0.0.1:5432/liftplan
+        run: go test -race ./...
+
+  deploy:
+    needs: test
+    runs-on: ubuntu-latest
+
+    # Workload Identity 連携に必要。サービスアカウントキーを
+    # GitHub に置かないので、漏洩する鍵がそもそも存在しない。
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - id: auth
+        uses: google-github-actions/auth@v2
+        with:
+          project_id: ${{ env.PROJECT_ID }}
+          workload_identity_provider: projects/385680444543/locations/global/workloadIdentityPools/github/providers/liftplan-server
+          service_account: github-deployer@liftplan-85309.iam.gserviceaccount.com
+
+      - uses: google-github-actions/setup-gcloud@v2
+
+      - name: Artifact Registry に認証する
+        run: gcloud auth configure-docker ${{ env.REGION }}-docker.pkg.dev --quiet
+
+      # イメージのタグはコミットの SHA。どのリビジョンがどのコードかが
+      # 後から辿れる。latest だけだと、ロールバックしたときに
+      # 何に戻ったのか分からない。
+      - name: ビルドして push
+        run: |
+          IMAGE="${REGION}-docker.pkg.dev/${PROJECT_ID}/${REPOSITORY}/${SERVICE}"
+          docker build -t "${IMAGE}:${GITHUB_SHA}" -t "${IMAGE}:latest" .
+          docker push "${IMAGE}:${GITHUB_SHA}"
+          docker push "${IMAGE}:latest"
+
+      - name: Cloud Run へデプロイ
+        run: |
+          IMAGE="${REGION}-docker.pkg.dev/${PROJECT_ID}/${REPOSITORY}/${SERVICE}"
+          gcloud run deploy "${SERVICE}" \
+            --image "${IMAGE}:${GITHUB_SHA}" \
+            --project "${PROJECT_ID}" \
+            --region "${REGION}" \
+            --min-instances=0 \
+            --max-instances=2 \
+            --cpu=1 --memory=512Mi \
+            --set-secrets=DATABASE_URL=liftplan-database-url:latest,AUTH_TOKEN=liftplan-auth-token:latest \
+            --allow-unauthenticated \
+            --quiet
+
+      # 出したものが本当に動いているかを確かめる。デプロイが
+      # 成功しても、起動に失敗していれば意味がない。
+      - name: 疎通を確認する
+        run: |
+          URL=$(gcloud run services describe "${SERVICE}" \
+            --project "${PROJECT_ID}" --region "${REGION}" \
+            --format='value(status.url)')
+          echo "URL: ${URL}"
+
+          for i in $(seq 1 10); do
+            code=$(curl -s -o /dev/null -w '%{http_code}' "${URL}/health" || true)
+            if [ "${code}" = "200" ]; then
+              echo "ヘルスチェック: 200"
+              break
+            fi
+            echo "  ${i}回目: ${code}"
+            sleep 5
+          done
+          if [ "${code}" != "200" ]; then
+            echo "ヘルスチェックが通らない"
+            exit 1
+          fi
+
+          # 認証がかかっていることも確かめる。認証を壊したまま
+          # 出してしまうと、ヘルスチェックだけでは気づけない。
+          code=$(curl -s -o /dev/null -w '%{http_code}' "${URL}/api/program")
+          if [ "${code}" != "401" ]; then
+            echo "認証がかかっていない: ${code}"
+            exit 1
+          fi
+          echo "認証: 401"

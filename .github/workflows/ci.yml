@@ -1,8 +1,8 @@
 name: CI
 
+# main への push は Deploy ワークフローがテストごと回すので、
+# ここでは PR だけを見る。同じテストを二重に走らせない。
 on:
-  push:
-    branches: [main]
   pull_request:
 
 jobs:
