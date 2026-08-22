@@ -1196,3 +1196,24 @@ DB 復帰後         healthz=200  sessions=200
 | `GET /api/sessions` 50,000件 | 17ms / 26.6MB | 72.6ms / 88.2MB |
 
 3〜4倍。単一ユーザーなら許容範囲だが、**リクエスト1本あたり 88MB を確保する**ので `maxConns = 8` を使い切る並行度では GC 圧が跳ねる。D-034 の持ち越し（範囲クエリへ移る前に EWMA の打ち切り N を実測する）は、Postgres でより早く効いてくる。
+
+## D-066 application 層のディレクトリを1段深いまま残す
+
+**判断**: `internal/application/usecase` をフラットな `internal/usecase` にせず、4層すべてを同じ形（`internal/<層>/<パッケージ>`）で揃える。
+
+**根拠**: 中身が `usecase` 1つしかない現状では、`application/` は1段ぶん無駄になっている。Go の実践ではフラットな `internal/{domain,usecase,infrastructure,presentation}` のほうが多く、import パスの最後のセグメント（＝パッケージ名）で意味は足りている。
+
+それでも残すのは、**import 行そのものが層を語るから**。
+
+```go
+import "github.com/dyoshyy/liftplan-server/internal/presentation/httpapi"
+import "github.com/dyoshyy/liftplan-server/internal/infrastructure/postgres"
+```
+
+この2行が同じファイルに並んでいれば、依存方向の違反だと読んだ瞬間に分かる。フラットだと `internal/httpapi` が `internal/postgres` を import しているだけに見えて、どちらが外側かを知っていないと気づけない。`internal/architecture_test.go` は落としてくれる（D-051）が、レビューで気づけることはそれとは別の価値がある。
+
+`domain/training` の1段は意味が違い、こちらは**境界づけられたコンテキスト**の名前。別の領域が増えたら `domain/nutrition` のように並ぶ。
+
+**枠だけ作ったもの**: `application/query/`。過去の記録を集計して見せる経路は `SessionPlanner` を通らず、リポジトリでもないので、ユースケースとは別のパッケージになる。
+
+**作らなかったもの**: 認証（第6部）は、単一ユーザー向けの最小構成ならトークンを見るミドルウェアで済むので presentation 層に入る見込み。application に置くのは、ログインやセッション管理まで育ってから。port（Clock、ID 生成）は、いま日付を外から渡す設計なので必要になっていない。**来るか分からないものの枠は作らない。**空のディレクトリは、そこに何かがあるという誤った期待を生む。
