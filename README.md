@@ -27,7 +27,10 @@ DATABASE_URL='postgres://liftplan:liftplan@127.0.0.1:5433/liftplan' go run ./cmd
 | 環境変数 | 既定 | 説明 |
 |---|---|---|
 | `DATABASE_URL` | なし | Postgres の接続文字列。無ければインメモリで動き、再起動で記録が消える |
+| `AUTH_TOKEN` | **必須** | Bearer トークン。32文字未満なら起動しない |
 | `PORT` | `8080` | 待ち受けポート |
+
+`AUTH_TOKEN` を必須にしているのは、未設定なら認証しない挙動にすると、設定漏れがそのまま全公開になるため。起動しないほうが、気づかないまま公開されるよりよい。
 
 マイグレーションは起動時に自動で流れる。手で流す運用にすると、流し忘れたインスタンスが古いスキーマに書き込む。空のデータベースなら初期プログラム（週3回・36種目からバリエーションを除いた全部）も入る。
 
@@ -35,11 +38,23 @@ DATABASE_URL='postgres://liftplan:liftplan@127.0.0.1:5433/liftplan' go run ./cmd
 
 **種目マスタだけは常にバイナリ同梱**で、DB には置かない。置くとマイグレーションのたびに種目の追加・改名が絡み、「種目が見つからない」の意味が「まだ流していない」と混ざる。
 
+## 認証
+
+`/health` 以外の全経路が Bearer トークンを要求する。
+
+```bash
+curl -H 'Authorization: Bearer <トークン>' 'http://localhost:8080/api/sessions?date=2026-08-17'
+```
+
+`/health` だけ認証しないのは、Cloud Run の起動プローブが叩けなくなるため。
+
+デプロイ手順は `docs/deploy.md`。
+
 ## API
 
 | メソッド | パス | 説明 |
 |---|---|---|
-| GET | `/healthz` | ヘルスチェック。保存先への疎通を含む（到達できなければ 503） |
+| GET | `/health` | ヘルスチェック。保存先への疎通を含む（到達できなければ 503） |
 | GET | `/api/sessions?date=YYYY-MM-DD&deload_accepted=bench,squat` | その日のセッションを導出する |
 | POST | `/api/set-logs` | 実績ログを保存する（冪等） |
 | POST | `/api/conditions` | 日次コンディションを保存する（冪等） |

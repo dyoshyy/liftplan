@@ -1,0 +1,7 @@
+.git
+.github
+docs
+compose.yaml
+Makefile
+README.md
+*.md

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -15,9 +16,26 @@ import (
 
 	"github.com/dyoshyy/liftplan-server/internal/domain/training"
 	"github.com/dyoshyy/liftplan-server/internal/domain/training/seed"
+	"github.com/dyoshyy/liftplan-server/internal/presentation/httpapi"
 )
 
+// testAuthToken はテスト用の認証トークン。本番と同じ経路を通すために、
+// テストでも必ず認証を通す。素通しする抜け道を作ると、認証が壊れても
+// 他のテストが気づかない。
+const testAuthToken = "test-token-0123456789abcdef0123456789ab"
+
+// authed は認証ヘッダを付けたリクエストを作る。
+func authed(method, target string, body io.Reader) *http.Request {
+	r := httptest.NewRequest(method, target, body)
+	r.Header.Set("Authorization", "Bearer "+testAuthToken)
+	if body != nil {
+		r.Header.Set("Content-Type", "application/json")
+	}
+	return r
+}
+
 func TestBuildHandler_ServesSession(t *testing.T) {
+	t.Setenv("AUTH_TOKEN", testAuthToken)
 	handler, closeRepos, err := buildHandler(context.Background())
 	if err != nil {
 		t.Fatalf("組み立てに失敗: %v", err)
@@ -25,7 +43,7 @@ func TestBuildHandler_ServesSession(t *testing.T) {
 	t.Cleanup(closeRepos)
 
 	rec := httptest.NewRecorder()
-	handler.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/sessions?date=2026-08-17", nil))
+	handler.ServeHTTP(rec, authed(http.MethodGet, "/api/sessions?date=2026-08-17", nil))
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("ステータスが誤り: %d body=%s", rec.Code, rec.Body.String())
@@ -33,13 +51,14 @@ func TestBuildHandler_ServesSession(t *testing.T) {
 }
 
 func TestBuildHandler_Healthz(t *testing.T) {
+	t.Setenv("AUTH_TOKEN", testAuthToken)
 	handler, closeRepos, err := buildHandler(context.Background())
 	if err != nil {
 		t.Fatalf("組み立てに失敗: %v", err)
 	}
 	t.Cleanup(closeRepos)
 	rec := httptest.NewRecorder()
-	handler.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/healthz", nil))
+	handler.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, httpapi.HealthPath, nil))
 	if rec.Code != http.StatusOK {
 		t.Errorf("ヘルスチェックが失敗: %d", rec.Code)
 	}
@@ -48,6 +67,7 @@ func TestBuildHandler_Healthz(t *testing.T) {
 // 初期プログラムでセッションが導出できること。
 // 起動直後に PUT /api/program を叩かないと何も使えない状態を避ける。
 func TestBuildHandler_WorksOutOfTheBox(t *testing.T) {
+	t.Setenv("AUTH_TOKEN", testAuthToken)
 	handler, closeRepos, err := buildHandler(context.Background())
 	if err != nil {
 		t.Fatalf("組み立てに失敗: %v", err)
@@ -55,7 +75,7 @@ func TestBuildHandler_WorksOutOfTheBox(t *testing.T) {
 	t.Cleanup(closeRepos)
 
 	rec := httptest.NewRecorder()
-	handler.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/sessions?date=2026-08-17", nil))
+	handler.ServeHTTP(rec, authed(http.MethodGet, "/api/sessions?date=2026-08-17", nil))
 	if rec.Code != http.StatusOK {
 		t.Fatalf("ステータスが誤り: %d body=%s", rec.Code, rec.Body.String())
 	}
@@ -78,6 +98,7 @@ func TestBuildHandler_WorksOutOfTheBox(t *testing.T) {
 // 実績を記録してから計画を取り直すと重量が確定すること。
 // 層をまたいだ往復がここで初めて通る。
 func TestBuildHandler_RecordThenPlan(t *testing.T) {
+	t.Setenv("AUTH_TOKEN", testAuthToken)
 	handler, closeRepos, err := buildHandler(context.Background())
 	if err != nil {
 		t.Fatalf("組み立てに失敗: %v", err)
@@ -86,8 +107,7 @@ func TestBuildHandler_RecordThenPlan(t *testing.T) {
 
 	post := func(t *testing.T, path, body string) {
 		t.Helper()
-		r := httptest.NewRequest(http.MethodPost, path, strings.NewReader(body))
-		r.Header.Set("Content-Type", "application/json")
+		r := authed(http.MethodPost, path, strings.NewReader(body))
 		rec := httptest.NewRecorder()
 		handler.ServeHTTP(rec, r)
 		if rec.Code != http.StatusNoContent {
@@ -106,7 +126,7 @@ func TestBuildHandler_RecordThenPlan(t *testing.T) {
 	post(t, "/api/set-logs", `{"logs":[`+strings.Join(logs, ",")+`]}`)
 
 	rec := httptest.NewRecorder()
-	handler.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/sessions?date=2026-08-17", nil))
+	handler.ServeHTTP(rec, authed(http.MethodGet, "/api/sessions?date=2026-08-17", nil))
 	if rec.Code != http.StatusOK {
 		t.Fatalf("ステータスが誤り: %d", rec.Code)
 	}
@@ -338,6 +358,7 @@ func TestRun_WiresTheRequestTimeout(t *testing.T) {
 func TestBuildHandler_FailsFastOnBadSeed(t *testing.T) {
 	// シードが正しいことは他のテストが確かめている。ここでは
 	// 「エラーを握り潰していないか」を型で担保する。
+	t.Setenv("AUTH_TOKEN", testAuthToken)
 	handler, closeRepos, err := buildHandler(context.Background())
 	if err != nil {
 		t.Fatalf("シードが正しいのに失敗: %v", err)
@@ -375,8 +396,7 @@ func TestBuildHandler_UsesPostgresWhenConfigured(t *testing.T) {
 
 	post := func(t *testing.T, h http.Handler, path, body string) int {
 		t.Helper()
-		r := httptest.NewRequest(http.MethodPost, path, strings.NewReader(body))
-		r.Header.Set("Content-Type", "application/json")
+		r := authed(http.MethodPost, path, strings.NewReader(body))
 		rec := httptest.NewRecorder()
 		h.ServeHTTP(rec, r)
 		return rec.Code
@@ -384,7 +404,7 @@ func TestBuildHandler_UsesPostgresWhenConfigured(t *testing.T) {
 	benchWeight := func(t *testing.T, h http.Handler) *float64 {
 		t.Helper()
 		rec := httptest.NewRecorder()
-		h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/sessions?date=2026-08-17", nil))
+		h.ServeHTTP(rec, authed(http.MethodGet, "/api/sessions?date=2026-08-17", nil))
 		if rec.Code != http.StatusOK {
 			t.Fatalf("セッションの取得に失敗: %d body=%s", rec.Code, rec.Body.String())
 		}
@@ -406,6 +426,7 @@ func TestBuildHandler_UsesPostgresWhenConfigured(t *testing.T) {
 		return nil
 	}
 
+	t.Setenv("AUTH_TOKEN", testAuthToken)
 	first, closeFirst, err := buildHandler(context.Background())
 	if err != nil {
 		t.Fatalf("組み立てに失敗: %v", err)
@@ -430,6 +451,7 @@ func TestBuildHandler_UsesPostgresWhenConfigured(t *testing.T) {
 	closeFirst()
 
 	// 組み立て直す＝再起動に相当する。
+	t.Setenv("AUTH_TOKEN", testAuthToken)
 	second, closeSecond, err := buildHandler(context.Background())
 	if err != nil {
 		t.Fatalf("2度目の組み立てに失敗: %v", err)
@@ -450,6 +472,7 @@ func TestBuildHandler_UsesPostgresWhenConfigured(t *testing.T) {
 func TestBuildHandler_FallsBackToMemory(t *testing.T) {
 	t.Setenv("DATABASE_URL", "")
 
+	t.Setenv("AUTH_TOKEN", testAuthToken)
 	handler, closeRepos, err := buildHandler(context.Background())
 	if err != nil {
 		t.Fatalf("組み立てに失敗: %v", err)
@@ -457,7 +480,7 @@ func TestBuildHandler_FallsBackToMemory(t *testing.T) {
 	t.Cleanup(closeRepos)
 
 	rec := httptest.NewRecorder()
-	handler.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/sessions?date=2026-08-17", nil))
+	handler.ServeHTTP(rec, authed(http.MethodGet, "/api/sessions?date=2026-08-17", nil))
 	if rec.Code != http.StatusOK {
 		t.Errorf("インメモリで動いていない: %d", rec.Code)
 	}
@@ -468,6 +491,7 @@ func TestBuildHandler_FallsBackToMemory(t *testing.T) {
 func TestBuildHandler_FailsFastOnBadDatabaseURL(t *testing.T) {
 	t.Setenv("DATABASE_URL", "postgres://nobody:nobody@127.0.0.1:1/nothing")
 
+	t.Setenv("AUTH_TOKEN", testAuthToken)
 	if _, _, err := buildHandler(context.Background()); err == nil {
 		t.Error("到達できない接続先で起動した")
 	}
@@ -479,7 +503,7 @@ func TestBuildHandler_FailsFastOnBadDatabaseURL(t *testing.T) {
 func TestHealthz_ReflectsTheRepositoryState(t *testing.T) {
 	healthy := withHealthCheck(http.NotFoundHandler(), func(context.Context) error { return nil })
 	rec := httptest.NewRecorder()
-	healthy.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/healthz", nil))
+	healthy.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, httpapi.HealthPath, nil))
 	if rec.Code != http.StatusOK {
 		t.Errorf("健全なのに %d を返した", rec.Code)
 	}
@@ -488,7 +512,7 @@ func TestHealthz_ReflectsTheRepositoryState(t *testing.T) {
 		return errors.New("接続できない")
 	})
 	rec = httptest.NewRecorder()
-	broken.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/healthz", nil))
+	broken.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, httpapi.HealthPath, nil))
 	if rec.Code != http.StatusServiceUnavailable {
 		t.Errorf("保存先に到達できないのに %d を返した", rec.Code)
 	}
@@ -504,5 +528,93 @@ func TestHealthz_ReflectsTheRepositoryState(t *testing.T) {
 	pass.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/api/sessions", nil))
 	if !reached {
 		t.Error("/healthz 以外が素通しされていない")
+	}
+}
+
+// トークンが未設定・短すぎるなら起動しないこと。
+//
+// 「未設定なら認証しない」にすると、環境変数の設定漏れがそのまま
+// 全公開になる。気づかないまま公開されるより、起動しないほうがよい。
+func TestBuildHandler_RefusesToStartWithoutAToken(t *testing.T) {
+	for name, token := range map[string]string{
+		"未設定":    "",
+		"短すぎる":   "short",
+		"境界の1つ下": strings.Repeat("a", minTokenLength-1),
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Setenv("AUTH_TOKEN", token)
+			if _, _, err := buildHandler(context.Background()); err == nil {
+				t.Error("トークンが不十分なのに起動した")
+			}
+		})
+	}
+
+	t.Run("境界ちょうどなら起動する", func(t *testing.T) {
+		t.Setenv("AUTH_TOKEN", strings.Repeat("a", minTokenLength))
+		_, closeRepos, err := buildHandler(context.Background())
+		if err != nil {
+			t.Fatalf("十分な長さなのに起動しない: %v", err)
+		}
+		closeRepos()
+	})
+}
+
+// 組み立てたハンドラが実際に認証を要求すること。
+// ミドルウェアを書いても配線を忘れれば意味がない。
+func TestBuildHandler_RequiresAuthentication(t *testing.T) {
+	t.Setenv("AUTH_TOKEN", testAuthToken)
+	handler, closeRepos, err := buildHandler(context.Background())
+	if err != nil {
+		t.Fatalf("組み立てに失敗: %v", err)
+	}
+	t.Cleanup(closeRepos)
+
+	for _, path := range []string{
+		"/api/sessions?date=2026-08-17", "/api/program",
+	} {
+		rec := httptest.NewRecorder()
+		handler.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, path, nil))
+		if rec.Code != http.StatusUnauthorized {
+			t.Errorf("%s が認証なしで通った: %d", path, rec.Code)
+		}
+	}
+
+	// 書き込みも塞がっていること。
+	rec := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodPost, "/api/set-logs",
+		strings.NewReader(`{"logs":[]}`))
+	r.Header.Set("Content-Type", "application/json")
+	handler.ServeHTTP(rec, r)
+	if rec.Code != http.StatusUnauthorized {
+		t.Errorf("書き込みが認証なしで通った: %d", rec.Code)
+	}
+
+	// ヘルスチェックは通ること。
+	rec = httptest.NewRecorder()
+	handler.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, httpapi.HealthPath, nil))
+	if rec.Code != http.StatusOK {
+		t.Errorf("ヘルスチェックが弾かれた: %d", rec.Code)
+	}
+}
+
+// 組み立てたハンドラで /healthz が応答すること。
+//
+// /healthz の持ち主は cmd だけ（ルータには無い）。被せ忘れると
+// 404 になり、Cloud Run の起動プローブが通らなくなる。
+func TestBuildHandler_ServesHealthCheck(t *testing.T) {
+	t.Setenv("AUTH_TOKEN", testAuthToken)
+	handler, closeRepos, err := buildHandler(context.Background())
+	if err != nil {
+		t.Fatalf("組み立てに失敗: %v", err)
+	}
+	t.Cleanup(closeRepos)
+
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, httpapi.HealthPath, nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("ヘルスチェックが応答しない: %d body=%s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "ok") {
+		t.Errorf("状態が返っていない: %s", rec.Body.String())
 	}
 }

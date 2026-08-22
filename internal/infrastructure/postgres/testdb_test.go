@@ -3,6 +3,7 @@ package postgres_test
 import (
 	"context"
 	"fmt"
+	"net/url"
 	"os"
 	"strings"
 	"sync"
@@ -40,6 +41,16 @@ func newTestDB(t *testing.T) *pgxpool.Pool {
 			"%s=postgres://postgres:x@127.0.0.1:5432/postgres を設定すること", dbEnv, dbEnv)
 	}
 
+	// pooler のエンドポイントは search_path を startup で受け付けない
+	// （"unsupported startup parameter in options: search_path"）。
+	// スキーマで分離できないので、黙って共有スキーマに落ちるのではなく止める。
+	// 共有されたまま走ると、あるテストが壊した schema_migrations を
+	// 他のテストが踏み、原因の分からない失敗が並ぶ。
+	if strings.Contains(url, "-pooler.") {
+		t.Fatalf("%s が pooler を指している。テストはスキーマで分離するので"+
+			"プーラー無しのエンドポイントを使うこと（ホスト名から -pooler を外す）", dbEnv)
+	}
+
 	ctx := context.Background()
 	basePoolOnce.Do(func() { basePool, basePoolErr = postgres.Open(ctx, url) })
 	if basePoolErr != nil {
@@ -59,7 +70,7 @@ func newTestDB(t *testing.T) *pgxpool.Pool {
 			fmt.Sprintf("DROP SCHEMA IF EXISTS %s CASCADE", schema))
 	})
 
-	pool, err := postgres.Open(ctx, url+"?search_path="+schema)
+	pool, err := postgres.Open(ctx, withSearchPath(url, schema))
 	if err != nil {
 		t.Fatalf("スキーマ付きで接続できない: %v", err)
 	}
@@ -75,6 +86,25 @@ func migratedDB(t *testing.T) *pgxpool.Pool {
 		t.Fatalf("マイグレーションに失敗: %v", err)
 	}
 	return pool
+}
+
+// withSearchPath は接続文字列に search_path を足す。
+//
+// `?search_path=` ではなく `options=-c search_path=` を使う。前者は libpq の
+// パラメータではなく（psql は "invalid URI query parameter" で拒否する）、
+// pgx が独自に起動パラメータとして送っているだけ。ローカルの Postgres には
+// 素通しで届くが、Neon のプロキシは通さない。
+//
+// その結果どうなるかというと、**全てのテストが同じスキーマを共有する**。
+// スキーマを分けたつもりで分かれておらず、あるテストが壊した
+// schema_migrations を他のテストが踏む。ローカルでは緑のままなので、
+// 実際の Neon に流すまで気づけなかった。
+func withSearchPath(rawURL, schema string) string {
+	sep := "?"
+	if strings.Contains(rawURL, "?") {
+		sep = "&"
+	}
+	return rawURL + sep + "options=" + url.QueryEscape("-c search_path="+schema)
 }
 
 // sanitize はテスト名を識別子に使える形にする。

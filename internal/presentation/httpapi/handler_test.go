@@ -63,14 +63,6 @@ func newServer(t *testing.T, configured bool) http.Handler {
 	return handler.Routes()
 }
 
-func TestHealthz(t *testing.T) {
-	rec := httptest.NewRecorder()
-	newServer(t, true).ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/healthz", nil))
-	if rec.Code != http.StatusOK {
-		t.Errorf("ステータスが誤り: %d", rec.Code)
-	}
-}
-
 func TestGetSession_Success(t *testing.T) {
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/api/sessions?date=2026-08-17", nil)

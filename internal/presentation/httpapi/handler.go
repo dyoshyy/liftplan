@@ -97,10 +97,6 @@ func parseExerciseIDs(raw string) []training.ExerciseID {
 	return out
 }
 
-func (h *Handler) handleHealthz(w http.ResponseWriter, _ *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
-}
-
 func (h *Handler) handleGetSession(w http.ResponseWriter, r *http.Request) {
 	raw := r.URL.Query().Get("date")
 	if raw == "" {
