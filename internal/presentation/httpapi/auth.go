@@ -13,7 +13,13 @@ import (
 //
 // パスが /healthz ではなく /health なのは、Cloud Run のフロントエンドが
 // /healthz を完全一致で横取りするため（D-073）。
-var unauthenticatedPaths = map[string]bool{healthPath: true}
+var unauthenticatedPaths = func() map[string]bool {
+	out := map[string]bool{healthPath: true}
+	for path := range staticPaths {
+		out[path] = true
+	}
+	return out
+}()
 
 // RequireBearerToken は Bearer トークンによる認証を要求する。
 //

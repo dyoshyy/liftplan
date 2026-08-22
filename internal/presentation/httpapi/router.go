@@ -18,6 +18,17 @@ func (h *Handler) Routes() *http.ServeMux {
 	// プレゼンテーション層は保存先を知らない。cmd がルータの前に被せる。
 	// 両方に置くと、どちらが応答しているのか読んで分からなくなる。
 	mux := http.NewServeMux()
+	// ルートは "GET /{$}" で登録する。"GET /" だと全ての GET の受け皿に
+	// なり、POST しか無い経路への GET が 405 ではなく静的配信に流れて
+	// 404 になる。クライアントは「経路が無い」と「メソッドが違う」を
+	// 区別できなくなる。
+	for path := range staticPaths {
+		pattern := "GET " + path
+		if path == "/" {
+			pattern = "GET /{$}"
+		}
+		mux.HandleFunc(pattern, h.handleStatic)
+	}
 	mux.HandleFunc("GET /api/sessions", h.handleGetSession)
 	mux.HandleFunc("POST /api/set-logs", h.handlePostSetLogs)
 	mux.HandleFunc("POST /api/conditions", h.handlePostConditions)

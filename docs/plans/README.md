@@ -9,6 +9,8 @@
 | `03-domain-planning.md` | Task 11〜18 | スロット・残差・補助選択・デロード・SessionPlanner・シード |
 | `04-application-and-api.md` | Task 19〜24 | 起動して実際にセッションを返すサーバー |
 | `05-postgres.md` | Task 25〜29 | Postgres への差し替え。再起動しても記録が残る |
+| `06-auth-and-deploy.md` | Task 30〜32 | 認証と Cloud Run へのデプロイ |
+| `07-client.md` | Task 33〜 | ジムで使うクライアント |
 
 ## 分割の理由
 
