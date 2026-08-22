@@ -99,7 +99,7 @@ func TestRequireBearerToken_AdvertisesTheScheme(t *testing.T) {
 func TestRequireBearerToken_LetsHealthChecksThrough(t *testing.T) {
 	h, reached := guarded(t)
 
-	rec := request(t, h, "/healthz", "")
+	rec := request(t, h, httpapi.HealthPath, "")
 	if rec.Code != http.StatusNoContent {
 		t.Errorf("ヘルスチェックが弾かれた: %d", rec.Code)
 	}
@@ -136,5 +136,19 @@ func TestRequireBearerToken_DoesNotEchoTheToken(t *testing.T) {
 	}
 	if strings.Contains(rec.Body.String(), testToken) {
 		t.Errorf("正しいトークンが応答に載っている: %s", rec.Body.String())
+	}
+}
+
+// ヘルスチェックの経路が /healthz でないこと。
+//
+// Cloud Run のフロントエンドは /healthz を完全一致で横取りし、
+// Google の 404 を返す。アプリまで届かないので、DB の疎通を含めた
+// ヘルスチェック（D-061）が本番で機能しなくなる。
+func TestHealthPath_IsNotReservedByCloudRun(t *testing.T) {
+	if httpapi.HealthPath == "/healthz" {
+		t.Error("/healthz は Cloud Run が横取りするので使えない")
+	}
+	if httpapi.HealthPath == "" {
+		t.Error("ヘルスチェックの経路が空である")
 	}
 }

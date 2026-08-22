@@ -2,6 +2,15 @@ package httpapi
 
 import "net/http"
 
+// HealthPath はヘルスチェックの経路。
+//
+// /healthz にしないのは、Cloud Run のフロントエンドが完全一致で
+// 横取りして Google の 404 を返すため。アプリまで届かない（D-073）。
+const HealthPath = "/health"
+
+// healthPath は同じ値の内部名。
+const healthPath = HealthPath
+
 // Routes は Go 1.22 以降のメソッド付きパターンでルーティングする。
 // 外部のルータライブラリは不要。
 func (h *Handler) Routes() *http.ServeMux {

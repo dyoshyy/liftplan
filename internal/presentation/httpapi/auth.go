@@ -8,10 +8,12 @@ import (
 
 // unauthenticatedPaths は認証を通さない経路。
 //
-// ヘルスチェックだけ。Cloud Run の起動プローブや前段のロードバランサが
-// 叩けなくなると、認証が正しくても「起動していない」と判定されて
-// トラフィックが来なくなる。
-var unauthenticatedPaths = map[string]bool{"/healthz": true}
+// ヘルスチェックだけ。前段のロードバランサが叩けなくなると、
+// 認証が正しくても「起動していない」と判定されてトラフィックが来なくなる。
+//
+// パスが /healthz ではなく /health なのは、Cloud Run のフロントエンドが
+// /healthz を完全一致で横取りするため（D-073）。
+var unauthenticatedPaths = map[string]bool{healthPath: true}
 
 // RequireBearerToken は Bearer トークンによる認証を要求する。
 //

@@ -232,14 +232,14 @@ func withAuth(next http.Handler) (http.Handler, error) {
 	return httpapi.RequireBearerToken(token)(next), nil
 }
 
-// withHealthCheck は /healthz を保存先の疎通込みに差し替える。
+// withHealthCheck はヘルスチェックを保存先の疎通込みで応答する。
 //
 // プレゼンテーション層は保存先を知らないので、ここで被せる。
 // 疎通を見ないヘルスチェックは、何も処理できないインスタンスを
 // 「健全」と報告し続け、ロードバランサがトラフィックを流し込む。
 func withHealthCheck(next http.Handler, ping func(context.Context) error) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodGet || r.URL.Path != "/healthz" {
+		if r.Method != http.MethodGet || r.URL.Path != httpapi.HealthPath {
 			next.ServeHTTP(w, r)
 			return
 		}

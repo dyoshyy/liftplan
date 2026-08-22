@@ -87,7 +87,7 @@ gcloud run deploy liftplan-server \
 URL=$(gcloud run services describe liftplan-server \
   --region asia-southeast1 --format='value(status.url)')
 
-curl -s "$URL/healthz"                      # {"status":"ok"}
+curl -s "$URL/health"                      # {"status":"ok"}
 curl -s -o /dev/null -w '%{http_code}\n' "$URL/api/program"   # 401
 curl -s -H "Authorization: Bearer <トークン>" "$URL/api/program"
 ```

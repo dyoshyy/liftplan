@@ -16,6 +16,7 @@ import (
 
 	"github.com/dyoshyy/liftplan-server/internal/domain/training"
 	"github.com/dyoshyy/liftplan-server/internal/domain/training/seed"
+	"github.com/dyoshyy/liftplan-server/internal/presentation/httpapi"
 )
 
 // testAuthToken はテスト用の認証トークン。本番と同じ経路を通すために、
@@ -57,7 +58,7 @@ func TestBuildHandler_Healthz(t *testing.T) {
 	}
 	t.Cleanup(closeRepos)
 	rec := httptest.NewRecorder()
-	handler.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/healthz", nil))
+	handler.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, httpapi.HealthPath, nil))
 	if rec.Code != http.StatusOK {
 		t.Errorf("ヘルスチェックが失敗: %d", rec.Code)
 	}
@@ -502,7 +503,7 @@ func TestBuildHandler_FailsFastOnBadDatabaseURL(t *testing.T) {
 func TestHealthz_ReflectsTheRepositoryState(t *testing.T) {
 	healthy := withHealthCheck(http.NotFoundHandler(), func(context.Context) error { return nil })
 	rec := httptest.NewRecorder()
-	healthy.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/healthz", nil))
+	healthy.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, httpapi.HealthPath, nil))
 	if rec.Code != http.StatusOK {
 		t.Errorf("健全なのに %d を返した", rec.Code)
 	}
@@ -511,7 +512,7 @@ func TestHealthz_ReflectsTheRepositoryState(t *testing.T) {
 		return errors.New("接続できない")
 	})
 	rec = httptest.NewRecorder()
-	broken.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/healthz", nil))
+	broken.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, httpapi.HealthPath, nil))
 	if rec.Code != http.StatusServiceUnavailable {
 		t.Errorf("保存先に到達できないのに %d を返した", rec.Code)
 	}
@@ -590,7 +591,7 @@ func TestBuildHandler_RequiresAuthentication(t *testing.T) {
 
 	// ヘルスチェックは通ること。
 	rec = httptest.NewRecorder()
-	handler.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/healthz", nil))
+	handler.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, httpapi.HealthPath, nil))
 	if rec.Code != http.StatusOK {
 		t.Errorf("ヘルスチェックが弾かれた: %d", rec.Code)
 	}
@@ -609,7 +610,7 @@ func TestBuildHandler_ServesHealthCheck(t *testing.T) {
 	t.Cleanup(closeRepos)
 
 	rec := httptest.NewRecorder()
-	handler.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/healthz", nil))
+	handler.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, httpapi.HealthPath, nil))
 	if rec.Code != http.StatusOK {
 		t.Fatalf("ヘルスチェックが応答しない: %d body=%s", rec.Code, rec.Body.String())
 	}
