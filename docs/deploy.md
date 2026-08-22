@@ -94,12 +94,56 @@ curl -s -H "Authorization: Bearer <トークン>" "$URL/api/program"
 
 マイグレーションは起動時に自動で流れる。空のデータベースなら初期プログラムも入る。
 
+## リリース履歴をたどる
+
+```bash
+make releases
+```
+
+```
+-> liftplan-server-1b5d76b-12   2026-08-22 15:04  1b5d76b   feat: 自動デプロイ
+   liftplan-server-a33a58a-11   2026-08-22 14:56  a33a58a   fix: ヘルスチェックの経路
+```
+
+**Cloud Run のリビジョンがリリース台帳**になっている。Git のタグは打たない。
+二重管理になるだけで、分かることが増えないため。
+
+情報の在りかは3つで、**イメージのタグがコミットSHAなので全部つながる**。
+
+| 知りたいこと | 引き方 |
+|---|---|
+| 何が今動いているか | `gcloud run services describe ... --format='value(spec.template.spec.containers[0].image)'` → タグ部分がコミットSHA |
+| いつ何が出たか | `make releases` |
+| なぜ出たか（誰が押したか） | `gh run list --workflow=Deploy` / `gh run view <ID> --log` |
+
+リビジョン名に短縮SHAが入っているので、一覧を見るだけでどのコードが動いて
+いるか分かる。名前に実行番号を足しているのは、同じコミットを出し直したときに
+名前が衝突してデプロイが失敗するため（再実行やロールバックで起きる）。
+
+`commit` と `run-id` はリビジョンのラベルにも入っている。
+
+```bash
+gcloud run revisions describe <リビジョン名> --region=asia-southeast1 \
+  --project=liftplan-85309 --format='value(metadata.labels)'
+```
+
 ## 運用
 
 - **コールドスタート**: `--min-instances=0` なので、しばらく使わないと初回が数秒かかる。ジムで最初に開くときだけ効く。気になるなら `--min-instances=1` にする（常時課金になる）
 - **ログ**: `gcloud run services logs read liftplan-server --region asia-southeast1`
 - **トークンの入れ替え**: `printf '%s' '<新しいトークン>' | gcloud secrets versions add liftplan-auth-token --data-file=-` してから再デプロイ。クライアント側も同時に変える必要があるので、切り替え中は 401 になる
-- **ロールバック**: Cloud Run はリビジョンを保持するので、コンソールからトラフィックを前のリビジョンに戻せる
+- **ロールバック**: Cloud Run はリビジョンを保持するので、トラフィックを前のリビジョンに戻せる
+
+  ```bash
+  make releases                                    # 戻したいリビジョンを選ぶ
+  gcloud run services update-traffic liftplan-server \
+    --region=asia-southeast1 --project=liftplan-85309 \
+    --to-revisions=<リビジョン名>=100
+  ```
+
+  **マイグレーションは戻らない**。スキーマは前に進んだままなので、
+  戻す先のコードが新しい列を知らなくても動くことを確かめてから戻すこと。
+  0002 のような型の変更は後方互換だが、列の削除を入れたら戻せなくなる
 
 ## ローカルで本番と同じイメージを動かす
 
