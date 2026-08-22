@@ -33,13 +33,28 @@ openssl rand -hex 32
 
 32文字未満だとサーバーが起動しない。
 
-## 3. 秘密を Secret Manager に入れる
+## 3. GCP プロジェクトと課金
+
+```bash
+gcloud projects create liftplan-xxxxx --name=liftplan
+gcloud config set project liftplan-xxxxx
+```
+
+課金アカウントを紐づける。**Cloud Run は無料枠が大きい（月200万リクエスト）ので実質 0 円**だが、有効な請求先の紐付け自体は必須。
+
+```bash
+gcloud billing accounts list                      # OPEN が True のものを使う
+gcloud billing projects link liftplan-xxxxx --billing-account=XXXXXX-XXXXXX-XXXXXX
+```
+
+請求先が閉じている場合は、コンソール（https://console.cloud.google.com/billing）で
+支払い方法を登録して開き直す。CLI からはできない。
+
+## 4. 秘密を Secret Manager に入れる
 
 環境変数に直書きしない。`gcloud run services describe` にもコンソールにも出てしまう。
 
 ```bash
-PROJECT=<your-gcp-project>
-gcloud config set project "$PROJECT"
 gcloud services enable run.googleapis.com secretmanager.googleapis.com \
   artifactregistry.googleapis.com cloudbuild.googleapis.com
 
@@ -49,7 +64,7 @@ printf '%s' '<生成したトークン>' | \
   gcloud secrets create liftplan-auth-token --data-file=-
 ```
 
-## 4. デプロイ
+## 5. デプロイ
 
 ```bash
 gcloud run deploy liftplan-server \
@@ -66,7 +81,7 @@ gcloud run deploy liftplan-server \
 
 `--max-instances=2` にしているのは、単一ユーザーで台数が増える理由が無いのと、Neon の接続数を使い切らないため。1インスタンスあたり最大8接続を張る。
 
-## 5. 確認
+## 6. 確認
 
 ```bash
 URL=$(gcloud run services describe liftplan-server \
