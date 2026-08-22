@@ -852,3 +852,88 @@ func TestGetSession_ExposesStalledExercises(t *testing.T) {
 		t.Errorf("載っている ID を承認に渡せない: %d body=%s", rec.Code, rec.Body.String())
 	}
 }
+
+// --- 画面の配信 ---
+
+// 画面の殻は認証なしで開けること。
+// 認証の内側に置くと、トークンを入力する画面そのものが出せない。
+func TestStatic_ShellIsServedWithoutAuth(t *testing.T) {
+	mux := newServer(t, true)
+
+	for path, wantType := range map[string]string{
+		"/":                "text/html",
+		"/app.js":          "text/javascript",
+		"/app.webmanifest": "application/manifest+json",
+		"/sw.js":           "text/javascript",
+		"/icon.svg":        "image/svg+xml",
+	} {
+		t.Run(path, func(t *testing.T) {
+			rec := do(t, mux, http.MethodGet, path, "")
+			if rec.Code != http.StatusOK {
+				t.Fatalf("認証なしで開けない: %d", rec.Code)
+			}
+			if ct := rec.Header().Get("Content-Type"); !strings.HasPrefix(ct, wantType) {
+				t.Errorf("Content-Type が誤り: %q（期待 %q）", ct, wantType)
+			}
+			if rec.Body.Len() == 0 {
+				t.Error("中身が空である")
+			}
+		})
+	}
+}
+
+// 画面を公開にしたことで API まで開いていないこと。
+//
+// 認証は cmd が被せるので、ルータ単体では判定できない。
+// 認証ミドルウェアを通した状態で確かめる。
+func TestStatic_DoesNotOpenTheAPI(t *testing.T) {
+	h, reached := guarded(t)
+	for _, path := range []string{
+		"/api/sessions?date=2026-08-17", "/api/program", "/api/set-logs",
+	} {
+		rec := request(t, h, path, "")
+		if rec.Code != http.StatusUnauthorized {
+			t.Errorf("%s が認証なしで通った: %d", path, rec.Code)
+		}
+	}
+	if *reached {
+		t.Error("認証なしでハンドラへ到達した")
+	}
+}
+
+// 埋め込みの中身が経路として漏れていないこと。
+func TestStatic_DoesNotExposeItsLayout(t *testing.T) {
+	mux := newServer(t, true)
+	for _, path := range []string{"/index.html", "/web/index.html", "/web/app.js", "/app.js.map"} {
+		if rec := do(t, mux, http.MethodGet, path, ""); rec.Code == http.StatusOK {
+			t.Errorf("%s が配信された", path)
+		}
+	}
+}
+
+// 画面がキャッシュされないこと。
+// キャッシュされると、直したのに古い画面が出続ける。
+func TestStatic_IsNotCached(t *testing.T) {
+	rec := do(t, newServer(t, true), http.MethodGet, "/", "")
+	if got := rec.Header().Get("Cache-Control"); got != "no-cache" {
+		t.Errorf("Cache-Control が誤り: %q", got)
+	}
+}
+
+// 埋め込んだ画面が、必要な要素を持っていること。
+// ビルドは通るが中身が空、という状態を防ぐ。
+func TestStatic_ShellReferencesItsAssets(t *testing.T) {
+	body := do(t, newServer(t, true), http.MethodGet, "/", "").Body.String()
+	for _, want := range []string{"/app.js", "/app.webmanifest", "id=\"session\"", "id=\"setup\""} {
+		if !strings.Contains(body, want) {
+			t.Errorf("画面に %q が無い", want)
+		}
+	}
+
+	js := do(t, newServer(t, true), http.MethodGet, "/app.js", "").Body.String()
+	for _, want := range []string{"/api/set-logs", "/api/conditions", "/api/sessions", "Bearer"} {
+		if !strings.Contains(js, want) {
+			t.Errorf("app.js に %q が無い", want)
+		}
+	}
+}

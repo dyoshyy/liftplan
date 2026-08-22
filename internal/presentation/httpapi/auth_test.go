@@ -108,12 +108,12 @@ func TestRequireBearerToken_LetsHealthChecksThrough(t *testing.T) {
 	}
 }
 
-// 素通しするのはヘルスチェックだけであること。
-// 前方一致で判定していると /healthz-secret のような経路が開く。
-func TestRequireBearerToken_OnlyExemptsTheExactHealthPath(t *testing.T) {
+// 素通しするのは決めた経路の完全一致だけであること。
+// 前方一致で判定していると /health-secret のような経路が開く。
+func TestRequireBearerToken_OnlyExemptsExactPaths(t *testing.T) {
 	for _, path := range []string{
-		"/healthz/../api/sessions", "/healthzz", "/healthz-secret",
-		"/api/sessions", "/", "/api/program",
+		"/health/../api/sessions", "/healthz", "/health-secret",
+		"/api/sessions", "/api/program", "/app.js.map", "/index.html",
 	} {
 		h, reached := guarded(t)
 		rec := request(t, h, path, "")

@@ -1,0 +1,221 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#0b0d10">
+<title>liftplan</title>
+<link rel="manifest" href="/app.webmanifest">
+<link rel="icon" href="/icon.svg">
+<style>
+/* ジムで使う前提の配色。暗いのは、照明の下でまぶしくないことと
+   有機ELで電池を食わないため。文字は大きめ、タップ領域は広め。 */
+:root {
+  --bg: #0b0d10;
+  --panel: #151a20;
+  --panel-2: #1d242c;
+  --line: #2a333d;
+  --text: #e8edf2;
+  --muted: #8a97a6;
+  --accent: #4da3ff;
+  --done: #2fbf71;
+  --warn: #f2b04a;
+  --danger: #ff6b6b;
+  --radius: 12px;
+}
+* { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+html, body { margin: 0; background: var(--bg); color: var(--text); }
+body {
+  font: 16px/1.5 system-ui, -apple-system, "Hiragino Kaku Gothic ProN", sans-serif;
+  padding: env(safe-area-inset-top) 0 calc(env(safe-area-inset-bottom) + 88px);
+}
+h1 { font-size: 17px; margin: 0; letter-spacing: .02em; }
+button { font: inherit; color: inherit; border: none; background: none; cursor: pointer; }
+input, select {
+  font: inherit; color: inherit; background: var(--panel-2);
+  border: 1px solid var(--line); border-radius: 10px; padding: 12px;
+  width: 100%; -moz-appearance: textfield;
+}
+input::-webkit-outer-spin-button, input::-webkit-inner-spin-button { -webkit-appearance: none; }
+
+header {
+  position: sticky; top: 0; z-index: 10;
+  display: flex; align-items: center; gap: 12px;
+  padding: 14px 16px; background: rgba(11,13,16,.92);
+  backdrop-filter: blur(8px); border-bottom: 1px solid var(--line);
+}
+header .date { color: var(--muted); font-size: 14px; margin-left: auto; }
+main { padding: 16px; max-width: 640px; margin: 0 auto; }
+
+.card {
+  background: var(--panel); border: 1px solid var(--line);
+  border-radius: var(--radius); padding: 16px; margin-bottom: 14px;
+}
+.muted { color: var(--muted); }
+.small { font-size: 13px; }
+.row { display: flex; align-items: center; gap: 10px; }
+.grow { flex: 1; min-width: 0; }
+
+/* 種目 */
+.ex-head { display: flex; align-items: baseline; gap: 8px; margin-bottom: 12px; }
+.ex-name { font-size: 18px; font-weight: 600; }
+.badge {
+  font-size: 11px; padding: 3px 8px; border-radius: 999px;
+  background: var(--panel-2); color: var(--muted); border: 1px solid var(--line);
+}
+.prescription { color: var(--muted); font-size: 14px; margin-bottom: 12px; }
+.prescription strong { color: var(--text); font-size: 20px; font-weight: 600; }
+
+/* セットのボタン。指で押す前提で 56px 以上。 */
+.sets { display: flex; gap: 8px; flex-wrap: wrap; }
+.set {
+  min-width: 60px; height: 60px; border-radius: var(--radius);
+  background: var(--panel-2); border: 1px solid var(--line);
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 2px; flex: 1;
+}
+.set .n { font-size: 12px; color: var(--muted); }
+.set .v { font-size: 15px; font-weight: 600; }
+.set.done { background: rgba(47,191,113,.14); border-color: var(--done); }
+.set.done .v { color: var(--done); }
+.set:active { transform: scale(.97); }
+
+/* 記録用のシート */
+dialog {
+  border: none; background: var(--panel); color: var(--text);
+  border-radius: 16px 16px 0 0; padding: 20px 16px 24px;
+  width: 100%; max-width: 640px; margin: auto auto 0;
+  position: fixed; inset: auto 0 0 0;
+}
+dialog::backdrop { background: rgba(0,0,0,.6); }
+.field { margin-bottom: 14px; }
+.field label { display: block; font-size: 13px; color: var(--muted); margin-bottom: 6px; }
+.stepper { display: flex; gap: 8px; align-items: stretch; }
+.stepper button {
+  width: 56px; background: var(--panel-2); border: 1px solid var(--line);
+  border-radius: 10px; font-size: 22px;
+}
+.stepper input { text-align: center; font-size: 20px; font-weight: 600; }
+
+.btn {
+  display: block; width: 100%; padding: 16px; border-radius: var(--radius);
+  background: var(--accent); color: #04121f; font-weight: 700; text-align: center;
+}
+.btn.ghost { background: var(--panel-2); color: var(--text); border: 1px solid var(--line); font-weight: 500; }
+.btn.warn { background: var(--warn); color: #201603; }
+
+/* 下部の状態表示 */
+.status {
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 20;
+  padding: 12px 16px calc(12px + env(safe-area-inset-bottom));
+  background: rgba(21,26,32,.96); border-top: 1px solid var(--line);
+  backdrop-filter: blur(8px);
+  display: flex; align-items: center; gap: 10px; font-size: 13px;
+}
+.dot { width: 8px; height: 8px; border-radius: 50%; background: var(--done); flex: none; }
+.dot.pending { background: var(--warn); }
+.dot.error { background: var(--danger); }
+
+.hidden { display: none !important; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>liftplan</h1>
+  <span class="date" id="date"></span>
+</header>
+
+<main>
+  <!-- 初回だけ出るトークン入力 -->
+  <section id="setup" class="hidden">
+    <div class="card">
+      <p class="small muted">サーバーの認証トークンを入れてください。この端末にだけ保存します。</p>
+      <div class="field">
+        <input id="token" type="password" inputmode="text" autocomplete="off" placeholder="トークン">
+      </div>
+      <button class="btn" id="save-token">保存する</button>
+      <p class="small muted" id="setup-error" style="margin-top:12px"></p>
+    </div>
+  </section>
+
+  <section id="app" class="hidden">
+    <!-- デロードの提案 -->
+    <div class="card hidden" id="deload">
+      <div class="row" style="margin-bottom:10px">
+        <strong>デロードの提案</strong>
+      </div>
+      <p class="small muted" id="deload-reason"></p>
+      <button class="btn warn" id="accept-deload">承認して軽くする</button>
+    </div>
+
+    <div id="session"></div>
+
+    <!-- コンディション -->
+    <div class="card">
+      <div class="row" style="margin-bottom:12px"><strong>今日のコンディション</strong></div>
+      <div class="row" style="gap:12px">
+        <div class="grow">
+          <label class="small muted" for="bw">体重 (kg)</label>
+          <input id="bw" type="number" inputmode="decimal" step="0.1" placeholder="75.0">
+        </div>
+        <div class="grow">
+          <label class="small muted" for="sleep">睡眠 (時間)</label>
+          <input id="sleep" type="number" inputmode="decimal" step="0.25" placeholder="7.5">
+        </div>
+      </div>
+      <button class="btn ghost" id="save-condition" style="margin-top:12px">記録する</button>
+      <p class="small muted" style="margin-top:10px">
+        体重が無いとデロードの判定ができません。減量による停滞と、
+        追い込みすぎによる停滞が見分けられないためです。
+      </p>
+    </div>
+  </section>
+</main>
+
+<!-- セット記録のシート -->
+<dialog id="sheet">
+  <div class="row" style="margin-bottom:16px">
+    <strong id="sheet-title" class="grow"></strong>
+    <button class="badge" id="sheet-close">閉じる</button>
+  </div>
+
+  <div class="field">
+    <label for="w">重量 (kg)</label>
+    <div class="stepper">
+      <button type="button" data-step="w" data-by="-2.5">−</button>
+      <input id="w" type="number" inputmode="decimal" step="0.5">
+      <button type="button" data-step="w" data-by="2.5">＋</button>
+    </div>
+  </div>
+
+  <div class="field">
+    <label for="reps">レップ（実際にできた回数）</label>
+    <div class="stepper">
+      <button type="button" data-step="reps" data-by="-1">−</button>
+      <input id="reps" type="number" inputmode="numeric" step="1">
+      <button type="button" data-step="reps" data-by="1">＋</button>
+    </div>
+  </div>
+
+  <div class="field">
+    <label for="rir">RIR（あと何回できたか）</label>
+    <div class="stepper">
+      <button type="button" data-step="rir" data-by="-1">−</button>
+      <input id="rir" type="number" inputmode="numeric" step="1">
+      <button type="button" data-step="rir" data-by="1">＋</button>
+    </div>
+  </div>
+
+  <button class="btn" id="record">記録する</button>
+</dialog>
+
+<div class="status" id="status">
+  <span class="dot" id="dot"></span>
+  <span id="status-text">読み込み中</span>
+  <button class="badge" id="reload" style="margin-left:auto">更新</button>
+</div>
+
+<script src="/app.js"></script>
+</body>
+</html>
