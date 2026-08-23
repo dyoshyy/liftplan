@@ -1356,3 +1356,89 @@ func TestSessionPlanner_SessionEndsAfterThePlannedWork(t *testing.T) {
 		t.Errorf("消化しきったのに補助が %d件残っている", len(last.Accessories()))
 	}
 }
+
+// 当日に明らかに重いセットを記録しても、その日の提示重量は動かない。
+//
+// 既存の「動かない」テストは同じ重量で記録しているので、推定が
+// そもそも上がらず、当日を混ぜても数字が変わらないことがある。
+// 混ぜたら必ず変わる重さで確かめる。
+func TestSessionPlanner_HeavyTodaysLogDoesNotMoveTodaysWeight(t *testing.T) {
+	req := planRequest(t)
+	before := mainWeight(t, mustPlan(t, req), "bench")
+	if before <= 0 {
+		t.Fatal("ベンチプレスの重量が提示されていない")
+	}
+
+	req.History = training.NewHistory(append(planHistory(t),
+		mkLogOn(t, "today-heavy", planMonday, "bench", before+40, 8, 3)))
+
+	after := mainWeight(t, mustPlan(t, req), "bench")
+	if after != before {
+		t.Errorf("当日の記録で今日の重量が動いた: %v → %v", before, after)
+	}
+}
+
+// 補助種目は決まった順で返る。
+//
+// 選択は集合から選ぶので、そのままだと呼ぶたびに順番が入れ替わる。
+// 画面では同じ内容のカードが並び替わり、どこまでやったか見失う。
+func TestSessionPlanner_AccessoriesComeBackInAStableOrder(t *testing.T) {
+	req := planRequest(t)
+
+	first := mustPlan(t, req)
+	ids := make([]training.ExerciseID, 0, len(first.Accessories()))
+	for _, a := range first.Accessories() {
+		ids = append(ids, a.ExerciseID())
+	}
+	if len(ids) < 2 {
+		t.Fatalf("補助が %d 種目しか出ないので順序を確かめられない", len(ids))
+	}
+
+	for i := 1; i < len(ids); i++ {
+		if ids[i-1] >= ids[i] {
+			t.Fatalf("決まった順になっていない: %v", ids)
+		}
+	}
+
+	// 何度開き直しても同じ順で出る。
+	for n := 0; n < 30; n++ {
+		again := mustPlan(t, req)
+		if len(again.Accessories()) != len(ids) {
+			t.Fatalf("%d回目で補助の数が変わった: %d → %d", n, len(ids), len(again.Accessories()))
+		}
+		for i, a := range again.Accessories() {
+			if a.ExerciseID() != ids[i] {
+				t.Fatalf("%d回目で順序が変わった: %v から %v", n, ids, again.Accessories())
+			}
+		}
+	}
+}
+
+// 着手済みの補助があっても、並びは決まった順のまま。
+//
+// 枠の調整は「始めたものを残す → 残りを埋める」という順で組むので、
+// そのまま返すと着手済みが先頭に寄る。1セット記録しただけで
+// カードが飛ぶことになる。
+func TestSessionPlanner_StartedAccessoriesDoNotJumpToTheTop(t *testing.T) {
+	req := planRequest(t)
+	base := mustPlan(t, req)
+	if len(base.Accessories()) < 2 {
+		t.Fatalf("補助が %d 種目しか出ない", len(base.Accessories()))
+	}
+
+	// 並びの後ろにあるものを1セットこなす。
+	last := base.Accessories()[len(base.Accessories())-1].ExerciseID()
+	req.History = training.NewHistory(append(planHistory(t),
+		mkLogOn(t, "started-1", planMonday, string(last), 20, 10, 2)))
+
+	after := mustPlan(t, req)
+	ids := make([]training.ExerciseID, 0, len(after.Accessories()))
+	for _, a := range after.Accessories() {
+		ids = append(ids, a.ExerciseID())
+	}
+	for i := 1; i < len(ids); i++ {
+		if ids[i-1] >= ids[i] {
+			t.Fatalf("着手したものが並びを崩した: %v", ids)
+		}
+	}
+}
