@@ -363,11 +363,10 @@ func defaultProgram(pool []*training.Exercise) (*training.Program, error) {
 		return nil, fmt.Errorf("週目標シードが不正: %w", err)
 	}
 
+	// 全種目を選んでおく。外したいものはあとから設定で外せる。
 	selected := make([]training.ExerciseID, 0, len(pool))
 	for _, e := range pool {
-		if e.Kind() != training.KindVariation {
-			selected = append(selected, e.ID())
-		}
+		selected = append(selected, e.ID())
 	}
 
 	return training.NewProgram(freq, target, selected)

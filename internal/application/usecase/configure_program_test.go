@@ -32,9 +32,7 @@ func configureInput(t *testing.T) usecase.ConfigureProgramInput {
 	}
 	selected := make([]training.ExerciseID, 0, len(pool))
 	for _, e := range pool {
-		if e.Kind() != training.KindVariation {
-			selected = append(selected, e.ID())
-		}
+		selected = append(selected, e.ID())
 	}
 	return usecase.ConfigureProgramInput{PerWeek: 3, Target: sets, Selected: selected}
 }
@@ -126,8 +124,7 @@ func TestConfigureProgram_RejectsSelectionWithoutMainLift(t *testing.T) {
 	}
 
 	for name, kind := range map[string]training.ExerciseKind{
-		"補助種目だけ":    training.KindAccessory,
-		"バリエーションだけ": training.KindVariation,
+		"補助種目だけ": training.KindAccessory,
 	} {
 		t.Run(name, func(t *testing.T) {
 			in := configureInput(t)
@@ -235,24 +232,6 @@ func TestConfigureProgram_ValidatesInputBeforeTouchingIO(t *testing.T) {
 	}
 	if exercises.callCount() != 0 {
 		t.Errorf("自明な入力ミスなのに I/O を叩いた: %d回", exercises.callCount())
-	}
-}
-
-// バリエーションは選択に含まれないが、メインに付随して自動で回るので
-// 週目標との噛み合いを見るときに数えること。数えないと、
-// バリエーションでしか刺激できない区分を狙った設定が弾かれる。
-func TestConfigureProgram_CountsVariationsOfSelectedMains(t *testing.T) {
-	in := configureInput(t)
-	// 腹直筋はスクワット本体では刺激しない。フロントスクワット（派生）が刺激する。
-	in.Target = map[training.MuscleRegion]float64{training.Abs: 8}
-	in.Selected = []training.ExerciseID{"squat"}
-
-	programs := &fakeProgram{}
-	if err := newConfigure(t, programs).Execute(context.Background(), in); err != nil {
-		t.Errorf("バリエーションが数えられていない: %v", err)
-	}
-	if programs.savedProgram() == nil {
-		t.Error("保存されていない")
 	}
 }
 

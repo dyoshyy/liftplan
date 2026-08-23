@@ -71,13 +71,13 @@ func TestSlotCatalog_GoldenLayout(t *testing.T) {
 		3: {
 			{training.RoleStandard, 0.81, 4, 2},
 			{training.RoleHeavy, 0.88, 3, 1},
-			{training.RoleVariation, 0.76, 4, 2},
+			{training.RoleLight, 0.76, 4, 2},
 		},
 		4: {
 			{training.RoleStandard, 0.81, 4, 2},
 			{training.RoleHeavy, 0.88, 3, 1},
-			{training.RoleVariation, 0.76, 4, 2},
-			{training.RoleVariation, 0.78, 4, 2},
+			{training.RoleLight, 0.76, 4, 2},
+			{training.RoleLight, 0.78, 4, 2},
 		},
 	}
 
@@ -132,7 +132,7 @@ func TestSlotCatalog_MainLiftIsReachableWhenUnderperforming(t *testing.T) {
 
 			mainLiftSessions := 0
 			for i := range actual {
-				if mustSelect(t, c, f, i).Role() != training.RoleVariation {
+				if mustSelect(t, c, f, i).Role() != training.RoleLight {
 					mainLiftSessions++
 				}
 			}
@@ -267,7 +267,7 @@ func TestSlotRole_Valid(t *testing.T) {
 			t.Errorf("%s が Valid でない", r)
 		}
 	}
-	for _, r := range []training.SlotRole{"", "LIGHT", "heavy", "HEAVY "} {
+	for _, r := range []training.SlotRole{"", "VARIATION", "heavy", "HEAVY "} {
 		if r.Valid() {
 			t.Errorf("不正な役割が Valid になっている: %q", r)
 		}
@@ -276,7 +276,7 @@ func TestSlotRole_Valid(t *testing.T) {
 
 func TestSlotRole_GoldenValues(t *testing.T) {
 	// 永続化・APIに出る値。変えると既存データが読めなくなる。
-	want := []string{"HEAVY", "STANDARD", "VARIATION"}
+	want := []string{"HEAVY", "STANDARD", "LIGHT"}
 	got := make([]string, 0, len(want))
 	for _, r := range training.AllSlotRoles() {
 		got = append(got, string(r))

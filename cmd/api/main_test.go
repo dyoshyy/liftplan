@@ -14,7 +14,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/dyoshyy/liftplan-server/internal/domain/training"
 	"github.com/dyoshyy/liftplan-server/internal/domain/training/seed"
 	"github.com/dyoshyy/liftplan-server/internal/presentation/httpapi"
 )
@@ -179,12 +178,11 @@ func TestDefaultProgram_ExcludesVariations(t *testing.T) {
 		t.Fatalf("初期プログラムが不正: %v", err)
 	}
 
+	// 全種目が選ばれていること。かつてバリエーションは選択に入れずとも
+	// 自動で回っていたが、その抜け道を塞いだので明示的に選ぶ必要がある。
 	for _, e := range pool {
-		if e.Kind() != training.KindVariation {
-			continue
-		}
-		if program.Includes(e.ID()) {
-			t.Errorf("バリエーション %s が選択に含まれている", e.ID())
+		if !program.Includes(e.ID()) {
+			t.Errorf("%s が選択に含まれていない", e.ID())
 		}
 	}
 }

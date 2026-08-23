@@ -121,7 +121,7 @@ func verifySelection(pool []*training.Exercise, program *training.Program) error
 	// 区分ごとに種目を要求はしない。特定の区分を埋める種目を持っていない
 	// のは普通のことで、その区分の達成率が低く出るのは情報として正しい。
 	// 弾くのは、目標と選択がまったく噛み合っていない場合だけ。
-	if !stimulatesAnyTarget(selected, known, program) {
+	if !stimulatesAnyTarget(selected, program) {
 		return fmt.Errorf(
 			"%w: 選択した種目が週目標のどの筋区分も刺激しない: %v",
 			ErrInvalidInput, sortedRegions(program.WeeklyTarget()))
@@ -131,32 +131,15 @@ func verifySelection(pool []*training.Exercise, program *training.Program) error
 
 // stimulatesAnyTarget は選択した種目が週目標の区分を1つでも刺激するか。
 //
-// バリエーションは選択に含まれないがメインに付随して自動で回るので、
-// 選択されたメインリフトの派生も数える。
+// 以前はここで「選択されたメインリフトの派生」も数えていた。バリエーションが
+// 選択に含まれなくても自動で回る抜け道があったため。抜け道を塞いだので、
+// 選択された種目だけを見ればよい。
 func stimulatesAnyTarget(
 	selected []*training.Exercise,
-	known map[training.ExerciseID]*training.Exercise,
 	program *training.Program,
 ) bool {
-	lifts := map[training.MainLift]bool{}
-	for _, e := range selected {
-		if lift, ok := e.MainLift(); ok && e.Kind() == training.KindMain {
-			lifts[lift] = true
-		}
-	}
-
-	effective := append([]*training.Exercise{}, selected...)
-	for _, e := range known {
-		if e.Kind() != training.KindVariation {
-			continue
-		}
-		if lift, ok := e.MainLift(); ok && lifts[lift] {
-			effective = append(effective, e)
-		}
-	}
-
 	target := program.WeeklyTarget()
-	for _, e := range effective {
+	for _, e := range selected {
 		for _, r := range e.Stimulus().Regions() {
 			if target.Sets(r) > 0 {
 				return true

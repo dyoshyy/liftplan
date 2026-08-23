@@ -132,8 +132,8 @@ func TestMuscleRegion_InvalidValues(t *testing.T) {
 
 func TestExerciseKind_Valid(t *testing.T) {
 	all := training.AllExerciseKinds()
-	if len(all) != 3 {
-		t.Errorf("種別は3つであるべき: %d", len(all))
+	if len(all) != 2 {
+		t.Errorf("種別は2つであるべき: %d", len(all))
 	}
 	for _, k := range all {
 		if !k.Valid() {
@@ -153,41 +153,10 @@ func TestExerciseKind_ListCoversAllConstants(t *testing.T) {
 		seen[k] = true
 	}
 	for _, k := range []training.ExerciseKind{
-		training.KindMain, training.KindVariation, training.KindAccessory,
+		training.KindMain, training.KindAccessory,
 	} {
 		if !seen[k] {
 			t.Errorf("一覧に %s が含まれていない", k)
-		}
-	}
-}
-
-func TestMainLift_Valid(t *testing.T) {
-	all := training.AllMainLifts()
-	if len(all) != 3 {
-		t.Errorf("メインリフトは3つであるべき: %d", len(all))
-	}
-	for _, l := range all {
-		if !l.Valid() {
-			t.Errorf("%s が Valid でない", l)
-		}
-	}
-	for _, l := range []training.MainLift{"", "PRESS", "squat", "SQUAT "} {
-		if l.Valid() {
-			t.Errorf("不正なリフトが Valid になっている: %q", l)
-		}
-	}
-}
-
-func TestMainLift_ListCoversAllConstants(t *testing.T) {
-	seen := map[training.MainLift]bool{}
-	for _, l := range training.AllMainLifts() {
-		seen[l] = true
-	}
-	for _, l := range []training.MainLift{
-		training.LiftSquat, training.LiftBench, training.LiftDeadlift,
-	} {
-		if !seen[l] {
-			t.Errorf("一覧に %s が含まれていない", l)
 		}
 	}
 }
@@ -212,8 +181,5 @@ func TestTaxonomy_ValuesAreScreamingSnakeCase(t *testing.T) {
 	}
 	for _, k := range training.AllExerciseKinds() {
 		check(t, "ExerciseKind", string(k))
-	}
-	for _, l := range training.AllMainLifts() {
-		check(t, "MainLift", string(l))
 	}
 }

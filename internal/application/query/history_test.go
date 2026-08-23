@@ -60,7 +60,6 @@ func exercise(t *testing.T, id, name string) *training.Exercise {
 		Kind:        training.KindMain,
 		IncrementKg: 2.5,
 		Stimulus:    map[training.MuscleRegion]float64{training.ChestMid: 1},
-		MainLift:    training.LiftBench,
 	})
 	if err != nil {
 		t.Fatalf("種目が作れない %s: %v", id, err)

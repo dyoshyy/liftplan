@@ -67,19 +67,17 @@ func (r MuscleRegion) Valid() bool { return validMuscleRegions[r] }
 
 // ExerciseKind は種目の役割。
 //
-//	KindMain      … 通常フォームのメイン種目
-//	KindVariation … メインの派生（ラーセン、テンポなど）。対メイン係数を持つ
+//	KindMain      … その日の軸になる種目
 //	KindAccessory … 補助種目。残差を埋めるために選ばれる
 type ExerciseKind string
 
 const (
 	KindMain      ExerciseKind = "MAIN"
-	KindVariation ExerciseKind = "VARIATION"
 	KindAccessory ExerciseKind = "ACCESSORY"
 )
 
 var (
-	allExerciseKinds   = sortedValues(KindMain, KindVariation, KindAccessory)
+	allExerciseKinds   = sortedValues(KindMain, KindAccessory)
 	validExerciseKinds = lookup(allExerciseKinds)
 )
 
@@ -87,25 +85,6 @@ var (
 func AllExerciseKinds() []ExerciseKind { return clone(allExerciseKinds) }
 
 func (k ExerciseKind) Valid() bool { return validExerciseKinds[k] }
-
-// MainLift は週内スロットで強度帯を振り分ける対象。
-type MainLift string
-
-const (
-	LiftSquat    MainLift = "SQUAT"
-	LiftBench    MainLift = "BENCH"
-	LiftDeadlift MainLift = "DEADLIFT"
-)
-
-var (
-	allMainLifts   = sortedValues(LiftSquat, LiftBench, LiftDeadlift)
-	validMainLifts = lookup(allMainLifts)
-)
-
-// AllMainLifts は全メインリフトを文字列値の昇順で返す。
-func AllMainLifts() []MainLift { return clone(allMainLifts) }
-
-func (l MainLift) Valid() bool { return validMainLifts[l] }
 
 // sortedValues は可変長で受けた値を昇順に並べた新しいスライスを返す。
 //

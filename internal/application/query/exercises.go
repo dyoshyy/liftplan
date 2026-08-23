@@ -17,7 +17,6 @@ type Exercise struct {
 	Name        string
 	Kind        training.ExerciseKind
 	IncrementKg float64
-	MainLift    string
 }
 
 // Exercises は種目マスタを読む経路。
@@ -49,9 +48,6 @@ func (q *Exercises) All(ctx context.Context) ([]Exercise, error) {
 			Name:        e.Name(),
 			Kind:        e.Kind(),
 			IncrementKg: e.Increment().Kg(),
-		}
-		if lift, ok := e.MainLift(); ok {
-			item.MainLift = string(lift)
 		}
 		out = append(out, item)
 	}

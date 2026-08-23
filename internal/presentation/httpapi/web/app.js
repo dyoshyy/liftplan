@@ -588,7 +588,6 @@ function paintSettings() {
 
   $('pick').innerHTML = '';
   state.exercises
-    .filter((e) => e.kind !== 'VARIATION')
     .forEach((e) => {
       const b = el('button', 'chip', esc(e.name));
       b.setAttribute('aria-pressed', String(state.selected.has(e.id)));
@@ -600,7 +599,7 @@ function paintSettings() {
     });
 
   $('program-msg').textContent =
-    'バリエーションはメインに付随して自動で回るので、ここには出ません。';
+    'ここで選んだ種目だけが提案されます。';
 }
 
 async function saveProgram() {
