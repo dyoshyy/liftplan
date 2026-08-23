@@ -3,7 +3,7 @@ name: Deploy
 # main に入ったものだけを出す。テストが通ってからでないと出さない。
 on:
   push:
-    branches: [main, feat/30-auth]  # feat/30-auth はマージ前の検証用。マージ前に外す
+    branches: [main]
   workflow_dispatch:
 
 # 同時に走らせない。古いリビジョンが新しいものを上書きするのを防ぐ。
@@ -60,6 +60,21 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+
+      # main 以外から出させない。
+      #
+      # workflow_dispatch は ref を選んで実行できるので、push の
+      # branches では止められない。ここで弾かないと、レビューを
+      # 通っていないコードを本番に出せてしまう。
+      #
+      # Workload Identity 側も main に限定してあるので二重の守りだが、
+      # あちらはリポジトリの設定から見えない。ここに書いておく。
+      - name: main から出そうとしているか確かめる
+        run: |
+          if [ "${GITHUB_REF}" != "refs/heads/main" ]; then
+            echo "main 以外からは出せない: ${GITHUB_REF}"
+            exit 1
+          fi
 
       - id: auth
         uses: google-github-actions/auth@v2

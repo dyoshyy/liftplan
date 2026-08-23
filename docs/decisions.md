@@ -1752,3 +1752,33 @@ Cloud Run 上でしか出ないバグは、マージを待たないと確かめ�
 **本番サービスに対しては読み取りだけ**行った。`/health` が 200 を返すこと自体が、Secret Manager と Neon がつながっている証拠になる。`/healthz` は 404 で、Google のフロントエンドが予約している（D-074 の改名が正しかった）ことも確認できた。
 
 以後、デプロイに関わる変更はこのやり方で確かめてからマージする。
+
+## D-111 CI の認証経路を、マージせずに確かめる
+
+残っていた未検証部分は「GitHub Actions が Workload Identity で Google に認証して本番に出す」経路だった。マージしないと確かめられないと思っていたが、**読み取りしかしない一時ワークフローをブランチに置けば**確かめられる。
+
+結果は成功だった。`github-deployer@liftplan-85309.iam.gserviceaccount.com` として認証され、Artifact Registry と Cloud Run にアクセスできた。
+
+**ただし、成功したこと自体が問題だった。** 実行したのは `refs/heads/feat/33-stories` である。つまり **main 以外のどのブランチからでも、本番デプロイ用のサービスアカウントが取れる**。
+
+## D-112 本番に出せるのは main だけにする
+
+穴は2つあった。
+
+1. `deploy.yml` の push トリガーに `feat/30-auth` が残っていた。「マージ前に外す」と自分でコメントを書いたまま外し忘れており、ブランチも remote に実在していた。ここに push すれば本番に出る。
+2. Workload Identity の条件が `assertion.repository` だけで、ref を見ていなかった。`workflow_dispatch` は ref を選んで実行できるので、push の `branches` では止められない。さらに、新しいワークフローを任意のブランチに置けば同じ権限が取れる（実際にそうやって確かめた）。
+
+両方を塞いだ。
+
+- 条件を `assertion.repository=='dyoshyy/liftplan-server' && assertion.ref=='refs/heads/main'` にした
+- `deploy.yml` のトリガーから `feat/30-auth` を外した
+- デプロイの手前で `GITHUB_REF` を確かめる段を足した。Workload Identity 側の条件はリポジトリの設定から見えないので、ここにも書いておく
+
+**両方向で確かめた。**
+
+| | 結果 |
+|---|---|
+| ブランチから認証 | `unauthorized_client: The given credential is rejected by the attribute condition.` |
+| main からデプロイ（同じコミットを出し直し） | 成功。`liftplan-server-2f3cf06-7`、本番 `/health` 200 |
+
+絞り込みで本番のデプロイを壊していないことまで確認してある。片方だけ見て終わりにすると、次にマージした人が詰まる。
