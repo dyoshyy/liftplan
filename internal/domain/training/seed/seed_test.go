@@ -59,9 +59,6 @@ func TestExercises_VariationsBelongToAMainLift(t *testing.T) {
 		if _, ok := e.MainLift(); !ok {
 			t.Errorf("%s に所属メインが無い", e.ID())
 		}
-		if _, ok := e.DefaultRatioToMain(); !ok {
-			t.Errorf("%s に対メイン係数が無い", e.ID())
-		}
 	}
 	if count == 0 {
 		t.Error("バリエーションが1つも無い")
@@ -120,29 +117,6 @@ func TestDefaultWeeklyTarget_CoversEveryRegion(t *testing.T) {
 			if target.Sets(r) <= 0 {
 				t.Errorf("週%d回: 筋区分 %s の目標が設定されていない", f, r)
 			}
-		}
-	}
-}
-
-// 対メイン係数が現実的な帯に入っていること。
-// 帯を外れた値は VariationRatioResolver が実測で上書きするまで
-// そのまま重量に効くので、初期値の時点で危険な数字を置かない。
-func TestExercises_VariationRatiosAreRealistic(t *testing.T) {
-	all, _ := seed.Exercises()
-	for _, e := range all {
-		if e.Kind() != training.KindVariation {
-			continue
-		}
-		ratio, ok := e.DefaultRatioToMain()
-		if !ok {
-			continue
-		}
-		// 帯を外した値は VariationRatioResolver が実測で上書きするまで
-		// そのまま重量に効く。上書きには同じ種目の3セッション分が要り、
-		// バリエーション枠は週1回で3種目を回すので9〜12週かかる。
-		// 初期値の誤りが1シーズン効き続けるので、帯は狭く取る。
-		if r := ratio.Float(); r < 0.65 || r > 0.95 {
-			t.Errorf("%s の対メイン係数が現実的でない: %v", e.ID(), r)
 		}
 	}
 }

@@ -159,11 +159,10 @@ func TestOneRepMax_FailureReturnsZeroValue(t *testing.T) {
 func TestOneRepMax_WorkWeight(t *testing.T) {
 	orm := mustOneRepMax(t, 105)
 	intensity := mustIntensity(t, 0.81)
-	ratio := mustRatio(t, 1.0)
 	inc := mustIncrement(t, 2.5)
 
 	// 105 × 0.81 = 85.05 → 2.5kg刻みで 85.0
-	got, err := orm.WorkWeight(intensity, ratio, inc)
+	got, err := orm.WorkWeight(intensity, inc)
 	if err != nil {
 		t.Fatalf("WorkWeight: %v", err)
 	}
@@ -172,28 +171,14 @@ func TestOneRepMax_WorkWeight(t *testing.T) {
 	}
 }
 
-func TestOneRepMax_WorkWeightAppliesRatio(t *testing.T) {
-	orm := mustOneRepMax(t, 105)
-
-	// 105 × 0.76 × 0.85 = 67.83 → 67.5
-	got, err := orm.WorkWeight(mustIntensity(t, 0.76), mustRatio(t, 0.85), mustIncrement(t, 2.5))
-	if err != nil {
-		t.Fatalf("WorkWeight: %v", err)
-	}
-	if math.Abs(got.Kg()-67.5) > 1e-9 {
-		t.Errorf("got %v, want 67.5", got.Kg())
-	}
-}
-
 func TestOneRepMax_WorkWeightFollowsOneRepMax(t *testing.T) {
 	// 1RMが上がれば実施重量も追随すること。これがスロット自動調整の土台。
 	intensity := mustIntensity(t, 0.81)
-	ratio := mustRatio(t, 1.0)
 	inc := mustIncrement(t, 2.5)
 
 	prev := 0.0
 	for kg := 100.0; kg <= 200; kg += 10 {
-		got, err := mustOneRepMax(t, kg).WorkWeight(intensity, ratio, inc)
+		got, err := mustOneRepMax(t, kg).WorkWeight(intensity, inc)
 		if err != nil {
 			t.Fatalf("WorkWeight: %v", err)
 		}
@@ -206,7 +191,7 @@ func TestOneRepMax_WorkWeightFollowsOneRepMax(t *testing.T) {
 
 func TestOneRepMax_WorkWeightRejectsZeroIncrement(t *testing.T) {
 	var zero training.Increment
-	got, err := mustOneRepMax(t, 105).WorkWeight(mustIntensity(t, 0.81), mustRatio(t, 1.0), zero)
+	got, err := mustOneRepMax(t, 105).WorkWeight(mustIntensity(t, 0.81), zero)
 	if err == nil {
 		t.Fatalf("増加単位が未設定なのに通ってしまう: %v", got.Kg())
 	}
@@ -218,7 +203,7 @@ func TestOneRepMax_WorkWeightIsAlwaysOnTheIncrementGrid(t *testing.T) {
 		inc := mustIncrement(t, incKg)
 		for ormKg := 60.0; ormKg <= 300; ormKg += 7.3 {
 			for _, iv := range []float64{0.76, 0.81, 0.88, 0.71} {
-				got, err := mustOneRepMax(t, ormKg).WorkWeight(mustIntensity(t, iv), mustRatio(t, 0.85), inc)
+				got, err := mustOneRepMax(t, ormKg).WorkWeight(mustIntensity(t, iv), inc)
 				if err != nil {
 					t.Fatalf("WorkWeight: %v", err)
 				}
@@ -238,7 +223,7 @@ func TestOneRepMax_WorkWeightRejectsOverflow(t *testing.T) {
 	// 1RMの上限は実重量の上限より大きいので、高強度では重量の上限を超えうる。
 	// そのとき黙って飽和させず、エラーにする。
 	huge := mustOneRepMax(t, 1900)
-	if got, err := huge.WorkWeight(mustIntensity(t, 1.0), mustRatio(t, 1.0), mustIncrement(t, 2.5)); err == nil {
+	if got, err := huge.WorkWeight(mustIntensity(t, 1.0), mustIncrement(t, 2.5)); err == nil {
 		t.Errorf("重量の上限を超えたのに通ってしまう: %v", got.Kg())
 	}
 }
@@ -359,7 +344,7 @@ func TestOneRepMax_WorkWeightRejectsRoundingToZero(t *testing.T) {
 	}
 	for _, c := range cases {
 		got, err := mustOneRepMax(t, c.orm).WorkWeight(
-			mustIntensity(t, c.intensity), mustRatio(t, 1.0), mustIncrement(t, c.increment))
+			mustIntensity(t, c.intensity), mustIncrement(t, c.increment))
 		if err == nil {
 			t.Errorf("1RM %v・強度 %v・刻み %v で 0kg が処方された: %v",
 				c.orm, c.intensity, c.increment, got.Kg())
@@ -373,7 +358,7 @@ func TestOneRepMax_WorkWeightIsAlwaysPositive(t *testing.T) {
 		inc := mustIncrement(t, incKg)
 		for ormKg := 1.0; ormKg <= 300; ormKg += 3.7 {
 			got, err := mustOneRepMax(t, ormKg).WorkWeight(
-				mustIntensity(t, 0.71), mustRatio(t, 0.85), inc)
+				mustIntensity(t, 0.71), inc)
 			if err != nil {
 				continue // 丸めて0になる組み合わせはエラーになるのが正しい
 			}

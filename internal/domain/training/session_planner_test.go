@@ -25,7 +25,7 @@ func planPool(t *testing.T) []*training.Exercise {
 	p := training.ExerciseParams{
 		ID: "larsen", Name: "larsen", Kind: training.KindVariation,
 		Stimulus:    map[training.MuscleRegion]float64{training.ChestMid: 1.0},
-		IncrementKg: 2.5, MainLift: training.LiftBench, DefaultRatioToMain: 0.9,
+		IncrementKg: 2.5, MainLift: training.LiftBench,
 	}
 
 	return []*training.Exercise{
@@ -359,7 +359,6 @@ func TestSessionPlanner_ZeroValueIsSafe(t *testing.T) {
 func TestNewSessionPlanner_RejectsZeroDependencies(t *testing.T) {
 	slots := training.NewSlotCatalog()
 	est := training.DefaultOneRepMaxEstimator()
-	ratios := training.DefaultVariationRatioResolver()
 	acc := training.DefaultAccessorySelector()
 	deload := training.DefaultDeloadPolicy()
 
@@ -368,19 +367,15 @@ func TestNewSessionPlanner_RejectsZeroDependencies(t *testing.T) {
 		call func() error
 	}{
 		{"推定器", func() error {
-			_, err := training.NewSessionPlanner(slots, training.OneRepMaxEstimator{}, ratios, acc, deload)
-			return err
-		}},
-		{"係数の解決器", func() error {
-			_, err := training.NewSessionPlanner(slots, est, training.VariationRatioResolver{}, acc, deload)
+			_, err := training.NewSessionPlanner(slots, training.OneRepMaxEstimator{}, acc, deload)
 			return err
 		}},
 		{"補助の選択器", func() error {
-			_, err := training.NewSessionPlanner(slots, est, ratios, training.AccessorySelector{}, deload)
+			_, err := training.NewSessionPlanner(slots, est, training.AccessorySelector{}, deload)
 			return err
 		}},
 		{"デロードのポリシー", func() error {
-			_, err := training.NewSessionPlanner(slots, est, ratios, acc, training.DeloadPolicy{})
+			_, err := training.NewSessionPlanner(slots, est, acc, training.DeloadPolicy{})
 			return err
 		}},
 	}
@@ -392,7 +387,7 @@ func TestNewSessionPlanner_RejectsZeroDependencies(t *testing.T) {
 		})
 	}
 
-	if _, err := training.NewSessionPlanner(slots, est, ratios, acc, deload); err != nil {
+	if _, err := training.NewSessionPlanner(slots, est, acc, deload); err != nil {
 		t.Errorf("正常な依存が弾かれた: %v", err)
 	}
 }
@@ -575,16 +570,14 @@ func TestSessionPlanner_DividesByRemainingSessions(t *testing.T) {
 	}
 }
 
-// バリエーションの重量はメインの推定1RMから導くこと。
-//
-// バリエーション自身の1RMを使うと、履歴の少ない種目で数字が暴れるうえ、
-// 履歴が無い間は重量が出ない。
-func TestSessionPlanner_VariationWeightComesFromTheMainLift(t *testing.T) {
+func TestSessionPlanner_VariationWeightComesFromItsOwnRecord(t *testing.T) {
 	req := planRequest(t)
-	logs := planHistory(t)
-	logs = append(logs,
-		mkLogOn(t, "d1", planMonday, "bench", 80, 8, 2),
-		mkLogOn(t, "d2", planMonday.AddDays(2), "bench", 90, 5, 1))
+
+	logs := []*training.SetLog{
+		mkLogOn(t, "v1", planMonday.AddDays(-7), "larsen", 80, 5, 1),
+		mkLogOn(t, "d1", planMonday, "squat", 80, 8, 2),
+		mkLogOn(t, "d2", planMonday.AddDays(2), "deadlift", 90, 5, 1),
+	}
 	req.History = training.NewHistory(logs)
 	req.Date = planMonday.AddDays(4)
 
@@ -594,12 +587,13 @@ func TestSessionPlanner_VariationWeightComesFromTheMainLift(t *testing.T) {
 		}
 		w, ok := set.Weight()
 		if !ok {
-			t.Fatal("バリエーションの重量が確定していない（自身の履歴が無くても出るべき）")
+			t.Fatal("バリエーションの重量が確定していない")
 		}
 		if w.Kg() <= 0 {
-			t.Errorf("バリエーションの重量が0以下: %v", w.Kg())
+			t.Errorf("バリエーションの重量が０以下: %v", w.Kg())
 		}
 	}
+
 }
 
 // 週内カバレッジは週初から当日の前日まで。
@@ -824,7 +818,7 @@ func TestSessionPlanner_UsesInjectedConditionAnalyzer(t *testing.T) {
 		t.Fatalf("ポリシーの生成に失敗: %v", err)
 	}
 	planner, err := training.NewSessionPlanner(training.NewSlotCatalog(),
-		training.DefaultOneRepMaxEstimator(), training.DefaultVariationRatioResolver(),
+		training.DefaultOneRepMaxEstimator(),
 		training.DefaultAccessorySelector(), policy)
 	if err != nil {
 		t.Fatalf("生成器の生成に失敗: %v", err)
@@ -890,7 +884,7 @@ func variationPool(t *testing.T, id string, ratio float64) []*training.Exercise 
 	return append(out, mustExercise(t, training.ExerciseParams{
 		ID: id, Name: id, Kind: training.KindVariation,
 		Stimulus:    map[training.MuscleRegion]float64{training.ChestMid: 1.0},
-		IncrementKg: 2.5, MainLift: training.LiftBench, DefaultRatioToMain: ratio,
+		IncrementKg: 2.5, MainLift: training.LiftBench,
 	}))
 }
 
@@ -905,26 +899,6 @@ func variationDayRequest(t *testing.T) training.PlanRequest {
 	return req
 }
 
-// 対メイン係数が重量に効く。効かないと、係数0.7の種目に
-// メインと同じ重量が出る（実測で+43%）。
-func TestSessionPlanner_VariationRatioScalesWeight(t *testing.T) {
-	heavyReq := variationDayRequest(t)
-	heavyReq.Pool = variationPool(t, "var", 0.9)
-	heavy := mustPlan(t, heavyReq)
-	if role, _ := mainSet(t, heavy, "var").Role(); role != training.RoleVariation {
-		t.Fatalf("前提: 3本目がバリエーションスロットであること")
-	}
-
-	lightReq := variationDayRequest(t)
-	lightReq.Pool = variationPool(t, "var", 0.7)
-	light := mustPlan(t, lightReq)
-
-	if mainWeight(t, light, "var") >= mainWeight(t, heavy, "var") {
-		t.Errorf("対メイン係数が重量に反映されていない: 0.7→%v, 0.9→%v",
-			mainWeight(t, light, "var"), mainWeight(t, heavy, "var"))
-	}
-}
-
 // バリエーションは最後に使ってから最も間隔が空いたものを選ぶ。
 func TestSessionPlanner_PicksLeastRecentlyUsedVariation(t *testing.T) {
 	req := variationDayRequest(t)
@@ -932,7 +906,7 @@ func TestSessionPlanner_PicksLeastRecentlyUsedVariation(t *testing.T) {
 	req.Pool = append(pool, mustExercise(t, training.ExerciseParams{
 		ID: "stale", Name: "stale", Kind: training.KindVariation,
 		Stimulus:    map[training.MuscleRegion]float64{training.ChestMid: 1.0},
-		IncrementKg: 2.5, MainLift: training.LiftBench, DefaultRatioToMain: 0.9,
+		IncrementKg: 2.5, MainLift: training.LiftBench,
 	}))
 	req.History = training.NewHistory(append(planHistory(t),
 		mkLogOn(t, "w1", planMonday, "curl", 20, 10, 2),
@@ -1065,7 +1039,7 @@ func TestSessionPlanner_PrefersNeverUsedVariation(t *testing.T) {
 	req.Pool = append(pool, mustExercise(t, training.ExerciseParams{
 		ID: "never", Name: "never", Kind: training.KindVariation,
 		Stimulus:    map[training.MuscleRegion]float64{training.ChestMid: 1.0},
-		IncrementKg: 2.5, MainLift: training.LiftBench, DefaultRatioToMain: 0.9,
+		IncrementKg: 2.5, MainLift: training.LiftBench,
 	}))
 	req.History = training.NewHistory(append(planHistory(t),
 		mkLogOn(t, "w1", planMonday, "curl", 20, 10, 2),

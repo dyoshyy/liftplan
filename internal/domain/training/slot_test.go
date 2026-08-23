@@ -347,10 +347,9 @@ func TestSlotCatalog_RoundTripIsCurrentlyContractive(t *testing.T) {
 	c := training.NewSlotCatalog()
 	baseline := mustOneRepMax(t, 105)
 	inc := mustIncrement(t, 2.5)
-	ratio := mustRatio(t, 1.0)
 
 	for _, s := range c.For(mustFrequency(t, 4)) {
-		w, err := baseline.WorkWeight(s.Intensity(), ratio, inc)
+		w, err := baseline.WorkWeight(s.Intensity(), inc)
 		if err != nil {
 			t.Fatalf("%s の処方に失敗: %v", s.Role(), err)
 		}

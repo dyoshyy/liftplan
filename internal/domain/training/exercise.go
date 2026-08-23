@@ -91,30 +91,27 @@ func (p StimulusProfile) IsEmpty() bool { return len(p.m) == 0 }
 
 // ExerciseParams は Exercise の生成入力。
 //
-// MainLift は空文字、DefaultRatioToMain は0を「未設定」として扱う。
+// MainLift は空文字を「未設定」として扱う。
 type ExerciseParams struct {
-	ID                 string
-	Name               string
-	Kind               ExerciseKind
-	Stimulus           map[MuscleRegion]float64
-	IncrementKg        float64
-	MainLift           MainLift
-	DefaultRatioToMain float64
+	ID          string
+	Name        string
+	Kind        ExerciseKind
+	Stimulus    map[MuscleRegion]float64
+	IncrementKg float64
+	MainLift    MainLift
 }
 
 // Exercise は種目エンティティ。同一性は ID で決まる。
 //
 //ddd:aggregate
 type Exercise struct {
-	id                 ExerciseID
-	name               string
-	kind               ExerciseKind
-	stimulus           StimulusProfile
-	increment          Increment
-	mainLift           MainLift
-	hasMainLift        bool
-	defaultRatioToMain Ratio
-	hasDefaultRatio    bool
+	id          ExerciseID
+	name        string
+	kind        ExerciseKind
+	stimulus    StimulusProfile
+	increment   Increment
+	mainLift    MainLift
+	hasMainLift bool
 }
 
 func NewExercise(p ExerciseParams) (*Exercise, error) {
@@ -159,14 +156,6 @@ func NewExercise(p ExerciseParams) (*Exercise, error) {
 		e.mainLift = p.MainLift
 		e.hasMainLift = true
 	}
-	if p.DefaultRatioToMain != 0 {
-		ratio, err := NewRatio(p.DefaultRatioToMain)
-		if err != nil {
-			return nil, fmt.Errorf("種目 %s: %w", id, err)
-		}
-		e.defaultRatioToMain = ratio
-		e.hasDefaultRatio = true
-	}
 
 	if err := e.validateKindInvariants(); err != nil {
 		return nil, err
@@ -184,22 +173,13 @@ func (e *Exercise) validateKindInvariants() error {
 		if !e.hasMainLift {
 			return fmt.Errorf("種目 %s: メイン種目はメインリフトを持つ必要がある", e.id)
 		}
-		if e.hasDefaultRatio {
-			return fmt.Errorf("種目 %s: メイン種目は対メイン係数を持たない", e.id)
-		}
 	case KindVariation:
 		if !e.hasMainLift {
 			return fmt.Errorf("種目 %s: バリエーションは所属メインリフトを持つ必要がある", e.id)
 		}
-		if !e.hasDefaultRatio {
-			return fmt.Errorf("種目 %s: バリエーションは対メイン係数の初期値を持つ必要がある", e.id)
-		}
 	case KindAccessory:
 		if e.hasMainLift {
 			return fmt.Errorf("種目 %s: 補助種目はメインリフトを持たない", e.id)
-		}
-		if e.hasDefaultRatio {
-			return fmt.Errorf("種目 %s: 補助種目は対メイン係数を持たない", e.id)
 		}
 	}
 	return nil
@@ -212,10 +192,6 @@ func (e *Exercise) Stimulus() StimulusProfile { return e.stimulus }
 func (e *Exercise) Increment() Increment      { return e.increment }
 
 func (e *Exercise) MainLift() (MainLift, bool) { return e.mainLift, e.hasMainLift }
-
-func (e *Exercise) DefaultRatioToMain() (Ratio, bool) {
-	return e.defaultRatioToMain, e.hasDefaultRatio
-}
 
 // SameIdentity はエンティティの同一性判定。値ではなく ID で比べる。
 func (e *Exercise) SameIdentity(o *Exercise) bool {

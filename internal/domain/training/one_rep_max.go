@@ -74,8 +74,8 @@ func (o OneRepMax) IsZero() bool { return o == OneRepMax{} }
 // 丸めた結果が0kgになる場合はエラーを返す。粗い増加単位と軽い種目の
 // 組み合わせで起こりうるが、0kg のセットを処方するのは
 // 「推定できないなら重量を出さない」という設計を 0kg という捏造で貫通する。
-func (o OneRepMax) WorkWeight(i IntensityPct, ratio Ratio, inc Increment) (Weight, error) {
-	raw, err := NewWeight(o.kg * i.Float() * ratio.Float())
+func (o OneRepMax) WorkWeight(i IntensityPct, inc Increment) (Weight, error) {
+	raw, err := NewWeight(o.kg * i.Float())
 	if err != nil {
 		return Weight{}, fmt.Errorf("実施重量を算出できない: %w", err)
 	}

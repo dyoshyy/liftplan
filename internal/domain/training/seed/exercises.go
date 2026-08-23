@@ -4,8 +4,7 @@
 // 別の面倒が生まれる。それを潰すのがこのパッケージの役割で、ユーザーがやるのは
 // 「使う種目にチェックを入れる」だけにする。
 //
-// ここに書いた種目リストは出発点であり網羅ではない。対メイン係数も仮の値でよく、
-// 実績が溜まれば VariationRatioResolver が実測値で上書きする。
+// ここに書いた種目リストは出発点であり網羅ではない。
 package seed
 
 import "github.com/dyoshyy/liftplan-server/internal/domain/training"
@@ -19,10 +18,10 @@ func mainLift(id, name string, lift training.MainLift, inc float64, s stimulus) 
 	}
 }
 
-func variation(id, name string, lift training.MainLift, ratio, inc float64, s stimulus) training.ExerciseParams {
+func variation(id, name string, lift training.MainLift, inc float64, s stimulus) training.ExerciseParams {
 	return training.ExerciseParams{
 		ID: id, Name: name, Kind: training.KindVariation,
-		Stimulus: s, IncrementKg: inc, MainLift: lift, DefaultRatioToMain: ratio,
+		Stimulus: s, IncrementKg: inc, MainLift: lift,
 	}
 }
 
@@ -59,19 +58,19 @@ func specs() []training.ExerciseParams {
 			stimulus{r.Hamstring: 1.0, r.Glute: 0.8, r.Erector: 1.0, r.TrapMid: 0.4, r.Forearm: 0.4}),
 
 		// --- バリエーション ---
-		variation("larsen_press", "ラーセンプレス", training.LiftBench, 0.90, 2.5,
+		variation("larsen_press", "ラーセンプレス", training.LiftBench, 2.5,
 			stimulus{r.ChestMid: 1.0, r.TricepsLateral: 0.5, r.FrontDelt: 0.4}),
-		variation("tempo_bench", "テンポベンチ", training.LiftBench, 0.85, 2.5,
+		variation("tempo_bench", "テンポベンチ", training.LiftBench, 2.5,
 			stimulus{r.ChestMid: 1.0, r.TricepsLateral: 0.5, r.FrontDelt: 0.4}),
-		variation("close_grip_bench", "ナローベンチ", training.LiftBench, 0.88, 2.5,
+		variation("close_grip_bench", "ナローベンチ", training.LiftBench, 2.5,
 			stimulus{r.ChestMid: 0.7, r.TricepsLateral: 1.0, r.TricepsLong: 0.6}),
-		variation("pause_squat", "ポーズスクワット", training.LiftSquat, 0.88, 2.5,
+		variation("pause_squat", "ポーズスクワット", training.LiftSquat, 2.5,
 			stimulus{r.Quad: 1.0, r.Glute: 0.7, r.Adductor: 0.4, r.Erector: 0.4}),
-		variation("front_squat", "フロントスクワット", training.LiftSquat, 0.80, 2.5,
+		variation("front_squat", "フロントスクワット", training.LiftSquat, 2.5,
 			stimulus{r.Quad: 1.0, r.Glute: 0.4, r.Erector: 0.5, r.Abs: 0.4}),
-		variation("deficit_deadlift", "デフィシットデッドリフト", training.LiftDeadlift, 0.90, 5.0,
+		variation("deficit_deadlift", "デフィシットデッドリフト", training.LiftDeadlift, 5.0,
 			stimulus{r.Hamstring: 1.0, r.Glute: 0.8, r.Erector: 1.0, r.Quad: 0.4}),
-		variation("romanian_deadlift", "ルーマニアンデッドリフト", training.LiftDeadlift, 0.70, 2.5,
+		variation("romanian_deadlift", "ルーマニアンデッドリフト", training.LiftDeadlift, 2.5,
 			stimulus{r.Hamstring: 1.0, r.Glute: 0.7, r.Erector: 0.7}),
 
 		// --- 胸 ---

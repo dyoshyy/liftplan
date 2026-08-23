@@ -7,6 +7,11 @@ import (
 	"github.com/dyoshyy/liftplan-server/internal/domain/training"
 )
 
+// baseDay は履歴の起点。8月1日を1日目とする。
+func baseDay(day int) training.Date {
+	return training.MustDate(2026, time.August, 1).AddDays(day - 1)
+}
+
 func TestNewDate_RejectsNonExistentDates(t *testing.T) {
 	cases := []struct {
 		name  string
