@@ -55,10 +55,6 @@ const store = {
   token: () => localStorage.getItem(KEY_TOKEN) || '',
   setToken: (v) => localStorage.setItem(KEY_TOKEN, v),
   clearToken: () => localStorage.removeItem(KEY_TOKEN),
-  queue: () => { try { return JSON.parse(localStorage.getItem(KEY_QUEUE) || '[]'); } catch { return []; } },
-  setQueue: (q) => localStorage.setItem(KEY_QUEUE, JSON.stringify(q)),
-  rejected: () => { try { return JSON.parse(localStorage.getItem(KEY_REJECTED) || '[]'); } catch { return []; } },
-  setRejected: (r) => localStorage.setItem(KEY_REJECTED, JSON.stringify(r)),
   deload: (d) => {
     try {
       const v = JSON.parse(localStorage.getItem(KEY_DELOAD) || 'null');
@@ -86,13 +82,96 @@ async function api(path, options = {}) {
 }
 
 // --- 送信の待ち行列 --------------------------------------------------
+//
+// localStorage ではなく IndexedDB に置く。
+//
+// localStorage には「読んで、足して、書く」を割り込まれずに行う手段が
+// 無い。携帯とPCのように同じ端末で2つ開いていると、両方が同じキーを
+// 読んで書き戻し、あとから書いた方が相手の記録を消す。実際に2タブから
+// 3セットずつ記録したら、6件のうち3件が消えた。
+//
+// IndexedDB の書き込みはトランザクションなので、追記どうしがぶつからない。
+// 2つのタブが同時に送っても、二重に送るだけで済む（同じIDの同じ内容は
+// サーバーが黙って受け入れる契約にしてある）。消えるよりはるかによい。
+
+const DB_NAME = 'liftplan';
+const DB_VERSION = 1;
+
+function openDB() {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open(DB_NAME, DB_VERSION);
+    req.onupgradeneeded = () => {
+      const db = req.result;
+      if (!db.objectStoreNames.contains('queue')) {
+        db.createObjectStore('queue', { autoIncrement: true });
+      }
+      if (!db.objectStoreNames.contains('rejected')) {
+        db.createObjectStore('rejected', { autoIncrement: true });
+      }
+    };
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+
+let dbPromise = null;
+function db() {
+  dbPromise = dbPromise || openDB();
+  return dbPromise;
+}
+
+function tx(name, mode, run) {
+  return db().then((d) => new Promise((resolve, reject) => {
+    const t = d.transaction(name, mode);
+    const req = run(t.objectStore(name));
+    t.oncomplete = () => resolve(req ? req.result : undefined);
+    t.onerror = () => reject(t.error);
+    t.onabort = () => reject(t.error);
+  }));
+}
+
+const outbox = {
+  add: (name, value) => tx(name, 'readwrite', (s) => s.add(value)),
+  remove: (name, key) => tx(name, 'readwrite', (s) => s.delete(key)),
+  clear: (name) => tx(name, 'readwrite', (s) => s.clear()),
+  count: (name) => tx(name, 'readonly', (s) => s.count()),
+  values: (name) => tx(name, 'readonly', (s) => s.getAll()),
+  head: (name) => db().then((d) => new Promise((resolve, reject) => {
+    const t = d.transaction(name, 'readonly');
+    const cur = t.objectStore(name).openCursor();
+    cur.onsuccess = () => resolve(cur.result ? { key: cur.result.key, value: cur.result.value } : null);
+    cur.onerror = () => reject(cur.error);
+  })),
+};
+
+// 表示は同期で描くので、件数と中身を手元にも持つ。
+let pendingCount = 0;
+let rejectedList = [];
+
+// 古い版が localStorage に残したぶんを引き取る。捨てると記録が消える。
+async function adoptLegacyQueue() {
+  for (const [key, name] of [[KEY_QUEUE, 'queue'], [KEY_REJECTED, 'rejected']]) {
+    let items = [];
+    try { items = JSON.parse(localStorage.getItem(key) || '[]'); } catch { items = []; }
+    if (!Array.isArray(items) || items.length === 0) continue;
+    for (const it of items) await outbox.add(name, it);
+    localStorage.removeItem(key);
+  }
+}
+
+async function refreshOutbox() {
+  pendingCount = await outbox.count('queue');
+  rejectedList = await outbox.values('rejected');
+}
 
 function enqueue(item) {
-  const q = store.queue();
-  q.push(item);
-  store.setQueue(q);
+  // 楽観的に数えておく。押した直後に「未送信」と出ないと、
+  // 記録できたのか分からない。
+  pendingCount++;
   paintStatus();
-  flush();
+  outbox.add('queue', item)
+    .then(() => flush())
+    .catch(() => { pendingCount = Math.max(0, pendingCount - 1); paintStatus(); });
 }
 
 let flushing = false;
@@ -101,12 +180,10 @@ async function flush() {
   if (flushing || !store.token()) return;
   flushing = true;
   try {
-    // 毎回 store から読み直す。手元に配列を抱えたまま setQueue すると、
-    // 送信を待っている間に enqueue されたぶんを巻き戻して消してしまう。
-    // 電波が細いときに続けて2セット記録すると、2つ目が黙って失われる。
     for (;;) {
-      const item = store.queue()[0];
-      if (!item) break;
+      const head = await outbox.head('queue');
+      if (!head) break;
+      const item = head.value;
 
       const res = await api(item.path, {
         method: item.method || 'POST',
@@ -117,18 +194,19 @@ async function flush() {
         // ただし黙って消すと、記録したはずのものが無いことに気づけない。
         const detail = await res.text().catch(() => '');
         console.warn('破棄', res.status, item, detail);
-        store.setRejected([...store.rejected(), describeItem(item, res.status)].slice(-20));
-        paintRejected();
+        await outbox.add('rejected', describeItem(item, res.status));
       } else if (!res.ok) {
         break; // 5xx / 503 はやり直せば通る
       }
-      store.setQueue(store.queue().slice(1));
-      paintStatus();
+      await outbox.remove('queue', head.key);
+      await refreshOutbox();
+      paintRejected();
     }
   } catch {
     // 電波が無い。次の機会に送る。
   } finally {
     flushing = false;
+    await refreshOutbox().catch(() => {});
     paintStatus();
   }
 }
@@ -148,15 +226,15 @@ function describeItem(item, status) {
 }
 
 function paintRejected() {
-  const list = store.rejected();
+  const list = rejectedList;
   $('rejected-notice').classList.toggle('hidden', list.length === 0);
   $('rejected-list').innerHTML = list.map((r) => `<li>${esc(r)}</li>`).join('');
   paintStatus();
 }
 
 function paintStatus() {
-  const n = store.queue().length;
-  const rejected = store.rejected().length;
+  const n = pendingCount;
+  const rejected = rejectedList.length;
   const dot = $('dot');
   if (rejected > 0) {
     dot.className = 'dot error';
@@ -550,7 +628,7 @@ function showSetup(message) {
 
   // 溜まっているものは消えない。ここで言わないと、記録ごと消えたと
   // 思われる。トークンが変わったのは送り先の話で、記録の話ではない。
-  const n = store.queue().length;
+  const n = pendingCount;
   const pending = $('setup-pending');
   pending.textContent = n > 0
     ? `未送信の記録が ${n} 件あります。トークンを入れ直せば送られます。` : '';
@@ -670,7 +748,8 @@ $('undo').onclick = undoSet;
 $('sheet-close').onclick = closeSheet;
 $('reload').onclick = () => loadAll();
 $('retry').onclick = () => loadAll();
-$('clear-rejected').onclick = () => { store.setRejected([]); paintRejected(); };
+$('clear-rejected').onclick = () =>
+  outbox.clear('rejected').then(refreshOutbox).then(paintRejected);
 $('save-program').onclick = saveProgram;
 
 function noteCondition(msg) {
@@ -715,4 +794,9 @@ if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('/sw.js').catch(() => {});
 }
 
-loadAll();
+// 待ち行列を読み込んでから始める。先に loadAll を走らせると、
+// 溜まっているぶんを送る前にサーバーの実績で画面を描いてしまう。
+adoptLegacyQueue()
+  .then(refreshOutbox)
+  .catch(() => {})
+  .then(() => loadAll());
