@@ -47,6 +47,10 @@ function newId() {
 // 捨てた記録は端末に残す。消えたことに気づけないのが一番まずい。
 const KEY_REJECTED = 'liftplan.rejected';
 
+// 承認したデロードはその日のあいだ覚えておく。覚えないと、更新した
+// とたんに指示が10%跳ね上がる。日付ごとに持つので翌日には消える。
+const KEY_DELOAD = 'liftplan.deload';
+
 const store = {
   token: () => localStorage.getItem(KEY_TOKEN) || '',
   setToken: (v) => localStorage.setItem(KEY_TOKEN, v),
@@ -55,6 +59,13 @@ const store = {
   setQueue: (q) => localStorage.setItem(KEY_QUEUE, JSON.stringify(q)),
   rejected: () => { try { return JSON.parse(localStorage.getItem(KEY_REJECTED) || '[]'); } catch { return []; } },
   setRejected: (r) => localStorage.setItem(KEY_REJECTED, JSON.stringify(r)),
+  deload: (d) => {
+    try {
+      const v = JSON.parse(localStorage.getItem(KEY_DELOAD) || 'null');
+      return v && v.date === d ? v.ids || [] : [];
+    } catch { return []; }
+  },
+  setDeload: (d, ids) => localStorage.setItem(KEY_DELOAD, JSON.stringify({ date: d, ids })),
 };
 
 async function api(path, options = {}) {
@@ -251,12 +262,23 @@ function paintToday() {
 
   const d = state.session?.deload_proposal;
   const stalled = d?.stalled_exercises || [];
-  if (stalled.length > 0) {
+  const accepted = store.deload(today());
+  if (accepted.length > 0) {
+    // 承認済み。同じ提案を出し続けると、効いたのかどうか分からない。
+    $('deload').classList.remove('hidden');
+    $('deload-reason').textContent =
+      `${accepted.map(nameOf).join('・')}を落として組み直しました。`;
+    $('accept-deload').textContent = '元に戻す';
+    $('accept-deload').onclick = () => { store.setDeload(today(), []); loadToday(); };
+  } else if (stalled.length > 0) {
     $('deload').classList.remove('hidden');
     $('deload-reason').textContent = d.reason;
     $('accept-deload').textContent =
       `${stalled.map(nameOf).join('・')}を${Math.round(d.intensity_drop_pct * 100)}%落とす`;
-    $('accept-deload').onclick = () => loadToday(stalled);
+    $('accept-deload').onclick = () => {
+      store.setDeload(today(), stalled);
+      loadToday(stalled);
+    };
   } else {
     $('deload').classList.add('hidden');
   }
@@ -499,8 +521,11 @@ function showView(name) {
 }
 
 async function loadToday(deloadAccepted) {
-  const q = deloadAccepted?.length
-    ? `&deload_accepted=${encodeURIComponent(deloadAccepted.join(','))}` : '';
+  // 引数が無いときは、その日に承認したものを使う。更新やリロードでも
+  // 承認が効いたままになる。
+  const accepted = deloadAccepted ?? store.deload(today());
+  const q = accepted?.length
+    ? `&deload_accepted=${encodeURIComponent(accepted.join(','))}` : '';
   const res = await api(`/api/sessions?date=${today()}${q}`);
   if (!res.ok) throw new Error(`sessions ${res.status}`);
   state.session = await res.json();
