@@ -602,6 +602,32 @@ func TestSessionPlanner_VariationWeightComesFromTheMainLift(t *testing.T) {
 	}
 }
 
+func TestSessionPlanner_VariationWeightComesFromItsOwnRecord(t *testing.T) {
+	req := planRequest(t)
+
+	logs := []*training.SetLog{
+		mkLogOn(t, "v1", planMonday.AddDays(-7), "larsen", 80, 5, 1),
+		mkLogOn(t, "d1", planMonday, "squat", 80, 8, 2),
+		mkLogOn(t, "d2", planMonday.AddDays(2), "deadlift", 90, 5, 1),
+	}
+	req.History = training.NewHistory(logs)
+	req.Date = planMonday.AddDays(4)
+
+	for _, set := range mustPlan(t, req).Main() {
+		if set.ExerciseID() != "larsen" {
+			continue
+		}
+		w, ok := set.Weight()
+		if !ok {
+			t.Fatal("バリエーションの重量が確定していない")
+		}
+		if w.Kg() <= 0 {
+			t.Errorf("バリエーションの重量が０以下: %v", w.Kg())
+		}
+	}
+
+}
+
 // 週内カバレッジは週初から当日の前日まで。
 //
 // 前の週の記録まで数えると残差が過小になり、当日の記録まで数えると
