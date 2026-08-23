@@ -1,0 +1,39 @@
+# 一時的な検証用。CI の認証経路（GitHub の OIDC → Workload Identity →
+# サービスアカウント）が通ることだけを確かめる。読み取りしかしない。
+# 確認できたら消す。
+name: Verify auth
+
+on:
+  push:
+    branches: [feat/33-stories]
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  auth:
+    runs-on: ubuntu-latest
+    steps:
+      - id: auth
+        uses: google-github-actions/auth@v2
+        with:
+          project_id: liftplan-85309
+          workload_identity_provider: projects/385680444543/locations/global/workloadIdentityPools/github/providers/liftplan-server
+          service_account: github-deployer@liftplan-85309.iam.gserviceaccount.com
+
+      - uses: google-github-actions/setup-gcloud@v2
+
+      - name: 誰として認証されたか
+        run: gcloud auth list --format='value(account)'
+
+      - name: Artifact Registry に認証できるか
+        run: gcloud auth configure-docker asia-southeast1-docker.pkg.dev --quiet
+
+      - name: Cloud Run を読めるか
+        run: |
+          gcloud run services list --project liftplan-85309 \
+            --region asia-southeast1 --format='value(SERVICE)'
+
+      - name: どの ref から来たか
+        run: echo "ref=${GITHUB_REF}"
