@@ -142,6 +142,8 @@ dialog::backdrop { background: rgba(0,0,0,.66); }
 .sheet-top { display: flex; align-items: center; gap: 10px; }
 .sheet-title { font-weight: 700; }
 .sheet-last { font-size: 12px; color: var(--faint); margin-left: auto; }
+/* alert() はページ全体を止めてしまうので、注意はその場に出す。 */
+.warn { margin: 0; font-size: 13px; color: var(--red); }
 .field { display: grid; gap: 6px; }
 .field label { font-size: 12px; color: var(--muted); letter-spacing: .04em; }
 .stepper { display: grid; grid-template-columns: 60px 1fr 60px; gap: 8px; }
@@ -204,6 +206,7 @@ dialog::backdrop { background: rgba(0,0,0,.66); }
         <div class="field"><label for="sl">睡眠 (時間)</label><input id="sl" type="number" inputmode="decimal" step="0.25" placeholder="7.5"></div>
       </div>
       <button class="btn quiet" id="save-condition" style="margin-top:12px">記録する</button>
+      <p class="warn hidden" id="condition-note" style="margin:10px 0 0"></p>
       <p class="note" style="margin:10px 0 0">
         体重が無いとデロードの判定ができません。減量による停滞と、追い込みすぎによる停滞が同じ形をしているためです。
       </p>
@@ -277,6 +280,7 @@ dialog::backdrop { background: rgba(0,0,0,.66); }
         <button type="button" data-t="rir" data-by="1">＋</button>
       </div>
     </div>
+    <p class="warn hidden" id="sheet-warn"></p>
     <button class="btn" id="record">記録する</button>
     <button class="btn danger hidden" id="undo">この記録を取り消す</button>
     <button class="btn quiet" id="sheet-close">閉じる</button>

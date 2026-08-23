@@ -44,10 +44,14 @@ type Day struct {
 // 今日提示された重量を信じる根拠になる。「92.5kg」と言われても、
 // 前回90kgで潰れたのか余裕だったのかで、やることが変わる。
 type LastPerformance struct {
-	Date     training.Date
+	Date training.Date
+	// WeightKg はその日の最も重いセット。次に何kgから入るかの目安になる。
 	WeightKg float64
-	Reps     []int
-	DaysAgo  int
+	// Weights と Reps はセットごとの実績で、順番も長さも揃っている。
+	// 代表の1つに畳むと、ドロップセットも重量を上げた分も見えなくなる。
+	Weights []float64
+	Reps    []int
+	DaysAgo int
 }
 
 // History は実績を読むための経路。
@@ -162,12 +166,20 @@ func (q *History) LastPerformances(
 			continue
 		}
 		reps := make([]int, 0, len(ls))
+		weights := make([]float64, 0, len(ls))
+		top := 0.0
 		for _, l := range ls {
 			reps = append(reps, l.Reps().Int())
+			kg := l.Weight().Kg()
+			weights = append(weights, kg)
+			if kg > top {
+				top = kg
+			}
 		}
 		out[id] = LastPerformance{
 			Date:     date,
-			WeightKg: ls[0].Weight().Kg(),
+			WeightKg: top,
+			Weights:  weights,
 			Reps:     reps,
 			DaysAgo:  asOf.DaysSince(date),
 		}

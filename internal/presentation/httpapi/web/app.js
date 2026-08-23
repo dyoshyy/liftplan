@@ -85,20 +85,25 @@ async function flush() {
   if (flushing || !store.token()) return;
   flushing = true;
   try {
-    let q = store.queue();
-    while (q.length > 0) {
-      const item = q[0];
+    // 毎回 store から読み直す。手元に配列を抱えたまま setQueue すると、
+    // 送信を待っている間に enqueue されたぶんを巻き戻して消してしまう。
+    // 電波が細いときに続けて2セット記録すると、2つ目が黙って失われる。
+    for (;;) {
+      const item = store.queue()[0];
+      if (!item) break;
+
       const res = await api(item.path, {
         method: item.method || 'POST',
         body: item.body ? JSON.stringify(item.body) : undefined,
       });
-      if (res.ok) { q = q.slice(1); store.setQueue(q); continue; }
-      if (res.status >= 400 && res.status < 500) {
+      if (!res.ok && res.status >= 400 && res.status < 500) {
         // 再送しても永久に通らない。残すと後続が全部詰まる。
         console.warn('破棄', res.status, item, await res.text());
-        q = q.slice(1); store.setQueue(q); continue;
+      } else if (!res.ok) {
+        break; // 5xx / 503 はやり直せば通る
       }
-      break; // 5xx / 503 はやり直せば通る
+      store.setQueue(store.queue().slice(1));
+      paintStatus();
     }
   } catch {
     // 電波が無い。次の機会に送る。
@@ -173,7 +178,7 @@ function exerciseCard(planned) {
     // 「増えた＝良い」という誤った読み方を押し付けることになる。
     // 伸びているかは履歴の推定1RMの推移で見る。
     card.append(el('div', 'last',
-      `前回 <b class="num">${last.weight_kg}kg</b> <span class="num">× ${last.reps.join(', ')}</span>` +
+      `前回 <span class="num">${formatLast(last)}</span>` +
       `<span class="ago">${last.days_ago}日前</span>`));
   } else {
     card.append(el('div', 'last small', '記録がまだありません'));
@@ -229,16 +234,28 @@ function openSheet(planned, index, recorded) {
 
   const last = state.last[planned.exercise_id];
   $('sheet-last').textContent = last
-    ? `前回 ${last.weight_kg}kg × ${last.reps[index] ?? '–'}` : '';
+    ? `前回 ${last.weights?.[index] ?? last.weight_kg}kg × ${last.reps[index] ?? '–'}` : '';
 
   $('w').value = recorded ? recorded.weight_kg : (planned.weight_kg ?? last?.weight_kg ?? '');
   $('reps').value = recorded ? recorded.reps : (last?.reps[index] ?? 8);
   $('rir').value = recorded ? recorded.rir : planned.target_rir;
   $('undo').classList.toggle('hidden', !recorded);
+  $('sheet-warn').classList.add('hidden');
   $('sheet').showModal();
 }
 
 function closeSheet() { $('sheet').close(); sheetTarget = null; }
+
+// warnInSheet はシートの中に注意を出す。
+//
+// alert() だと入力中の画面が消えたうえ、ダイアログを閉じるまで
+// ページ全体が止まる。直したいのはシートの中の値なので、
+// シートを開いたまま伝える。
+function warnInSheet(msg) {
+  const el = $('sheet-warn');
+  el.textContent = msg;
+  el.classList.remove('hidden');
+}
 
 function recordSet() {
   if (!sheetTarget) return;
@@ -248,7 +265,11 @@ function recordSet() {
   const reps = parseInt($('reps').value, 10);
   const rir = parseInt($('rir').value, 10);
   if (!Number.isFinite(weight) || !Number.isInteger(reps) || !Number.isInteger(rir)) {
-    alert('重量・レップ・RIR を入れてください');
+    warnInSheet('重量・レップ・RIR を入れてください');
+    return;
+  }
+  if (weight <= 0 || reps <= 0 || rir < 0) {
+    warnInSheet('0 より大きい重量とレップを入れてください');
     return;
   }
 
@@ -258,7 +279,11 @@ function recordSet() {
     enqueue({ path: `/api/set-logs/${encodeURIComponent(recorded.id)}`, method: 'DELETE' });
   }
 
-  const id = newId();
+  // 直すときは同じIDを使い回す。新しいIDにすると、並び順が id 順
+  // （＝作った時刻順）なので、直したセットだけが末尾に飛ぶ。
+  // 1セット目を直したら3セット目になって出てくる。
+  // 先に消してから入れ直すので、同一IDでも衝突にはならない。
+  const id = recorded ? recorded.id : newId();
   enqueue({
     path: '/api/set-logs',
     body: { logs: [{ id, date: today(), exercise_id: planned.exercise_id, weight_kg: weight, reps, rir }] },
@@ -270,6 +295,7 @@ function recordSet() {
   const next = recorded
     ? list.map((r) => (r.id === recorded.id ? { id, weight_kg: weight, reps, rir } : r))
     : [...list, { id, weight_kg: weight, reps, rir }];
+
   state.doneToday.set(planned.exercise_id, next);
 
   closeSheet();
@@ -309,6 +335,27 @@ function sparkline(pts) {
 }
 
 let volumeExpanded = false;
+
+// formatSets はその日のセットを1行にする。
+//
+// 全部同じ重量なら「100kg × 8, 8, 8」とまとめる。途中で重量を変えたら
+// まとめられないので重量ごとに区切る。1セット目の重量で代表させると、
+// 落とした重量も上げた重量も履歴から消える。
+// formatLast は「前回」の1行。formatSets と同じ規則で畳む。
+function formatLast(last) {
+  const w = last.weights || [];
+  return formatSets(last.reps.map((r, i) => ({ weight_kg: w[i] ?? last.weight_kg, reps: r })));
+}
+
+function formatSets(sets) {
+  const groups = [];
+  for (const s of sets) {
+    const tail = groups[groups.length - 1];
+    if (tail && tail.kg === s.weight_kg) tail.reps.push(s.reps);
+    else groups.push({ kg: s.weight_kg, reps: [s.reps] });
+  }
+  return groups.map((g) => `${g.kg}kg × ${g.reps.join(', ')}`).join('　/　');
+}
 
 function paintHistory(stats, days) {
   // 21区分すべてを並べると長い。埋まっていない順に並んでいるので、
@@ -353,7 +400,7 @@ function paintHistory(stats, days) {
         ${d.exercises.map((e) => `
           <div class="log-row">
             <span>${esc(e.name || e.exercise_id)}</span>
-            <span class="log-sets">${e.sets[0].weight_kg}kg × ${e.sets.map((s) => s.reps).join(', ')}</span>
+            <span class="log-sets">${formatSets(e.sets)}</span>
           </div>`).join('')}
       </div>
     </div>`).join('') || '<div class="card"><p class="note">記録がまだありません</p></div>';
@@ -427,6 +474,13 @@ async function loadAll() {
   $('when').textContent = label(today());
   $('tabs').classList.remove('hidden');
 
+  // 溜まっているものを先に送りきってから読む。
+  //
+  // 逆にすると、送信前の状態で描画してから送ることになり、記録したのに
+  // 緑が消えて見える。オフラインで記録して復帰したときに必ず踏み、
+  // 「消えた」と思ってもう一度記録して重複する。
+  await flush();
+
   try {
     const [exRes, logRes, statRes, progRes] = await Promise.all([
       api('/api/exercises'),
@@ -472,7 +526,6 @@ async function loadAll() {
     // 「setup が隠れているか」で判定すると、初回に何も表示されない。
     showView(state.view && state.view !== 'setup' ? state.view : 'today');
     paintStatus();
-    flush();
   } catch (e) {
     if (String(e.message) === 'unauthorized') return;
     $('dot').className = 'dot error';
@@ -503,6 +556,12 @@ $('sheet-close').onclick = closeSheet;
 $('reload').onclick = () => loadAll();
 $('save-program').onclick = saveProgram;
 
+function noteCondition(msg) {
+  const el = $('condition-note');
+  el.textContent = msg;
+  el.classList.toggle('hidden', !msg);
+}
+
 $('save-condition').onclick = () => {
   const bw = parseFloat($('bw').value);
   const sl = parseFloat($('sl').value);
@@ -510,9 +569,10 @@ $('save-condition').onclick = () => {
   if (Number.isFinite(bw)) item.body_weight_kg = bw;
   if (Number.isFinite(sl)) item.sleep_hours = sl;
   if (!('body_weight_kg' in item) && !('sleep_hours' in item)) {
-    alert('体重か睡眠のどちらかを入れてください');
+    noteCondition('体重か睡眠のどちらかを入れてください');
     return;
   }
+  noteCondition('');
   enqueue({ path: '/api/conditions', body: { conditions: [item] } });
   $('bw').value = '';
   $('sl').value = '';
