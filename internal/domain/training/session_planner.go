@@ -288,12 +288,10 @@ func (p SessionPlanner) planMain(
 	rirBump int,
 ) (PlannedSet, *Exercise) {
 	target := main
-	ratio := unitRatio
 
 	if template.Role() == RoleVariation {
 		if v := p.pickVariation(req, pool, main); v != nil {
 			target = v
-			ratio = p.ratios.Resolve(req.History, v, main.ID(), req.Date)
 		}
 	}
 
@@ -310,15 +308,12 @@ func (p SessionPlanner) planMain(
 		hasRole:    true,
 	}
 
-	// 重量はメインの推定1RMを基準にし、バリエーションには係数を掛ける。
-	// バリエーション自身の1RMを使うと、履歴の少ない種目で数字が暴れる。
-	//
 	// 当日の記録は使わない（D-086）。含めると、1セット目を記録した瞬間に
 	// 推定1RMが動いて2セット目の提示重量が変わる。しかも RIR を守って
 	// きついセットをこなすほど推定が上がるので、**追い込むほど次が重くなる**。
 	// その日にやることは、その日が始まる前に分かっていたことから決める。
-	if orm, ok := p.estimator.Estimate(historyBefore(req), main.ID(), req.Date); ok {
-		if w, err := orm.WorkWeight(intensity, ratio, target.Increment()); err == nil {
+	if orm, ok := p.estimator.Estimate(historyBefore(req), target.ID(), req.Date); ok {
+		if w, err := orm.WorkWeight(intensity, target.Increment()); err == nil {
 			set.weight, set.hasWeight = w, true
 		}
 	}
@@ -384,7 +379,7 @@ func (p SessionPlanner) planAccessory(
 	}
 
 	if orm, ok := p.estimator.Estimate(historyBefore(req), id, req.Date); ok {
-		if w, err := orm.WorkWeight(intensity, unitRatio, exercise.Increment()); err == nil {
+		if w, err := orm.WorkWeight(intensity, exercise.Increment()); err == nil {
 			set.weight, set.hasWeight = w, true
 		}
 	}

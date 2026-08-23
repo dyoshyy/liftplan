@@ -575,33 +575,6 @@ func TestSessionPlanner_DividesByRemainingSessions(t *testing.T) {
 	}
 }
 
-// バリエーションの重量はメインの推定1RMから導くこと。
-//
-// バリエーション自身の1RMを使うと、履歴の少ない種目で数字が暴れるうえ、
-// 履歴が無い間は重量が出ない。
-func TestSessionPlanner_VariationWeightComesFromTheMainLift(t *testing.T) {
-	req := planRequest(t)
-	logs := planHistory(t)
-	logs = append(logs,
-		mkLogOn(t, "d1", planMonday, "bench", 80, 8, 2),
-		mkLogOn(t, "d2", planMonday.AddDays(2), "bench", 90, 5, 1))
-	req.History = training.NewHistory(logs)
-	req.Date = planMonday.AddDays(4)
-
-	for _, set := range mustPlan(t, req).Main() {
-		if set.ExerciseID() != "larsen" {
-			continue
-		}
-		w, ok := set.Weight()
-		if !ok {
-			t.Fatal("バリエーションの重量が確定していない（自身の履歴が無くても出るべき）")
-		}
-		if w.Kg() <= 0 {
-			t.Errorf("バリエーションの重量が0以下: %v", w.Kg())
-		}
-	}
-}
-
 func TestSessionPlanner_VariationWeightComesFromItsOwnRecord(t *testing.T) {
 	req := planRequest(t)
 
@@ -929,26 +902,6 @@ func variationDayRequest(t *testing.T) training.PlanRequest {
 		mkLogOn(t, "w2", planMonday.AddDays(1), "curl", 20, 10, 2)))
 	req.Date = planMonday.AddDays(2)
 	return req
-}
-
-// 対メイン係数が重量に効く。効かないと、係数0.7の種目に
-// メインと同じ重量が出る（実測で+43%）。
-func TestSessionPlanner_VariationRatioScalesWeight(t *testing.T) {
-	heavyReq := variationDayRequest(t)
-	heavyReq.Pool = variationPool(t, "var", 0.9)
-	heavy := mustPlan(t, heavyReq)
-	if role, _ := mainSet(t, heavy, "var").Role(); role != training.RoleVariation {
-		t.Fatalf("前提: 3本目がバリエーションスロットであること")
-	}
-
-	lightReq := variationDayRequest(t)
-	lightReq.Pool = variationPool(t, "var", 0.7)
-	light := mustPlan(t, lightReq)
-
-	if mainWeight(t, light, "var") >= mainWeight(t, heavy, "var") {
-		t.Errorf("対メイン係数が重量に反映されていない: 0.7→%v, 0.9→%v",
-			mainWeight(t, light, "var"), mainWeight(t, heavy, "var"))
-	}
 }
 
 // バリエーションは最後に使ってから最も間隔が空いたものを選ぶ。
