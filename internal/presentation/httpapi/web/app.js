@@ -215,10 +215,18 @@ function exerciseCard(planned) {
   }
   card.append(top);
 
-  card.append(el('div', 'target', planned.weight_kg === null
-    ? `<span class="kg unset num">自分で決める</span><span class="spec">${planned.sets}セット・RIR ${planned.target_rir}</span>`
-    : `<span class="kg num">${planned.weight_kg}<small>kg</small></span>` +
-      `<span class="spec">${planned.sets}セット・目標RIR ${planned.target_rir}</span>`));
+  if (planned.finished_only) {
+    // 今日やったが、今の予定には入っていないもの。予定として出すと
+    // 「これからやる」ように読めるので、済んだ事実だけを出す。
+    card.append(el('div', 'target',
+      `<span class="kg unset num">今日やった</span>` +
+      `<span class="spec">${planned.sets}セット</span>`));
+  } else {
+    card.append(el('div', 'target', planned.weight_kg === null
+      ? `<span class="kg unset num">自分で決める</span><span class="spec">${planned.sets}セット・RIR ${planned.target_rir}</span>`
+      : `<span class="kg num">${planned.weight_kg}<small>kg</small></span>` +
+        `<span class="spec">${planned.sets}セット・目標RIR ${planned.target_rir}</span>`));
+  }
 
   const last = state.last[planned.exercise_id];
   if (last) {
@@ -235,10 +243,15 @@ function exerciseCard(planned) {
 
   const recorded = state.doneToday.get(planned.exercise_id) || [];
   const sets = el('div', 'sets');
-  for (let i = 0; i < planned.sets; i++) {
+  // 予定より多く記録することはある。予定の数しか枠を出さないと、
+  // はみ出したセットが画面から消えて、取り消すこともできなくなる。
+  const slots = planned.finished_only ? recorded.length : Math.max(planned.sets, recorded.length);
+  for (let i = 0; i < slots; i++) {
     const rec = recorded[i];
     const b = el('button', 'set' + (rec ? ' done' : ''));
-    b.innerHTML = `<span class="idx">${i + 1}セット目</span>` +
+    const idx = (planned.finished_only || i < planned.sets)
+      ? `${i + 1}セット目` : `${i + 1}セット目・追加`;
+    b.innerHTML = `<span class="idx">${idx}</span>` +
       `<span class="val">${rec ? `${rec.weight_kg}×${rec.reps}` : '記録'}</span>`;
     b.onclick = () => openSheet(planned, i, rec);
     sets.append(b);
@@ -258,6 +271,26 @@ function paintToday() {
   if (list.length > 0) {
     acc.append(el('p', 'card-title', '補助種目'));
     list.forEach((p) => acc.append(exerciseCard(p)));
+  }
+
+  // 今日やったのに、今の予定に入っていないものを出す。
+  //
+  // 補助種目は終わると枠から外れるので、セッションを終えて開き直すと
+  // カードが11枚から3枚に減る。やった24セットが今日の画面から消えて、
+  // 記録が飛んだように見える。
+  const planned = new Set([
+    ...(state.session?.main || []).map((p) => p.exercise_id),
+    ...list.map((p) => p.exercise_id),
+  ]);
+  const leftovers = [...state.doneToday.entries()]
+    .filter(([id, sets]) => !planned.has(id) && sets.length > 0)
+    .sort((a, b) => (a[0] < b[0] ? -1 : 1));
+  if (leftovers.length > 0) {
+    acc.append(el('p', 'card-title', '今日やったもの'));
+    leftovers.forEach(([id, sets]) => acc.append(exerciseCard({
+      exercise_id: id, weight_kg: null, sets: sets.length,
+      target_rir: null, finished_only: true,
+    })));
   }
 
   const d = state.session?.deload_proposal;
@@ -510,6 +543,14 @@ function showSetup(message) {
   showView('setup');
   $('tabs').classList.add('hidden');
   $('setup-error').textContent = message || '';
+
+  // 溜まっているものは消えない。ここで言わないと、記録ごと消えたと
+  // 思われる。トークンが変わったのは送り先の話で、記録の話ではない。
+  const n = store.queue().length;
+  const pending = $('setup-pending');
+  pending.textContent = n > 0
+    ? `未送信の記録が ${n} 件あります。トークンを入れ直せば送られます。` : '';
+  pending.classList.toggle('hidden', n === 0);
 }
 
 function showView(name) {
