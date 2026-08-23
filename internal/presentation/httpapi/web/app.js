@@ -524,12 +524,18 @@ async function loadAll() {
 
     // 初期状態は全ての画面が hidden なので、必ずどれかに切り替える。
     // 「setup が隠れているか」で判定すると、初回に何も表示されない。
+    $('offline-notice').classList.add('hidden');
     showView(state.view && state.view !== 'setup' ? state.view : 'today');
     paintStatus();
   } catch (e) {
     if (String(e.message) === 'unauthorized') return;
     $('dot').className = 'dot error';
     $('status-text').textContent = 'つながりません';
+
+    // ここで画面を切り替えないと、圏外で開いたときに何も出ない。
+    // 起動直後は全ての画面が hidden なので、状態表示だけの白い画面になる。
+    $('offline-notice').classList.remove('hidden');
+    showView(state.view && state.view !== 'setup' ? state.view : 'today');
   }
 }
 
@@ -554,6 +560,7 @@ $('record').onclick = recordSet;
 $('undo').onclick = undoSet;
 $('sheet-close').onclick = closeSheet;
 $('reload').onclick = () => loadAll();
+$('retry').onclick = () => loadAll();
 $('save-program').onclick = saveProgram;
 
 function noteCondition(msg) {
