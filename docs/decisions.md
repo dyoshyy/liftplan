@@ -1854,3 +1854,38 @@ D-113 で係数を消したあと、`MainLift` に残った役目は「軽い日
 - `kind` から `"VARIATION"` が無くなる
 
 `ExerciseKind` の golden テストが「永続化される値が消えている」と警告した。確認したところ**種別も役割もDBには保存されていない**（種目マスタはシードから来る）。API の契約値なので、期待値を更新する判断でよい。golden テストはこの判断を強制するために置いてあり、意図どおり機能した。
+
+## D-115 型とドメインサービスはファイル名で分ける。ディレクトリは割らない
+
+`internal/domain/training/` が読みにくい、という話から。原因を見ると、**4つのファイルが型とサービスを同居させていた**。
+
+| ファイル | 型 | サービス |
+|---|---|---|
+| `session_planner.go` | `PlannedSet` `PlannedSession` | `SessionPlanner` |
+| `deload.go` | `DeloadProposal` | `DeloadPolicy` |
+| `condition.go` | `DailyCondition` `ConditionLog` | `ConditionAnalyzer` |
+| `slot.go` | `Frequency` `SlotRole` `SlotTemplate` | `SlotCatalog` |
+
+分けて、**サービスのファイル名を役割の名詞で終わらせた**（`_planner` `_selector` `_policy` `_analyzer` `_estimator` `_catalog`）。既に4つはその形だったので、規約を作るというより揃える作業。`ls` した時点で6対15に分かれる。
+
+### ディレクトリを割らなかった理由
+
+`entity/` と `service/` に割る案を検討して、やめた。**Go ではディレクトリがパッケージなので、割るとカプセル化の境界も割れる。**
+
+いちばん効くのは `PlannedSet` で、非公開フィールドしか持たないため**同じパッケージの `Plan` からしか作れない**。「提示セットは計画器から出たものだけ」が言語レベルで保証されている。別パッケージにすると公開コンストラクタが要り、誰でも任意の値で組み立てられるようになる。同じことが `PlannedSession`・`StimulusCoverage`・`DeloadProposal` にも起きる。
+
+**ディレクトリ上の見通しと引き換えに、型が持っていた保証を捨てる**取引になる。動機が「読むときに見づらい」だったので、割に合わない。
+
+他の代償も実務的だった。共有ヘルパ（`quantize` `validateRange` `clone` `lookup` `sortedValues` `median`）が両側から使われているので公開か複製が要る。テスト11026行のヘルパも割れる。`architecture_test.go` の層判定も書き換えになる。
+
+規模も理由にならなかった。本体は3084行、最大が `session_planner.go` の495行で、Go の単一パッケージとしては大きくない。
+
+### 「ディレクトリは別、パッケージは同じ」はできない
+
+`training/entity` と `training/service` の両方に `package training` と書く案も出たが、Go では**ディレクトリ = パッケージ**なので、結果は「同じ名前を持つ別々の2パッケージ」になる。両方を読む側は別名が必須で、`training.Exercise` という語彙は戻ってこない。得るものが無く、失うものだけが残る。
+
+### `training` を1段上げる件は見送り
+
+`internal/domain/training/` → `internal/training/` は別途検討したが、やらないことにした。`domain` は層の名前であって概念の名前ではないので、パッケージ名としては `training` のほうが呼び出し側で意味を持つ（`domain.SetLog` より `training.SetLog`）。1段減らす価値より、層の規約がディレクトリに現れることと `architecture_test.go` の書き換えを避けるほうを取った。
+
+ロジックは1行も変えていない。全テストが緑のままであることが検収。
