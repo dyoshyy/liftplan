@@ -35,5 +35,5 @@ jobs:
           gcloud run services list --project liftplan-85309 \
             --region asia-southeast1 --format='value(SERVICE)'
 
-      - name: どの ref から来たか
+      - name: どの ref から来たか（絞り込み後）
         run: echo "ref=${GITHUB_REF}"
