@@ -40,6 +40,7 @@ var testOnlyStdlib = map[string]bool{
 	"io/fs":         true,
 	"path/filepath": true,
 	"runtime":       true,
+	"slices":        true,
 	"strconv":       true,
 	"sync":          true,
 }

@@ -125,21 +125,22 @@ func (p SessionPlanner) Plan(req PlanRequest) (PlannedSession, error) {
 
 	rirBump := p.analyzer().RIRAdjustment(req.Conditions, req.Date)
 
-	// 週内カバレッジには当日の実績も含める。含めないと、セッション中に
-	// 補助をこなして計画を開き直したとき残差が減らず、同じ補助が
-	// 何度でも提示されてセッションが終わらない。
-	coverage := coveredThisWeek(req.History, pool, req.Date)
-	doneToday := performedOn(req.History, req.Date)
+	// 週内カバレッジは前日まで。当日の記録は見ない。
+	//
+	// 今日のリストは、その日が始まった時点で確定していてほしい。当日を
+	// 含めると、1セット記録するたびに残差が動いて選ばれる種目と並びが
+	// 変わり、ジムで消化している最中にリストが自分の下で入れ替わる。
+	//
+	// 画面に出る「今週の充足」は当日を含む（query.Stats.WeeklyVolume）。
+	// 表示は「今週どれだけやったか」、計画は「今日やると決めたこと」で
+	// 意味が違うため、基準が違ってよい。
+	coverage := CoverageBetween(req.History, pool, req.Date.WeekStart(), req.Date.AddDays(-1))
 
 	main := make([]PlannedSet, 0, len(mains))
 	for _, e := range mains {
 		set, performed := p.planMain(req, pool, e, template, deloadTargets[e.ID()], rirBump)
 		main = append(main, set)
-
-		// 当日すでに記録済みのメインは、カバレッジに二重計上しない。
-		if doneToday[performed.ID()] == 0 {
-			coverage = coverage.Plus(performed.Stimulus(), set.Sets())
-		}
+		coverage = coverage.Plus(performed.Stimulus(), set.Sets())
 	}
 
 	// 設定より多く通った場合でも、残り1セッション分は狙えるようにする。
@@ -148,37 +149,15 @@ func (p SessionPlanner) Plan(req PlanRequest) (PlannedSession, error) {
 	sessionsRemaining := max(1, req.Program.Frequency().PerWeek()-sessionIndexInWeek(req.History, req.Date))
 	gaps := SessionResidual(req.Program.WeeklyTarget(), coverage, sessionsRemaining)
 
-	// 今日ぶんを終えた種目だけをプールから外す。
+	// 補助の候補も並びも、その日の始まりに分かっていたことだけで決める。
 	//
-	// 当たり前に見えて、両側に落とし穴がある。1セットでも記録したら
-	// 外すと、その種目が今日のメニューから消えて残り2セットを記録
-	// できない。逆に一切外さないと、3セット終えた種目がまた提示されて
-	// セッションが終わらない（D-021 で踏んだ）。境目は「今日の予定分を
-	// こなしたか」であって「今日やったか」ではない（D-087）。
-	// 選択に渡す履歴からも当日を外す。残差（gaps）には当日を含めるが、
-	// 「どの区分を長く放置しているか」と「どの種目を最近やったか」は
-	// 当日を見ない。
+	// 以前はここで「今日ぶんを終えた種目を外す」「着手中は残す」「終えた
+	// ぶん枠を減らす」「並びをIDの昇順で固定する」という手当てをしていた。
+	// どれも当日を見ていたことの帰結で、見なくなれば要らない（D-116）。
 	//
-	// 含めると、1セット記録した瞬間にその区分が「たった今刺激した」に
-	// なって優先順位が最下位へ落ち、種目ごとリストから消える。ジムで
-	// 使っている最中に、こなしているリストが自分の下で入れ替わる。
-	// 何を選ぶかは、その日が始まる前に分かっていたことで決める（D-087）。
-	chosen := p.accessory.Select(
-		gaps,
-		unfinished(pool, doneToday, p.accessory.SetsPerAccessory()),
-		historyBefore(req),
-		req.Date)
-
-	chosen = p.fitAccessories(chosen, pool, doneToday)
-	// 並びは種目IDの昇順に固定する。
-	//
-	// Select が返す順序は「最も放置している区分から」という優先度だが、
-	// 残差は当日の記録で動くので、1セット記録するたびに並びが入れ替わる。
-	// ジムで消化している最中にリストが自分の下で動く。
-	//
-	// 優先度は「8枠に選ばれたかどうか」に既に表れている。その中での
-	// 並びは情報ではないので、安定を取る（D-087）。
-	sort.Slice(chosen, func(i, j int) bool { return chosen[i] < chosen[j] })
+	// Select が返す順序は「最も放置している区分から」という優先度で、
+	// 一日中変わらないので、そのまま画面の並びになる。
+	chosen := p.accessory.Select(gaps, pool, historyBefore(req), req.Date)
 
 	accessories := make([]PlannedSet, 0, len(chosen))
 	for _, id := range chosen {
@@ -311,17 +290,6 @@ func findExercise(pool []*Exercise, id ExerciseID) *Exercise {
 	return nil
 }
 
-// coveredThisWeek は週初からその日までに埋めた刺激量。当日を含む。
-//
-// 当日を含めるのは、セッション中にこなした補助を残差に反映するため。
-// 含めないと、記録して計画を開き直しても残差が減らず、同じ補助が
-// 何度でも提示されてセッションが終わらない。
-//
-// 当日のメイン種目については、呼び出し側が二重計上を避ける。
-func coveredThisWeek(h History, pool []*Exercise, date Date) StimulusCoverage {
-	return CoverageBetween(h, pool, date.WeekStart(), date)
-}
-
 // CoverageBetween は期間内に埋めた刺激量を数える。両端を含む。
 //
 // 記録1件を1セットとして数える。SetLog は「確定した実績1セット」なので、
@@ -353,90 +321,6 @@ func CoverageBetween(h History, pool []*Exercise, from, to Date) StimulusCoverag
 		coverage = coverage.Plus(e.Stimulus(), one)
 	}
 	return coverage
-}
-
-// performedOn はその日に記録があるセット数を種目ごとに数える。
-func performedOn(h History, date Date) map[ExerciseID]int {
-	out := map[ExerciseID]int{}
-	for _, l := range h.OnOrAfter(date).OnOrBefore(date).Logs() {
-		out[l.ExerciseID()]++
-	}
-	return out
-}
-
-// fitAccessories は、その日の補助の枠に収める。
-//
-// 3つの規則が要る。どれが欠けても実運用で壊れる。
-//
-//  1. 着手して途中の種目は必ず残す。落とすと、1セットやった種目が
-//     リストから消えて残りを記録できない。
-//  2. こなし終えた種目のぶんは枠を減らす。減らさないと、終えるたびに
-//     新しい種目が補充されて種目マスタが尽きるまでセッションが
-//     終わらない（通しで消化して踏んだ。60手やっても8件出続けた）。
-//  3. 残った枠を新規で埋める。
-//
-// 「補助は最大8枠」は、その日にやる補助が最大8種目という意味であって、
-// 常時8件を提示し続けるという意味ではない（D-088）。
-func (p SessionPlanner) fitAccessories(
-	chosen []ExerciseID,
-	pool []*Exercise,
-	doneToday map[ExerciseID]int,
-) []ExerciseID {
-	per := p.accessory.SetsPerAccessory().Int()
-
-	var started, finished []ExerciseID
-	for _, e := range pool {
-		if e == nil || e.Kind() != KindAccessory {
-			continue
-		}
-		switch n := doneToday[e.ID()]; {
-		case n >= per:
-			finished = append(finished, e.ID())
-		case n > 0:
-			started = append(started, e.ID())
-		}
-	}
-
-	budget := p.accessory.MaxSlots() - len(finished)
-	if budget <= 0 {
-		return nil
-	}
-
-	out := make([]ExerciseID, 0, budget)
-	seen := make(map[ExerciseID]bool, budget)
-	for _, id := range started {
-		if len(out) >= budget {
-			break
-		}
-		out = append(out, id)
-		seen[id] = true
-	}
-	for _, id := range chosen {
-		if len(out) >= budget {
-			break
-		}
-		if seen[id] {
-			continue
-		}
-		out = append(out, id)
-		seen[id] = true
-	}
-	return out
-}
-
-// unfinished は今日ぶんを終えていない種目のプール。
-func unfinished(pool []*Exercise, doneToday map[ExerciseID]int, perAccessory SetCount) []*Exercise {
-	out := make([]*Exercise, 0, len(pool))
-	for _, e := range pool {
-		if e == nil {
-			continue
-		}
-		if doneToday[e.ID()] >= perAccessory.Int() {
-			continue
-		}
-		out = append(out, e)
-	}
-	return out
 }
 
 // sessionIndexInWeek はその週で対象日が何本目のセッションか（0始まり）。
