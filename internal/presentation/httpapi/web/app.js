@@ -476,10 +476,14 @@ function paintHistory(stats, days) {
   $('trend').innerHTML = (stats.trends || []).map((t) => {
     const sign = t.change_kg > 0 ? '+' : '';
     const cls = t.change_kg > 0 ? 'up' : t.change_kg < 0 ? 'down' : 'same';
+    // 1回しか記録が無いときに「0.0」と出すと、伸びていないように読める。
+    // 比べる相手がまだ無いだけなので、増減は出さない。
+    const delta = (t.points || []).length < 2
+      ? ''
+      : `<span class="delta ${cls} num">${sign}${t.change_kg.toFixed(1)}</span>`;
     return `<div class="trend-row">
         <span class="trend-name">${esc(t.name)}</span>
-        <span class="trend-val num">${t.current_kg.toFixed(1)}<small>kg</small>
-          <span class="delta ${cls} num">${sign}${t.change_kg.toFixed(1)}</span></span>
+        <span class="trend-val num">${t.current_kg.toFixed(1)}<small>kg</small>${delta}</span>
       </div>${sparkline(t.points)}`;
   }).join('') || '<p class="note">推移を出すには、同じ種目の記録が2回以上必要です</p>';
 
