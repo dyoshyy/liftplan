@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+	"time"
 )
 
 // 種目が日本語で引けること。
@@ -305,10 +306,11 @@ type setLogsBody struct {
 		} `json:"exercises"`
 	} `json:"days"`
 	Last map[string]struct {
-		Date     string  `json:"date"`
-		WeightKg float64 `json:"weight_kg"`
-		Reps     []int   `json:"reps"`
-		DaysAgo  int     `json:"days_ago"`
+		Date     string    `json:"date"`
+		WeightKg float64   `json:"weight_kg"`
+		Weights  []float64 `json:"weights"`
+		Reps     []int     `json:"reps"`
+		DaysAgo  int       `json:"days_ago"`
 	} `json:"last_performances"`
 }
 
@@ -390,5 +392,80 @@ func TestGetSetLogs_LastPerformanceIsPerExercise(t *testing.T) {
 	}
 	if s := got.Last["squat"]; s.Date != "2026-08-12" || s.WeightKg != 110 {
 		t.Errorf("squat の前回が誤り: %+v", s)
+	}
+}
+
+// 「前回」がセットごとの重量を持つこと。
+//
+// 1つに畳むと、途中で落とした重量も上げた重量も画面から消える。
+// 実際に 105kg と 101kg のセットが「101kg × 5, 5」と出ていた。
+func TestGetSetLogs_LastPerformanceKeepsEachSetsWeight(t *testing.T) {
+	mux := newServer(t, true)
+
+	body := `{"logs":[` +
+		`{"id":"w1","date":"2026-08-17","exercise_id":"bench","weight_kg":100,"reps":5,"rir":1},` +
+		`{"id":"w2","date":"2026-08-17","exercise_id":"bench","weight_kg":90,"reps":8,"rir":1},` +
+		`{"id":"w3","date":"2026-08-17","exercise_id":"bench","weight_kg":80,"reps":12,"rir":0}]}`
+	if rec := do(t, mux, http.MethodPost, "/api/set-logs", body); rec.Code != http.StatusNoContent {
+		t.Fatalf("記録に失敗: %d body=%s", rec.Code, rec.Body.String())
+	}
+
+	rec := do(t, mux, http.MethodGet, "/api/set-logs?from=2026-08-01&to=2026-08-20", "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("取得に失敗: %d body=%s", rec.Code, rec.Body.String())
+	}
+
+	var got setLogsBody
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatalf("応答を解釈できない: %v", err)
+	}
+	last, ok := got.Last["bench"]
+	if !ok {
+		t.Fatal("前回が返らない")
+	}
+	if len(last.Weights) != len(last.Reps) {
+		t.Fatalf("重量とレップの数が揃わない: %d と %d", len(last.Weights), len(last.Reps))
+	}
+	want := []float64{100, 90, 80}
+	if len(last.Weights) != len(want) {
+		t.Fatalf("重量が畳まれている: %v", last.Weights)
+	}
+	for i, w := range want {
+		if last.Weights[i] != w {
+			t.Fatalf("%d番目の重量が %v、期待は %v", i, last.Weights[i], w)
+		}
+	}
+	if last.WeightKg != 100 {
+		t.Fatalf("代表の重量が最重量でない: %v", last.WeightKg)
+	}
+}
+
+// from を省いたら、当日だけでなく直近をまとめて返すこと。
+//
+// 画面は毎回日付を組み立てずに済むよう省略できる。ここが当日だけに
+// なると、履歴を開いても今日しか出ない。
+func TestGetSetLogs_DefaultPeriodLooksBack(t *testing.T) {
+	mux := newServer(t, true)
+
+	// 30日前。既定の窓（56日）には入り、当日だけの窓には入らない。
+	old := time.Now().UTC().AddDate(0, 0, -30).Format("2006-01-02")
+	body := fmt.Sprintf(
+		`{"logs":[{"id":"old-1","date":%q,"exercise_id":"bench","weight_kg":85,"reps":5,"rir":2}]}`,
+		old)
+	if rec := do(t, mux, http.MethodPost, "/api/set-logs", body); rec.Code != http.StatusNoContent {
+		t.Fatalf("記録に失敗: %d body=%s", rec.Code, rec.Body.String())
+	}
+
+	rec := do(t, mux, http.MethodGet, "/api/set-logs", "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("取得に失敗: %d body=%s", rec.Code, rec.Body.String())
+	}
+
+	var got setLogsBody
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatalf("応答を解釈できない: %v", err)
+	}
+	if len(got.Days) != 1 || got.Days[0].Date != old {
+		t.Fatalf("既定の期間が遡っていない: %+v", got.Days)
 	}
 }

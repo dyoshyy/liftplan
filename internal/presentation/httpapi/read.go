@@ -180,6 +180,7 @@ func toLastDTOs(last map[training.ExerciseID]query.LastPerformance) map[string]l
 		out[string(id)] = lastDTO{
 			Date:     l.Date.String(),
 			WeightKg: l.WeightKg,
+			Weights:  l.Weights,
 			Reps:     l.Reps,
 			DaysAgo:  l.DaysAgo,
 		}

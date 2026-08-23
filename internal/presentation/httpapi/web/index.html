@@ -78,10 +78,11 @@ main { max-width: 620px; margin: 0 auto; padding: 16px; display: grid; gap: 14px
 .target { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
 .kg { font-family: Oswald, sans-serif; font-size: 34px; font-weight: 600; line-height: 1; }
 .kg small { font-size: 15px; font-weight: 400; color: var(--muted); margin-left: 3px; }
-.kg.unset { font-size: 19px; color: var(--amber); }
+.kg.unset { font-size: 17px; color: var(--muted); font-weight: 500; }
 .spec { color: var(--muted); font-size: 13px; }
 .last { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 9px 11px; border-radius: 10px; background: var(--surface-2); border: 1px solid var(--line-soft); font-size: 13px; color: var(--muted); }
 .last b { color: var(--text); font-weight: 500; }
+.last.small { font-size: 12px; color: var(--faint); }
 .last .ago { margin-left: auto; color: var(--faint); font-size: 12px; }
 .delta { font-family: Oswald, sans-serif; font-size: 12px; padding: 2px 7px; border-radius: 999px; }
 .delta.up { color: var(--green); background: var(--green-dim); }
@@ -141,6 +142,8 @@ dialog::backdrop { background: rgba(0,0,0,.66); }
 .sheet-top { display: flex; align-items: center; gap: 10px; }
 .sheet-title { font-weight: 700; }
 .sheet-last { font-size: 12px; color: var(--faint); margin-left: auto; }
+/* alert() はページ全体を止めてしまうので、注意はその場に出す。 */
+.warn { margin: 0; font-size: 13px; color: var(--red); }
 .field { display: grid; gap: 6px; }
 .field label { font-size: 12px; color: var(--muted); letter-spacing: .04em; }
 .stepper { display: grid; grid-template-columns: 60px 1fr 60px; gap: 8px; }
@@ -185,6 +188,7 @@ dialog::backdrop { background: rgba(0,0,0,.66); }
       <div class="field"><input id="token" type="password" autocomplete="off" placeholder="トークン"></div>
       <button class="btn" id="save-token" style="margin-top:12px">保存する</button>
       <p class="note" id="setup-error" style="color:var(--red)"></p>
+      <p class="note hidden" id="setup-pending"></p>
     </div>
   </section>
 
@@ -193,6 +197,21 @@ dialog::backdrop { background: rgba(0,0,0,.66); }
       <h2>デロードの提案</h2>
       <p id="deload-reason"></p>
       <button class="btn" id="accept-deload"></button>
+    </div>
+    <div class="card hidden" id="offline-notice">
+      <p class="card-title">つながりません</p>
+      <p class="note">
+        今日のメニューはサーバーが組むので、圏外では出せません。古いメニューを
+        キャッシュして出すことはしていません。前回の重量が今日の重量として
+        表示されると、記録そのものが壊れるためです。
+      </p>
+      <button class="btn quiet" id="retry" style="margin-top:12px">もう一度つなぐ</button>
+    </div>
+    <div class="card hidden" id="rejected-notice">
+      <p class="card-title">送れなかった記録</p>
+      <p class="note">サーバーが受け付けなかったので、送るのをやめました。同じものを送り続けると、あとの記録がすべて詰まるためです。必要なら入れ直してください。</p>
+      <ul class="note" id="rejected-list" style="margin:10px 0 0;padding-left:1.2em"></ul>
+      <button class="btn quiet" id="clear-rejected" style="margin-top:12px">消す</button>
     </div>
     <div id="mains"></div>
     <div id="accessories"></div>
@@ -203,6 +222,7 @@ dialog::backdrop { background: rgba(0,0,0,.66); }
         <div class="field"><label for="sl">睡眠 (時間)</label><input id="sl" type="number" inputmode="decimal" step="0.25" placeholder="7.5"></div>
       </div>
       <button class="btn quiet" id="save-condition" style="margin-top:12px">記録する</button>
+      <p class="warn hidden" id="condition-note" style="margin:10px 0 0"></p>
       <p class="note" style="margin:10px 0 0">
         体重が無いとデロードの判定ができません。減量による停滞と、追い込みすぎによる停滞が同じ形をしているためです。
       </p>
@@ -276,6 +296,7 @@ dialog::backdrop { background: rgba(0,0,0,.66); }
         <button type="button" data-t="rir" data-by="1">＋</button>
       </div>
     </div>
+    <p class="warn hidden" id="sheet-warn"></p>
     <button class="btn" id="record">記録する</button>
     <button class="btn danger hidden" id="undo">この記録を取り消す</button>
     <button class="btn quiet" id="sheet-close">閉じる</button>

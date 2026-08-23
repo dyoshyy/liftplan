@@ -193,10 +193,11 @@ type dayDTO struct {
 // lastDTO は種目ごとの直近の実績。
 // 今日提示された重量を信じる根拠になる。
 type lastDTO struct {
-	Date     string  `json:"date"`
-	WeightKg float64 `json:"weight_kg"`
-	Reps     []int   `json:"reps"`
-	DaysAgo  int     `json:"days_ago"`
+	Date     string    `json:"date"`
+	WeightKg float64   `json:"weight_kg"`
+	Weights  []float64 `json:"weights"`
+	Reps     []int     `json:"reps"`
+	DaysAgo  int       `json:"days_ago"`
 }
 
 type setLogsResponse struct {

@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/dyoshyy/liftplan-server/internal/domain/training"
+	"github.com/dyoshyy/liftplan-server/internal/domain/training/seed"
 )
 
 var planMonday = training.MustDate(2026, time.August, 17) // 月曜
@@ -1109,5 +1110,335 @@ func TestSessionPlanner_DoesNotDoubleCountTodaysMain(t *testing.T) {
 	})
 	if len(s.Accessories()) == 0 {
 		t.Errorf("当日のメインを二重計上して補助が消えた: 週目標8、実施4セット")
+	}
+}
+
+// 当日の記録で、その日の提示重量が動かないこと。
+//
+// 動くと、1セット目を記録した瞬間に2セット目の提示が変わる。しかも
+// RIR を守ってきついセットをこなすほど推定1RMが上がるので、
+// **追い込むほど次のセットが重くなる**。実際に画面で踏んだ。
+func TestSessionPlanner_TodaysLogsDoNotMoveTodaysWeight(t *testing.T) {
+	req := planRequest(t)
+	before := mainWeight(t, mustPlan(t, req), "bench")
+
+	// 今日1セットこなす。RIR を守った、それなりにきついセット。
+	req.History = training.NewHistory(append(planHistory(t),
+		mkLogOn(t, "today-1", planMonday, "bench", before, 6, 1)))
+
+	after := mainWeight(t, mustPlan(t, req), "bench")
+	if after != before {
+		t.Errorf("当日の記録で今日の重量が動いた: %v → %v", before, after)
+	}
+}
+
+// 翌日以降には反映されること。当日を外すのは「その日の中で動かない」
+// ためであって、記録を無視するためではない。
+func TestSessionPlanner_TodaysLogsMoveLaterSessions(t *testing.T) {
+	req := planRequest(t)
+	base := mainWeight(t, mustPlan(t, req), "bench")
+
+	// 今日、推定を押し上げる内容で記録する。
+	req.History = training.NewHistory(append(planHistory(t),
+		mkLogOn(t, "hard-1", planMonday, "bench", base, 10, 0),
+		mkLogOn(t, "hard-2", planMonday, "bench", base, 10, 0),
+		mkLogOn(t, "hard-3", planMonday, "bench", base, 10, 0)))
+
+	// 翌週の同じ役割の日と比べる。週内の位置を揃えるため7日後を見る。
+	req.Date = planMonday.AddDays(7)
+	later := mainWeight(t, mustPlan(t, req), "bench")
+	if later <= base {
+		t.Errorf("記録が後のセッションに反映されていない: %v → %v", base, later)
+	}
+}
+
+// 補助種目も、当日の記録で重量が動かないこと。
+func TestSessionPlanner_TodaysLogsDoNotMoveAccessoryWeight(t *testing.T) {
+	weightOf := func(t *testing.T, s training.PlannedSession) (float64, bool) {
+		t.Helper()
+		for _, a := range s.Accessories() {
+			if a.ExerciseID() != "incline" {
+				continue
+			}
+			w, ok := a.Weight()
+			return w.Kg(), ok
+		}
+		return 0, false
+	}
+
+	req := planRequest(t)
+	req.History = training.NewHistory(append(planHistory(t),
+		mkLogOn(t, "inc-old", planMonday.AddDays(-7), "incline", 40, 10, 2)))
+	before, ok := weightOf(t, mustPlan(t, req))
+	if !ok {
+		t.Fatal("incline の重量が確定していない")
+	}
+
+	// 今日1セットこなす。予定の3セットには届いていないので残る。
+	req.History = training.NewHistory(append(planHistory(t),
+		mkLogOn(t, "inc-old", planMonday.AddDays(-7), "incline", 40, 10, 2),
+		mkLogOn(t, "inc-today", planMonday, "incline", 45, 12, 0)))
+
+	after, ok := weightOf(t, mustPlan(t, req))
+	if !ok {
+		t.Fatal("1セット記録したら incline が消えた")
+	}
+	if after != before {
+		t.Errorf("当日の記録で補助の重量が動いた: %v → %v", before, after)
+	}
+}
+
+// 補助を1セット記録しても、その種目が今日のメニューから消えないこと。
+//
+// 消えると残りのセットが記録できない。実運用では必ず踏む。
+func TestSessionPlanner_PartiallyDoneAccessoryStays(t *testing.T) {
+	req := planRequest(t)
+	first := mustPlan(t, req)
+	if len(first.Accessories()) == 0 {
+		t.Fatal("前提: 補助種目が出ること")
+	}
+	target := first.Accessories()[0].ExerciseID()
+	perSet := first.Accessories()[0].Sets().Int()
+
+	// 予定より1つ少ないセット数まで記録する。
+	logs := planHistory(t)
+	for i := range perSet - 1 {
+		logs = append(logs, mkLogOn(t, fmt.Sprintf("part-%d", i),
+			planMonday, string(target), 30, 10, 2))
+	}
+	req.History = training.NewHistory(logs)
+
+	for _, a := range mustPlan(t, req).Accessories() {
+		if a.ExerciseID() == target {
+			return
+		}
+	}
+	t.Errorf("%d/%dセットしか終えていないのに %s が消えた", perSet-1, perSet, target)
+}
+
+// 予定分を終えた補助は、もう提示されないこと。
+//
+// 出続けると、こなすたびに同じ種目が再提示されてセッションが終わらない。
+func TestSessionPlanner_FinishedAccessoryDropsOut(t *testing.T) {
+	req := planRequest(t)
+	first := mustPlan(t, req)
+	target := first.Accessories()[0].ExerciseID()
+	perSet := first.Accessories()[0].Sets().Int()
+
+	logs := planHistory(t)
+	for i := range perSet {
+		logs = append(logs, mkLogOn(t, fmt.Sprintf("full-%d", i),
+			planMonday, string(target), 30, 10, 2))
+	}
+	req.History = training.NewHistory(logs)
+
+	for _, a := range mustPlan(t, req).Accessories() {
+		if a.ExerciseID() == target {
+			t.Errorf("%dセット終えた %s がまた提示された", perSet, target)
+		}
+	}
+}
+
+// 補助の並びが、当日の記録で入れ替わらないこと。
+//
+// ジムで消化している最中にリストが自分の下で動くと、どこまでやったか
+// 分からなくなる。実ブラウザで踏んだ。
+func TestSessionPlanner_AccessoryOrderIsStableWithinASession(t *testing.T) {
+	req := planRequest(t)
+	ids := func(s training.PlannedSession) []training.ExerciseID {
+		out := make([]training.ExerciseID, 0, len(s.Accessories()))
+		for _, a := range s.Accessories() {
+			out = append(out, a.ExerciseID())
+		}
+		return out
+	}
+
+	before := ids(mustPlan(t, req))
+	if len(before) < 2 {
+		t.Fatal("前提: 補助が2件以上あること")
+	}
+
+	// 先頭の種目を1セット記録する。
+	req.History = training.NewHistory(append(planHistory(t),
+		mkLogOn(t, "one", planMonday, string(before[0]), 40, 10, 2)))
+
+	after := ids(mustPlan(t, req))
+	for i, id := range before {
+		if i >= len(after) || after[i] != id {
+			t.Fatalf("記録で並びが変わった:\n  前: %v\n  後: %v", before, after)
+		}
+	}
+}
+
+// セッションを最後まで消化すると、予定どおりのセット数で終わること。
+//
+// 補助を終えるたびに新しい種目が補充されると、種目マスタが尽きるまで
+// セッションが終わらない。実サーバーで通しで消化して踏んだ
+// （60手やっても8件出続けた）。
+func TestSessionPlanner_SessionEndsAfterThePlannedWork(t *testing.T) {
+	pool, err := seed.Exercises()
+	if err != nil {
+		t.Fatalf("シードが不正: %v", err)
+	}
+	freq := mustFrequency(t, 3)
+	target, err := seed.DefaultWeeklyTarget(freq)
+	if err != nil {
+		t.Fatalf("週目標が不正: %v", err)
+	}
+	selected := make([]training.ExerciseID, 0, len(pool))
+	for _, e := range pool {
+		if e.Kind() != training.KindVariation {
+			selected = append(selected, e.ID())
+		}
+	}
+	program, err := training.NewProgram(freq, target, selected)
+	if err != nil {
+		t.Fatalf("プログラムが不正: %v", err)
+	}
+
+	planner := training.DefaultSessionPlanner()
+	date := planMonday
+	var logs []*training.SetLog
+
+	plan := func(t *testing.T) training.PlannedSession {
+		t.Helper()
+		s, err := planner.Plan(training.PlanRequest{
+			Program: program, Pool: pool,
+			History:    training.NewHistory(logs),
+			Conditions: training.NewConditionLog(nil),
+			Date:       date,
+		})
+		if err != nil {
+			t.Fatalf("Plan が失敗: %v", err)
+		}
+		return s
+	}
+
+	first := plan(t)
+	planned := 0
+	for _, set := range append(first.Main(), first.Accessories()...) {
+		planned += set.Sets().Int()
+	}
+	if planned == 0 {
+		t.Fatal("前提: 予定のセットがあること")
+	}
+
+	done := map[training.ExerciseID]int{}
+	recorded := 0
+	for step := range planned * 3 {
+		s := plan(t)
+		var todo *training.PlannedSet
+		for _, set := range append(s.Main(), s.Accessories()...) {
+			if done[set.ExerciseID()] < set.Sets().Int() {
+				v := set
+				todo = &v
+				break
+			}
+		}
+		if todo == nil {
+			break
+		}
+
+		kg := 40.0
+		if w, ok := todo.Weight(); ok {
+			kg = w.Kg()
+		}
+		recorded++
+		done[todo.ExerciseID()]++
+		logs = append(logs, mkLogOn(t, fmt.Sprintf("live-%d", step), date,
+			string(todo.ExerciseID()), kg, 8, todo.TargetRIR().Int()))
+	}
+
+	if recorded != planned {
+		t.Errorf("予定 %dセットに対して %dセットこなすことになった", planned, recorded)
+	}
+	if last := plan(t); len(last.Accessories()) != 0 {
+		t.Errorf("消化しきったのに補助が %d件残っている", len(last.Accessories()))
+	}
+}
+
+// 当日に明らかに重いセットを記録しても、その日の提示重量は動かない。
+//
+// 既存の「動かない」テストは同じ重量で記録しているので、推定が
+// そもそも上がらず、当日を混ぜても数字が変わらないことがある。
+// 混ぜたら必ず変わる重さで確かめる。
+func TestSessionPlanner_HeavyTodaysLogDoesNotMoveTodaysWeight(t *testing.T) {
+	req := planRequest(t)
+	before := mainWeight(t, mustPlan(t, req), "bench")
+	if before <= 0 {
+		t.Fatal("ベンチプレスの重量が提示されていない")
+	}
+
+	req.History = training.NewHistory(append(planHistory(t),
+		mkLogOn(t, "today-heavy", planMonday, "bench", before+40, 8, 3)))
+
+	after := mainWeight(t, mustPlan(t, req), "bench")
+	if after != before {
+		t.Errorf("当日の記録で今日の重量が動いた: %v → %v", before, after)
+	}
+}
+
+// 補助種目は決まった順で返る。
+//
+// 選択は集合から選ぶので、そのままだと呼ぶたびに順番が入れ替わる。
+// 画面では同じ内容のカードが並び替わり、どこまでやったか見失う。
+func TestSessionPlanner_AccessoriesComeBackInAStableOrder(t *testing.T) {
+	req := planRequest(t)
+
+	first := mustPlan(t, req)
+	ids := make([]training.ExerciseID, 0, len(first.Accessories()))
+	for _, a := range first.Accessories() {
+		ids = append(ids, a.ExerciseID())
+	}
+	if len(ids) < 2 {
+		t.Fatalf("補助が %d 種目しか出ないので順序を確かめられない", len(ids))
+	}
+
+	for i := 1; i < len(ids); i++ {
+		if ids[i-1] >= ids[i] {
+			t.Fatalf("決まった順になっていない: %v", ids)
+		}
+	}
+
+	// 何度開き直しても同じ順で出る。
+	for n := 0; n < 30; n++ {
+		again := mustPlan(t, req)
+		if len(again.Accessories()) != len(ids) {
+			t.Fatalf("%d回目で補助の数が変わった: %d → %d", n, len(ids), len(again.Accessories()))
+		}
+		for i, a := range again.Accessories() {
+			if a.ExerciseID() != ids[i] {
+				t.Fatalf("%d回目で順序が変わった: %v から %v", n, ids, again.Accessories())
+			}
+		}
+	}
+}
+
+// 着手済みの補助があっても、並びは決まった順のまま。
+//
+// 枠の調整は「始めたものを残す → 残りを埋める」という順で組むので、
+// そのまま返すと着手済みが先頭に寄る。1セット記録しただけで
+// カードが飛ぶことになる。
+func TestSessionPlanner_StartedAccessoriesDoNotJumpToTheTop(t *testing.T) {
+	req := planRequest(t)
+	base := mustPlan(t, req)
+	if len(base.Accessories()) < 2 {
+		t.Fatalf("補助が %d 種目しか出ない", len(base.Accessories()))
+	}
+
+	// 並びの後ろにあるものを1セットこなす。
+	last := base.Accessories()[len(base.Accessories())-1].ExerciseID()
+	req.History = training.NewHistory(append(planHistory(t),
+		mkLogOn(t, "started-1", planMonday, string(last), 20, 10, 2)))
+
+	after := mustPlan(t, req)
+	ids := make([]training.ExerciseID, 0, len(after.Accessories()))
+	for _, a := range after.Accessories() {
+		ids = append(ids, a.ExerciseID())
+	}
+	for i := 1; i < len(ids); i++ {
+		if ids[i-1] >= ids[i] {
+			t.Fatalf("着手したものが並びを崩した: %v", ids)
+		}
 	}
 }
