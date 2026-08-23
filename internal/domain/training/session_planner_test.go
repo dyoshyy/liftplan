@@ -25,7 +25,7 @@ func planPool(t *testing.T) []*training.Exercise {
 	p := training.ExerciseParams{
 		ID: "larsen", Name: "larsen", Kind: training.KindVariation,
 		Stimulus:    map[training.MuscleRegion]float64{training.ChestMid: 1.0},
-		IncrementKg: 2.5, MainLift: training.LiftBench, DefaultRatioToMain: 0.9,
+		IncrementKg: 2.5, MainLift: training.LiftBench,
 	}
 
 	return []*training.Exercise{
@@ -359,7 +359,6 @@ func TestSessionPlanner_ZeroValueIsSafe(t *testing.T) {
 func TestNewSessionPlanner_RejectsZeroDependencies(t *testing.T) {
 	slots := training.NewSlotCatalog()
 	est := training.DefaultOneRepMaxEstimator()
-	ratios := training.DefaultVariationRatioResolver()
 	acc := training.DefaultAccessorySelector()
 	deload := training.DefaultDeloadPolicy()
 
@@ -368,19 +367,15 @@ func TestNewSessionPlanner_RejectsZeroDependencies(t *testing.T) {
 		call func() error
 	}{
 		{"推定器", func() error {
-			_, err := training.NewSessionPlanner(slots, training.OneRepMaxEstimator{}, ratios, acc, deload)
-			return err
-		}},
-		{"係数の解決器", func() error {
-			_, err := training.NewSessionPlanner(slots, est, training.VariationRatioResolver{}, acc, deload)
+			_, err := training.NewSessionPlanner(slots, training.OneRepMaxEstimator{}, acc, deload)
 			return err
 		}},
 		{"補助の選択器", func() error {
-			_, err := training.NewSessionPlanner(slots, est, ratios, training.AccessorySelector{}, deload)
+			_, err := training.NewSessionPlanner(slots, est, training.AccessorySelector{}, deload)
 			return err
 		}},
 		{"デロードのポリシー", func() error {
-			_, err := training.NewSessionPlanner(slots, est, ratios, acc, training.DeloadPolicy{})
+			_, err := training.NewSessionPlanner(slots, est, acc, training.DeloadPolicy{})
 			return err
 		}},
 	}
@@ -392,7 +387,7 @@ func TestNewSessionPlanner_RejectsZeroDependencies(t *testing.T) {
 		})
 	}
 
-	if _, err := training.NewSessionPlanner(slots, est, ratios, acc, deload); err != nil {
+	if _, err := training.NewSessionPlanner(slots, est, acc, deload); err != nil {
 		t.Errorf("正常な依存が弾かれた: %v", err)
 	}
 }
@@ -823,7 +818,7 @@ func TestSessionPlanner_UsesInjectedConditionAnalyzer(t *testing.T) {
 		t.Fatalf("ポリシーの生成に失敗: %v", err)
 	}
 	planner, err := training.NewSessionPlanner(training.NewSlotCatalog(),
-		training.DefaultOneRepMaxEstimator(), training.DefaultVariationRatioResolver(),
+		training.DefaultOneRepMaxEstimator(),
 		training.DefaultAccessorySelector(), policy)
 	if err != nil {
 		t.Fatalf("生成器の生成に失敗: %v", err)
@@ -889,7 +884,7 @@ func variationPool(t *testing.T, id string, ratio float64) []*training.Exercise 
 	return append(out, mustExercise(t, training.ExerciseParams{
 		ID: id, Name: id, Kind: training.KindVariation,
 		Stimulus:    map[training.MuscleRegion]float64{training.ChestMid: 1.0},
-		IncrementKg: 2.5, MainLift: training.LiftBench, DefaultRatioToMain: ratio,
+		IncrementKg: 2.5, MainLift: training.LiftBench,
 	}))
 }
 
@@ -911,7 +906,7 @@ func TestSessionPlanner_PicksLeastRecentlyUsedVariation(t *testing.T) {
 	req.Pool = append(pool, mustExercise(t, training.ExerciseParams{
 		ID: "stale", Name: "stale", Kind: training.KindVariation,
 		Stimulus:    map[training.MuscleRegion]float64{training.ChestMid: 1.0},
-		IncrementKg: 2.5, MainLift: training.LiftBench, DefaultRatioToMain: 0.9,
+		IncrementKg: 2.5, MainLift: training.LiftBench,
 	}))
 	req.History = training.NewHistory(append(planHistory(t),
 		mkLogOn(t, "w1", planMonday, "curl", 20, 10, 2),
@@ -1044,7 +1039,7 @@ func TestSessionPlanner_PrefersNeverUsedVariation(t *testing.T) {
 	req.Pool = append(pool, mustExercise(t, training.ExerciseParams{
 		ID: "never", Name: "never", Kind: training.KindVariation,
 		Stimulus:    map[training.MuscleRegion]float64{training.ChestMid: 1.0},
-		IncrementKg: 2.5, MainLift: training.LiftBench, DefaultRatioToMain: 0.9,
+		IncrementKg: 2.5, MainLift: training.LiftBench,
 	}))
 	req.History = training.NewHistory(append(planHistory(t),
 		mkLogOn(t, "w1", planMonday, "curl", 20, 10, 2),

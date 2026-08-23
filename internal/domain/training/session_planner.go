@@ -85,7 +85,6 @@ type PlanRequest struct {
 type SessionPlanner struct {
 	slots     SlotCatalog
 	estimator OneRepMaxEstimator
-	ratios    VariationRatioResolver
 	accessory AccessorySelector
 	deload    DeloadPolicy
 }
@@ -100,15 +99,11 @@ func (p SessionPlanner) analyzer() ConditionAnalyzer { return p.deload.Analyzer(
 func NewSessionPlanner(
 	slots SlotCatalog,
 	estimator OneRepMaxEstimator,
-	ratios VariationRatioResolver,
 	accessory AccessorySelector,
 	deload DeloadPolicy,
 ) (SessionPlanner, error) {
 	if estimator.IsZero() {
 		return SessionPlanner{}, errors.New("推定器が未設定である")
-	}
-	if ratios.IsZero() {
-		return SessionPlanner{}, errors.New("対メイン係数の解決器が未設定である")
 	}
 	if accessory.IsZero() {
 		return SessionPlanner{}, errors.New("補助種目の選択器が未設定である")
@@ -117,7 +112,7 @@ func NewSessionPlanner(
 		return SessionPlanner{}, errors.New("デロードのポリシーが未設定である")
 	}
 	return SessionPlanner{
-		slots: slots, estimator: estimator, ratios: ratios,
+		slots: slots, estimator: estimator,
 		accessory: accessory, deload: deload,
 	}, nil
 }
@@ -126,7 +121,6 @@ func DefaultSessionPlanner() SessionPlanner {
 	return SessionPlanner{
 		slots:     NewSlotCatalog(),
 		estimator: DefaultOneRepMaxEstimator(),
-		ratios:    DefaultVariationRatioResolver(),
 		accessory: DefaultAccessorySelector(),
 		deload:    DefaultDeloadPolicy(),
 	}

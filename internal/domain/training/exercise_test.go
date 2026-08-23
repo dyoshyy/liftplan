@@ -51,9 +51,6 @@ func TestNewExercise_Main(t *testing.T) {
 	if !ok || lift != training.LiftBench {
 		t.Errorf("メインリフトが誤り: %v %v", lift, ok)
 	}
-	if _, ok := e.DefaultRatioToMain(); ok {
-		t.Error("メイン種目に対メイン係数が付いている")
-	}
 }
 
 // 種別ごとの不変条件。これが崩れると、スロット割り当てのときに種目が黙って無視される。
@@ -69,24 +66,9 @@ func TestNewExercise_KindInvariants(t *testing.T) {
 			wantErr: true,
 		},
 		{
-			name: "メイン種目に対メイン係数が付いている",
-			mutate: func(p *training.ExerciseParams) {
-				p.DefaultRatioToMain = 0.9
-			},
-			wantErr: true,
-		},
-		{
-			name: "バリエーションに対メイン係数が無い",
-			mutate: func(p *training.ExerciseParams) {
-				p.ID, p.Kind = "larsen", training.KindVariation
-			},
-			wantErr: true,
-		},
-		{
 			name: "バリエーションに所属メインが無い",
 			mutate: func(p *training.ExerciseParams) {
-				p.ID, p.Kind = "larsen", training.KindVariation
-				p.DefaultRatioToMain, p.MainLift = 0.9, ""
+				p.ID, p.Kind, p.MainLift = "larsen", training.KindVariation, ""
 			},
 			wantErr: true,
 		},
@@ -94,7 +76,6 @@ func TestNewExercise_KindInvariants(t *testing.T) {
 			name: "正常なバリエーション",
 			mutate: func(p *training.ExerciseParams) {
 				p.ID, p.Kind = "larsen", training.KindVariation
-				p.DefaultRatioToMain = 0.9
 			},
 			wantErr: false,
 		},
@@ -102,14 +83,6 @@ func TestNewExercise_KindInvariants(t *testing.T) {
 			name: "補助種目にメインリフトが付いている",
 			mutate: func(p *training.ExerciseParams) {
 				p.ID, p.Kind = "pec_fly", training.KindAccessory
-			},
-			wantErr: true,
-		},
-		{
-			name: "補助種目に対メイン係数が付いている",
-			mutate: func(p *training.ExerciseParams) {
-				p.ID, p.Kind, p.MainLift = "pec_fly", training.KindAccessory, ""
-				p.DefaultRatioToMain = 0.9
 			},
 			wantErr: true,
 		},
@@ -361,7 +334,7 @@ func TestExercise_IsVariationOf(t *testing.T) {
 	}
 
 	p := benchParams()
-	p.ID, p.Kind, p.DefaultRatioToMain = "larsen", training.KindVariation, 0.9
+	p.ID, p.Kind = "larsen", training.KindVariation
 	larsen := mustExercise(t, p)
 	if !larsen.IsVariationOf(training.LiftBench) {
 		t.Error("バリエーションが所属リフトのものと判定されない")
@@ -405,38 +378,6 @@ func TestNewExercise_StimulusRegionLimitBoundary(t *testing.T) {
 		t.Errorf("上限を超える %d 区分が通ってしまう: %+v", max+1, got)
 	} else if !strings.Contains(err.Error(), "筋区分") {
 		t.Errorf("区分数以外の理由でエラーになっている: %v", err)
-	}
-}
-
-// 対メイン係数の異常系。検証を外しても誰も気づかない状態だった。
-// 壊れると、検証されていない係数が処方重量の計算に流れる。
-func TestNewExercise_ValidatesDefaultRatio(t *testing.T) {
-	variation := func(ratio float64) training.ExerciseParams {
-		p := benchParams()
-		p.ID, p.Kind = "larsen", training.KindVariation
-		p.DefaultRatioToMain = ratio
-		return p
-	}
-
-	for _, v := range []float64{-0.9, 1.21, 3, 100} {
-		if got, err := training.NewExercise(variation(v)); err == nil {
-			t.Errorf("不正な対メイン係数が通ってしまう: %v → %+v", v, got)
-		}
-	}
-	for _, v := range []float64{0.7, 0.85, 1.0, 1.2} {
-		if _, err := training.NewExercise(variation(v)); err != nil {
-			t.Errorf("正当な対メイン係数が弾かれた: %v (%v)", v, err)
-		}
-	}
-
-	// 保持された値が量子化・検証を通っていること。
-	e := mustExercise(t, variation(0.85))
-	got, ok := e.DefaultRatioToMain()
-	if !ok {
-		t.Fatal("係数が保持されていない")
-	}
-	if _, err := training.NewRatio(got.Float()); err != nil {
-		t.Errorf("保持された係数が無効: %v", err)
 	}
 }
 

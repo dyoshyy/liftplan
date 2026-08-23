@@ -238,7 +238,7 @@ func TestAccessorySelector_IgnoresNonAccessory(t *testing.T) {
 	bench := mustExercise(t, benchParams())
 
 	p := benchParams()
-	p.ID, p.Kind, p.DefaultRatioToMain = "larsen", training.KindVariation, 0.9
+	p.ID, p.Kind = "larsen", training.KindVariation
 	larsen := mustExercise(t, p)
 
 	pool := append(accessoryPool(t), bench, larsen)
