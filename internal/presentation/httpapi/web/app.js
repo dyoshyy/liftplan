@@ -44,12 +44,17 @@ function newId() {
   return `w-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
 }
 
+// 捨てた記録は端末に残す。消えたことに気づけないのが一番まずい。
+const KEY_REJECTED = 'liftplan.rejected';
+
 const store = {
   token: () => localStorage.getItem(KEY_TOKEN) || '',
   setToken: (v) => localStorage.setItem(KEY_TOKEN, v),
   clearToken: () => localStorage.removeItem(KEY_TOKEN),
   queue: () => { try { return JSON.parse(localStorage.getItem(KEY_QUEUE) || '[]'); } catch { return []; } },
   setQueue: (q) => localStorage.setItem(KEY_QUEUE, JSON.stringify(q)),
+  rejected: () => { try { return JSON.parse(localStorage.getItem(KEY_REJECTED) || '[]'); } catch { return []; } },
+  setRejected: (r) => localStorage.setItem(KEY_REJECTED, JSON.stringify(r)),
 };
 
 async function api(path, options = {}) {
@@ -98,7 +103,11 @@ async function flush() {
       });
       if (!res.ok && res.status >= 400 && res.status < 500) {
         // 再送しても永久に通らない。残すと後続が全部詰まる。
-        console.warn('破棄', res.status, item, await res.text());
+        // ただし黙って消すと、記録したはずのものが無いことに気づけない。
+        const detail = await res.text().catch(() => '');
+        console.warn('破棄', res.status, item, detail);
+        store.setRejected([...store.rejected(), describeItem(item, res.status)].slice(-20));
+        paintRejected();
       } else if (!res.ok) {
         break; // 5xx / 503 はやり直せば通る
       }
@@ -113,9 +122,38 @@ async function flush() {
   }
 }
 
+// describeItem は捨てたものを人が読める1行にする。
+// path と JSON をそのまま出しても、何を失ったのか分からない。
+function describeItem(item, status) {
+  const log = item.body?.logs?.[0];
+  if (log) {
+    const name = state.names?.get(log.exercise_id) || log.exercise_id;
+    return `${log.date} ${name} ${log.weight_kg}kg × ${log.reps}（${status}）`;
+  }
+  if (item.body?.conditions?.[0]) {
+    return `${item.body.conditions[0].date} のコンディション（${status}）`;
+  }
+  return `${item.method || 'POST'} ${item.path}（${status}）`;
+}
+
+function paintRejected() {
+  const list = store.rejected();
+  $('rejected-notice').classList.toggle('hidden', list.length === 0);
+  $('rejected-list').innerHTML = list.map((r) => `<li>${esc(r)}</li>`).join('');
+  paintStatus();
+}
+
 function paintStatus() {
   const n = store.queue().length;
+  const rejected = store.rejected().length;
   const dot = $('dot');
+  if (rejected > 0) {
+    dot.className = 'dot error';
+    $('status-text').textContent = n > 0
+      ? `未送信 ${n} 件・送れなかった記録 ${rejected} 件`
+      : `送れなかった記録 ${rejected} 件`;
+    return;
+  }
   if (!navigator.onLine) {
     dot.className = 'dot error';
     $('status-text').textContent = n > 0 ? `オフライン・未送信 ${n} 件` : 'オフライン（記録は保存されます）';
@@ -525,6 +563,7 @@ async function loadAll() {
     // 初期状態は全ての画面が hidden なので、必ずどれかに切り替える。
     // 「setup が隠れているか」で判定すると、初回に何も表示されない。
     $('offline-notice').classList.add('hidden');
+    paintRejected();
     showView(state.view && state.view !== 'setup' ? state.view : 'today');
     paintStatus();
   } catch (e) {
@@ -561,6 +600,7 @@ $('undo').onclick = undoSet;
 $('sheet-close').onclick = closeSheet;
 $('reload').onclick = () => loadAll();
 $('retry').onclick = () => loadAll();
+$('clear-rejected').onclick = () => { store.setRejected([]); paintRejected(); };
 $('save-program').onclick = saveProgram;
 
 function noteCondition(msg) {

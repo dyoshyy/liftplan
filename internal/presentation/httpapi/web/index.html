@@ -206,6 +206,12 @@ dialog::backdrop { background: rgba(0,0,0,.66); }
       </p>
       <button class="btn quiet" id="retry" style="margin-top:12px">もう一度つなぐ</button>
     </div>
+    <div class="card hidden" id="rejected-notice">
+      <p class="card-title">送れなかった記録</p>
+      <p class="note">サーバーが受け付けなかったので、送るのをやめました。同じものを送り続けると、あとの記録がすべて詰まるためです。必要なら入れ直してください。</p>
+      <ul class="note" id="rejected-list" style="margin:10px 0 0;padding-left:1.2em"></ul>
+      <button class="btn quiet" id="clear-rejected" style="margin-top:12px">消す</button>
+    </div>
     <div id="mains"></div>
     <div id="accessories"></div>
     <div class="card">
