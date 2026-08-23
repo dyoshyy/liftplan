@@ -28,19 +28,19 @@ func (f Frequency) IsZero() bool { return f == Frequency{} }
 
 // SlotRole は週内スロットの役割。
 //
-//	RoleVariation … バリエーション種目で技術と弱点を突く日
+//	RoleLight     … 同じ種目を軽く回して回復と技術に充てる日
 //	RoleStandard  … 通常フォームでボリュームを積む日
 //	RoleHeavy     … 高強度で神経系に効かせる日
 type SlotRole string
 
 const (
-	RoleVariation SlotRole = "VARIATION"
-	RoleStandard  SlotRole = "STANDARD"
-	RoleHeavy     SlotRole = "HEAVY"
+	RoleLight    SlotRole = "LIGHT"
+	RoleStandard SlotRole = "STANDARD"
+	RoleHeavy    SlotRole = "HEAVY"
 )
 
 var (
-	allSlotRoles   = sortedValues(RoleVariation, RoleStandard, RoleHeavy)
+	allSlotRoles   = sortedValues(RoleLight, RoleStandard, RoleHeavy)
 	validSlotRoles = lookup(allSlotRoles)
 )
 
@@ -101,12 +101,10 @@ func newSlotTemplate(role SlotRole, intensity float64, sets, rir int) SlotTempla
 //
 // これは、設定した頻度より実際に通う回数が少ないときの破綻を防ぐため。
 // スロットはその週の何本目かで決まるので、週4回の設定で週2回しか通わないと
-// 先頭2つしか使われない。バリエーションのスロットではメイン種目自体を
-// 実施しないので、先頭にバリエーションを置くとメインリフトの記録が
-// いつまでも増えない。42日経つと推定1RMが「古すぎる」と判定され、
-// メインもバリエーションも全部の重量が未確定になる。しかも回復経路が無い。
+// 先頭2つしか使われない。軽い日ばかりが当たると、通常フォームの
+// 高い強度がいつまでも記録されず、推定1RMが実力より低いまま固定される。
 //
-// 標準スロットを必ず先頭に置くことで、週に一度でも通えばメインリフト本体を
+// 標準スロットを必ず先頭に置くことで、週に一度でも通えば通常の強度で
 // 実施することが保証される。
 var slotsByFrequency = map[int][]SlotTemplate{
 	1: {
@@ -119,13 +117,13 @@ var slotsByFrequency = map[int][]SlotTemplate{
 	3: {
 		newSlotTemplate(RoleStandard, 0.81, 4, 2),
 		newSlotTemplate(RoleHeavy, 0.88, 3, 1),
-		newSlotTemplate(RoleVariation, 0.76, 4, 2),
+		newSlotTemplate(RoleLight, 0.76, 4, 2),
 	},
 	4: {
 		newSlotTemplate(RoleStandard, 0.81, 4, 2),
 		newSlotTemplate(RoleHeavy, 0.88, 3, 1),
-		newSlotTemplate(RoleVariation, 0.76, 4, 2),
-		newSlotTemplate(RoleVariation, 0.78, 4, 2),
+		newSlotTemplate(RoleLight, 0.76, 4, 2),
+		newSlotTemplate(RoleLight, 0.78, 4, 2),
 	},
 }
 

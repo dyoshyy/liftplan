@@ -237,18 +237,19 @@ func TestAccessorySelector_IgnoresNonAccessory(t *testing.T) {
 	s := training.DefaultAccessorySelector()
 	bench := mustExercise(t, benchParams())
 
+	// メイン種目をもう1つ。種別が MAIN のものは補助として選ばれない。
 	p := benchParams()
-	p.ID, p.Kind = "larsen", training.KindVariation
-	larsen := mustExercise(t, p)
+	p.ID = "squat"
+	squat := mustExercise(t, p)
 
-	pool := append(accessoryPool(t), bench, larsen)
+	pool := append(accessoryPool(t), bench, squat)
 	got := s.Select(
 		map[training.MuscleRegion]float64{training.ChestMid: 10, training.TricepsLateral: 5},
 		pool, training.NewHistory(nil), today(),
 	)
 
 	for _, id := range got {
-		if id == training.ExerciseID("bench") || id == training.ExerciseID("larsen") {
+		if id == training.ExerciseID("bench") || id == training.ExerciseID("squat") {
 			t.Errorf("補助種目でないものが選ばれた: %v", got)
 		}
 	}

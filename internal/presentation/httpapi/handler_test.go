@@ -41,9 +41,7 @@ func newServer(t *testing.T, configured bool) http.Handler {
 		}
 		selected := make([]training.ExerciseID, 0, len(pool))
 		for _, e := range pool {
-			if e.Kind() != training.KindVariation {
-				selected = append(selected, e.ID())
-			}
+			selected = append(selected, e.ID())
 		}
 		program, err := training.NewProgram(freq, target, selected)
 		if err != nil {
@@ -421,9 +419,7 @@ func TestGetSession_InternalErrorDoesNotLeak(t *testing.T) {
 	target, _ := seed.DefaultWeeklyTarget(freq)
 	selected := make([]training.ExerciseID, 0, len(pool))
 	for _, e := range pool {
-		if e.Kind() != training.KindVariation {
-			selected = append(selected, e.ID())
-		}
+		selected = append(selected, e.ID())
 	}
 	program, err := training.NewProgram(freq, target, selected)
 	if err != nil {

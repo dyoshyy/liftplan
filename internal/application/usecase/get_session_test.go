@@ -155,9 +155,7 @@ func buildProgram(t *testing.T, pool []*training.Exercise) *training.Program {
 	}
 	selected := make([]training.ExerciseID, 0, len(pool))
 	for _, e := range pool {
-		if e.Kind() != training.KindVariation {
-			selected = append(selected, e.ID())
-		}
+		selected = append(selected, e.ID())
 	}
 	p, err := training.NewProgram(freq, target, selected)
 	if err != nil {

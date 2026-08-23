@@ -18,7 +18,6 @@ func benchParams() training.ExerciseParams {
 			training.TricepsLateral: 0.5,
 		},
 		IncrementKg: 2.5,
-		MainLift:    training.LiftBench,
 	}
 }
 
@@ -46,68 +45,6 @@ func TestNewExercise_Main(t *testing.T) {
 	if e.Increment().Kg() != 2.5 {
 		t.Errorf("増加単位が誤り: %v", e.Increment().Kg())
 	}
-
-	lift, ok := e.MainLift()
-	if !ok || lift != training.LiftBench {
-		t.Errorf("メインリフトが誤り: %v %v", lift, ok)
-	}
-}
-
-// 種別ごとの不変条件。これが崩れると、スロット割り当てのときに種目が黙って無視される。
-func TestNewExercise_KindInvariants(t *testing.T) {
-	cases := []struct {
-		name    string
-		mutate  func(*training.ExerciseParams)
-		wantErr bool
-	}{
-		{
-			name:    "メイン種目にメインリフトが無い",
-			mutate:  func(p *training.ExerciseParams) { p.MainLift = "" },
-			wantErr: true,
-		},
-		{
-			name: "バリエーションに所属メインが無い",
-			mutate: func(p *training.ExerciseParams) {
-				p.ID, p.Kind, p.MainLift = "larsen", training.KindVariation, ""
-			},
-			wantErr: true,
-		},
-		{
-			name: "正常なバリエーション",
-			mutate: func(p *training.ExerciseParams) {
-				p.ID, p.Kind = "larsen", training.KindVariation
-			},
-			wantErr: false,
-		},
-		{
-			name: "補助種目にメインリフトが付いている",
-			mutate: func(p *training.ExerciseParams) {
-				p.ID, p.Kind = "pec_fly", training.KindAccessory
-			},
-			wantErr: true,
-		},
-		{
-			name: "正常な補助種目",
-			mutate: func(p *training.ExerciseParams) {
-				p.ID, p.Kind, p.MainLift = "pec_fly", training.KindAccessory, ""
-			},
-			wantErr: false,
-		},
-	}
-
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
-			p := benchParams()
-			c.mutate(&p)
-			_, err := training.NewExercise(p)
-			if c.wantErr && err == nil {
-				t.Error("不正な組み合わせが通ってしまう")
-			}
-			if !c.wantErr && err != nil {
-				t.Errorf("正当な組み合わせが弾かれた: %v", err)
-			}
-		})
-	}
 }
 
 func TestNewExercise_RejectsInvalidFields(t *testing.T) {
@@ -125,7 +62,6 @@ func TestNewExercise_RejectsInvalidFields(t *testing.T) {
 		{"刺激が空", func(p *training.ExerciseParams) { p.Stimulus = nil }},
 		{"増加単位が0", func(p *training.ExerciseParams) { p.IncrementKg = 0 }},
 		{"増加単位が負", func(p *training.ExerciseParams) { p.IncrementKg = -2.5 }},
-		{"メインリフトが不正", func(p *training.ExerciseParams) { p.MainLift = "PRESS" }},
 		{
 			"未知の筋区分",
 			func(p *training.ExerciseParams) {
@@ -310,7 +246,7 @@ func TestExercise_SameIdentity(t *testing.T) {
 	}
 
 	p2 := benchParams()
-	p2.ID, p2.MainLift = "squat", training.LiftSquat
+	p2.ID = "squat"
 	if a.SameIdentity(mustExercise(t, p2)) {
 		t.Error("違うIDのエンティティが同一と判定された")
 	}
@@ -324,37 +260,6 @@ func TestExercise_SameIdentity(t *testing.T) {
 	}
 }
 
-func TestExercise_IsVariationOf(t *testing.T) {
-	// メイン自身が候補に混ざると、差し替えたつもりで同じ種目が選ばれる。
-	bench := mustExercise(t, benchParams())
-	for _, lift := range training.AllMainLifts() {
-		if bench.IsVariationOf(lift) {
-			t.Errorf("メイン種目が %s のバリエーションと判定された", lift)
-		}
-	}
-
-	p := benchParams()
-	p.ID, p.Kind = "larsen", training.KindVariation
-	larsen := mustExercise(t, p)
-	if !larsen.IsVariationOf(training.LiftBench) {
-		t.Error("バリエーションが所属リフトのものと判定されない")
-	}
-	if larsen.IsVariationOf(training.LiftSquat) {
-		t.Error("別のリフトのバリエーションと判定された")
-	}
-
-	p2 := benchParams()
-	p2.ID, p2.Kind, p2.MainLift = "pec_fly", training.KindAccessory, ""
-	accessory := mustExercise(t, p2)
-	for _, lift := range training.AllMainLifts() {
-		if accessory.IsVariationOf(lift) {
-			t.Errorf("補助種目が %s のバリエーションと判定された", lift)
-		}
-	}
-}
-
-// 筋区分数の上限そのものを固定する。
-// 全21区分という極端な値だけで検査すると、上限を 9〜20 のどれに変えても通ってしまう。
 func TestNewExercise_StimulusRegionLimitBoundary(t *testing.T) {
 	const max = 8
 	all := training.AllMuscleRegions()
@@ -404,7 +309,6 @@ func TestNewExercise_AllErrorsIdentifyTheExercise(t *testing.T) {
 	}{
 		{"増加単位", func(p *training.ExerciseParams) { p.IncrementKg = 0 }},
 		{"種別", func(p *training.ExerciseParams) { p.Kind = "WARMUP" }},
-		{"メインリフト", func(p *training.ExerciseParams) { p.MainLift = "PRESS" }},
 		{"刺激が空", func(p *training.ExerciseParams) { p.Stimulus = nil }},
 		{
 			"未知の筋区分",

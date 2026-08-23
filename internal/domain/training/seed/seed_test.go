@@ -17,22 +17,16 @@ func TestExercises_AreValid(t *testing.T) {
 	}
 }
 
+// BIG3 がシードに入っていること。既定の軸がここから引かれる。
 func TestExercises_ContainsBigThree(t *testing.T) {
 	all, _ := seed.Exercises()
-	found := map[training.MainLift]bool{}
+	found := map[training.ExerciseID]bool{}
 	for _, e := range all {
-		if e.Kind() != training.KindMain {
-			continue
-		}
-		if lift, ok := e.MainLift(); ok {
-			found[lift] = true
-		}
+		found[e.ID()] = true
 	}
-	for _, want := range []training.MainLift{
-		training.LiftSquat, training.LiftBench, training.LiftDeadlift,
-	} {
+	for _, want := range []training.ExerciseID{"squat", "bench", "deadlift"} {
 		if !found[want] {
-			t.Errorf("%s がメイン種目に無い", want)
+			t.Errorf("%s がシードに無い", want)
 		}
 	}
 }
@@ -45,43 +39,6 @@ func TestExercises_IDsAreUnique(t *testing.T) {
 			t.Errorf("種目IDが重複している: %s", e.ID())
 		}
 		seen[e.ID()] = true
-	}
-}
-
-func TestExercises_VariationsBelongToAMainLift(t *testing.T) {
-	all, _ := seed.Exercises()
-	count := 0
-	for _, e := range all {
-		if e.Kind() != training.KindVariation {
-			continue
-		}
-		count++
-		if _, ok := e.MainLift(); !ok {
-			t.Errorf("%s に所属メインが無い", e.ID())
-		}
-	}
-	if count == 0 {
-		t.Error("バリエーションが1つも無い")
-	}
-}
-
-func TestExercises_EveryMainLiftHasAVariation(t *testing.T) {
-	all, _ := seed.Exercises()
-	covered := map[training.MainLift]bool{}
-	for _, e := range all {
-		if e.Kind() != training.KindVariation {
-			continue
-		}
-		if lift, ok := e.MainLift(); ok {
-			covered[lift] = true
-		}
-	}
-	for _, want := range []training.MainLift{
-		training.LiftSquat, training.LiftBench, training.LiftDeadlift,
-	} {
-		if !covered[want] {
-			t.Errorf("%s のバリエーションが無い", want)
-		}
 	}
 }
 

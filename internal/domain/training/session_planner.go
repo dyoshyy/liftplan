@@ -253,7 +253,7 @@ func (p SessionPlanner) usablePool(req PlanRequest) []*Exercise {
 		if e == nil {
 			continue
 		}
-		if req.Program.Includes(e.ID()) || e.Kind() == KindVariation {
+		if req.Program.Includes(e.ID()) {
 			out = append(out, e)
 		}
 	}
@@ -283,12 +283,6 @@ func (p SessionPlanner) planMain(
 ) (PlannedSet, *Exercise) {
 	target := main
 
-	if template.Role() == RoleVariation {
-		if v := p.pickVariation(req, pool, main); v != nil {
-			target = v
-		}
-	}
-
 	intensity := template.Intensity()
 	if deloaded {
 		intensity = intensity.Reduce(p.deload.IntensityDropPct())
@@ -314,38 +308,6 @@ func (p SessionPlanner) planMain(
 	return set, target
 }
 
-// pickVariation は同じメインリフトの派生のうち、最後に使ってから
-// 最も間隔が空いているものを選ぶ。
-func (p SessionPlanner) pickVariation(req PlanRequest, pool []*Exercise, main *Exercise) *Exercise {
-	lift, ok := main.MainLift()
-	if !ok {
-		return nil
-	}
-
-	var best *Exercise
-	bestDaysAgo := -1
-	for _, e := range pool {
-		if !e.IsVariationOf(lift) {
-			continue
-		}
-		daysAgo := neverStimulated
-		if last, ok := req.History.LastPerformed(e.ID()); ok {
-			daysAgo = req.Date.DaysSince(last)
-			if daysAgo < 0 {
-				daysAgo = 0
-			}
-		}
-		if daysAgo > bestDaysAgo {
-			best, bestDaysAgo = e, daysAgo
-		}
-	}
-	return best
-}
-
-// planAccessory は補助種目の1枠を埋める。
-//
-// デロードは適用しない。デロードの対象はメイン種目だけで、補助種目は
-// そもそも停滞判定の対象になっていない。
 func (p SessionPlanner) planAccessory(
 	req PlanRequest,
 	pool []*Exercise,

@@ -164,7 +164,6 @@ type exerciseDTO struct {
 	Name        string  `json:"name"`
 	Kind        string  `json:"kind"`
 	IncrementKg float64 `json:"increment_kg"`
-	MainLift    string  `json:"main_lift,omitempty"`
 }
 
 type exercisesResponse struct {

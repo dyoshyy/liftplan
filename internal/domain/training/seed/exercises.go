@@ -11,17 +11,10 @@ import "github.com/dyoshyy/liftplan-server/internal/domain/training"
 
 type stimulus = map[training.MuscleRegion]float64
 
-func mainLift(id, name string, lift training.MainLift, inc float64, s stimulus) training.ExerciseParams {
+func mainLift(id, name string, inc float64, s stimulus) training.ExerciseParams {
 	return training.ExerciseParams{
 		ID: id, Name: name, Kind: training.KindMain,
-		Stimulus: s, IncrementKg: inc, MainLift: lift,
-	}
-}
-
-func variation(id, name string, lift training.MainLift, inc float64, s stimulus) training.ExerciseParams {
-	return training.ExerciseParams{
-		ID: id, Name: name, Kind: training.KindVariation,
-		Stimulus: s, IncrementKg: inc, MainLift: lift,
+		Stimulus: s, IncrementKg: inc,
 	}
 }
 
@@ -50,27 +43,27 @@ func specs() []training.ExerciseParams {
 
 	return []training.ExerciseParams{
 		// --- メイン ---
-		mainLift("squat", "スクワット", training.LiftSquat, 2.5,
+		mainLift("squat", "スクワット", 2.5,
 			stimulus{r.Quad: 1.0, r.Glute: 0.7, r.Adductor: 0.4, r.Erector: 0.4}),
-		mainLift("bench", "ベンチプレス", training.LiftBench, 2.5,
+		mainLift("bench", "ベンチプレス", 2.5,
 			stimulus{r.ChestMid: 1.0, r.TricepsLateral: 0.5, r.FrontDelt: 0.5}),
-		mainLift("deadlift", "デッドリフト", training.LiftDeadlift, 5.0,
+		mainLift("deadlift", "デッドリフト", 5.0,
 			stimulus{r.Hamstring: 1.0, r.Glute: 0.8, r.Erector: 1.0, r.TrapMid: 0.4, r.Forearm: 0.4}),
 
-		// --- バリエーション ---
-		variation("larsen_press", "ラーセンプレス", training.LiftBench, 2.5,
+		// --- メインの派生（補助として残差を埋める） ---
+		accessory("larsen_press", "ラーセンプレス", 2.5,
 			stimulus{r.ChestMid: 1.0, r.TricepsLateral: 0.5, r.FrontDelt: 0.4}),
-		variation("tempo_bench", "テンポベンチ", training.LiftBench, 2.5,
+		accessory("tempo_bench", "テンポベンチ", 2.5,
 			stimulus{r.ChestMid: 1.0, r.TricepsLateral: 0.5, r.FrontDelt: 0.4}),
-		variation("close_grip_bench", "ナローベンチ", training.LiftBench, 2.5,
+		accessory("close_grip_bench", "ナローベンチ", 2.5,
 			stimulus{r.ChestMid: 0.7, r.TricepsLateral: 1.0, r.TricepsLong: 0.6}),
-		variation("pause_squat", "ポーズスクワット", training.LiftSquat, 2.5,
+		accessory("pause_squat", "ポーズスクワット", 2.5,
 			stimulus{r.Quad: 1.0, r.Glute: 0.7, r.Adductor: 0.4, r.Erector: 0.4}),
-		variation("front_squat", "フロントスクワット", training.LiftSquat, 2.5,
+		accessory("front_squat", "フロントスクワット", 2.5,
 			stimulus{r.Quad: 1.0, r.Glute: 0.4, r.Erector: 0.5, r.Abs: 0.4}),
-		variation("deficit_deadlift", "デフィシットデッドリフト", training.LiftDeadlift, 5.0,
+		accessory("deficit_deadlift", "デフィシットデッドリフト", 5.0,
 			stimulus{r.Hamstring: 1.0, r.Glute: 0.8, r.Erector: 1.0, r.Quad: 0.4}),
-		variation("romanian_deadlift", "ルーマニアンデッドリフト", training.LiftDeadlift, 2.5,
+		accessory("romanian_deadlift", "ルーマニアンデッドリフト", 2.5,
 			stimulus{r.Hamstring: 1.0, r.Glute: 0.7, r.Erector: 0.7}),
 
 		// --- 胸 ---

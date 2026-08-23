@@ -11,31 +11,32 @@ import (
 
 var planMonday = training.MustDate(2026, time.August, 17) // 月曜
 
-func mainExercise(t *testing.T, id string, lift training.MainLift, stimulus map[training.MuscleRegion]float64) *training.Exercise {
+func mainExercise(t *testing.T, id string, stimulus map[training.MuscleRegion]float64) *training.Exercise {
 	t.Helper()
 	return mustExercise(t, training.ExerciseParams{
 		ID: id, Name: id, Kind: training.KindMain,
-		Stimulus: stimulus, IncrementKg: 2.5, MainLift: lift,
+		Stimulus: stimulus, IncrementKg: 2.5,
 	})
 }
 
 func planPool(t *testing.T) []*training.Exercise {
 	t.Helper()
 
+	// かつてベンチのバリエーションだった種目。いまは補助のひとつ。
 	p := training.ExerciseParams{
-		ID: "larsen", Name: "larsen", Kind: training.KindVariation,
+		ID: "larsen", Name: "larsen", Kind: training.KindAccessory,
 		Stimulus:    map[training.MuscleRegion]float64{training.ChestMid: 1.0},
-		IncrementKg: 2.5, MainLift: training.LiftBench,
+		IncrementKg: 2.5,
 	}
 
 	return []*training.Exercise{
-		mainExercise(t, "bench", training.LiftBench, map[training.MuscleRegion]float64{
+		mainExercise(t, "bench", map[training.MuscleRegion]float64{
 			training.ChestMid: 1.0, training.TricepsLateral: 0.5,
 		}),
-		mainExercise(t, "squat", training.LiftSquat, map[training.MuscleRegion]float64{
+		mainExercise(t, "squat", map[training.MuscleRegion]float64{
 			training.Quad: 1.0, training.Glute: 0.5,
 		}),
-		mainExercise(t, "deadlift", training.LiftDeadlift, map[training.MuscleRegion]float64{
+		mainExercise(t, "deadlift", map[training.MuscleRegion]float64{
 			training.Hamstring: 1.0, training.Erector: 1.0,
 		}),
 		mustExercise(t, p),
@@ -138,26 +139,34 @@ func TestSessionPlanner_SecondSessionOfWeekIsHeavy(t *testing.T) {
 }
 
 // バリエーションのスロットでは、メイン種目が派生に差し替わること。
-func TestSessionPlanner_VariationSlotSwapsTheExercise(t *testing.T) {
+// 軽い日でも種目は差し替えない。強度とセット数だけが変わる。
+//
+// 以前は「BENCH のバリエーション」から1つ選んでベンチと入れ替えていた。
+// やめたのは、差し替えの対応表（MainLift）を維持する理由が他に無くなったため。
+// 軽い日にやるのは、その日の軸そのものを軽くやること。
+func TestSessionPlanner_LightSlotKeepsTheSameExercise(t *testing.T) {
 	req := planRequest(t)
 	logs := planHistory(t)
 	logs = append(logs,
 		mkLogOn(t, "d1", planMonday, "bench", 80, 8, 2),
 		mkLogOn(t, "d2", planMonday.AddDays(2), "bench", 90, 5, 1))
 	req.History = training.NewHistory(logs)
-	req.Date = planMonday.AddDays(4) // 週3本目 = バリエーション
+	req.Date = planMonday.AddDays(4) // 週3本目 = 軽い日
 
 	found := false
 	for _, set := range mustPlan(t, req).Main() {
 		if set.ExerciseID() == training.ExerciseID("larsen") {
-			found = true
+			t.Error("軽い日で種目が差し替わっている")
 		}
 		if set.ExerciseID() == training.ExerciseID("bench") {
-			t.Error("バリエーションのスロットでメイン種目のままになっている")
+			found = true
+			if role, ok := set.Role(); !ok || role != training.RoleLight {
+				t.Errorf("前提: 3本目が軽い日であること: %v", role)
+			}
 		}
 	}
 	if !found {
-		t.Error("バリエーションに差し替わっていない")
+		t.Error("メイン種目が出ていない")
 	}
 }
 
@@ -871,192 +880,11 @@ func TestSessionPlanner_SlotRoleChangesIntensity(t *testing.T) {
 	}
 }
 
-func variationPool(t *testing.T, id string, ratio float64) []*training.Exercise {
-	t.Helper()
-	pool := planPool(t)
-	out := make([]*training.Exercise, 0, len(pool))
-	for _, e := range pool {
-		if e.Kind() == training.KindVariation {
-			continue
-		}
-		out = append(out, e)
-	}
-	return append(out, mustExercise(t, training.ExerciseParams{
-		ID: id, Name: id, Kind: training.KindVariation,
-		Stimulus:    map[training.MuscleRegion]float64{training.ChestMid: 1.0},
-		IncrementKg: 2.5, MainLift: training.LiftBench,
-	}))
-}
-
-// バリエーション日は3本目。週内の本数を進めた要求を作る。
-func variationDayRequest(t *testing.T) training.PlanRequest {
-	t.Helper()
-	req := planRequest(t)
-	req.History = training.NewHistory(append(planHistory(t),
-		mkLogOn(t, "w1", planMonday, "curl", 20, 10, 2),
-		mkLogOn(t, "w2", planMonday.AddDays(1), "curl", 20, 10, 2)))
-	req.Date = planMonday.AddDays(2)
-	return req
-}
-
-// バリエーションは最後に使ってから最も間隔が空いたものを選ぶ。
-func TestSessionPlanner_PicksLeastRecentlyUsedVariation(t *testing.T) {
-	req := variationDayRequest(t)
-	pool := variationPool(t, "recent", 0.9)
-	req.Pool = append(pool, mustExercise(t, training.ExerciseParams{
-		ID: "stale", Name: "stale", Kind: training.KindVariation,
-		Stimulus:    map[training.MuscleRegion]float64{training.ChestMid: 1.0},
-		IncrementKg: 2.5, MainLift: training.LiftBench,
-	}))
-	req.History = training.NewHistory(append(planHistory(t),
-		mkLogOn(t, "w1", planMonday, "curl", 20, 10, 2),
-		mkLogOn(t, "w2", planMonday.AddDays(1), "curl", 20, 10, 2),
-		mkLogOn(t, "r1", planMonday.AddDays(-3), "recent", 75, 8, 2),
-		mkLogOn(t, "s1", planMonday.AddDays(-30), "stale", 75, 8, 2)))
-
-	s := mustPlan(t, req)
-	if _, ok := mainSet(t, s, "stale").Role(); !ok {
-		t.Error("間隔の空いたバリエーションが選ばれていない")
-	}
-}
-
-// 端末の時計がずれて未来日の記録が1件入っても、その種目が
-// 永久に選ばれなくなってはいけない。
-func TestSessionPlanner_FutureDatedLogDoesNotBanVariation(t *testing.T) {
-	req := variationDayRequest(t)
-	req.Pool = variationPool(t, "var", 0.9)
-	req.History = training.NewHistory(append(planHistory(t),
-		mkLogOn(t, "w1", planMonday, "curl", 20, 10, 2),
-		mkLogOn(t, "w2", planMonday.AddDays(1), "curl", 20, 10, 2),
-		mkLogOn(t, "future", planMonday.AddDays(30), "var", 75, 8, 2)))
-
-	s := mustPlan(t, req)
-	if _, ok := mainSet(t, s, "var").Role(); !ok {
-		t.Error("未来日の記録があるバリエーションが選ばれなくなっている")
-	}
-}
-
-// 補助種目のセット数と強度。0.71 は RIR2 で10レップ前後を狙う位置。
-func TestSessionPlanner_AccessorySetsAndIntensity(t *testing.T) {
-	req := planRequest(t)
-	req.History = training.NewHistory(append(planHistory(t),
-		mkLogOn(t, "inc1", planMonday.AddDays(-7), "incline", 40, 10, 2),
-		// 基準日より後の記録は使わない（未来の計画を出すときに未来の実績で
-		// 重量を決めてしまわないこと）。
-		mkLogOn(t, "inc2", planMonday.AddDays(7), "incline", 100, 10, 2)))
-
-	s := mustPlan(t, req)
-	for _, a := range s.Accessories() {
-		if a.ExerciseID() != "incline" {
-			continue
-		}
-		if got := a.Sets().Int(); got != 3 {
-			t.Errorf("補助のセット数が誤り: %d", got)
-		}
-		// 1RM = 40×(1+12/30) = 56kg、×0.71 = 39.76 → 2.5kg刻みで40.0
-		w, ok := a.Weight()
-		if !ok {
-			t.Fatal("補助の重量が確定していない")
-		}
-		if w.Kg() != 40.0 {
-			t.Errorf("補助の強度が誤り: %vkg（期待 40.0）", w.Kg())
-		}
-		return
-	}
-	t.Fatal("incline が補助に出ていない")
-}
-
-// 週内カバレッジは記録1件=1セット。3セット換算だと残差が実際の3倍の
-// 速さで消え、週目標に届かないまま補助が打ち切られる。
-func TestSessionPlanner_WeeklyCoverageCountsOneSetPerLog(t *testing.T) {
-	req := planRequest(t)
-	logs := planHistory(t)
-	for i := range 3 {
-		logs = append(logs, mkLogOn(t, fmt.Sprintf("inc-%d", i),
-			planMonday, "incline", 40, 10, 2))
-	}
-	req.History = training.NewHistory(logs)
-	req.Date = planMonday.AddDays(3)
-
-	s := mustPlan(t, req)
-	for _, id := range accessoryIDs(s) {
-		if id == "incline" {
-			return
-		}
-	}
-	t.Errorf("週目標9セットに対し3セットしか埋めていないのに打ち切られた: %v",
-		accessoryIDs(s))
-}
-
-// 重量が導出できない種目は「未確定」を返す。捏造した数字を出さない。
-func TestSessionPlanner_UnroundableWeightStaysUndetermined(t *testing.T) {
-	req := planRequest(t)
-	pool := planPool(t)
-	req.Pool = append(pool, mustExercise(t, training.ExerciseParams{
-		ID: "coarse", Name: "coarse", Kind: training.KindAccessory,
-		Stimulus:    map[training.MuscleRegion]float64{training.Biceps: 1.0},
-		IncrementKg: 50,
-	}))
-	program, err := training.NewProgram(mustFrequency(t, 3), mustTarget(t,
-		map[training.MuscleRegion]float64{training.ChestMid: 12, training.Biceps: 9}),
-		[]training.ExerciseID{"bench", "squat", "deadlift", "coarse"})
-	if err != nil {
-		t.Fatalf("プログラムの生成に失敗: %v", err)
-	}
-	req.Program = program
-	req.History = training.NewHistory(append(planHistory(t),
-		mkLogOn(t, "c1", planMonday.AddDays(-7), "coarse", 20, 5, 2)))
-
-	s := mustPlan(t, req)
-	for _, a := range s.Accessories() {
-		if a.ExerciseID() != "coarse" {
-			continue
-		}
-		if _, ok := a.Weight(); ok {
-			t.Error("刻みに丸めると0kgになる種目に重量が付いている")
-		}
-		return
-	}
-	t.Fatal("coarse が補助に出ていない")
-}
-
-// メインの並びは種目IDの昇順。呼び出し側が並べ替えに依存できるようにする。
-func TestSessionPlanner_MainOrderIsStable(t *testing.T) {
-	s := mustPlan(t, planRequest(t))
-	want := []training.ExerciseID{"bench", "deadlift", "squat"}
-	for i, set := range s.Main() {
-		if i >= len(want) || set.ExerciseID() != want[i] {
-			t.Fatalf("メインの並びが誤り: %v", s.Main())
-		}
-	}
-}
-
-// 一度も実施していないバリエーションを最優先する。
-// 番兵を0にすると「数日前にやったもの」の方が古く見えて選ばれる。
-func TestSessionPlanner_PrefersNeverUsedVariation(t *testing.T) {
-	req := variationDayRequest(t)
-	pool := variationPool(t, "old", 0.9)
-	req.Pool = append(pool, mustExercise(t, training.ExerciseParams{
-		ID: "never", Name: "never", Kind: training.KindVariation,
-		Stimulus:    map[training.MuscleRegion]float64{training.ChestMid: 1.0},
-		IncrementKg: 2.5, MainLift: training.LiftBench,
-	}))
-	req.History = training.NewHistory(append(planHistory(t),
-		mkLogOn(t, "w1", planMonday, "curl", 20, 10, 2),
-		mkLogOn(t, "w2", planMonday.AddDays(1), "curl", 20, 10, 2),
-		mkLogOn(t, "o1", planMonday.AddDays(-5), "old", 75, 8, 2)))
-
-	s := mustPlan(t, req)
-	if _, ok := mainSet(t, s, "never").Role(); !ok {
-		t.Error("未実施のバリエーションが選ばれていない")
-	}
-}
-
 // 当日すでに記録したメイン種目を、計画ぶんと二重に数えない。
 // 二重に数えると、そのセッションの途中から補助が消える。
 func TestSessionPlanner_DoesNotDoubleCountTodaysMain(t *testing.T) {
 	pool := []*training.Exercise{
-		mainExercise(t, "bench", training.LiftBench,
+		mainExercise(t, "bench",
 			map[training.MuscleRegion]float64{training.ChestMid: 1.0}),
 		mkAccessory(t, "fly", map[training.MuscleRegion]float64{training.ChestMid: 1.0}),
 		mkAccessory(t, "press", map[training.MuscleRegion]float64{training.ChestMid: 1.0}),
@@ -1261,9 +1089,7 @@ func TestSessionPlanner_SessionEndsAfterThePlannedWork(t *testing.T) {
 	}
 	selected := make([]training.ExerciseID, 0, len(pool))
 	for _, e := range pool {
-		if e.Kind() != training.KindVariation {
-			selected = append(selected, e.ID())
-		}
+		selected = append(selected, e.ID())
 	}
 	program, err := training.NewProgram(freq, target, selected)
 	if err != nil {

@@ -90,7 +90,7 @@ func simulateWithout(t *testing.T, frequency, weeks int, excluded ...training.Ex
 	ids := make([]training.ExerciseID, 0, len(all))
 	for _, e := range all {
 		byID[e.ID()] = e
-		if e.Kind() != training.KindVariation && !skip[e.ID()] {
+		if !skip[e.ID()] {
 			ids = append(ids, e.ID())
 		}
 	}
@@ -217,9 +217,16 @@ func TestSimulation_EveryAccessoryGetsUsedInSomeSetup(t *testing.T) {
 			used[id] = true
 		}
 	}
-	// デッドリフトを外した構成（ハム・臀筋の主働筋枠が空く）。
-	for id := range simulateWithout(t, 3, 8, "deadlift").picked {
-		used[id] = true
+	// メインを外した構成も見る。メインが毎回埋める区分の補助は、
+	// メインをやる人には回ってこない。それは死んでいるのではなく
+	// 「その構成では要らない」だけなので、要る構成で確かめる。
+	//
+	//   デッドリフト … ハム・臀筋の主働筋枠が空く
+	//   スクワット   … 大腿四頭・内転筋の枠が空く（レッグプレス、アダクション）
+	for _, without := range []training.ExerciseID{"deadlift", "squat"} {
+		for id := range simulateWithout(t, 3, 8, without).picked {
+			used[id] = true
+		}
 	}
 
 	for _, e := range all {
@@ -257,9 +264,7 @@ func TestSimulation_WeightsResolveQuickly(t *testing.T) {
 	byID := map[training.ExerciseID]*training.Exercise{}
 	for _, e := range all {
 		byID[e.ID()] = e
-		if e.Kind() != training.KindVariation {
-			ids = append(ids, e.ID())
-		}
+		ids = append(ids, e.ID())
 	}
 	program, _ := training.NewProgram(freq, target, ids)
 	planner := training.DefaultSessionPlanner()
@@ -267,6 +272,7 @@ func TestSimulation_WeightsResolveQuickly(t *testing.T) {
 	var logs []*training.SetLog
 	n := 0
 	lastUndecided := -1
+	seen := map[training.ExerciseID]bool{}
 	for i := range 12 {
 		date := simStart.AddDays(i / 3 * 7).AddDays((i % 3) * 2)
 		s, err := planner.Plan(training.PlanRequest{
@@ -286,8 +292,15 @@ func TestSimulation_WeightsResolveQuickly(t *testing.T) {
 				kg = w.Kg()
 			} else {
 				undecided++
+				// 未確定が許されるのは初出のときだけ。一度でも記録が
+				// あるのに重量が出ないなら、推定の経路が壊れている。
+				if seen[set.ExerciseID()] {
+					t.Errorf("%d本目: 記録があるのに %s の重量が未確定",
+						i+1, set.ExerciseID())
+				}
 				kg = trueOneRepMax(set.ExerciseID()) * 0.7
 			}
+			seen[set.ExerciseID()] = true
 			for range set.Sets().Int() {
 				n++
 				l, _ := training.NewSetLog(training.SetLogParams{
@@ -300,10 +313,6 @@ func TestSimulation_WeightsResolveQuickly(t *testing.T) {
 		}
 		lastUndecided = undecided
 
-		// 5セッション目以降は、初出の種目以外に未確定が残ってはいけない。
-		if i >= 6 && undecided > 1 {
-			t.Errorf("%d本目でまだ %d 件の重量が未確定", i+1, undecided)
-		}
 	}
 	if lastUndecided != 0 {
 		t.Errorf("12本目で %d 件の重量が未確定", lastUndecided)

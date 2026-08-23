@@ -90,28 +90,23 @@ func (p StimulusProfile) Contribution(r MuscleRegion) (Contribution, bool) {
 func (p StimulusProfile) IsEmpty() bool { return len(p.m) == 0 }
 
 // ExerciseParams は Exercise の生成入力。
-//
-// MainLift は空文字を「未設定」として扱う。
 type ExerciseParams struct {
 	ID          string
 	Name        string
 	Kind        ExerciseKind
 	Stimulus    map[MuscleRegion]float64
 	IncrementKg float64
-	MainLift    MainLift
 }
 
 // Exercise は種目エンティティ。同一性は ID で決まる。
 //
 //ddd:aggregate
 type Exercise struct {
-	id          ExerciseID
-	name        string
-	kind        ExerciseKind
-	stimulus    StimulusProfile
-	increment   Increment
-	mainLift    MainLift
-	hasMainLift bool
+	id        ExerciseID
+	name      string
+	kind      ExerciseKind
+	stimulus  StimulusProfile
+	increment Increment
 }
 
 func NewExercise(p ExerciseParams) (*Exercise, error) {
@@ -149,40 +144,7 @@ func NewExercise(p ExerciseParams) (*Exercise, error) {
 		increment: increment,
 	}
 
-	if p.MainLift != "" {
-		if !p.MainLift.Valid() {
-			return nil, fmt.Errorf("種目 %s のメインリフトが不正: %q", id, p.MainLift)
-		}
-		e.mainLift = p.MainLift
-		e.hasMainLift = true
-	}
-
-	if err := e.validateKindInvariants(); err != nil {
-		return nil, err
-	}
 	return e, nil
-}
-
-// validateKindInvariants は種別ごとの不変条件を検査する。
-//
-// メインリフトを持たないメイン種目や、対メイン係数を持たないバリエーションが
-// 生まれると、スロット割り当てのときに黙って無視される。
-func (e *Exercise) validateKindInvariants() error {
-	switch e.kind {
-	case KindMain:
-		if !e.hasMainLift {
-			return fmt.Errorf("種目 %s: メイン種目はメインリフトを持つ必要がある", e.id)
-		}
-	case KindVariation:
-		if !e.hasMainLift {
-			return fmt.Errorf("種目 %s: バリエーションは所属メインリフトを持つ必要がある", e.id)
-		}
-	case KindAccessory:
-		if e.hasMainLift {
-			return fmt.Errorf("種目 %s: 補助種目はメインリフトを持たない", e.id)
-		}
-	}
-	return nil
 }
 
 func (e *Exercise) ID() ExerciseID            { return e.id }
@@ -191,20 +153,10 @@ func (e *Exercise) Kind() ExerciseKind        { return e.kind }
 func (e *Exercise) Stimulus() StimulusProfile { return e.stimulus }
 func (e *Exercise) Increment() Increment      { return e.increment }
 
-func (e *Exercise) MainLift() (MainLift, bool) { return e.mainLift, e.hasMainLift }
-
 // SameIdentity はエンティティの同一性判定。値ではなく ID で比べる。
 func (e *Exercise) SameIdentity(o *Exercise) bool {
 	if e == nil || o == nil {
 		return false
 	}
 	return e.id == o.id
-}
-
-// IsVariationOf はこの種目が指定のメインリフトのバリエーションか。
-//
-// メイン種目自身は false を返す。バリエーションのスロットにメイン自身が
-// 候補として混ざると、差し替えたつもりで同じ種目が選ばれる。
-func (e *Exercise) IsVariationOf(lift MainLift) bool {
-	return e.kind == KindVariation && e.mainLift == lift
 }

@@ -35,7 +35,6 @@ func (h *Handler) handleGetExercises(w http.ResponseWriter, r *http.Request) {
 			Name:        e.Name,
 			Kind:        string(e.Kind),
 			IncrementKg: e.IncrementKg,
-			MainLift:    e.MainLift,
 		})
 	}
 	writeJSON(w, http.StatusOK, exercisesResponse{Exercises: out})

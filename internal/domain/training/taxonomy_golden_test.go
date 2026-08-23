@@ -51,23 +51,13 @@ func TestMuscleRegion_GoldenValues(t *testing.T) {
 }
 
 func TestExerciseKind_GoldenValues(t *testing.T) {
-	want := []string{"ACCESSORY", "MAIN", "VARIATION"}
+	want := []string{"ACCESSORY", "MAIN"}
 
 	got := make([]string, 0, len(want))
 	for _, k := range training.AllExerciseKinds() {
 		got = append(got, string(k))
 	}
 	assertGolden(t, "ExerciseKind", got, want)
-}
-
-func TestMainLift_GoldenValues(t *testing.T) {
-	want := []string{"BENCH", "DEADLIFT", "SQUAT"}
-
-	got := make([]string, 0, len(want))
-	for _, l := range training.AllMainLifts() {
-		got = append(got, string(l))
-	}
-	assertGolden(t, "MainLift", got, want)
 }
 
 func assertGolden(t *testing.T, name string, got, want []string) {
@@ -109,7 +99,6 @@ func TestTaxonomy_EveryDeclaredConstantIsListed(t *testing.T) {
 	}{
 		{"MuscleRegion", toStrings(training.AllMuscleRegions())},
 		{"ExerciseKind", toStrings(training.AllExerciseKinds())},
-		{"MainLift", toStrings(training.AllMainLifts())},
 	}
 
 	for _, c := range cases {
@@ -150,7 +139,6 @@ func TestTaxonomy_ValidAgreesWithTheList(t *testing.T) {
 
 	regions := lookupOf(toStrings(training.AllMuscleRegions()))
 	kinds := lookupOf(toStrings(training.AllExerciseKinds()))
-	lifts := lookupOf(toStrings(training.AllMainLifts()))
 
 	for _, lit := range literals {
 		if training.MuscleRegion(lit).Valid() && !regions[lit] {
@@ -158,9 +146,6 @@ func TestTaxonomy_ValidAgreesWithTheList(t *testing.T) {
 		}
 		if training.ExerciseKind(lit).Valid() && !kinds[lit] {
 			t.Errorf("ExerciseKind(%q) が Valid だが一覧に無い。Valid に特例が入っている", lit)
-		}
-		if training.MainLift(lit).Valid() && !lifts[lit] {
-			t.Errorf("MainLift(%q) が Valid だが一覧に無い。Valid に特例が入っている", lit)
 		}
 	}
 }
