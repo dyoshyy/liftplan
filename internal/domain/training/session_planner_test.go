@@ -2,6 +2,7 @@ package training_test
 
 import (
 	"fmt"
+	"slices"
 	"testing"
 	"time"
 
@@ -488,6 +489,51 @@ func TestSessionPlanner_ResidualCarriesOverWithinTheWeek(t *testing.T) {
 //
 // セッション中に記録してから計画を開き直したとき、当日のメイン種目が
 // 履歴と計画の両方で数えられると、残差が実際より小さくなる。
+// その日の計画は、その日の始まりに確定する。
+//
+// セッション中に記録を足しながら開き直しても、種目の並びと数が変わらない
+// こと。これが今回の受け入れ条件で、ここが守られていれば「終えた種目が
+// 消える」「並びが入れ替わる」「枠が補充されて終わらない」は原理的に
+// 起きなくなる（D-021・D-087・D-088 はすべてこの1点の派生だった）。
+func TestSessionPlanner_PlanIsFixedForTheWholeDay(t *testing.T) {
+	req := planRequest(t)
+	base := planHistory(t)
+	req.History = training.NewHistory(base)
+
+	first := mustPlan(t, req)
+	want := lineup(first)
+	if len(want) == 0 {
+		t.Fatal("前提: 種目が1つも出ていない")
+	}
+
+	// 提示されたとおりに1セットずつ記録しては、開き直す。
+	logs := append([]*training.SetLog{}, base...)
+	n := 0
+	for _, set := range append(first.Main(), first.Accessories()...) {
+		for range set.Sets().Int() {
+			n++
+			logs = append(logs, mkLogOn(t, fmt.Sprintf("d%03d", n), req.Date,
+				string(set.ExerciseID()), 40, 8, 2))
+
+			req.History = training.NewHistory(logs)
+			got := lineup(mustPlan(t, req))
+			if !slices.Equal(got, want) {
+				t.Fatalf("%dセット記録した時点で計画が変わった\n  最初: %v\n  いま: %v",
+					n, want, got)
+			}
+		}
+	}
+}
+
+// lineup は提示された種目を並び順のまま返す。
+func lineup(s training.PlannedSession) []training.ExerciseID {
+	out := make([]training.ExerciseID, 0, len(s.Main())+len(s.Accessories()))
+	for _, set := range append(s.Main(), s.Accessories()...) {
+		out = append(out, set.ExerciseID())
+	}
+	return out
+}
+
 func TestSessionPlanner_DoesNotDoubleCountTodaysLogs(t *testing.T) {
 	req := planRequest(t)
 	base := mustPlan(t, req)
@@ -646,7 +692,10 @@ func TestSessionPlanner_WeeklyCoverageWindow(t *testing.T) {
 		}
 	})
 
-	t.Run("当日の記録は数える", func(t *testing.T) {
+	// 以前は当日の記録も残差に含めていた。含めるとセッション中に残差が
+	// 動き、こなすたびにリストが入れ替わる。今日の計画はその日の始まりに
+	// 確定させると決めたので、当日は数えない（D-116）。
+	t.Run("当日の記録は数えない", func(t *testing.T) {
 		logs := planHistory(t)
 		for i := range 12 {
 			logs = append(logs, mkLogOn(t, fmt.Sprintf("today-%d", i),
@@ -655,9 +704,8 @@ func TestSessionPlanner_WeeklyCoverageWindow(t *testing.T) {
 		req := base
 		req.History = training.NewHistory(logs)
 
-		// 週目標を当日だけで埋め切ったので、補助はもう出ない。
-		if got := len(mustPlan(t, req).Accessories()); got != 0 {
-			t.Errorf("当日の記録が残差に反映されていない: %d件が残った", got)
+		if got := len(mustPlan(t, req).Accessories()); got != want {
+			t.Errorf("当日の記録が残差に影響している: %d → %d", want, got)
 		}
 	})
 }
@@ -739,9 +787,16 @@ func mainWeight(t *testing.T, s training.PlannedSession, id training.ExerciseID)
 	return w.Kg()
 }
 
-// セッション中にこなした補助は残差に反映され、二度提示されない。
-// 反映しないと、記録して開き直すたびに同じ補助が出てセッションが終わらない。
-func TestSessionPlanner_TodaysAccessoryIsNotReoffered(t *testing.T) {
+// こなした補助もリストに残る。
+//
+// 以前は3セット終えると候補から外していた。外すと枠が空いて新しい種目が
+// 補充され、種目マスタが尽きるまでセッションが終わらなかった。それを
+// 抑えるために枠の再計算（fitAccessories）が要り、さらに並びが動くので
+// IDの昇順で固定する、と手当てが積み上がっていた。
+//
+// 当日を見なければ、どれも起きない。終えた種目は緑のまま残るだけで、
+// 終わりを判断するのは本人（D-116）。
+func TestSessionPlanner_FinishedAccessoryStaysInTheList(t *testing.T) {
 	req := planRequest(t)
 	first := mustPlan(t, req)
 	if len(first.Accessories()) == 0 {
@@ -757,20 +812,12 @@ func TestSessionPlanner_TodaysAccessoryIsNotReoffered(t *testing.T) {
 	req.History = training.NewHistory(logs)
 	second := mustPlan(t, req)
 
-	for _, id := range accessoryIDs(second) {
-		if id == done {
-			t.Errorf("こなした補助 %s が再提示された: %v", done, accessoryIDs(second))
-		}
+	if !slices.Contains(accessoryIDs(second), done) {
+		t.Errorf("こなした補助 %s がリストから消えた: %v", done, accessoryIDs(second))
 	}
-	if len(second.Accessories()) >= len(first.Accessories()) {
-		t.Errorf("補助の残りが減っていない: %d → %d",
+	if len(second.Accessories()) != len(first.Accessories()) {
+		t.Errorf("補助の数が変わった: %d → %d",
 			len(first.Accessories()), len(second.Accessories()))
-	}
-
-	// 当日の記録で週内の本数が進んではいけない（まだ同じセッションの途中）。
-	role, ok := mainSet(t, second, "bench").Role()
-	if !ok || role != training.RoleStandard {
-		t.Errorf("当日の記録でスロットが進んだ: %v", role)
 	}
 }
 
@@ -1018,29 +1065,6 @@ func TestSessionPlanner_PartiallyDoneAccessoryStays(t *testing.T) {
 	t.Errorf("%d/%dセットしか終えていないのに %s が消えた", perSet-1, perSet, target)
 }
 
-// 予定分を終えた補助は、もう提示されないこと。
-//
-// 出続けると、こなすたびに同じ種目が再提示されてセッションが終わらない。
-func TestSessionPlanner_FinishedAccessoryDropsOut(t *testing.T) {
-	req := planRequest(t)
-	first := mustPlan(t, req)
-	target := first.Accessories()[0].ExerciseID()
-	perSet := first.Accessories()[0].Sets().Int()
-
-	logs := planHistory(t)
-	for i := range perSet {
-		logs = append(logs, mkLogOn(t, fmt.Sprintf("full-%d", i),
-			planMonday, string(target), 30, 10, 2))
-	}
-	req.History = training.NewHistory(logs)
-
-	for _, a := range mustPlan(t, req).Accessories() {
-		if a.ExerciseID() == target {
-			t.Errorf("%dセット終えた %s がまた提示された", perSet, target)
-		}
-	}
-}
-
 // 補助の並びが、当日の記録で入れ替わらないこと。
 //
 // ジムで消化している最中にリストが自分の下で動くと、どこまでやったか
@@ -1077,7 +1101,13 @@ func TestSessionPlanner_AccessoryOrderIsStableWithinASession(t *testing.T) {
 // 補助を終えるたびに新しい種目が補充されると、種目マスタが尽きるまで
 // セッションが終わらない。実サーバーで通しで消化して踏んだ
 // （60手やっても8件出続けた）。
-func TestSessionPlanner_SessionEndsAfterThePlannedWork(t *testing.T) {
+// 予定どおりに消化すると、ちょうど予定ぶんのセット数で終わること。
+//
+// 以前は「消化しきると補助が0件になる」を検査していた。当日を見なくなった
+// ので、リストは一日中同じものが返る。終わりを判断するのは本人であって
+// サーバーではない（D-116）。ここで見るのは「予定より多く/少なくやることに
+// ならないか」だけになった。
+func TestSessionPlanner_PlannedWorkIsConsumedExactly(t *testing.T) {
 	pool, err := seed.Exercises()
 	if err != nil {
 		t.Fatalf("シードが不正: %v", err)
@@ -1152,8 +1182,12 @@ func TestSessionPlanner_SessionEndsAfterThePlannedWork(t *testing.T) {
 	if recorded != planned {
 		t.Errorf("予定 %dセットに対して %dセットこなすことになった", planned, recorded)
 	}
-	if last := plan(t); len(last.Accessories()) != 0 {
-		t.Errorf("消化しきったのに補助が %d件残っている", len(last.Accessories()))
+
+	// 消化しきってもリストは同じ。サーバーは「終わり」を言わない。
+	// 全部のマスが緑になったかどうかは画面が判断する（D-116）。
+	if last := plan(t); len(last.Accessories()) != len(first.Accessories()) {
+		t.Errorf("消化しきったら補助の数が変わった: %d → %d",
+			len(first.Accessories()), len(last.Accessories()))
 	}
 }
 
