@@ -141,3 +141,21 @@ func (l ConditionLog) On(date Date) (DailyCondition, bool) {
 	}
 	return DailyCondition{}, false
 }
+
+// BodyWeightAsOf は date 以前で最も新しい体重。
+//
+// 鮮度は見ない。古い体重で計算され続ける経路は残るが、推定1RM側の
+// 42日判定が先に効いて「自分で決める」になるので破綻しない。
+// 必要になってから足す。
+func (l ConditionLog) BodyWeightAsOf(date Date) (float64, bool) {
+	for i := len(l.items) - 1; i >= 0; i-- {
+		c := l.items[i]
+		if c.Date().After(date) {
+			continue // 指定した日付より未来だったらスキップ
+		}
+		if kg, ok := c.BodyWeightKg(); ok {
+			return kg, true
+		}
+	}
+	return 0, false
+}
