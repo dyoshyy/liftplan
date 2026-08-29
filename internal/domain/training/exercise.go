@@ -91,22 +91,24 @@ func (p StimulusProfile) IsEmpty() bool { return len(p.m) == 0 }
 
 // ExerciseParams は Exercise の生成入力。
 type ExerciseParams struct {
-	ID          string
-	Name        string
-	Kind        ExerciseKind
-	Stimulus    map[MuscleRegion]float64
-	IncrementKg float64
+	ID               string
+	Name             string
+	Kind             ExerciseKind
+	Stimulus         map[MuscleRegion]float64
+	IncrementKg      float64
+	BodyweightFactor float64
 }
 
 // Exercise は種目エンティティ。同一性は ID で決まる。
 //
 //ddd:aggregate
 type Exercise struct {
-	id        ExerciseID
-	name      string
-	kind      ExerciseKind
-	stimulus  StimulusProfile
-	increment Increment
+	id               ExerciseID
+	name             string
+	kind             ExerciseKind
+	stimulus         StimulusProfile
+	increment        Increment
+	bodyweightFactor BodyweightFactor
 }
 
 func NewExercise(p ExerciseParams) (*Exercise, error) {
@@ -135,23 +137,29 @@ func NewExercise(p ExerciseParams) (*Exercise, error) {
 	if err != nil {
 		return nil, fmt.Errorf("種目 %s: %w", id, err)
 	}
+	bodyweightFactor, err := NewBodyweightFactor(p.BodyweightFactor)
+	if err != nil {
+		return nil, fmt.Errorf("種目 %s の BodyweightFactor が不正: %q", id, err)
+	}
 
 	e := &Exercise{
-		id:        id,
-		name:      name,
-		kind:      p.Kind,
-		stimulus:  stimulus,
-		increment: increment,
+		id:               id,
+		name:             name,
+		kind:             p.Kind,
+		stimulus:         stimulus,
+		increment:        increment,
+		bodyweightFactor: bodyweightFactor,
 	}
 
 	return e, nil
 }
 
-func (e *Exercise) ID() ExerciseID            { return e.id }
-func (e *Exercise) Name() string              { return e.name }
-func (e *Exercise) Kind() ExerciseKind        { return e.kind }
-func (e *Exercise) Stimulus() StimulusProfile { return e.stimulus }
-func (e *Exercise) Increment() Increment      { return e.increment }
+func (e *Exercise) ID() ExerciseID                     { return e.id }
+func (e *Exercise) Name() string                       { return e.name }
+func (e *Exercise) Kind() ExerciseKind                 { return e.kind }
+func (e *Exercise) Stimulus() StimulusProfile          { return e.stimulus }
+func (e *Exercise) Increment() Increment               { return e.increment }
+func (e *Exercise) BodyweightFactor() BodyweightFactor { return e.bodyweightFactor }
 
 // SameIdentity はエンティティの同一性判定。値ではなく ID で比べる。
 func (e *Exercise) SameIdentity(o *Exercise) bool {
