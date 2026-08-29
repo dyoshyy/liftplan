@@ -1276,3 +1276,58 @@ func TestSessionPlanner_StartedAccessoriesDoNotJumpToTheTop(t *testing.T) {
 		}
 	}
 }
+
+// 体重75kgを記録し、チンニング（係数0.95）を加重0kgで8回×3セット、過去に記録する。
+// 次の計画でチンニングに重量が出ること。
+func TestSessionPlanner_BodyWeightOnlySetsStillProduceAWeight(t *testing.T) {
+	const bodyweight = 75.0
+
+	chin := mustExercise(t, training.ExerciseParams{
+		ID: "chin", Name: "chin", Kind: training.KindAccessory, Stimulus: map[training.MuscleRegion]float64{training.Lat: 1.0}, IncrementKg: 2.5, BodyweightFactor: 0.95,
+	})
+
+	pool := append(planPool(t), chin)
+	program, err := training.NewProgram(
+		mustFrequency(t, 3),
+		mustTarget(t, map[training.MuscleRegion]float64{training.Lat: 12}),
+		[]training.ExerciseID{"bench", "squat", "deadlift", "chin"},
+	)
+	if err != nil {
+		t.Fatalf("プログラムの生成に失敗: %v", err)
+	}
+
+	// 先週、自重（加重0kg）で3セッションこなした。体重も測ってある。
+	var logs []*training.SetLog
+	var conds []training.DailyCondition
+	for i, daysAgo := range []int{21, 14, 7} {
+		day := planMonday.AddDays(-daysAgo)
+		for set := range 3 {
+			logs = append(logs, mkLogOn(t,
+				fmt.Sprintf("chin-%d-%d", i, set), day, "chin", 0, 8, 2))
+		}
+		conds = append(conds,
+			training.NewDailyCondition(day).WithBodyWeight(bodyweight))
+	}
+
+	s := mustPlan(t, training.PlanRequest{
+		Program:    program,
+		Pool:       pool,
+		History:    training.NewHistory(logs),
+		Conditions: training.NewConditionLog(conds),
+		Date:       planMonday,
+	})
+
+	found := false
+	for _, set := range s.Accessories() {
+		if set.ExerciseID() != training.ExerciseID("chin") {
+			continue
+		}
+		found = true
+		if _, ok := set.Weight(); !ok {
+			t.Error("自重だけの記録から重量が決まらない")
+		}
+	}
+	if !found {
+		t.Fatal("前提: チンニングが補助として提示されること")
+	}
+}
