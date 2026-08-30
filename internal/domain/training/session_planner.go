@@ -235,9 +235,7 @@ func (p SessionPlanner) planMain(
 	if orm, ok := p.estimator.Estimate(historyBefore, target.ID(), req.Date); ok {
 		if w, err := orm.WorkWeight(intensity, target.Increment()); err == nil {
 			// 推定も処方も実効負荷（体重込み）で通し、出口で加重に戻す。
-			if added, ok := AddedWeight(w, target, req.Conditions, req.Date); ok {
-				set.weight, set.hasWeight = added, true
-			}
+			set.weight, set.hasWeight = AddedWeight(w, target, req.Conditions, req.Date), true
 		}
 	}
 	return set, target
@@ -272,9 +270,7 @@ func (p SessionPlanner) planAccessory(
 
 	if orm, ok := p.estimator.Estimate(historyBefore, id, req.Date); ok {
 		if w, err := orm.WorkWeight(intensity, exercise.Increment()); err == nil {
-			if added, ok := AddedWeight(w, exercise, req.Conditions, req.Date); ok {
-				set.weight, set.hasWeight = added, true
-			}
+			set.weight, set.hasWeight = AddedWeight(w, exercise, req.Conditions, req.Date), true
 		}
 	}
 	return set

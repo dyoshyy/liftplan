@@ -1393,6 +1393,80 @@ func TestSessionPlanner_BodyweightSetsStillCountTowardCoverage(t *testing.T) {
 	}
 }
 
+// 負荷が出せず 0kg に倒れたセットも、週の充足には数えること。
+//
+// 体重の実測はあるが、そのセットより前には無い場合、推定に使えないので
+// 0kg になる。だが「何kg挙げたか分からない」だけで「やらなかった」わけでは
+// ない。ここで履歴から落とすと、やったはずのセットが残差から消えて同じ
+// 区分の補助が何度でも提示される。
+func TestSessionPlanner_SetsWithUnknownLoadStillCountTowardCoverage(t *testing.T) {
+	chin := mustExercise(t, training.ExerciseParams{
+		ID: "chin", Name: "chin", Kind: training.KindAccessory,
+		Stimulus:         map[training.MuscleRegion]float64{training.Lat: 1.0},
+		IncrementKg:      2.5,
+		BodyweightFactor: 0.95,
+	})
+	pool := append(planPool(t), chin)
+	ids := []training.ExerciseID{"bench", "squat", "deadlift", "chin"}
+	for i := range 5 {
+		id := fmt.Sprintf("lat_%d", i)
+		pool = append(pool, mkAccessory(t, id,
+			map[training.MuscleRegion]float64{training.Lat: 1.0}))
+		ids = append(ids, training.ExerciseID(id))
+	}
+
+	program, err := training.NewProgram(mustFrequency(t, 3),
+		mustTarget(t, map[training.MuscleRegion]float64{training.Lat: 12}), ids)
+	if err != nil {
+		t.Fatalf("プログラムの生成に失敗: %v", err)
+	}
+
+	// 体重を測ったのは週の半ば。それより前のセットは負荷が出せない。
+	conditions := training.NewConditionLog([]training.DailyCondition{
+		training.NewDailyCondition(planMonday.AddDays(1)).WithBodyWeight(75),
+	})
+
+	date := planMonday.AddDays(2)
+	base := training.PlanRequest{
+		Program: program, Pool: pool,
+		History:    training.NewHistory(planHistory(t)),
+		Conditions: conditions,
+		Date:       date,
+	}
+	want := len(mustPlan(t, base).Accessories())
+	if want == 0 {
+		t.Fatal("前提: 補助が提示されること")
+	}
+
+	// 体重を測る前日に12セットこなした。実効負荷は出せない（0kg になる）。
+	logs := planHistory(t)
+	for i := range 12 {
+		logs = append(logs, mkLogOn(t, fmt.Sprintf("chin-%d", i),
+			planMonday, "chin", 0, 8, 2))
+	}
+	req := base
+	req.History = training.NewHistory(logs)
+
+	got := len(mustPlan(t, req).Accessories())
+	if got >= want {
+		t.Errorf("負荷不明のセットが残差に反映されていない: %d → %d", want, got)
+	}
+}
+
+// 0kg のセットからは推定1RMが出ないこと。
+//
+// これは変異テスト。effectiveHistory は「負荷が出せない」を 0kg で表し、
+// 除外は下流に任せている。NewOneRepMax の下限（smallestPositive）を
+// 動かすとこの前提が静かに壊れ、負荷不明のセットが推定に混ざる。
+func TestSetLog_ZeroWeightIsNotEstimable(t *testing.T) {
+	log := mkLogOn(t, "x", planMonday, "chin", 0, 8, 2)
+
+	if orm, ok := log.EstimatedOneRepMax(); ok {
+		t.Errorf("0kg から推定1RM %vkg が出ている。負荷不明のセットが推定に入る",
+			orm.Kg())
+	}
+}
+
 // 自重種目の提示は加重で出す。体重込みの総負荷を見せられても、
 // 何をすればいいか分からない。
 func TestSessionPlanner_BodyweightExerciseIsPrescribedAsAddedWeight(t *testing.T) {
@@ -1463,12 +1537,16 @@ func TestSessionPlanner_BodyweightExerciseIsPrescribedAsAddedWeight(t *testing.T
 	}
 }
 
-// 体重を一度も測っていないと、自重種目は「自分で決める」になる。
+// 体重を一度も測っていなくても、自重種目に重量が出る。
 //
-// 負荷が体重×係数＋加重である以上、体重が分からなければ何kgでやったのかも、
-// 何kgでやるべきかも出せない。ここは推測せず本人に返す。
-// 自重が乗らない種目は巻き込まない。
-func TestSessionPlanner_BodyweightExerciseNeedsABodyWeight(t *testing.T) {
+// 元は「体重が分からなければ推測せず本人に返す」として「自分で決める」を
+// 出していた。だが「何kgでやるか」はアプリが答えるべき問いなので、既定体重
+// 70kg で処方する。推定と処方の両側で同じ体重を使うため、既定値が実体から
+// ずれても出力はほとんど動かない（体重20kgのずれで処方は1kg）。
+//
+// 総負荷がそのまま出ないことも併せて見る。体重を0と見なすと引き算が消えて
+// 自重種目に総負荷を処方してしまう。
+func TestSessionPlanner_BodyweightExerciseFallsBackToDefaultBodyWeight(t *testing.T) {
 	chin := mustExercise(t, training.ExerciseParams{
 		ID: "chin", Name: "chin", Kind: training.KindAccessory,
 		Stimulus:         map[training.MuscleRegion]float64{training.Lat: 1.0},
@@ -1504,15 +1582,31 @@ func TestSessionPlanner_BodyweightExerciseNeedsABodyWeight(t *testing.T) {
 		Date:       planMonday,
 	})
 
+	found := false
 	for _, set := range s.Accessories() {
-		if set.ExerciseID() == training.ExerciseID("chin") {
-			if w, ok := set.Weight(); ok {
-				t.Errorf("体重が無いのにチンニングに %vkg が出ている", w.Kg())
-			}
+		if set.ExerciseID() != training.ExerciseID("chin") {
+			continue
+		}
+		found = true
+		w, ok := set.Weight()
+		if !ok {
+			t.Fatal("体重が無くても既定値で処方されるはず")
+		}
+		// 既定体重70kg × 0.95 = 66.5kg は体が負担している。付けるプレートは
+		// その差分だけなので、提示はこれを下回る。
+		if w.Kg() >= defaultBodyWeight*0.95 {
+			t.Errorf("提示が %vkg。総負荷がそのまま処方されている", w.Kg())
+		}
+		// 記録した加重が10kgなので、その周辺に落ちる。
+		if w.Kg() <= 0 || w.Kg() > 30 {
+			t.Errorf("提示が %vkg。加重10kgの記録から出る値としておかしい", w.Kg())
 		}
 	}
+	if !found {
+		t.Fatal("前提: チンニングが補助として提示されること")
+	}
 
-	// 自重が乗らないメイン種目は、体重が無くても従来どおり決まる。
+	// 自重が乗らないメイン種目は従来どおり決まる。
 	decided := false
 	for _, set := range s.Main() {
 		if _, ok := set.Weight(); ok {
