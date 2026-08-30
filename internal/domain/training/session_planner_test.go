@@ -1463,12 +1463,16 @@ func TestSessionPlanner_BodyweightExerciseIsPrescribedAsAddedWeight(t *testing.T
 	}
 }
 
-// 体重を一度も測っていないと、自重種目は「自分で決める」になる。
+// 体重を一度も測っていなくても、自重種目に重量が出る。
 //
-// 負荷が体重×係数＋加重である以上、体重が分からなければ何kgでやったのかも、
-// 何kgでやるべきかも出せない。ここは推測せず本人に返す。
-// 自重が乗らない種目は巻き込まない。
-func TestSessionPlanner_BodyweightExerciseNeedsABodyWeight(t *testing.T) {
+// 元は「体重が分からなければ推測せず本人に返す」として「自分で決める」を
+// 出していた。だが「何kgでやるか」はアプリが答えるべき問いなので、既定体重
+// 70kg で処方する。推定と処方の両側で同じ体重を使うため、既定値が実体から
+// ずれても出力はほとんど動かない（体重20kgのずれで処方は1kg）。
+//
+// 総負荷がそのまま出ないことも併せて見る。体重を0と見なすと引き算が消えて
+// 自重種目に総負荷を処方してしまう。
+func TestSessionPlanner_BodyweightExerciseFallsBackToDefaultBodyWeight(t *testing.T) {
 	chin := mustExercise(t, training.ExerciseParams{
 		ID: "chin", Name: "chin", Kind: training.KindAccessory,
 		Stimulus:         map[training.MuscleRegion]float64{training.Lat: 1.0},
@@ -1504,15 +1508,31 @@ func TestSessionPlanner_BodyweightExerciseNeedsABodyWeight(t *testing.T) {
 		Date:       planMonday,
 	})
 
+	found := false
 	for _, set := range s.Accessories() {
-		if set.ExerciseID() == training.ExerciseID("chin") {
-			if w, ok := set.Weight(); ok {
-				t.Errorf("体重が無いのにチンニングに %vkg が出ている", w.Kg())
-			}
+		if set.ExerciseID() != training.ExerciseID("chin") {
+			continue
+		}
+		found = true
+		w, ok := set.Weight()
+		if !ok {
+			t.Fatal("体重が無くても既定値で処方されるはず")
+		}
+		// 既定体重70kg × 0.95 = 66.5kg は体が負担している。付けるプレートは
+		// その差分だけなので、提示はこれを下回る。
+		if w.Kg() >= defaultBodyWeight*0.95 {
+			t.Errorf("提示が %vkg。総負荷がそのまま処方されている", w.Kg())
+		}
+		// 記録した加重が10kgなので、その周辺に落ちる。
+		if w.Kg() <= 0 || w.Kg() > 30 {
+			t.Errorf("提示が %vkg。加重10kgの記録から出る値としておかしい", w.Kg())
 		}
 	}
+	if !found {
+		t.Fatal("前提: チンニングが補助として提示されること")
+	}
 
-	// 自重が乗らないメイン種目は、体重が無くても従来どおり決まる。
+	// 自重が乗らないメイン種目は従来どおり決まる。
 	decided := false
 	for _, set := range s.Main() {
 		if _, ok := set.Weight(); ok {

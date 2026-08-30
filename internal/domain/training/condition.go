@@ -28,6 +28,20 @@ const (
 	maxSleepHours   = 24
 )
 
+// defaultBodyWeightKg は体重を一度も記録していない利用者に使う既定値。
+//
+// かつては推定から落として「自分で決める」を出していたが、「何kgでやるか」は
+// アプリが答えるべき問いなので既定値を置く。
+//
+// 実体からずれても出力はほとんど動かない。処方を展開すると
+//
+//	added = 1.333·I·w + k·B·(1.333·I − 1)
+//
+// で、補助種目（I = 0.71）なら体重 B の係数は −0.054。20kg ずれても処方は
+// 1kg しか動かない。推定と処方の両側で同じ B を使うため打ち消し合う。
+// 一度でも記録すれば実測に切り替わるので、誤差は自己修復する。
+const defaultBodyWeightKg = 70
+
 // DailyCondition は Health Connect から取り込んだ日次スナップショット。
 //
 // 体重と睡眠はどちらも欠損しうる。不変で、With 系は新しい値を返す。
@@ -158,4 +172,17 @@ func (l ConditionLog) BodyWeightAsOf(date Date) (float64, bool) {
 		}
 	}
 	return 0, false
+}
+
+// HasBodyWeight は体重の記録が一件でもあるか。
+//
+// 「一件も無い」と「その日付より前には無い」を区別するためにある。前者は
+// 既定体重で計算し、後者はそのセットを推定から落とす。
+func (l ConditionLog) HasBodyWeight() bool {
+	for _, c := range l.items {
+		if _, ok := c.BodyWeightKg(); ok {
+			return true
+		}
+	}
+	return false
 }
