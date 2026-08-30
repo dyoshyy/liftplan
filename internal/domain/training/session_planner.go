@@ -96,6 +96,7 @@ func (p SessionPlanner) Plan(req PlanRequest) (PlannedSession, error) {
 	}
 
 	pool := p.usablePool(req)
+	estHistory := effectiveHistory(historyBefore(req), pool, req.Conditions)
 	mains := mainExercises(pool)
 	if len(mains) == 0 {
 		// 集約は種目マスタを知らないので、メイン種目の有無を検証できない。
@@ -138,7 +139,7 @@ func (p SessionPlanner) Plan(req PlanRequest) (PlannedSession, error) {
 
 	main := make([]PlannedSet, 0, len(mains))
 	for _, e := range mains {
-		set, performed := p.planMain(req, pool, e, template, deloadTargets[e.ID()], rirBump)
+		set, performed := p.planMain(req, pool, estHistory, e, template, deloadTargets[e.ID()], rirBump)
 		main = append(main, set)
 		coverage = coverage.Plus(performed.Stimulus(), set.Sets())
 	}
@@ -161,7 +162,7 @@ func (p SessionPlanner) Plan(req PlanRequest) (PlannedSession, error) {
 
 	accessories := make([]PlannedSet, 0, len(chosen))
 	for _, id := range chosen {
-		accessories = append(accessories, p.planAccessory(req, pool, id, rirBump))
+		accessories = append(accessories, p.planAccessory(req, pool, estHistory, id, rirBump))
 	}
 
 	return PlannedSession{
@@ -206,6 +207,7 @@ func mainExercises(pool []*Exercise) []*Exercise {
 func (p SessionPlanner) planMain(
 	req PlanRequest,
 	pool []*Exercise,
+	historyBefore History,
 	main *Exercise,
 	template SlotTemplate,
 	deloaded bool,
@@ -230,7 +232,7 @@ func (p SessionPlanner) planMain(
 	// 推定1RMが動いて2セット目の提示重量が変わる。しかも RIR を守って
 	// きついセットをこなすほど推定が上がるので、**追い込むほど次が重くなる**。
 	// その日にやることは、その日が始まる前に分かっていたことから決める。
-	if orm, ok := p.estimator.Estimate(historyBefore(req), target.ID(), req.Date); ok {
+	if orm, ok := p.estimator.Estimate(historyBefore, target.ID(), req.Date); ok {
 		if w, err := orm.WorkWeight(intensity, target.Increment()); err == nil {
 			set.weight, set.hasWeight = w, true
 		}
@@ -241,6 +243,7 @@ func (p SessionPlanner) planMain(
 func (p SessionPlanner) planAccessory(
 	req PlanRequest,
 	pool []*Exercise,
+	historyBefore History,
 	id ExerciseID,
 	rirBump int,
 ) PlannedSet {
@@ -264,7 +267,7 @@ func (p SessionPlanner) planAccessory(
 		return set
 	}
 
-	if orm, ok := p.estimator.Estimate(historyBefore(req), id, req.Date); ok {
+	if orm, ok := p.estimator.Estimate(historyBefore, id, req.Date); ok {
 		if w, err := orm.WorkWeight(intensity, exercise.Increment()); err == nil {
 			set.weight, set.hasWeight = w, true
 		}

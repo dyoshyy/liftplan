@@ -1331,3 +1331,64 @@ func TestSessionPlanner_BodyWeightOnlySetsStillProduceAWeight(t *testing.T) {
 		t.Fatal("前提: チンニングが補助として提示されること")
 	}
 }
+
+// 体重が分からない自重種目の記録も、週の充足には数えること。
+//
+// 推定に渡す履歴は実効負荷（体重×係数+加重）へ変換し、体重が引けない
+// セットは落とす。落とすのは「何kg挙げたか分からない」からであって、
+// 「やらなかった」わけではない。
+//
+// 変換した履歴を残差の計算にも使うと、やったはずのセットが消えて
+// 同じ区分の補助が何度でも提示される。カバレッジは重量ではなく
+// セット数で数えるので、変換前の履歴を渡すこと。
+func TestSessionPlanner_BodyweightSetsStillCountTowardCoverage(t *testing.T) {
+	// 広背筋だけを狙う自重種目と、同じ区分を狙う補助を5つ。
+	chin := mustExercise(t, training.ExerciseParams{
+		ID: "chin", Name: "chin", Kind: training.KindAccessory,
+		Stimulus:         map[training.MuscleRegion]float64{training.Lat: 1.0},
+		IncrementKg:      2.5,
+		BodyweightFactor: 0.95,
+	})
+	pool := append(planPool(t), chin)
+	ids := []training.ExerciseID{"bench", "squat", "deadlift", "chin"}
+	for i := range 5 {
+		id := fmt.Sprintf("lat_%d", i)
+		pool = append(pool, mkAccessory(t, id,
+			map[training.MuscleRegion]float64{training.Lat: 1.0}))
+		ids = append(ids, training.ExerciseID(id))
+	}
+
+	program, err := training.NewProgram(mustFrequency(t, 3),
+		mustTarget(t, map[training.MuscleRegion]float64{training.Lat: 12}), ids)
+	if err != nil {
+		t.Fatalf("プログラムの生成に失敗: %v", err)
+	}
+
+	// 週の半ばを対象日にして、その手前に記録を置けるようにする。
+	date := planMonday.AddDays(2)
+	base := training.PlanRequest{
+		Program: program, Pool: pool,
+		History:    training.NewHistory(planHistory(t)),
+		Conditions: training.NewConditionLog(nil),
+		Date:       date,
+	}
+	want := len(mustPlan(t, base).Accessories())
+	if want == 0 {
+		t.Fatal("前提: 補助が提示されること")
+	}
+
+	// 今週すでに自重で12セットこなした。ただし体重は一度も測っていないので、
+	// 実効負荷が出せず、推定用の履歴からは落ちる。
+	logs := planHistory(t)
+	for i := range 12 {
+		logs = append(logs, mkLogOn(t, fmt.Sprintf("chin-%d", i),
+			planMonday, "chin", 0, 8, 2))
+	}
+	req := base
+	req.History = training.NewHistory(logs)
+
+	got := len(mustPlan(t, req).Accessories())
+	if got >= want {
+		t.Errorf("自重のセットが残差に反映されていない: %d → %d", want, got)
+	}
+}
