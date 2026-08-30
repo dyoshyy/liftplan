@@ -1392,3 +1392,73 @@ func TestSessionPlanner_BodyweightSetsStillCountTowardCoverage(t *testing.T) {
 		t.Errorf("自重のセットが残差に反映されていない: %d → %d", want, got)
 	}
 }
+
+// 自重種目の提示は加重で出す。体重込みの総負荷を見せられても、
+// 何をすればいいか分からない。
+func TestSessionPlanner_BodyweightExerciseIsPrescribedAsAddedWeight(t *testing.T) {
+	const bodyweight = 75.0
+	const factor = 0.95
+
+	chin := mustExercise(t, training.ExerciseParams{
+		ID: "chin", Name: "chin", Kind: training.KindAccessory,
+		Stimulus:         map[training.MuscleRegion]float64{training.Lat: 1.0},
+		IncrementKg:      2.5,
+		BodyweightFactor: factor,
+	})
+
+	pool := append(planPool(t), chin)
+	program, err := training.NewProgram(
+		mustFrequency(t, 3),
+		mustTarget(t, map[training.MuscleRegion]float64{training.Lat: 12}),
+		[]training.ExerciseID{"bench", "squat", "deadlift", "chin"},
+	)
+	if err != nil {
+		t.Fatalf("プログラムの生成に失敗: %v", err)
+	}
+
+	// 加重10kgで3セッションこなした。体重も測ってある。
+	var logs []*training.SetLog
+	var conds []training.DailyCondition
+	for i, daysAgo := range []int{21, 14, 7} {
+		day := planMonday.AddDays(-daysAgo)
+		for set := range 3 {
+			logs = append(logs, mkLogOn(t,
+				fmt.Sprintf("chin-%d-%d", i, set), day, "chin", 10, 8, 2))
+		}
+		conds = append(conds,
+			training.NewDailyCondition(day).WithBodyWeight(bodyweight))
+	}
+
+	s := mustPlan(t, training.PlanRequest{
+		Program:    program,
+		Pool:       pool,
+		History:    training.NewHistory(logs),
+		Conditions: training.NewConditionLog(conds),
+		Date:       planMonday,
+	})
+
+	found := false
+	for _, set := range s.Accessories() {
+		if set.ExerciseID() != training.ExerciseID("chin") {
+			continue
+		}
+		found = true
+		w, ok := set.Weight()
+		if !ok {
+			t.Fatal("加重で記録しているのに重量が決まらない")
+		}
+		// 体重×係数（71.25kg）は既に体が負担している。付けるプレートは
+		// その差分だけなので、提示はこれを下回る。
+		if w.Kg() >= bodyweight*factor {
+			t.Errorf("提示が %vkg。体重込みの総負荷が出ている（加重は %vkg 未満のはず）",
+				w.Kg(), bodyweight*factor)
+		}
+		// 記録した加重が10kgなので、その周辺の値になる。
+		if w.Kg() <= 0 || w.Kg() > 30 {
+			t.Errorf("提示が %vkg。加重10kgの記録から出る値としておかしい", w.Kg())
+		}
+	}
+	if !found {
+		t.Fatal("前提: チンニングが補助として提示されること")
+	}
+}
