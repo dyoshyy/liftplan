@@ -139,7 +139,7 @@ func NewExercise(p ExerciseParams) (*Exercise, error) {
 	}
 	bodyweightFactor, err := NewBodyweightFactor(p.BodyweightFactor)
 	if err != nil {
-		return nil, fmt.Errorf("種目 %s の BodyweightFactor が不正: %q", id, err)
+		return nil, fmt.Errorf("種目 %s: %w", id, err)
 	}
 
 	e := &Exercise{
