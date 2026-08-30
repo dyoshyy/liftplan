@@ -1276,3 +1276,250 @@ func TestSessionPlanner_StartedAccessoriesDoNotJumpToTheTop(t *testing.T) {
 		}
 	}
 }
+
+// 体重75kgを記録し、チンニング（係数0.95）を加重0kgで8回×3セット、過去に記録する。
+// 次の計画でチンニングに重量が出ること。
+func TestSessionPlanner_BodyWeightOnlySetsStillProduceAWeight(t *testing.T) {
+	const bodyweight = 75.0
+
+	chin := mustExercise(t, training.ExerciseParams{
+		ID: "chin", Name: "chin", Kind: training.KindAccessory, Stimulus: map[training.MuscleRegion]float64{training.Lat: 1.0}, IncrementKg: 2.5, BodyweightFactor: 0.95,
+	})
+
+	pool := append(planPool(t), chin)
+	program, err := training.NewProgram(
+		mustFrequency(t, 3),
+		mustTarget(t, map[training.MuscleRegion]float64{training.Lat: 12}),
+		[]training.ExerciseID{"bench", "squat", "deadlift", "chin"},
+	)
+	if err != nil {
+		t.Fatalf("プログラムの生成に失敗: %v", err)
+	}
+
+	// 先週、自重（加重0kg）で3セッションこなした。体重も測ってある。
+	var logs []*training.SetLog
+	var conds []training.DailyCondition
+	for i, daysAgo := range []int{21, 14, 7} {
+		day := planMonday.AddDays(-daysAgo)
+		for set := range 3 {
+			logs = append(logs, mkLogOn(t,
+				fmt.Sprintf("chin-%d-%d", i, set), day, "chin", 0, 8, 2))
+		}
+		conds = append(conds,
+			training.NewDailyCondition(day).WithBodyWeight(bodyweight))
+	}
+
+	s := mustPlan(t, training.PlanRequest{
+		Program:    program,
+		Pool:       pool,
+		History:    training.NewHistory(logs),
+		Conditions: training.NewConditionLog(conds),
+		Date:       planMonday,
+	})
+
+	found := false
+	for _, set := range s.Accessories() {
+		if set.ExerciseID() != training.ExerciseID("chin") {
+			continue
+		}
+		found = true
+		if _, ok := set.Weight(); !ok {
+			t.Error("自重だけの記録から重量が決まらない")
+		}
+	}
+	if !found {
+		t.Fatal("前提: チンニングが補助として提示されること")
+	}
+}
+
+// 体重が分からない自重種目の記録も、週の充足には数えること。
+//
+// 推定に渡す履歴は実効負荷（体重×係数+加重）へ変換し、体重が引けない
+// セットは落とす。落とすのは「何kg挙げたか分からない」からであって、
+// 「やらなかった」わけではない。
+//
+// 変換した履歴を残差の計算にも使うと、やったはずのセットが消えて
+// 同じ区分の補助が何度でも提示される。カバレッジは重量ではなく
+// セット数で数えるので、変換前の履歴を渡すこと。
+func TestSessionPlanner_BodyweightSetsStillCountTowardCoverage(t *testing.T) {
+	// 広背筋だけを狙う自重種目と、同じ区分を狙う補助を5つ。
+	chin := mustExercise(t, training.ExerciseParams{
+		ID: "chin", Name: "chin", Kind: training.KindAccessory,
+		Stimulus:         map[training.MuscleRegion]float64{training.Lat: 1.0},
+		IncrementKg:      2.5,
+		BodyweightFactor: 0.95,
+	})
+	pool := append(planPool(t), chin)
+	ids := []training.ExerciseID{"bench", "squat", "deadlift", "chin"}
+	for i := range 5 {
+		id := fmt.Sprintf("lat_%d", i)
+		pool = append(pool, mkAccessory(t, id,
+			map[training.MuscleRegion]float64{training.Lat: 1.0}))
+		ids = append(ids, training.ExerciseID(id))
+	}
+
+	program, err := training.NewProgram(mustFrequency(t, 3),
+		mustTarget(t, map[training.MuscleRegion]float64{training.Lat: 12}), ids)
+	if err != nil {
+		t.Fatalf("プログラムの生成に失敗: %v", err)
+	}
+
+	// 週の半ばを対象日にして、その手前に記録を置けるようにする。
+	date := planMonday.AddDays(2)
+	base := training.PlanRequest{
+		Program: program, Pool: pool,
+		History:    training.NewHistory(planHistory(t)),
+		Conditions: training.NewConditionLog(nil),
+		Date:       date,
+	}
+	want := len(mustPlan(t, base).Accessories())
+	if want == 0 {
+		t.Fatal("前提: 補助が提示されること")
+	}
+
+	// 今週すでに自重で12セットこなした。ただし体重は一度も測っていないので、
+	// 実効負荷が出せず、推定用の履歴からは落ちる。
+	logs := planHistory(t)
+	for i := range 12 {
+		logs = append(logs, mkLogOn(t, fmt.Sprintf("chin-%d", i),
+			planMonday, "chin", 0, 8, 2))
+	}
+	req := base
+	req.History = training.NewHistory(logs)
+
+	got := len(mustPlan(t, req).Accessories())
+	if got >= want {
+		t.Errorf("自重のセットが残差に反映されていない: %d → %d", want, got)
+	}
+}
+
+// 自重種目の提示は加重で出す。体重込みの総負荷を見せられても、
+// 何をすればいいか分からない。
+func TestSessionPlanner_BodyweightExerciseIsPrescribedAsAddedWeight(t *testing.T) {
+	const bodyweight = 75.0
+	const factor = 0.95
+
+	chin := mustExercise(t, training.ExerciseParams{
+		ID: "chin", Name: "chin", Kind: training.KindAccessory,
+		Stimulus:         map[training.MuscleRegion]float64{training.Lat: 1.0},
+		IncrementKg:      2.5,
+		BodyweightFactor: factor,
+	})
+
+	pool := append(planPool(t), chin)
+	program, err := training.NewProgram(
+		mustFrequency(t, 3),
+		mustTarget(t, map[training.MuscleRegion]float64{training.Lat: 12}),
+		[]training.ExerciseID{"bench", "squat", "deadlift", "chin"},
+	)
+	if err != nil {
+		t.Fatalf("プログラムの生成に失敗: %v", err)
+	}
+
+	// 加重10kgで3セッションこなした。体重も測ってある。
+	var logs []*training.SetLog
+	var conds []training.DailyCondition
+	for i, daysAgo := range []int{21, 14, 7} {
+		day := planMonday.AddDays(-daysAgo)
+		for set := range 3 {
+			logs = append(logs, mkLogOn(t,
+				fmt.Sprintf("chin-%d-%d", i, set), day, "chin", 10, 8, 2))
+		}
+		conds = append(conds,
+			training.NewDailyCondition(day).WithBodyWeight(bodyweight))
+	}
+
+	s := mustPlan(t, training.PlanRequest{
+		Program:    program,
+		Pool:       pool,
+		History:    training.NewHistory(logs),
+		Conditions: training.NewConditionLog(conds),
+		Date:       planMonday,
+	})
+
+	found := false
+	for _, set := range s.Accessories() {
+		if set.ExerciseID() != training.ExerciseID("chin") {
+			continue
+		}
+		found = true
+		w, ok := set.Weight()
+		if !ok {
+			t.Fatal("加重で記録しているのに重量が決まらない")
+		}
+		// 体重×係数（71.25kg）は既に体が負担している。付けるプレートは
+		// その差分だけなので、提示はこれを下回る。
+		if w.Kg() >= bodyweight*factor {
+			t.Errorf("提示が %vkg。体重込みの総負荷が出ている（加重は %vkg 未満のはず）",
+				w.Kg(), bodyweight*factor)
+		}
+		// 記録した加重が10kgなので、その周辺の値になる。
+		if w.Kg() <= 0 || w.Kg() > 30 {
+			t.Errorf("提示が %vkg。加重10kgの記録から出る値としておかしい", w.Kg())
+		}
+	}
+	if !found {
+		t.Fatal("前提: チンニングが補助として提示されること")
+	}
+}
+
+// 体重を一度も測っていないと、自重種目は「自分で決める」になる。
+//
+// 負荷が体重×係数＋加重である以上、体重が分からなければ何kgでやったのかも、
+// 何kgでやるべきかも出せない。ここは推測せず本人に返す。
+// 自重が乗らない種目は巻き込まない。
+func TestSessionPlanner_BodyweightExerciseNeedsABodyWeight(t *testing.T) {
+	chin := mustExercise(t, training.ExerciseParams{
+		ID: "chin", Name: "chin", Kind: training.KindAccessory,
+		Stimulus:         map[training.MuscleRegion]float64{training.Lat: 1.0},
+		IncrementKg:      2.5,
+		BodyweightFactor: 0.95,
+	})
+
+	pool := append(planPool(t), chin)
+	program, err := training.NewProgram(
+		mustFrequency(t, 3),
+		mustTarget(t, map[training.MuscleRegion]float64{training.Lat: 12}),
+		[]training.ExerciseID{"bench", "squat", "deadlift", "chin"},
+	)
+	if err != nil {
+		t.Fatalf("プログラムの生成に失敗: %v", err)
+	}
+
+	// 加重10kgでこなしたが、体重は一度も測っていない。
+	logs := planHistory(t)
+	for i, daysAgo := range []int{21, 14, 7} {
+		day := planMonday.AddDays(-daysAgo)
+		for set := range 3 {
+			logs = append(logs, mkLogOn(t,
+				fmt.Sprintf("chin-%d-%d", i, set), day, "chin", 10, 8, 2))
+		}
+	}
+
+	s := mustPlan(t, training.PlanRequest{
+		Program:    program,
+		Pool:       pool,
+		History:    training.NewHistory(logs),
+		Conditions: training.NewConditionLog(nil),
+		Date:       planMonday,
+	})
+
+	for _, set := range s.Accessories() {
+		if set.ExerciseID() == training.ExerciseID("chin") {
+			if w, ok := set.Weight(); ok {
+				t.Errorf("体重が無いのにチンニングに %vkg が出ている", w.Kg())
+			}
+		}
+	}
+
+	// 自重が乗らないメイン種目は、体重が無くても従来どおり決まる。
+	decided := false
+	for _, set := range s.Main() {
+		if _, ok := set.Weight(); ok {
+			decided = true
+		}
+	}
+	if !decided {
+		t.Error("体重の欠落が、自重の乗らない種目まで巻き込んでいる")
+	}
+}

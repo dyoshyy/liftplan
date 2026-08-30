@@ -269,6 +269,13 @@ func TestSimulation_WeightsResolveQuickly(t *testing.T) {
 	program, _ := training.NewProgram(freq, target, ids)
 	planner := training.DefaultSessionPlanner()
 
+	// 体重を一度は測っている人を想定する。自重種目の負荷は体重×係数＋加重なので、
+	// 体重が無いとチンニングとディップスは推定にも処方にも乗らない
+	// （その挙動は TestSessionPlanner_BodyweightExerciseNeedsABodyWeight で固定した）。
+	conditions := training.NewConditionLog([]training.DailyCondition{
+		training.NewDailyCondition(simStart).WithBodyWeight(75),
+	})
+
 	var logs []*training.SetLog
 	n := 0
 	lastUndecided := -1
@@ -278,7 +285,7 @@ func TestSimulation_WeightsResolveQuickly(t *testing.T) {
 		s, err := planner.Plan(training.PlanRequest{
 			Program: program, Pool: all,
 			History:    training.NewHistory(logs),
-			Conditions: training.NewConditionLog(nil),
+			Conditions: conditions,
 			Date:       date,
 		})
 		if err != nil {

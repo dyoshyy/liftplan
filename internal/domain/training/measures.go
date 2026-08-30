@@ -20,7 +20,8 @@ const (
 
 	// maxRatio は比率の現実的な上限。バリエーションが通常フォームを大きく上回ることは
 	// 無いが、フォームの違いでわずかに上回る種目はあるため 1.0 ちょうどでは切らない。
-	maxRatio = 1.2
+	maxRatio            = 1.2
+	maxBodyweightFactor = 1.0
 )
 
 // quantum は浮動小数点演算の残差を落とす桁数。
@@ -229,3 +230,17 @@ func (c Contribution) Float() float64 { return c.v }
 func (c Contribution) TimesSets(s SetCount) float64 {
 	return quantize(c.v * float64(s.v))
 }
+
+type BodyweightFactor struct {
+	v float64
+}
+
+func NewBodyweightFactor(factor float64) (BodyweightFactor, error) {
+	q := quantize(factor)
+	if err := validateRange("自重係数", q, 0, maxBodyweightFactor); err != nil {
+		return BodyweightFactor{}, err
+	}
+	return BodyweightFactor{q}, nil
+}
+
+func (f BodyweightFactor) Float() float64 { return f.v }

@@ -25,6 +25,17 @@ func accessory(id, name string, inc float64, s stimulus) training.ExerciseParams
 	}
 }
 
+// bodyweightAccessory は自重が負荷に乗る補助種目。
+//
+// 係数は力学的な正確さを狙っていない。推定1RMは伸びを測るための相対値なので、
+// 時間を通じて一貫していれば足りる。絶対値がずれても、同じ係数で測り続ける
+// 限り推移は正しく出る。
+func bodyweightAccessory(id, name string, inc, factor float64, s stimulus) training.ExerciseParams {
+	p := accessory(id, name, inc, s)
+	p.BodyweightFactor = factor
+	return p
+}
+
 func specs() []training.ExerciseParams {
 	r := struct {
 		ChestUpper, ChestMid, ChestLower                     training.MuscleRegion
@@ -71,7 +82,7 @@ func specs() []training.ExerciseParams {
 			stimulus{r.ChestUpper: 1.0, r.FrontDelt: 0.5, r.TricepsLateral: 0.3}),
 		accessory("incline_barbell_press", "インクラインベンチプレス", 2.5,
 			stimulus{r.ChestUpper: 1.0, r.FrontDelt: 0.5, r.TricepsLateral: 0.3}),
-		accessory("dip", "ディップス", 2.5,
+		bodyweightAccessory("dip", "ディップス", 2.5, 0.93,
 			stimulus{r.ChestLower: 1.0, r.TricepsLateral: 0.6, r.TricepsLong: 0.4}),
 		accessory("decline_press", "デクラインプレス", 2.5,
 			stimulus{r.ChestLower: 1.0, r.TricepsLateral: 0.4}),
@@ -81,13 +92,13 @@ func specs() []training.ExerciseParams {
 		// --- 背中 ---
 		accessory("lat_pulldown", "ラットプルダウン", 2.5,
 			stimulus{r.Lat: 1.0, r.Biceps: 0.4, r.RearDelt: 0.2}),
-		accessory("pull_up", "チンニング", 2.5,
+		bodyweightAccessory("pull_up", "チンニング", 2.5, 0.95,
 			stimulus{r.Lat: 1.0, r.Biceps: 0.5, r.Forearm: 0.3}),
 		accessory("barbell_row", "バーベルロウ", 2.5,
 			stimulus{r.Lat: 0.7, r.TrapMid: 1.0, r.RearDelt: 0.4, r.Biceps: 0.3}),
 		accessory("seated_row", "シーテッドロウ", 2.5,
 			stimulus{r.TrapMid: 1.0, r.Lat: 0.6, r.Biceps: 0.3}),
-		accessory("back_extension", "バックエクステンション", 2.5,
+		bodyweightAccessory("back_extension", "バックエクステンション", 2.5, 0.55,
 			stimulus{r.Erector: 1.0, r.Glute: 0.5, r.Hamstring: 0.4}),
 		accessory("shrug", "シュラッグ", 2.5,
 			stimulus{r.TrapUpper: 1.0, r.Forearm: 0.3}),

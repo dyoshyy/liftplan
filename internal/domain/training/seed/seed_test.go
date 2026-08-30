@@ -197,3 +197,30 @@ func TestExercises_IncrementsArePracticable(t *testing.T) {
 		}
 	}
 }
+
+// 自重が乗る種目に係数が入っていること。
+//
+// 係数が0だと実効負荷への変換が素通りし、自重でこなした記録は0kgのまま
+// 推定に入る。ドメイン側に仕組みがあっても、ここが埋まっていなければ
+// 誰にも効かない。
+func TestExercises_BodyweightExercisesHaveAFactor(t *testing.T) {
+	want := map[training.ExerciseID]float64{
+		"pull_up":        0.95,
+		"dip":            0.93,
+		"back_extension": 0.55,
+	}
+
+	all, _ := seed.Exercises()
+	for _, e := range all {
+		f := e.BodyweightFactor().Float()
+		if w, ok := want[e.ID()]; ok {
+			if f != w {
+				t.Errorf("%s の自重係数が %v。%v のはず", e.ID(), f, w)
+			}
+			continue
+		}
+		if f != 0 {
+			t.Errorf("%s に自重係数 %v が入っている。自重は乗らないはず", e.ID(), f)
+		}
+	}
+}
