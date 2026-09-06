@@ -97,11 +97,10 @@ func (p SessionPlanner) Plan(req PlanRequest) (PlannedSession, error) {
 
 	pool := p.usablePool(req)
 	estHistory := effectiveHistory(historyBefore(req), pool, req.Conditions)
-	mains := mainExercises(pool)
+	mains := declaredExercises(pool, req.Program)
 	if len(mains) == 0 {
-		// 集約は種目マスタを知らないので、メイン種目の有無を検証できない。
-		// ここが唯一の検出点。空のセッションを黙って返すと、ユーザーには
-		// 中身の無いメニューが出てどこにもエラーが立たない。
+		// 到達しない。NewProgram が宣言ゼロを弾き、declared ⊂ selected なので
+		// pool に必ず1つ以上残る。集約の不変条件が破れたときの最後の砦として残す。
 		return PlannedSession{}, errors.New("メイン種目が1つも選ばれていない")
 	}
 
@@ -192,10 +191,10 @@ func (p SessionPlanner) usablePool(req PlanRequest) []*Exercise {
 	return out
 }
 
-func mainExercises(pool []*Exercise) []*Exercise {
+func declaredExercises(pool []*Exercise, program *Program) []*Exercise {
 	out := make([]*Exercise, 0, len(pool))
 	for _, e := range pool {
-		if e.Kind() == KindMain {
+		if program.Declares(e.ID()) {
 			out = append(out, e)
 		}
 	}

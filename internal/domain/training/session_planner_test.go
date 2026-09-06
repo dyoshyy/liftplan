@@ -339,11 +339,17 @@ func TestSessionPlanner_RejectsInvalidRequests(t *testing.T) {
 	}
 }
 
-// メイン種目が1つも選ばれていないプログラムはエラーにすること。
+// 宣言されていれば、どの種目でも軸になれること。
 //
-// 空のセッションを黙って返すと、ユーザーには中身の無いメニューが出て
-// どこにもエラーが立たない。
-func TestSessionPlanner_RejectsProgramWithoutMainLifts(t *testing.T) {
+// 元は「メイン種目（Kind == MAIN）が選択に無ければエラー」を検査していた。
+// 軸が BIG3 に固定されていたので、ルーマニアンデッドリフトをハムの種目
+// として使う人も、背中の軸に懸垂を使う人も表現できず、2回続けて同じ穴を
+// 踏んだ（D-113・D-117）。
+//
+// 「宣言ゼロ」の検出は NewProgram へ移った。ここが見るのは、BIG3 でない
+// 種目だけのプログラムでもセッションが組めることと、その種目が軸として
+// 先頭に出ること。
+func TestSessionPlanner_AnyDeclaredExerciseCanBeTheAxis(t *testing.T) {
 	target := mustTarget(t, map[training.MuscleRegion]float64{training.Biceps: 9})
 	program, err := training.NewProgram(mustFrequency(t, 3), target,
 		[]training.ExerciseID{"curl"}, []training.ExerciseID{"curl"})
@@ -354,8 +360,17 @@ func TestSessionPlanner_RejectsProgramWithoutMainLifts(t *testing.T) {
 	req := planRequest(t)
 	req.Program = program
 
-	if _, err := training.DefaultSessionPlanner().Plan(req); err == nil {
-		t.Error("メイン種目の無いプログラムが通ってしまう")
+	session, err := training.DefaultSessionPlanner().Plan(req)
+	if err != nil {
+		t.Fatalf("宣言した種目だけのプログラムが通らない: %v", err)
+	}
+
+	main := session.Main()
+	if len(main) != 1 {
+		t.Fatalf("軸の数が誤り: %d（期待 1）", len(main))
+	}
+	if main[0].ExerciseID() != "curl" {
+		t.Errorf("宣言した種目が軸になっていない: %s", main[0].ExerciseID())
 	}
 }
 
