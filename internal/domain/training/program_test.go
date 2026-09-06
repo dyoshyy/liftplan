@@ -18,6 +18,14 @@ func mustTarget(t *testing.T, m map[training.MuscleRegion]float64) training.Week
 	return target
 }
 
+// big3 はテストで「伸ばしたい種目」に使う既定の3つ。
+//
+// 移行前の Kind == KindMain と同じ顔ぶれにしてある。PR-1 は挙動を
+// 変えない回なので、ここが変わるとテストの数字が動く理由が増える。
+func big3() []training.ExerciseID {
+	return []training.ExerciseID{"bench", "squat", "deadlift"}
+}
+
 func simpleTarget(t *testing.T) training.WeeklyVolumeTarget {
 	t.Helper()
 	return mustTarget(t, map[training.MuscleRegion]float64{
@@ -143,7 +151,7 @@ func TestWeeklyVolumeTarget_ZeroValueIsEmpty(t *testing.T) {
 
 func TestNewProgram(t *testing.T) {
 	p, err := training.NewProgram(mustFrequency(t, 3), simpleTarget(t),
-		[]training.ExerciseID{"bench", "squat"})
+		[]training.ExerciseID{"bench", "squat"}, []training.ExerciseID{"bench"})
 	if err != nil {
 		t.Fatalf("生成に失敗: %v", err)
 	}
@@ -164,16 +172,19 @@ func TestNewProgram_RejectsInvalid(t *testing.T) {
 		freq     training.Frequency
 		target   training.WeeklyVolumeTarget
 		selected []training.ExerciseID
+		declared []training.ExerciseID
 	}{
-		{"頻度が未設定", training.Frequency{}, simpleTarget(t), []training.ExerciseID{"bench"}},
-		{"週目標が未設定", mustFrequency(t, 3), training.WeeklyVolumeTarget{}, []training.ExerciseID{"bench"}},
-		{"種目が空", mustFrequency(t, 3), simpleTarget(t), nil},
-		{"空の種目ID", mustFrequency(t, 3), simpleTarget(t), []training.ExerciseID{"bench", ""}},
-		{"種目が重複", mustFrequency(t, 3), simpleTarget(t), []training.ExerciseID{"bench", "bench"}},
+		{"頻度が未設定", training.Frequency{}, simpleTarget(t), []training.ExerciseID{"bench"}, []training.ExerciseID{"bench"}},
+		{"週目標が未設定", mustFrequency(t, 3), training.WeeklyVolumeTarget{}, []training.ExerciseID{"bench"}, []training.ExerciseID{"bench"}},
+		{"種目が空", mustFrequency(t, 3), simpleTarget(t), nil, nil},
+		{"空の種目ID", mustFrequency(t, 3), simpleTarget(t), []training.ExerciseID{"bench", ""}, []training.ExerciseID{"bench", ""}},
+		{"種目が重複", mustFrequency(t, 3), simpleTarget(t), []training.ExerciseID{"bench", "bench"}, []training.ExerciseID{"bench", "bench"}},
+		{"宣言が空", mustFrequency(t, 3), simpleTarget(t), []training.ExerciseID{"bench"}, nil},
+		{"宣言が選択に含まれていない", mustFrequency(t, 3), simpleTarget(t), []training.ExerciseID{"bench"}, []training.ExerciseID{"squat"}},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			got, err := training.NewProgram(c.freq, c.target, c.selected)
+			got, err := training.NewProgram(c.freq, c.target, c.selected, c.declared)
 			if err == nil {
 				t.Fatalf("不正なプログラムが通ってしまう: %+v", got)
 			}
@@ -185,7 +196,7 @@ func TestNewProgram_RejectsInvalid(t *testing.T) {
 }
 
 func TestProgram_SelectedExercisesIsACopy(t *testing.T) {
-	p, err := training.NewProgram(mustFrequency(t, 3), simpleTarget(t), []training.ExerciseID{"bench"})
+	p, err := training.NewProgram(mustFrequency(t, 3), simpleTarget(t), []training.ExerciseID{"bench"}, []training.ExerciseID{"bench"})
 	if err != nil {
 		t.Fatalf("生成に失敗: %v", err)
 	}
@@ -199,7 +210,7 @@ func TestProgram_SelectedExercisesIsACopy(t *testing.T) {
 
 func TestProgram_IsImmutableAgainstInputMutation(t *testing.T) {
 	input := []training.ExerciseID{"bench", "squat"}
-	p, err := training.NewProgram(mustFrequency(t, 3), simpleTarget(t), input)
+	p, err := training.NewProgram(mustFrequency(t, 3), simpleTarget(t), input, []training.ExerciseID{"bench"})
 	if err != nil {
 		t.Fatalf("生成に失敗: %v", err)
 	}
@@ -214,7 +225,7 @@ func TestProgram_IsImmutableAgainstInputMutation(t *testing.T) {
 // 全セッションの補助種目が消える。
 func TestProgram_WeeklyTarget(t *testing.T) {
 	target := simpleTarget(t)
-	p, err := training.NewProgram(mustFrequency(t, 3), target, []training.ExerciseID{"bench"})
+	p, err := training.NewProgram(mustFrequency(t, 3), target, []training.ExerciseID{"bench"}, []training.ExerciseID{"bench"})
 	if err != nil {
 		t.Fatalf("生成に失敗: %v", err)
 	}
@@ -239,7 +250,7 @@ func TestProgram_WeeklyTarget(t *testing.T) {
 func TestNewProgram_ValidatesExerciseIDs(t *testing.T) {
 	for _, id := range []training.ExerciseID{"   ", " bench", "bench ", "\tbench"} {
 		got, err := training.NewProgram(mustFrequency(t, 3), simpleTarget(t),
-			[]training.ExerciseID{id})
+			[]training.ExerciseID{id}, []training.ExerciseID{id})
 		if err == nil {
 			t.Errorf("不正な種目ID %q が通ってしまう: %+v", id, got)
 		}

@@ -53,7 +53,7 @@ func planProgram(t *testing.T) *training.Program {
 		training.ChestMid: 12, training.ChestUpper: 9, training.Quad: 12, training.Biceps: 9,
 	})
 	p, err := training.NewProgram(mustFrequency(t, 3), target,
-		[]training.ExerciseID{"bench", "squat", "deadlift", "incline", "curl"})
+		[]training.ExerciseID{"bench", "squat", "deadlift", "incline", "curl"}, big3())
 	if err != nil {
 		t.Fatalf("プログラムの生成に失敗: %v", err)
 	}
@@ -346,7 +346,7 @@ func TestSessionPlanner_RejectsInvalidRequests(t *testing.T) {
 func TestSessionPlanner_RejectsProgramWithoutMainLifts(t *testing.T) {
 	target := mustTarget(t, map[training.MuscleRegion]float64{training.Biceps: 9})
 	program, err := training.NewProgram(mustFrequency(t, 3), target,
-		[]training.ExerciseID{"curl"})
+		[]training.ExerciseID{"curl"}, []training.ExerciseID{"curl"})
 	if err != nil {
 		t.Fatalf("プログラムの生成に失敗: %v", err)
 	}
@@ -566,7 +566,7 @@ func TestSessionPlanner_SubtractsMainCoverageFromResidual(t *testing.T) {
 	// メインの刺激を差し引けば残差は0になる。
 	target := mustTarget(t, map[training.MuscleRegion]float64{training.ChestMid: 4})
 	program, err := training.NewProgram(mustFrequency(t, 3), target,
-		[]training.ExerciseID{"bench", "squat", "deadlift", "pec_fly"})
+		[]training.ExerciseID{"bench", "squat", "deadlift", "pec_fly"}, big3())
 	if err != nil {
 		t.Fatalf("プログラムの生成に失敗: %v", err)
 	}
@@ -596,7 +596,7 @@ func TestSessionPlanner_DividesByRemainingSessions(t *testing.T) {
 	}
 
 	target := mustTarget(t, map[training.MuscleRegion]float64{training.ChestUpper: 12})
-	program, err := training.NewProgram(mustFrequency(t, 3), target, ids)
+	program, err := training.NewProgram(mustFrequency(t, 3), target, ids, big3())
 	if err != nil {
 		t.Fatalf("プログラムの生成に失敗: %v", err)
 	}
@@ -665,7 +665,7 @@ func TestSessionPlanner_WeeklyCoverageWindow(t *testing.T) {
 		ids = append(ids, training.ExerciseID(id))
 	}
 	target := mustTarget(t, map[training.MuscleRegion]float64{training.ChestUpper: 12})
-	program, err := training.NewProgram(mustFrequency(t, 3), target, ids)
+	program, err := training.NewProgram(mustFrequency(t, 3), target, ids, big3())
 	if err != nil {
 		t.Fatalf("プログラムの生成に失敗: %v", err)
 	}
@@ -938,7 +938,7 @@ func TestSessionPlanner_DoesNotDoubleCountTodaysMain(t *testing.T) {
 	}
 	program, err := training.NewProgram(mustFrequency(t, 1),
 		mustTarget(t, map[training.MuscleRegion]float64{training.ChestMid: 8}),
-		[]training.ExerciseID{"bench", "fly", "press"})
+		[]training.ExerciseID{"bench", "fly", "press"}, []training.ExerciseID{"bench"})
 	if err != nil {
 		t.Fatalf("プログラムの生成に失敗: %v", err)
 	}
@@ -1121,7 +1121,7 @@ func TestSessionPlanner_PlannedWorkIsConsumedExactly(t *testing.T) {
 	for _, e := range pool {
 		selected = append(selected, e.ID())
 	}
-	program, err := training.NewProgram(freq, target, selected)
+	program, err := training.NewProgram(freq, target, selected, big3())
 	if err != nil {
 		t.Fatalf("プログラムが不正: %v", err)
 	}
@@ -1291,6 +1291,7 @@ func TestSessionPlanner_BodyWeightOnlySetsStillProduceAWeight(t *testing.T) {
 		mustFrequency(t, 3),
 		mustTarget(t, map[training.MuscleRegion]float64{training.Lat: 12}),
 		[]training.ExerciseID{"bench", "squat", "deadlift", "chin"},
+		big3(),
 	)
 	if err != nil {
 		t.Fatalf("プログラムの生成に失敗: %v", err)
@@ -1359,7 +1360,7 @@ func TestSessionPlanner_BodyweightSetsStillCountTowardCoverage(t *testing.T) {
 	}
 
 	program, err := training.NewProgram(mustFrequency(t, 3),
-		mustTarget(t, map[training.MuscleRegion]float64{training.Lat: 12}), ids)
+		mustTarget(t, map[training.MuscleRegion]float64{training.Lat: 12}), ids, big3())
 	if err != nil {
 		t.Fatalf("プログラムの生成に失敗: %v", err)
 	}
@@ -1411,6 +1412,7 @@ func TestSessionPlanner_BodyweightExerciseIsPrescribedAsAddedWeight(t *testing.T
 		mustFrequency(t, 3),
 		mustTarget(t, map[training.MuscleRegion]float64{training.Lat: 12}),
 		[]training.ExerciseID{"bench", "squat", "deadlift", "chin"},
+		big3(),
 	)
 	if err != nil {
 		t.Fatalf("プログラムの生成に失敗: %v", err)
@@ -1485,6 +1487,7 @@ func TestSessionPlanner_BodyweightExerciseFallsBackToDefaultBodyWeight(t *testin
 		mustFrequency(t, 3),
 		mustTarget(t, map[training.MuscleRegion]float64{training.Lat: 12}),
 		[]training.ExerciseID{"bench", "squat", "deadlift", "chin"},
+		big3(),
 	)
 	if err != nil {
 		t.Fatalf("プログラムの生成に失敗: %v", err)

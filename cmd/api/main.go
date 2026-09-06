@@ -368,6 +368,7 @@ func defaultProgram(pool []*training.Exercise) (*training.Program, error) {
 	for _, e := range pool {
 		selected = append(selected, e.ID())
 	}
+	declared := []training.ExerciseID{"bench", "squat", "deadlift"}
 
-	return training.NewProgram(freq, target, selected)
+	return training.NewProgram(freq, target, selected, declared)
 }

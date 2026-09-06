@@ -2028,3 +2028,32 @@ Fable の解（区分の投与量から借りる）は上記の理由で採ら�
 `docs/refactoring.md` に置いた（`CLAUDE.md`「必要になるまで作らない」）。
 
 新しい仕様は `docs/superpowers/specs/2026-09-06-training-goals-design.md`。
+
+
+---
+
+## D-118 ドメイン層の標準ライブラリ許可制をやめる
+
+**日付**：2026-09-06
+
+`architecture_test.go` が持っていた `productionStdlib` / `testOnlyStdlib` の許可リストを消した。
+`checkImport` が見るのは**依存の向き**だけになる。
+
+- ドメイン層が外側のパッケージ（`application` / `infrastructure` / `presentation`）を import しない
+- 外部モジュールを import しない
+
+**残す理由。**この2つは Onion Architecture そのもので、破れると層構造が意味を失う。
+
+**消す理由。**許可リストが実際に弾いていたのは `slices` のような無害な追加で、
+そのたびに「意図的な判断としてコミットに残す」手続きが要った。本当に防ぎたかった
+`os` / `net/http` / `database/sql` は、**別の力で既に守られている**——ドメイン層は
+「DBもHTTPも立てずに全機能をテストできる」ことを前提に組まれていて、外界に触れる
+コードを書くとテストが立たなくなる。そこで気づく。
+
+**割れうる点。**これは制約を弱める判断で、`os.ReadFile` を呼ぶドメインコードが
+書けるようになる。落とし所として「許可リストを禁止リストに反転させる」
+（`os` `net/http` `database/sql` `os/exec` だけ弾く）も検討したが、採らなかった。
+**禁止リストは網羅できない**——`io/ioutil`、`os/user`、`syscall` と、外界に触れる
+標準ライブラリを数え上げ続けることになり、許可制と同じ手続きが裏返しで残る。
+
+破れたときに戻す手順は簡単で、この判断ごと revert すればよい。

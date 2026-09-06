@@ -30,12 +30,12 @@ func NewProgramRepository(pool *pgxpool.Pool) *ProgramRepository {
 // 「取得成功」のどちらとも解釈できてしまう。
 func (r *ProgramRepository) Get(ctx context.Context) (*training.Program, error) {
 	var (
-		perWeek                int
-		rawTarget, rawSelected []byte
+		perWeek                             int
+		rawTarget, rawSelected, rawDeclared []byte
 	)
 	err := r.pool.QueryRow(ctx, `
-		SELECT per_week, weekly_target, selected FROM program WHERE id`).
-		Scan(&perWeek, &rawTarget, &rawSelected)
+		SELECT per_week, weekly_target, selected, declared FROM program WHERE id`).
+		Scan(&perWeek, &rawTarget, &rawSelected, &rawDeclared)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, training.ErrProgramNotConfigured
 	}
@@ -50,6 +50,10 @@ func (r *ProgramRepository) Get(ctx context.Context) (*training.Program, error) 
 	var selected []training.ExerciseID
 	if err := json.Unmarshal(rawSelected, &selected); err != nil {
 		return nil, fmt.Errorf("選択種目を解釈できない: %w", err)
+	}
+	var declared []training.ExerciseID
+	if err := json.Unmarshal(rawDeclared, &declared); err != nil {
+		return nil, fmt.Errorf("宣言種目を解釈できない: %w", err)
 	}
 
 	// 保存済みの値も必ずコンストラクタを通す。jsonb は形を検査しないので、
@@ -66,7 +70,7 @@ func (r *ProgramRepository) Get(ctx context.Context) (*training.Program, error) 
 	if err != nil {
 		return nil, fmt.Errorf("保存された週目標が不正: %w", err)
 	}
-	program, err := training.NewProgram(frequency, weeklyTarget, selected)
+	program, err := training.NewProgram(frequency, weeklyTarget, selected, declared)
 	if err != nil {
 		return nil, fmt.Errorf("保存されたプログラムが不正: %w", err)
 	}
@@ -92,15 +96,20 @@ func (r *ProgramRepository) Save(ctx context.Context, p *training.Program) error
 	if err != nil {
 		return fmt.Errorf("選択種目を書き出せない: %w", err)
 	}
+	rawDeclared, err := json.Marshal(p.DeclaredExercises())
+	if err != nil {
+		return fmt.Errorf("宣言種目を書き出せない: %w", err)
+	}
 
 	if _, err := r.pool.Exec(ctx, `
-		INSERT INTO program (id, per_week, weekly_target, selected)
-		VALUES (true, $1, $2, $3)
+		INSERT INTO program (id, per_week, weekly_target, selected, declared)
+		VALUES (true, $1, $2, $3, $4)
 		ON CONFLICT (id) DO UPDATE SET
 			per_week      = EXCLUDED.per_week,
 			weekly_target = EXCLUDED.weekly_target,
-			selected      = EXCLUDED.selected`,
-		p.Frequency().PerWeek(), rawTarget, rawSelected); err != nil {
+			selected      = EXCLUDED.selected,
+			declared      = EXCLUDED.declared`,
+		p.Frequency().PerWeek(), rawTarget, rawSelected, rawDeclared); err != nil {
 		return fmt.Errorf("プログラムを保存できない: %w", err)
 	}
 	return nil

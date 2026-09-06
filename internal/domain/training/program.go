@@ -3,6 +3,7 @@ package training
 import (
 	"errors"
 	"fmt"
+	"slices"
 	"sort"
 )
 
@@ -59,16 +60,16 @@ func (t WeeklyVolumeTarget) Regions() []MuscleRegion {
 func (t WeeklyVolumeTarget) IsEmpty() bool { return len(t.m) == 0 }
 
 // Program はユーザーの設定を保持する集約ルート。
-// 頻度・週目標・使う種目を一貫した単位で扱う。
 //
 //ddd:aggregate
 type Program struct {
 	frequency Frequency
 	target    WeeklyVolumeTarget
-	selected  []ExerciseID
+	selected  []ExerciseID // 実施可能な種目
+	declared  []ExerciseID // 重量を伸ばしたい種目
 }
 
-func NewProgram(freq Frequency, target WeeklyVolumeTarget, selected []ExerciseID) (*Program, error) {
+func NewProgram(freq Frequency, target WeeklyVolumeTarget, selected, declared []ExerciseID) (*Program, error) {
 	if freq.IsZero() {
 		return nil, errors.New("週の頻度が設定されていない")
 	}
@@ -78,30 +79,50 @@ func NewProgram(freq Frequency, target WeeklyVolumeTarget, selected []ExerciseID
 	if len(selected) == 0 {
 		return nil, errors.New("使用する種目が1つも選ばれていない")
 	}
-
-	seen := make(map[ExerciseID]bool, len(selected))
-	copied := make([]ExerciseID, 0, len(selected))
-	for _, raw := range selected {
-		// 種目IDの検証は NewExerciseID に委ねる。ここで独自に判定すると、
-		// 前後に空白のあるIDが通り、種目マスタのIDと永久に一致しなくなる。
-		// 一致しないIDは黙って無視されるため、ユーザーが選んだ種目が
-		// 理由の説明なく消える。
-		id, err := NewExerciseID(string(raw))
-		if err != nil {
-			return nil, fmt.Errorf("選択された種目: %w", err)
-		}
-		if seen[id] {
-			return nil, fmt.Errorf("種目が重複している: %s", id)
-		}
-		seen[id] = true
-		copied = append(copied, id)
+	if len(declared) == 0 {
+		return nil, ErrNoDeclaredExercise
 	}
 
-	return &Program{frequency: freq, target: target, selected: copied}, nil
+	selected, err := normalizeExerciseIDs(selected)
+	if err != nil {
+		return nil, fmt.Errorf("選択種目が不正: %w", err)
+	}
+	declared, err = normalizeExerciseIDs(declared)
+	if err != nil {
+		return nil, fmt.Errorf("伸ばしたい種目が不正: %w", err)
+	}
+
+	// declared ⊂ selected であることを確認する。
+	for _, id := range declared {
+		if !slices.Contains(selected, id) {
+			return nil, fmt.Errorf("伸ばしたい種目 %q が選択種目に含まれていない", id)
+		}
+	}
+	return &Program{frequency: freq, target: target, selected: selected, declared: declared}, nil
 }
 
 func (p *Program) Frequency() Frequency             { return p.frequency }
 func (p *Program) WeeklyTarget() WeeklyVolumeTarget { return p.target }
+
+// normalizeExerciseIDs は種目IDの正規化を行う。重複と存在しない種目はエラーになる。昇順にソートする。
+func normalizeExerciseIDs(ids []ExerciseID) ([]ExerciseID, error) {
+	seen := make(map[ExerciseID]bool, len(ids))
+	out := make([]ExerciseID, 0, len(ids))
+	for _, id := range ids {
+		validID, err := NewExerciseID(string(id))
+		if err != nil {
+			return nil, err
+		}
+		if seen[validID] {
+			return nil, fmt.Errorf("種目 %q が重複している", validID)
+		}
+		seen[validID] = true
+		out = append(out, validID)
+	}
+
+	slices.Sort(out)
+	return out, nil
+}
 
 func (p *Program) SelectedExercises() []ExerciseID {
 	out := make([]ExerciseID, len(p.selected))
@@ -109,11 +130,16 @@ func (p *Program) SelectedExercises() []ExerciseID {
 	return out
 }
 
+func (p *Program) DeclaredExercises() []ExerciseID {
+	out := make([]ExerciseID, len(p.declared))
+	copy(out, p.declared)
+	return out
+}
+
 func (p *Program) Includes(id ExerciseID) bool {
-	for _, v := range p.selected {
-		if v == id {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(p.selected, id)
+}
+
+func (p *Program) Declares(id ExerciseID) bool {
+	return slices.Contains(p.declared, id)
 }

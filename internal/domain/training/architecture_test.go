@@ -13,38 +13,6 @@ import (
 
 const modulePath = "github.com/dyoshyy/liftplan-server"
 
-// productionStdlib はドメイン層の本番コードで使ってよい標準ライブラリ。
-//
-// ここに無いものを import したらテストが落ちる。意図的な追加なら明示的にここへ足すこと。
-// os / path/filepath / net/http / database/sql が入っていないのは意図的で、
-// ドメイン層が外界に触れないという制約そのものを表している。
-var productionStdlib = map[string]bool{
-	"context": true,
-	"errors":  true,
-	"fmt":     true,
-	"math":    true,
-	"sort":    true,
-	"strings": true,
-	"time":    true,
-}
-
-// testOnlyStdlib はテストファイルにのみ追加で許可する標準ライブラリ。
-//
-// 本番コードと分けているのは、この検査テスト自身が必要とする os や go/parser を
-// 本番コードにも許してしまうと、ドメイン層がファイルシステムを触れるようになるため。
-var testOnlyStdlib = map[string]bool{
-	"testing":       true,
-	"go/ast":        true,
-	"go/parser":     true,
-	"go/token":      true,
-	"io/fs":         true,
-	"path/filepath": true,
-	"runtime":       true,
-	"slices":        true,
-	"strconv":       true,
-	"sync":          true,
-}
-
 // domainRoot はこのテストファイルの位置から internal/domain を解決する。
 //
 // os.Getwd に頼らないのは、`go test -c` したバイナリを別ディレクトリで実行すると
@@ -84,9 +52,8 @@ func TestDomain_DependsOnNothingOutside(t *testing.T) {
 			return err
 		}
 
-		isTest := strings.HasSuffix(d.Name(), "_test.go")
 		for _, imp := range file.Imports {
-			checkImport(t, rel, strings.Trim(imp.Path.Value, `"`), isTest)
+			checkImport(t, rel, strings.Trim(imp.Path.Value, `"`))
 		}
 		return nil
 	})
@@ -205,7 +172,11 @@ func allowedIn(allowed []string, fileName string, isTest bool) bool {
 	return false
 }
 
-func checkImport(t *testing.T, file, importPath string, isTest bool) {
+// checkImport はドメイン層の1つの import を検査する。
+//
+// 見るのは依存の向きだけで、標準ライブラリは制限しない（D-118）。
+// os や net/http が入りうることは承知のうえで、それは規約で守る。
+func checkImport(t *testing.T, file, importPath string) {
 	t.Helper()
 
 	if importPath == modulePath || strings.HasPrefix(importPath, modulePath+"/") {
@@ -219,23 +190,7 @@ func checkImport(t *testing.T, file, importPath string, isTest bool) {
 	// 先頭セグメントにドットを含めばホスト名、すなわち外部モジュール。
 	if strings.Contains(strings.Split(importPath, "/")[0], ".") {
 		t.Errorf("%s: ドメイン層が外部ライブラリに依存している: %s", file, importPath)
-		return
 	}
-
-	if productionStdlib[importPath] {
-		return
-	}
-	if isTest && testOnlyStdlib[importPath] {
-		return
-	}
-
-	if isTest {
-		t.Errorf("%s: 許可されていない標準ライブラリ: %s（意図的なら testOnlyStdlib に追加すること）",
-			file, importPath)
-		return
-	}
-	t.Errorf("%s: 本番コードで許可されていない標準ライブラリ: %s（意図的なら productionStdlib に追加すること）",
-		file, importPath)
 }
 
 // StimulusProfile は構造体の値コピーでも内部マップを共有する。

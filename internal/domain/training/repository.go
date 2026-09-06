@@ -19,13 +19,15 @@ var ErrProgramNotConfigured = errors.New("プログラムが未設定である")
 // 理由の説明なく消える。
 var ErrExerciseNotFound = errors.New("種目が見つからない")
 
-// ErrNoMainExercise はメイン種目が1つも選ばれていないことを表す。
+// ErrNoDeclaredExercise は伸ばしたい種目が1つも選ばれていないことを表す。
 //
-// SessionPlanner はメイン種目ゼロを致命エラーにする。設定の時点で
-// 弾かないと、保存は成功するのに以後すべてのセッション導出が失敗する。
-// Program は種目の Kind を知らない（ExerciseID しか持たない）ので、
-// ErrExerciseNotFound と同じ理由で突合はアプリケーション層の仕事になる。
-var ErrNoMainExercise = errors.New("メイン種目が1つも選ばれていない")
+// SessionPlanner はヘビー枠ゼロを致命エラーにする。設定の時点で弾かないと、
+// 保存は成功するのに以後すべてのセッション導出が失敗する。
+//
+// 以前は ErrNoMainExercise という名前で、判定はアプリケーション層にあった。
+// Program が種目の Kind を知らず、どれがメインかを自分で言えなかったため。
+// 宣言を Program が持つようになって、集約が自分で守れるようになった（D-117）。
+var ErrNoDeclaredExercise = errors.New("伸ばしたい種目が1つも選ばれていない")
 
 // ErrRepositoryUnavailable は保存先そのものに到達できないことを表す。
 //

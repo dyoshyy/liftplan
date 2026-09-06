@@ -34,7 +34,10 @@ func configureInput(t *testing.T) usecase.ConfigureProgramInput {
 	for _, e := range pool {
 		selected = append(selected, e.ID())
 	}
-	return usecase.ConfigureProgramInput{PerWeek: 3, Target: sets, Selected: selected}
+	return usecase.ConfigureProgramInput{
+		PerWeek: 3, Target: sets, Selected: selected,
+		Declared: []training.ExerciseID{"bench", "squat", "deadlift"},
+	}
 }
 
 func newConfigure(t *testing.T, programs *fakeProgram) *usecase.ConfigureProgram {
@@ -115,35 +118,27 @@ func TestConfigureProgram_DoesNotSaveWhenExercisesAreUnavailable(t *testing.T) {
 	}
 }
 
-// メイン種目ゼロの設定を受理してはいけない。
+// 宣言ゼロの設定を受理してはいけない。
 // 受理すると保存は成功するのに、以後すべてのセッション導出が失敗し続ける。
-func TestConfigureProgram_RejectsSelectionWithoutMainLift(t *testing.T) {
-	pool, err := seed.Exercises()
-	if err != nil {
-		t.Fatalf("シードが不正: %v", err)
+//
+// 以前は「選択に KindMain が1つも無い」を、このユースケースが種目マスタと
+// 突合して弾いていた。宣言を Program が持つようになって集約が自分で守れる
+// ようになったので、判定はドメインへ移った（D-117）。ここが見るのは
+// 「集約のエラーが ErrInvalidInput として分類されて返ること」だけ。
+func TestConfigureProgram_RejectsSelectionWithoutDeclared(t *testing.T) {
+	in := configureInput(t)
+	in.Declared = nil
+
+	programs := &fakeProgram{}
+	err := newConfigure(t, programs).Execute(context.Background(), in)
+	if !errors.Is(err, training.ErrNoDeclaredExercise) {
+		t.Errorf("宣言ゼロが弾かれていない: %v", err)
 	}
-
-	for name, kind := range map[string]training.ExerciseKind{
-		"補助種目だけ": training.KindAccessory,
-	} {
-		t.Run(name, func(t *testing.T) {
-			in := configureInput(t)
-			in.Selected = in.Selected[:0]
-			for _, e := range pool {
-				if e.Kind() == kind {
-					in.Selected = append(in.Selected, e.ID())
-				}
-			}
-
-			programs := &fakeProgram{}
-			err := newConfigure(t, programs).Execute(context.Background(), in)
-			if !errors.Is(err, training.ErrNoMainExercise) {
-				t.Errorf("メイン種目ゼロが弾かれていない: %v", err)
-			}
-			if programs.savedProgram() != nil {
-				t.Error("検証に失敗したのに保存された")
-			}
-		})
+	if !errors.Is(err, usecase.ErrInvalidInput) {
+		t.Errorf("入力の不正として分類されていない: %v", err)
+	}
+	if programs.savedProgram() != nil {
+		t.Error("検証に失敗したのに保存された")
 	}
 }
 
