@@ -94,7 +94,15 @@ func simulateWithout(t *testing.T, frequency, weeks int, excluded ...training.Ex
 			ids = append(ids, e.ID())
 		}
 	}
-	program, err := training.NewProgram(freq, target, ids)
+	// 伸ばしたい種目は、選択に残っている BIG3 だけにする。
+	// 構成によってはスクワットを外すので、declared ⊂ selected を保つ。
+	declared := make([]training.ExerciseID, 0, 3)
+	for _, id := range []training.ExerciseID{"bench", "squat", "deadlift"} {
+		if !skip[id] {
+			declared = append(declared, id)
+		}
+	}
+	program, err := training.NewProgram(freq, target, ids, declared)
 	if err != nil {
 		t.Fatalf("プログラムの生成に失敗: %v", err)
 	}
@@ -266,7 +274,8 @@ func TestSimulation_WeightsResolveQuickly(t *testing.T) {
 		byID[e.ID()] = e
 		ids = append(ids, e.ID())
 	}
-	program, _ := training.NewProgram(freq, target, ids)
+	program, _ := training.NewProgram(freq, target, ids,
+		[]training.ExerciseID{"bench", "squat", "deadlift"})
 	planner := training.DefaultSessionPlanner()
 
 	// 体重を一度は測っている人を想定する。自重種目の負荷は体重×係数＋加重なので、

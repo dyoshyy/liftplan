@@ -61,14 +61,14 @@ func (q *Stats) Trends(ctx context.Context, from, to training.Date) ([]Trend, er
 		return nil, fmt.Errorf("期間が指定されていない")
 	}
 
-	h, pool, _, err := q.load(ctx)
+	h, pool, program, err := q.load(ctx)
 	if err != nil {
 		return nil, err
 	}
 
 	out := []Trend{}
 	for _, e := range pool {
-		if e == nil || e.Kind() != training.KindMain {
+		if e == nil || !program.Declares(e.ID()) {
 			continue
 		}
 

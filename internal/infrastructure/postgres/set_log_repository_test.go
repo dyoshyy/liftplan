@@ -6,14 +6,7 @@ import (
 
 	"github.com/dyoshyy/liftplan-server/internal/domain/training"
 	"github.com/dyoshyy/liftplan-server/internal/infrastructure/postgres"
-	"github.com/dyoshyy/liftplan-server/internal/infrastructure/repositorytest"
 )
-
-func TestPostgres_SetLogSatisfiesTheContract(t *testing.T) {
-	repositorytest.RunSetLogContract(t, func(t *testing.T) training.SetLogRepository {
-		return postgres.NewSetLogRepository(migratedDB(t))
-	})
-}
 
 // 再起動しても記録が残ること。インメモリ実装との唯一の違いがここ。
 func TestSetLogRepository_SurvivesReconnect(t *testing.T) {

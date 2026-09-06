@@ -157,7 +157,7 @@ func buildProgram(t *testing.T, pool []*training.Exercise) *training.Program {
 	for _, e := range pool {
 		selected = append(selected, e.ID())
 	}
-	p, err := training.NewProgram(freq, target, selected)
+	p, err := training.NewProgram(freq, target, selected, []training.ExerciseID{"bench", "squat", "deadlift"})
 	if err != nil {
 		t.Fatalf("プログラムが不正: %v", err)
 	}

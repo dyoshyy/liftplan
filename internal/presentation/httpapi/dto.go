@@ -123,6 +123,7 @@ type programDTO struct {
 	PerWeek  int                `json:"per_week"`
 	Target   map[string]float64 `json:"weekly_target"`
 	Selected []string           `json:"selected_exercises"`
+	Declared []string           `json:"declared_exercises"`
 }
 
 func toProgramDTO(p *training.Program) programDTO {
@@ -136,10 +137,16 @@ func toProgramDTO(p *training.Program) programDTO {
 		selected = append(selected, string(id))
 	}
 
+	declared := make([]string, 0)
+	for _, id := range p.DeclaredExercises() {
+		declared = append(declared, string(id))
+	}
+
 	return programDTO{
 		PerWeek:  p.Frequency().PerWeek(),
 		Target:   target,
 		Selected: selected,
+		Declared: declared,
 	}
 }
 
@@ -152,8 +159,12 @@ func (d programDTO) toInput() usecase.ConfigureProgramInput {
 	for _, id := range d.Selected {
 		selected = append(selected, training.ExerciseID(id))
 	}
+	declared := make([]training.ExerciseID, 0, len(d.Declared))
+	for _, id := range d.Declared {
+		declared = append(declared, training.ExerciseID(id))
+	}
 	return usecase.ConfigureProgramInput{
-		PerWeek: d.PerWeek, Target: target, Selected: selected,
+		PerWeek: d.PerWeek, Target: target, Selected: selected, Declared: declared,
 	}
 }
 

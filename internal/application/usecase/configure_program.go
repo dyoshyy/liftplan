@@ -26,6 +26,7 @@ type ConfigureProgramInput struct {
 	PerWeek  int
 	Target   map[training.MuscleRegion]float64
 	Selected []training.ExerciseID
+	Declared []training.ExerciseID
 }
 
 // ConfigureProgram はユーザーのプログラム設定を保存するユースケース。
@@ -60,7 +61,7 @@ func (u *ConfigureProgram) Execute(ctx context.Context, in ConfigureProgramInput
 	if err != nil {
 		return fmt.Errorf("%w: 週目標: %w", ErrInvalidInput, err)
 	}
-	program, err := training.NewProgram(frequency, target, in.Selected)
+	program, err := training.NewProgram(frequency, target, in.Selected, in.Declared)
 	if err != nil {
 		return fmt.Errorf("%w: プログラム: %w", ErrInvalidInput, err)
 	}
@@ -100,19 +101,6 @@ func verifySelection(pool []*training.Exercise, program *training.Program) error
 			return fmt.Errorf("%w: %w: %s", ErrInvalidInput, training.ErrExerciseNotFound, id)
 		}
 		selected = append(selected, e)
-	}
-
-	// メイン種目が1つも無いと SessionPlanner が致命エラーを返す。
-	// 保存を通すと、以後すべてのセッション導出が失敗し続ける。
-	hasMain := false
-	for _, e := range selected {
-		if e.Kind() == training.KindMain {
-			hasMain = true
-			break
-		}
-	}
-	if !hasMain {
-		return fmt.Errorf("%w: %w", ErrInvalidInput, training.ErrNoMainExercise)
 	}
 
 	// 週目標のどの区分も刺激しない選択は、補助種目が毎回ゼロになる。

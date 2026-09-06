@@ -90,7 +90,9 @@ func TestSessionPlanner_FinishedAccessoryStaysInTheList(t *testing.T) {
 
 ## Go 固有の決めごと
 
-**ドメイン層の import は許可制。**`internal/domain/training/architecture_test.go` の `productionStdlib` に無いものは使えない（いまは `context` `errors` `fmt` `math` `sort` `strings` `time` の7つ）。足すのは意図的な判断としてコミットに残る。3行のループのために `slices` を足すような判断はしない。
+**ドメイン層は外側に依存しない。**`internal/domain/training/architecture_test.go` が AST で検査する。禁じるのは**依存の向き**（外側のパッケージ、外部モジュール）だけで、標準ライブラリは制限しない（D-118）。
+
+`os` や `net/http` が入りうることは承知のうえで、そこは規約で守る。**ドメイン層が外界に触れないのは、import の許可制ではなく「DBもHTTPも立てずに全機能をテストできる」という事実で守られている。**触れるコードを書けばテストが立たなくなるので、そこで気づく。
 
 **値オブジェクトは構造体で包む。**`Weight` `Ratio` `Increment` などは全部 `struct { v float64 }` の形。定義型（`type X float64`）にすると `X(1.5)` と誰でも書けてコンストラクタを素通りする。
 
