@@ -63,3 +63,35 @@ jobs:
             echo "Postgres のテストがスキップされている"
             exit 1
           fi
+
+  # 画面の検査。サーバーとは別ジョブにする。
+  # 片方が落ちたときに、どちらが壊れたのかがログを開かずに分かる。
+  web:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: web/pnpm-lock.yaml
+
+      - name: 依存を入れる
+        run: pnpm install --frozen-lockfile
+
+      - name: typecheck
+        run: pnpm typecheck
+
+      - name: vitest
+        run: pnpm test
+
+      # ビルドが通ることまで見る。型が通ってもビルドが落ちる経路がある
+      # （Service Worker の生成は tsc を通らない）。
+      - name: build
+        run: pnpm build
