@@ -888,7 +888,11 @@ func mainWeight(t *testing.T, s training.PlannedSession, id training.ExerciseID)
 	return w.Kg()
 }
 
-// こなした補助もリストに残る。
+// 当日の記録は、補助のリストを一切動かさない。
+//
+// 内容も並びも、その日が始まった時点のまま。ジムで消化している最中に
+// リストが自分の下で動くと、どこまでやったか分からなくなる。実ブラウザで
+// 踏んだ。
 //
 // 以前は3セット終えると候補から外していた。外すと枠が空いて新しい種目が
 // 補充され、種目マスタが尽きるまでセッションが終わらなかった。それを
@@ -897,28 +901,66 @@ func mainWeight(t *testing.T, s training.PlannedSession, id training.ExerciseID)
 //
 // 当日を見なければ、どれも起きない。終えた種目は緑のまま残るだけで、
 // 終わりを判断するのは本人（D-116）。
-func TestSessionPlanner_FinishedAccessoryStaysInTheList(t *testing.T) {
-	req := planRequest(t)
-	first := mustPlan(t, req)
-	if len(first.Accessories()) == 0 {
-		t.Fatal("前提: 補助種目が提示されること")
+func TestSessionPlanner_TodaysLogsDoNotMoveTheAccessoryList(t *testing.T) {
+	cases := []struct {
+		name string
+		// 記録する種目の位置。負なら末尾から数える。
+		index int
+		// 記録するセット数。予定のセット数を受け取って決める。
+		sets func(planned int) int
+	}{
+		{
+			// 消えると残りのセットが記録できない。実運用では必ず踏む。
+			name:  "先頭を1セットだけこなしても消えない",
+			index: 0, sets: func(int) int { return 1 },
+		},
+		{
+			name:  "先頭を予定の1つ手前までこなしても消えない",
+			index: 0, sets: func(planned int) int { return planned - 1 },
+		},
+		{
+			// ここが「こなしたら外す」との分かれ目。外すと枠が空いて
+			// 新しい種目が補充され、セッションが終わらなくなる。
+			name:  "先頭を予定ぶん全部こなしても消えない",
+			index: 0, sets: func(planned int) int { return planned },
+		},
+		{
+			// 枠の調整は「始めたものを残す → 残りを埋める」という順で
+			// 組んでいたので、そのまま返すと着手済みが先頭に寄っていた。
+			// 1セット記録しただけでカードが飛ぶことになる。
+			name:  "並びの最後をこなしても、それが先頭に飛ばない",
+			index: -1, sets: func(int) int { return 1 },
+		},
 	}
-	done := first.Accessories()[0].ExerciseID()
 
-	logs := planHistory(t)
-	for i := range 3 {
-		logs = append(logs, mkLogOn(t, fmt.Sprintf("today-%d", i),
-			planMonday, string(done), 40, 10, 2))
-	}
-	req.History = training.NewHistory(logs)
-	second := mustPlan(t, req)
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			req := planRequest(t)
+			before := mustPlan(t, req)
+			if len(before.Accessories()) < 2 {
+				t.Fatalf("前提: 補助が2件以上出ること（いま %d 件）",
+					len(before.Accessories()))
+			}
 
-	if !slices.Contains(accessoryIDs(second), done) {
-		t.Errorf("こなした補助 %s がリストから消えた: %v", done, accessoryIDs(second))
-	}
-	if len(second.Accessories()) != len(first.Accessories()) {
-		t.Errorf("補助の数が変わった: %d → %d",
-			len(first.Accessories()), len(second.Accessories()))
+			i := c.index
+			if i < 0 {
+				i += len(before.Accessories())
+			}
+			target := before.Accessories()[i]
+
+			logs := planHistory(t)
+			for n := range c.sets(target.Sets().Int()) {
+				logs = append(logs, mkLogOn(t, fmt.Sprintf("today-%d", n),
+					planMonday, string(target.ExerciseID()), 30, 10, 2))
+			}
+			req.History = training.NewHistory(logs)
+
+			after := mustPlan(t, req)
+			if !slices.Equal(accessoryIDs(after), accessoryIDs(before)) {
+				t.Errorf("当日の記録でリストが変わった:\n  前: %v\n  後: %v",
+					accessoryIDs(before), accessoryIDs(after))
+			}
+		})
 	}
 }
 
@@ -1145,65 +1187,6 @@ func TestSessionPlanner_TodaysLogsMoveLaterSessions(t *testing.T) {
 	}
 }
 
-// 補助を1セット記録しても、その種目が今日のメニューから消えないこと。
-//
-// 消えると残りのセットが記録できない。実運用では必ず踏む。
-func TestSessionPlanner_PartiallyDoneAccessoryStays(t *testing.T) {
-	req := planRequest(t)
-	first := mustPlan(t, req)
-	if len(first.Accessories()) == 0 {
-		t.Fatal("前提: 補助種目が出ること")
-	}
-	target := first.Accessories()[0].ExerciseID()
-	perSet := first.Accessories()[0].Sets().Int()
-
-	// 予定より1つ少ないセット数まで記録する。
-	logs := planHistory(t)
-	for i := range perSet - 1 {
-		logs = append(logs, mkLogOn(t, fmt.Sprintf("part-%d", i),
-			planMonday, string(target), 30, 10, 2))
-	}
-	req.History = training.NewHistory(logs)
-
-	for _, a := range mustPlan(t, req).Accessories() {
-		if a.ExerciseID() == target {
-			return
-		}
-	}
-	t.Errorf("%d/%dセットしか終えていないのに %s が消えた", perSet-1, perSet, target)
-}
-
-// 補助の並びが、当日の記録で入れ替わらないこと。
-//
-// ジムで消化している最中にリストが自分の下で動くと、どこまでやったか
-// 分からなくなる。実ブラウザで踏んだ。
-func TestSessionPlanner_AccessoryOrderIsStableWithinASession(t *testing.T) {
-	req := planRequest(t)
-	ids := func(s training.PlannedSession) []training.ExerciseID {
-		out := make([]training.ExerciseID, 0, len(s.Accessories()))
-		for _, a := range s.Accessories() {
-			out = append(out, a.ExerciseID())
-		}
-		return out
-	}
-
-	before := ids(mustPlan(t, req))
-	if len(before) < 2 {
-		t.Fatal("前提: 補助が2件以上あること")
-	}
-
-	// 先頭の種目を1セット記録する。
-	req.History = training.NewHistory(append(planHistory(t),
-		mkLogOn(t, "one", planMonday, string(before[0]), 40, 10, 2)))
-
-	after := ids(mustPlan(t, req))
-	for i, id := range before {
-		if i >= len(after) || after[i] != id {
-			t.Fatalf("記録で並びが変わった:\n  前: %v\n  後: %v", before, after)
-		}
-	}
-}
-
 // セッションを最後まで消化すると、予定どおりのセット数で終わること。
 //
 // 補助を終えるたびに新しい種目が補充されると、種目マスタが尽きるまで
@@ -1299,10 +1282,19 @@ func TestSessionPlanner_PlannedWorkIsConsumedExactly(t *testing.T) {
 	}
 }
 
-// 補助種目は決まった順で返る。
+// 補助種目は、同じ入力なら毎回同じ順で返る。
 //
 // 選択は集合から選ぶので、そのままだと呼ぶたびに順番が入れ替わる。
 // 画面では同じ内容のカードが並び替わり、どこまでやったか見失う。
+//
+// 以前はここで「IDの昇順であること」も見ていた。やめたのは、それが実装の
+// 契約ではなく偶然だったため。usablePool と AccessorySelector.Select の
+// ソートを両方とも逆順にする変異を入れても、この検査は緑のまま通った
+// （docs/refactoring.md「Select の中のソートが上流と重複している」）。
+//
+// Select が返す順序の契約は「最も放置している区分から」であって、
+// 昇順ではない。偶然を固定すると、優先度の付け方を変えたときに
+// 理由の無い赤が出る。
 func TestSessionPlanner_AccessoriesComeBackInAStableOrder(t *testing.T) {
 	req := planRequest(t)
 
@@ -1315,12 +1307,6 @@ func TestSessionPlanner_AccessoriesComeBackInAStableOrder(t *testing.T) {
 		t.Fatalf("補助が %d 種目しか出ないので順序を確かめられない", len(ids))
 	}
 
-	for i := 1; i < len(ids); i++ {
-		if ids[i-1] >= ids[i] {
-			t.Fatalf("決まった順になっていない: %v", ids)
-		}
-	}
-
 	// 何度開き直しても同じ順で出る。
 	for n := 0; n < 30; n++ {
 		again := mustPlan(t, req)
@@ -1331,35 +1317,6 @@ func TestSessionPlanner_AccessoriesComeBackInAStableOrder(t *testing.T) {
 			if a.ExerciseID() != ids[i] {
 				t.Fatalf("%d回目で順序が変わった: %v から %v", n, ids, again.Accessories())
 			}
-		}
-	}
-}
-
-// 着手済みの補助があっても、並びは決まった順のまま。
-//
-// 枠の調整は「始めたものを残す → 残りを埋める」という順で組むので、
-// そのまま返すと着手済みが先頭に寄る。1セット記録しただけで
-// カードが飛ぶことになる。
-func TestSessionPlanner_StartedAccessoriesDoNotJumpToTheTop(t *testing.T) {
-	req := planRequest(t)
-	base := mustPlan(t, req)
-	if len(base.Accessories()) < 2 {
-		t.Fatalf("補助が %d 種目しか出ない", len(base.Accessories()))
-	}
-
-	// 並びの後ろにあるものを1セットこなす。
-	last := base.Accessories()[len(base.Accessories())-1].ExerciseID()
-	req.History = training.NewHistory(append(planHistory(t),
-		mkLogOn(t, "started-1", planMonday, string(last), 20, 10, 2)))
-
-	after := mustPlan(t, req)
-	ids := make([]training.ExerciseID, 0, len(after.Accessories()))
-	for _, a := range after.Accessories() {
-		ids = append(ids, a.ExerciseID())
-	}
-	for i := 1; i < len(ids); i++ {
-		if ids[i-1] >= ids[i] {
-			t.Fatalf("着手したものが並びを崩した: %v", ids)
 		}
 	}
 }
