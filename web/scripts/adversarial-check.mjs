@@ -1,7 +1,26 @@
 // クライアントを敵対的に検証する。
 //
 // 「動くこと」ではなく「壊れないこと」を確かめる。記録が消える経路を探す。
-import { chromium } from '/home/yosh/repos/app-template/node_modules/.pnpm/playwright-core@1.62.0/node_modules/playwright-core/index.mjs';
+// 単体テストでは踏めない経路（Service Worker・IndexedDB の再読み込み・
+// オフライン復帰）を、本番ビルドの実機で通す。
+//
+// **dev サーバーでは意味がない。**Service Worker が無効なので、圏外で
+// 再読み込みする経路を検査できない。必ず本番ビルドを preview で出すこと。
+//
+//   # 1. サーバー
+//   cd .. && AUTH_TOKEN=dev-token-0123456789abcdef0123456789ab \
+//     ALLOWED_ORIGINS=http://localhost:4173 go run ./cmd/api
+//
+//   # 2. 本番ビルドを出す
+//   VITE_API_BASE=http://127.0.0.1:8080 pnpm build
+//   pnpm exec vite preview --port 4173 --strictPort
+//
+//   # 3. 検証
+//   PLAYWRIGHT=<playwright-core のパス> node scripts/adversarial-check.mjs
+//
+// CI には入れていない。ブラウザの実体が要るため。手で回す。
+const PLAYWRIGHT = process.env.PLAYWRIGHT ?? 'playwright-core';
+const { chromium } = await import(PLAYWRIGHT);
 
 const TOKEN = 'dev-token-0123456789abcdef0123456789ab';
 const API = 'http://127.0.0.1:8080';
@@ -40,7 +59,10 @@ for (const s of await serverSets(today())) {
 }
 console.log(`（前回の記録を ${'' + (await serverSets(today())).length} 件まで掃除した）\n`);
 
-const browser = await chromium.launch({ executablePath: '/usr/bin/chromium', args: ['--no-sandbox'] });
+const browser = await chromium.launch({
+  executablePath: process.env.CHROME ?? '/usr/bin/chromium',
+  args: ['--no-sandbox'],
+});
 const ctx = await browser.newContext({ viewport: { width: 390, height: 844 } });
 const page = await ctx.newPage();
 const errors = [];
