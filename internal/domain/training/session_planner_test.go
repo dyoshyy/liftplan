@@ -1012,22 +1012,87 @@ func TestSessionPlanner_DoesNotDoubleCountTodaysMain(t *testing.T) {
 	}
 }
 
+// plannedWeight は今日のメニューのうち id の提示重量を返す。
+// メインと補助のどちらにあっても引ける。
+func plannedWeight(t *testing.T, s training.PlannedSession, id training.ExerciseID) (float64, bool) {
+	t.Helper()
+	for _, set := range append(s.Main(), s.Accessories()...) {
+		if set.ExerciseID() != id {
+			continue
+		}
+		w, ok := set.Weight()
+		return w.Kg(), ok
+	}
+	t.Fatalf("%s が今日のメニューに無い", id)
+	return 0, false
+}
+
 // 当日の記録で、その日の提示重量が動かないこと。
 //
 // 動くと、1セット目を記録した瞬間に2セット目の提示が変わる。しかも
 // RIR を守ってきついセットをこなすほど推定1RMが上がるので、
 // **追い込むほど次のセットが重くなる**。実際に画面で踏んだ。
 func TestSessionPlanner_TodaysLogsDoNotMoveTodaysWeight(t *testing.T) {
-	req := planRequest(t)
-	before := mainWeight(t, mustPlan(t, req), "bench")
+	cases := []struct {
+		name     string
+		exercise training.ExerciseID
+		// 基準の提示重量を確定させるために要る履歴。補助種目は過去の記録が
+		// 無いと重量が出ないので、そのぶんを先に置く。
+		prior func(t *testing.T) []*training.SetLog
+		// 当日こなす1セット。重量は基準からの差で指定する。
+		deltaKg   float64
+		reps, rir int
+	}{
+		{
+			name: "軸を、提示どおりの重量でこなしても動かない",
+			// RIR を守った、それなりにきついセット。推定1RMは上がる方向。
+			exercise: "bench", deltaKg: 0, reps: 6, rir: 1,
+		},
+		{
+			// 同じ重量で記録すると推定がそもそも上がらず、当日を混ぜても
+			// 数字が変わらないことがある。混ぜたら必ず変わる重さで確かめる。
+			name:     "軸を、明らかに重い重量でこなしても動かない",
+			exercise: "bench", deltaKg: 40, reps: 8, rir: 3,
+		},
+		{
+			name:     "補助でも動かない",
+			exercise: "incline", deltaKg: 5, reps: 12, rir: 0,
+			prior: func(t *testing.T) []*training.SetLog {
+				t.Helper()
+				return []*training.SetLog{
+					mkLogOn(t, "inc-old", planMonday.AddDays(-7), "incline", 40, 10, 2),
+				}
+			},
+		},
+	}
 
-	// 今日1セットこなす。RIR を守った、それなりにきついセット。
-	req.History = training.NewHistory(append(planHistory(t),
-		mkLogOn(t, "today-1", planMonday, "bench", before, 6, 1)))
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			logs := planHistory(t)
+			if c.prior != nil {
+				logs = append(logs, c.prior(t)...)
+			}
 
-	after := mainWeight(t, mustPlan(t, req), "bench")
-	if after != before {
-		t.Errorf("当日の記録で今日の重量が動いた: %v → %v", before, after)
+			req := planRequest(t)
+			req.History = training.NewHistory(logs)
+
+			before, ok := plannedWeight(t, mustPlan(t, req), c.exercise)
+			if !ok {
+				t.Fatalf("前提: %s の重量が提示されること", c.exercise)
+			}
+
+			req.History = training.NewHistory(append(logs,
+				mkLogOn(t, "today", planMonday, string(c.exercise),
+					before+c.deltaKg, c.reps, c.rir)))
+
+			after, ok := plannedWeight(t, mustPlan(t, req), c.exercise)
+			if !ok {
+				t.Fatalf("1セット記録したら %s が消えた", c.exercise)
+			}
+			if after != before {
+				t.Errorf("当日の記録で今日の重量が動いた: %v → %v", before, after)
+			}
+		})
 	}
 }
 
@@ -1048,42 +1113,6 @@ func TestSessionPlanner_TodaysLogsMoveLaterSessions(t *testing.T) {
 	later := mainWeight(t, mustPlan(t, req), "bench")
 	if later <= base {
 		t.Errorf("記録が後のセッションに反映されていない: %v → %v", base, later)
-	}
-}
-
-// 補助種目も、当日の記録で重量が動かないこと。
-func TestSessionPlanner_TodaysLogsDoNotMoveAccessoryWeight(t *testing.T) {
-	weightOf := func(t *testing.T, s training.PlannedSession) (float64, bool) {
-		t.Helper()
-		for _, a := range s.Accessories() {
-			if a.ExerciseID() != "incline" {
-				continue
-			}
-			w, ok := a.Weight()
-			return w.Kg(), ok
-		}
-		return 0, false
-	}
-
-	req := planRequest(t)
-	req.History = training.NewHistory(append(planHistory(t),
-		mkLogOn(t, "inc-old", planMonday.AddDays(-7), "incline", 40, 10, 2)))
-	before, ok := weightOf(t, mustPlan(t, req))
-	if !ok {
-		t.Fatal("incline の重量が確定していない")
-	}
-
-	// 今日1セットこなす。予定の3セットには届いていないので残る。
-	req.History = training.NewHistory(append(planHistory(t),
-		mkLogOn(t, "inc-old", planMonday.AddDays(-7), "incline", 40, 10, 2),
-		mkLogOn(t, "inc-today", planMonday, "incline", 45, 12, 0)))
-
-	after, ok := weightOf(t, mustPlan(t, req))
-	if !ok {
-		t.Fatal("1セット記録したら incline が消えた")
-	}
-	if after != before {
-		t.Errorf("当日の記録で補助の重量が動いた: %v → %v", before, after)
 	}
 }
 
@@ -1238,27 +1267,6 @@ func TestSessionPlanner_PlannedWorkIsConsumedExactly(t *testing.T) {
 	if last := plan(t); len(last.Accessories()) != len(first.Accessories()) {
 		t.Errorf("消化しきったら補助の数が変わった: %d → %d",
 			len(first.Accessories()), len(last.Accessories()))
-	}
-}
-
-// 当日に明らかに重いセットを記録しても、その日の提示重量は動かない。
-//
-// 既存の「動かない」テストは同じ重量で記録しているので、推定が
-// そもそも上がらず、当日を混ぜても数字が変わらないことがある。
-// 混ぜたら必ず変わる重さで確かめる。
-func TestSessionPlanner_HeavyTodaysLogDoesNotMoveTodaysWeight(t *testing.T) {
-	req := planRequest(t)
-	before := mainWeight(t, mustPlan(t, req), "bench")
-	if before <= 0 {
-		t.Fatal("ベンチプレスの重量が提示されていない")
-	}
-
-	req.History = training.NewHistory(append(planHistory(t),
-		mkLogOn(t, "today-heavy", planMonday, "bench", before+40, 8, 3)))
-
-	after := mainWeight(t, mustPlan(t, req), "bench")
-	if after != before {
-		t.Errorf("当日の記録で今日の重量が動いた: %v → %v", before, after)
 	}
 }
 
