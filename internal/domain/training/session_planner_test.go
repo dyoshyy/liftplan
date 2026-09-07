@@ -114,60 +114,95 @@ func TestSessionPlanner_AllMainLiftsGetASlot(t *testing.T) {
 	}
 }
 
-// 週の1本目は標準スロット。設定より少ない回数しか通わなくても
-// メインリフト本体を実施できるようにするため。
-func TestSessionPlanner_FirstSessionOfWeekIsStandard(t *testing.T) {
-	s := mustPlan(t, planRequest(t))
-	for _, set := range s.Main() {
-		role, ok := set.Role()
-		if !ok || role != training.RoleStandard {
-			t.Errorf("週1本目の役割が誤り: %v", role)
-		}
-	}
-}
+// planRequestAt は週内で days 日目のリクエストを返す。
+//
+// done に挙げた日には「その日に通った」ことを表す記録を入れる。週の何本目かは
+// 履歴に記録のある日数で決まるので（sessionIndexInWeek）、ここを進めないと
+// 日付だけ動かしても常に1本目になる。
+//
+// 記録に curl を使うのは、メイン種目の推定1RMを動かさないため。bench で
+// 進めると、役割を見たいだけのケースで重量まで変わる。
+func planRequestAt(t *testing.T, days int, done ...int) training.PlanRequest {
+	t.Helper()
 
-func TestSessionPlanner_SecondSessionOfWeekIsHeavy(t *testing.T) {
+	logs := planHistory(t)
+	for i, d := range done {
+		logs = append(logs,
+			mkLogOn(t, fmt.Sprintf("done-%d", i), planMonday.AddDays(d), "curl", 20, 10, 2))
+	}
+
 	req := planRequest(t)
-	req.History = training.NewHistory(append(planHistory(t),
-		mkLogOn(t, "monday", planMonday, "bench", 80, 8, 2)))
-	req.Date = planMonday.AddDays(2)
+	req.History = training.NewHistory(logs)
+	req.Date = planMonday.AddDays(days)
+	return req
+}
 
-	for _, set := range mustPlan(t, req).Main() {
-		if role, _ := set.Role(); role != training.RoleHeavy {
-			t.Errorf("週2本目の役割が誤り: %v", role)
-		}
+// 週の何本目かでスロットの役割が決まる。
+//
+// 並び順は「重要な役割ほど先」で、強度の昇順ではない（slot.go）。設定した
+// 頻度より実際に通う回数が少ないと先頭のスロットしか使われないので、標準を
+// 先頭に置くことで、週に一度でも通えば通常の強度で実施することが保証される。
+func TestSessionPlanner_SlotRoleFollowsTheSessionIndex(t *testing.T) {
+	cases := []struct {
+		name string
+		done []int // 週内で既に通った日（月曜からの日数）
+		date int   // 対象日（月曜からの日数）
+		want training.SlotRole
+	}{
+		{
+			// 1本目を軽い日にすると、通常フォームの高い強度がいつまでも
+			// 記録されず、推定1RMが実力より低いまま固定される。
+			name: "週1本目は標準スロット",
+			done: nil, date: 0, want: training.RoleStandard,
+		},
+		{
+			name: "週2本目は高強度スロット",
+			done: []int{0}, date: 2, want: training.RoleHeavy,
+		},
+		{
+			name: "週3本目は軽い日",
+			done: []int{0, 2}, date: 4, want: training.RoleLight,
+		},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			main := mustPlan(t, planRequestAt(t, c.date, c.done...)).Main()
+			if len(main) == 0 {
+				t.Fatal("メイン種目が1つも出ていない")
+			}
+			for _, set := range main {
+				role, ok := set.Role()
+				if !ok || role != c.want {
+					t.Errorf("%s の役割が %v。%v のはず", set.ExerciseID(), role, c.want)
+				}
+			}
+		})
 	}
 }
 
-// バリエーションのスロットでは、メイン種目が派生に差し替わること。
 // 軽い日でも種目は差し替えない。強度とセット数だけが変わる。
 //
 // 以前は「BENCH のバリエーション」から1つ選んでベンチと入れ替えていた。
-// やめたのは、差し替えの対応表（MainLift）を維持する理由が他に無くなったため。
-// 軽い日にやるのは、その日の軸そのものを軽くやること。
+// やめたのは、差し替えの対応表（MainLift）を維持する理由が他に無くなったため
+// （D-114）。軽い日にやるのは、その日の軸そのものを軽くやること。
+//
+// larsen はかつてベンチのバリエーションだった種目で、いまは補助のひとつ。
+// メインの枠に現れたら、差し替えが復活している。
 func TestSessionPlanner_LightSlotKeepsTheSameExercise(t *testing.T) {
-	req := planRequest(t)
-	logs := planHistory(t)
-	logs = append(logs,
-		mkLogOn(t, "d1", planMonday, "bench", 80, 8, 2),
-		mkLogOn(t, "d2", planMonday.AddDays(2), "bench", 90, 5, 1))
-	req.History = training.NewHistory(logs)
-	req.Date = planMonday.AddDays(4) // 週3本目 = 軽い日
+	s := mustPlan(t, planRequestAt(t, 4, 0, 2)) // 週3本目 = 軽い日
 
 	found := false
-	for _, set := range mustPlan(t, req).Main() {
+	for _, set := range s.Main() {
 		if set.ExerciseID() == training.ExerciseID("larsen") {
 			t.Error("軽い日で種目が差し替わっている")
 		}
 		if set.ExerciseID() == training.ExerciseID("bench") {
 			found = true
-			if role, ok := set.Role(); !ok || role != training.RoleLight {
-				t.Errorf("前提: 3本目が軽い日であること: %v", role)
-			}
 		}
 	}
 	if !found {
-		t.Error("メイン種目が出ていない")
+		t.Error("軸のベンチが出ていない")
 	}
 }
 
