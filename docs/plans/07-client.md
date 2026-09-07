@@ -24,5 +24,11 @@
 
 ## Task 34 以降: Android
 
+**位置づけを変えた（2026-09-07）。**元は「PWA はつなぎ、本命は Android」だったが、
+**PWA を本命のクライアントにする**。Android と iOS の両方を作る時間が無い。
+
+Health Connect との連携は Android でしか取れないので**保留**として残す。
+やるとしても、PWA が動いている前提の追加であって、置き換えではない。
+
 
 Kotlin + Jetpack Compose。環境構築から。PWA が動いている間に落ち着いて進める。

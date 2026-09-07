@@ -4,7 +4,15 @@ import { getToken, clearToken } from '../storage/local';
 //
 // 開発で proxy を挟んで同一オリジンに見せると、CORS を一度も通らないまま
 // 開発が終わり、設定漏れが本番で初めて出る。
-const API_BASE = import.meta.env.VITE_API_BASE ?? '';
+//
+// **空なら即座に落とす。**同一オリジンに落とすと、送り先が画面を配っている
+// Worker になる。あちらは未知の経路に index.html を 200 で返すので、
+// 待ち行列は「送れた」と判断して記録を消す。記録が黙って消える経路になる。
+// サーバー側が ALLOWED_ORIGINS 無しで起動を拒むのと同じ理由。
+const API_BASE = import.meta.env.VITE_API_BASE;
+if (!API_BASE) {
+  throw new Error('VITE_API_BASE が設定されていない。API のオリジンを指定すること');
+}
 
 /** Unauthorized はトークンが通らなかったことを表す。画面はこれを見て設定へ戻す。 */
 export class Unauthorized extends Error {
