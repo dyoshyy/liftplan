@@ -1327,16 +1327,20 @@ func TestSessionPlanner_StartedAccessoriesDoNotJumpToTheTop(t *testing.T) {
 	}
 }
 
-// 体重75kgを記録し、チンニング（係数0.95）を加重0kgで8回×3セット、過去に記録する。
-// 次の計画でチンニングに重量が出ること。
-func TestSessionPlanner_BodyWeightOnlySetsStillProduceAWeight(t *testing.T) {
-	const bodyweight = 75.0
+// chinRequest はチンニング（自重係数0.95）を1つ足したリクエストを返す。
+//
+// addedKg はこれまで記録してきた加重。bodyweight が0なら体重の記録は
+// 一度も無いものとする。
+func chinRequest(t *testing.T, addedKg, bodyweight float64) training.PlanRequest {
+	t.Helper()
 
 	chin := mustExercise(t, training.ExerciseParams{
-		ID: "chin", Name: "chin", Kind: training.KindAccessory, Stimulus: map[training.MuscleRegion]float64{training.Lat: 1.0}, IncrementKg: 2.5, BodyweightFactor: 0.95,
+		ID: "chin", Name: "chin", Kind: training.KindAccessory,
+		Stimulus:         map[training.MuscleRegion]float64{training.Lat: 1.0},
+		IncrementKg:      2.5,
+		BodyweightFactor: 0.95,
 	})
 
-	pool := append(planPool(t), chin)
 	program, err := training.NewProgram(
 		mustFrequency(t, 3),
 		mustTarget(t, map[training.MuscleRegion]float64{training.Lat: 12}),
@@ -1347,39 +1351,138 @@ func TestSessionPlanner_BodyWeightOnlySetsStillProduceAWeight(t *testing.T) {
 		t.Fatalf("プログラムの生成に失敗: %v", err)
 	}
 
-	// 先週、自重（加重0kg）で3セッションこなした。体重も測ってある。
-	var logs []*training.SetLog
+	// 3セッションぶん記録する。推定1RMが立つ量。
+	logs := planHistory(t)
 	var conds []training.DailyCondition
 	for i, daysAgo := range []int{21, 14, 7} {
 		day := planMonday.AddDays(-daysAgo)
 		for set := range 3 {
 			logs = append(logs, mkLogOn(t,
-				fmt.Sprintf("chin-%d-%d", i, set), day, "chin", 0, 8, 2))
+				fmt.Sprintf("chin-%d-%d", i, set), day, "chin", addedKg, 8, 2))
 		}
-		conds = append(conds,
-			training.NewDailyCondition(day).WithBodyWeight(bodyweight))
+		if bodyweight > 0 {
+			conds = append(conds,
+				training.NewDailyCondition(day).WithBodyWeight(bodyweight))
+		}
 	}
 
-	s := mustPlan(t, training.PlanRequest{
+	return training.PlanRequest{
 		Program:    program,
-		Pool:       pool,
+		Pool:       append(planPool(t), chin),
 		History:    training.NewHistory(logs),
 		Conditions: training.NewConditionLog(conds),
 		Date:       planMonday,
-	})
+	}
+}
 
-	found := false
+// accessorySet は補助種目のうち id のものを返す。
+func accessorySet(t *testing.T, s training.PlannedSession, id training.ExerciseID) training.PlannedSet {
+	t.Helper()
 	for _, set := range s.Accessories() {
-		if set.ExerciseID() != training.ExerciseID("chin") {
-			continue
-		}
-		found = true
-		if _, ok := set.Weight(); !ok {
-			t.Error("自重だけの記録から重量が決まらない")
+		if set.ExerciseID() == id {
+			return set
 		}
 	}
-	if !found {
-		t.Fatal("前提: チンニングが補助として提示されること")
+	t.Fatalf("前提: %s が補助として提示されること", id)
+	return training.PlannedSet{}
+}
+
+// 自重種目の処方は「体重×係数」を引いた加重で出す。
+//
+// 体重×係数は既に体が負担しているので、付けるプレートはその差分だけ。
+// ここが効かないと、チンニングに「85kg」のような総負荷が提示される。
+func TestSessionPlanner_BodyweightExerciseIsPrescribedAsAddedWeight(t *testing.T) {
+	cases := []struct {
+		name       string
+		addedKg    float64 // これまで記録してきた加重
+		bodyweight float64 // 0 なら体重の記録が一度も無い
+		// 体が負担している分。提示はこれを下回らなければならない。
+		carriedKg float64
+		wantMaxKg float64
+	}{
+		{
+			// 自重だけの記録からでも重量が決まること。以前は0kgのセットを
+			// 推定から除外していたので、自重でやり続ける限り推定するものが
+			// 何も残らず、永久に「自分で決める」が出ていた。
+			name:    "加重0kgの記録からでも重量が決まる",
+			addedKg: 0, bodyweight: 75,
+			carriedKg: 75 * 0.95, wantMaxKg: 30,
+		},
+		{
+			name:    "加重で記録していれば、その周辺の加重が出る",
+			addedKg: 10, bodyweight: 75,
+			carriedKg: 75 * 0.95, wantMaxKg: 30,
+		},
+		{
+			// 元は「体重が分からなければ推測せず本人に返す」として
+			// 「自分で決める」を出していた。だが「何kgでやるか」はアプリが
+			// 答えるべき問いなので、既定体重70kgで処方する。推定と処方の
+			// 両側で同じ体重を使うため、既定値が実体からずれても出力は
+			// ほとんど動かない（体重20kgのずれで処方は1kg）。
+			name:    "体重を一度も測っていなければ既定体重で処方する",
+			addedKg: 10, bodyweight: 0,
+			carriedKg: defaultBodyWeight * 0.95, wantMaxKg: 30,
+		},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			s := mustPlan(t, chinRequest(t, c.addedKg, c.bodyweight))
+
+			w, ok := accessorySet(t, s, "chin").Weight()
+			if !ok {
+				t.Fatal("自重種目の重量が決まらない")
+			}
+			if w.Kg() >= c.carriedKg {
+				t.Errorf("提示が %vkg。体重込みの総負荷が出ている（%vkg 未満のはず）",
+					w.Kg(), c.carriedKg)
+			}
+			if w.Kg() > c.wantMaxKg {
+				t.Errorf("提示が %vkg。記録した加重 %vkg から出る値としておかしい",
+					w.Kg(), c.addedKg)
+			}
+
+			// 体重の欠落が、自重の乗らない種目まで巻き込まないこと。
+			decided := false
+			for _, set := range s.Main() {
+				if _, ok := set.Weight(); ok {
+					decided = true
+				}
+			}
+			if !decided {
+				t.Error("自重が乗らないメイン種目の重量まで決まらなくなっている")
+			}
+		})
+	}
+}
+
+// 既定体重が実体からずれても、処方はほとんど動かない。
+//
+// 体重を測っていない人には既定値70kgで処方する。実体が75kgでも、提示は
+// 0.25kgしか変わらない。推定1RMを出すときと処方を加重へ戻すときの両側で
+// 同じ体重を使うので、ずれの大半が打ち消し合うため。
+//
+// この打ち消しが効かないと、既定値の選び方が処方を大きく左右する。実際
+// 既定値を0にする変異では、引き算が消えて提示が3kg以上跳ねる。
+// 「体重の欠落は自分で決めるに落とす」をやめられたのは、この性質が
+// あるからで、性質そのものを検査しておかないと根拠が失われる。
+func TestSessionPlanner_DefaultBodyWeightBarelyMovesThePrescription(t *testing.T) {
+	const tolerance = 1.0
+
+	measured, ok := accessorySet(t,
+		mustPlan(t, chinRequest(t, 10, 75)), "chin").Weight()
+	if !ok {
+		t.Fatal("体重を測っている場合の重量が決まらない")
+	}
+	fallback, ok := accessorySet(t,
+		mustPlan(t, chinRequest(t, 10, 0)), "chin").Weight()
+	if !ok {
+		t.Fatal("体重を測っていない場合の重量が決まらない")
+	}
+
+	if diff := measured.Kg() - fallback.Kg(); diff > tolerance || diff < -tolerance {
+		t.Errorf("体重75kgで %vkg、既定70kgで %vkg。差が %vkg あり、%vkg を超える",
+			measured.Kg(), fallback.Kg(), diff, tolerance)
 	}
 }
 
@@ -1446,84 +1549,6 @@ func TestSessionPlanner_BodyweightSetsStillCountTowardCoverage(t *testing.T) {
 
 // 自重種目の提示は加重で出す。体重込みの総負荷を見せられても、
 // 何をすればいいか分からない。
-func TestSessionPlanner_BodyweightExerciseIsPrescribedAsAddedWeight(t *testing.T) {
-	const bodyweight = 75.0
-	const factor = 0.95
-
-	chin := mustExercise(t, training.ExerciseParams{
-		ID: "chin", Name: "chin", Kind: training.KindAccessory,
-		Stimulus:         map[training.MuscleRegion]float64{training.Lat: 1.0},
-		IncrementKg:      2.5,
-		BodyweightFactor: factor,
-	})
-
-	pool := append(planPool(t), chin)
-	program, err := training.NewProgram(
-		mustFrequency(t, 3),
-		mustTarget(t, map[training.MuscleRegion]float64{training.Lat: 12}),
-		[]training.ExerciseID{"bench", "squat", "deadlift", "chin"},
-		big3(),
-	)
-	if err != nil {
-		t.Fatalf("プログラムの生成に失敗: %v", err)
-	}
-
-	// 加重10kgで3セッションこなした。体重も測ってある。
-	var logs []*training.SetLog
-	var conds []training.DailyCondition
-	for i, daysAgo := range []int{21, 14, 7} {
-		day := planMonday.AddDays(-daysAgo)
-		for set := range 3 {
-			logs = append(logs, mkLogOn(t,
-				fmt.Sprintf("chin-%d-%d", i, set), day, "chin", 10, 8, 2))
-		}
-		conds = append(conds,
-			training.NewDailyCondition(day).WithBodyWeight(bodyweight))
-	}
-
-	s := mustPlan(t, training.PlanRequest{
-		Program:    program,
-		Pool:       pool,
-		History:    training.NewHistory(logs),
-		Conditions: training.NewConditionLog(conds),
-		Date:       planMonday,
-	})
-
-	found := false
-	for _, set := range s.Accessories() {
-		if set.ExerciseID() != training.ExerciseID("chin") {
-			continue
-		}
-		found = true
-		w, ok := set.Weight()
-		if !ok {
-			t.Fatal("加重で記録しているのに重量が決まらない")
-		}
-		// 体重×係数（71.25kg）は既に体が負担している。付けるプレートは
-		// その差分だけなので、提示はこれを下回る。
-		if w.Kg() >= bodyweight*factor {
-			t.Errorf("提示が %vkg。体重込みの総負荷が出ている（加重は %vkg 未満のはず）",
-				w.Kg(), bodyweight*factor)
-		}
-		// 記録した加重が10kgなので、その周辺の値になる。
-		if w.Kg() <= 0 || w.Kg() > 30 {
-			t.Errorf("提示が %vkg。加重10kgの記録から出る値としておかしい", w.Kg())
-		}
-	}
-	if !found {
-		t.Fatal("前提: チンニングが補助として提示されること")
-	}
-}
-
-// 体重を一度も測っていなくても、自重種目に重量が出る。
-//
-// 元は「体重が分からなければ推測せず本人に返す」として「自分で決める」を
-// 出していた。だが「何kgでやるか」はアプリが答えるべき問いなので、既定体重
-// 70kg で処方する。推定と処方の両側で同じ体重を使うため、既定値が実体から
-// ずれても出力はほとんど動かない（体重20kgのずれで処方は1kg）。
-//
-// 総負荷がそのまま出ないことも併せて見る。体重を0と見なすと引き算が消えて
-// 自重種目に総負荷を処方してしまう。
 func TestSessionPlanner_BodyweightExerciseFallsBackToDefaultBodyWeight(t *testing.T) {
 	chin := mustExercise(t, training.ExerciseParams{
 		ID: "chin", Name: "chin", Kind: training.KindAccessory,
