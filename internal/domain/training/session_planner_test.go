@@ -217,6 +217,7 @@ func TestSessionPlanner_NoHistoryMeansNoWeight(t *testing.T) {
 	}
 }
 
+// 残差は補助種目で埋める。
 func TestSessionPlanner_FillsResidualWithAccessories(t *testing.T) {
 	s := mustPlan(t, planRequest(t))
 	if len(s.Accessories()) == 0 {
@@ -224,6 +225,8 @@ func TestSessionPlanner_FillsResidualWithAccessories(t *testing.T) {
 	}
 
 	for _, set := range s.Accessories() {
+		// 役割はメインのスロットにだけ付く。補助に付くと、強度帯が
+		// 二重に適用される。
 		if _, ok := set.Role(); ok {
 			t.Errorf("補助種目に役割が付いている: %v", set.ExerciseID())
 		}
@@ -231,20 +234,12 @@ func TestSessionPlanner_FillsResidualWithAccessories(t *testing.T) {
 			t.Errorf("補助種目のセット数が0以下: %v", set.ExerciseID())
 		}
 	}
-}
-
-// メインが埋めた区分は補助で狙わないこと。
-func TestSessionPlanner_AccessoriesAvoidRegionsCoveredByMains(t *testing.T) {
-	s := mustPlan(t, planRequest(t))
 
 	// ベンチが大胸筋中部を埋めているので、そこを狙う補助は要らない。
 	// このプールで大胸筋中部を狙う補助種目は無いが、上部と二頭は残る。
-	got := map[training.ExerciseID]bool{}
-	for _, set := range s.Accessories() {
-		got[set.ExerciseID()] = true
-	}
-	if !got["incline"] && !got["curl"] {
-		t.Errorf("残差を埋める補助が選ばれていない: %v", got)
+	ids := accessoryIDs(s)
+	if !slices.Contains(ids, "incline") && !slices.Contains(ids, "curl") {
+		t.Errorf("残差を埋める補助が選ばれていない: %v", ids)
 	}
 }
 
@@ -683,10 +678,13 @@ func TestSessionPlanner_SubtractsMainCoverageFromResidual(t *testing.T) {
 	}
 }
 
-// 残りセッション数で割ること。週の後半ほど1回あたりの量が増える。
-func TestSessionPlanner_DividesByRemainingSessions(t *testing.T) {
-	// 大胸筋上部を狙う補助を十分に用意する。種目が足りないと
-	// スロット数が頭打ちになり、割り算の違いが見えない。
+// chestUpperRequest は大胸筋上部だけを週目標に持つリクエストを返す。
+//
+// 同じ区分を狙う補助を6種目そろえるのは、種目が足りないとスロット数が
+// 頭打ちになり、残差の計算の違いが出力に現れないため。
+func chestUpperRequest(t *testing.T) training.PlanRequest {
+	t.Helper()
+
 	pool := planPool(t)
 	ids := []training.ExerciseID{"bench", "squat", "deadlift", "incline"}
 	for i := range 5 {
@@ -696,14 +694,21 @@ func TestSessionPlanner_DividesByRemainingSessions(t *testing.T) {
 		ids = append(ids, training.ExerciseID(id))
 	}
 
-	target := mustTarget(t, map[training.MuscleRegion]float64{training.ChestUpper: 12})
-	program, err := training.NewProgram(mustFrequency(t, 3), target, ids, big3())
+	program, err := training.NewProgram(mustFrequency(t, 3),
+		mustTarget(t, map[training.MuscleRegion]float64{training.ChestUpper: 12}),
+		ids, big3())
 	if err != nil {
 		t.Fatalf("プログラムの生成に失敗: %v", err)
 	}
 
 	req := planRequest(t)
 	req.Pool, req.Program = pool, program
+	return req
+}
+
+// 残りセッション数で割ること。週の後半ほど1回あたりの量が増える。
+func TestSessionPlanner_DividesByRemainingSessions(t *testing.T) {
+	req := chestUpperRequest(t)
 
 	// 週の1本目: 12 / 3 = 4セット → 2種目（3セットずつ）
 	first := mustPlan(t, req)
@@ -757,58 +762,44 @@ func TestSessionPlanner_VariationWeightComesFromItsOwnRecord(t *testing.T) {
 // 前の週の記録まで数えると残差が過小になり、当日の記録まで数えると
 // 計画中のメインと二重に数える。
 func TestSessionPlanner_WeeklyCoverageWindow(t *testing.T) {
-	pool := planPool(t)
-	ids := []training.ExerciseID{"bench", "squat", "deadlift", "incline"}
-	for i := range 5 {
-		id := fmt.Sprintf("chest_up_%d", i)
-		pool = append(pool, mkAccessory(t, id,
-			map[training.MuscleRegion]float64{training.ChestUpper: 1.0}))
-		ids = append(ids, training.ExerciseID(id))
-	}
-	target := mustTarget(t, map[training.MuscleRegion]float64{training.ChestUpper: 12})
-	program, err := training.NewProgram(mustFrequency(t, 3), target, ids, big3())
-	if err != nil {
-		t.Fatalf("プログラムの生成に失敗: %v", err)
-	}
-
-	base := training.PlanRequest{
-		Program: program, Pool: pool,
-		History:    training.NewHistory(planHistory(t)),
-		Conditions: training.NewConditionLog(nil),
-		Date:       planMonday,
-	}
+	base := chestUpperRequest(t)
 	want := len(mustPlan(t, base).Accessories())
 
-	t.Run("前の週の記録は数えない", func(t *testing.T) {
-		logs := planHistory(t)
-		for i := range 12 {
-			logs = append(logs, mkLogOn(t, fmt.Sprintf("prev-%d", i),
-				planMonday.AddDays(-3), "incline", 30, 10, 2))
-		}
-		req := base
-		req.History = training.NewHistory(logs)
+	cases := []struct {
+		name string
+		// 12セットぶんの記録を置く日（月曜からの日数）。窓に入っていれば
+		// 週目標12を使い切り、補助が減るはず。
+		daysFromMonday int
+	}{
+		{
+			// 前の週まで数えると残差が過小になり、週の頭から補助が減る。
+			name: "前の週の記録は数えない", daysFromMonday: -3,
+		},
+		{
+			// 以前は当日の記録も残差に含めていた。含めるとセッション中に
+			// 残差が動き、こなすたびにリストが入れ替わる。今日の計画は
+			// その日の始まりに確定させると決めた（D-116）。
+			name: "当日の記録は数えない", daysFromMonday: 0,
+		},
+	}
 
-		if got := len(mustPlan(t, req).Accessories()); got != want {
-			t.Errorf("前の週の記録が残差に影響している: %d → %d", want, got)
-		}
-	})
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			logs := planHistory(t)
+			for i := range 12 {
+				logs = append(logs, mkLogOn(t, fmt.Sprintf("out-%d", i),
+					planMonday.AddDays(c.daysFromMonday), "incline", 30, 10, 2))
+			}
 
-	// 以前は当日の記録も残差に含めていた。含めるとセッション中に残差が
-	// 動き、こなすたびにリストが入れ替わる。今日の計画はその日の始まりに
-	// 確定させると決めたので、当日は数えない（D-116）。
-	t.Run("当日の記録は数えない", func(t *testing.T) {
-		logs := planHistory(t)
-		for i := range 12 {
-			logs = append(logs, mkLogOn(t, fmt.Sprintf("today-%d", i),
-				planMonday, "incline", 30, 10, 2))
-		}
-		req := base
-		req.History = training.NewHistory(logs)
+			req := base
+			req.History = training.NewHistory(logs)
 
-		if got := len(mustPlan(t, req).Accessories()); got != want {
-			t.Errorf("当日の記録が残差に影響している: %d → %d", want, got)
-		}
-	})
+			if got := len(mustPlan(t, req).Accessories()); got != want {
+				t.Errorf("窓の外の記録が残差に影響している: 補助が %d 件。%d 件のはず",
+					got, want)
+			}
+		})
+	}
 }
 
 // 補助種目の重量も基準日を見て推定すること。
