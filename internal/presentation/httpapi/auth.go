@@ -8,18 +8,13 @@ import (
 
 // unauthenticatedPaths は認証を通さない経路。
 //
-// ヘルスチェックだけ。前段のロードバランサが叩けなくなると、
+// ヘルスチェックだけ。画面は別オリジンに移したので、
+// 「トークンを入力する画面そのものが出せなくなる」問題は無くなった。前段のロードバランサが叩けなくなると、
 // 認証が正しくても「起動していない」と判定されてトラフィックが来なくなる。
 //
 // パスが /healthz ではなく /health なのは、Cloud Run のフロントエンドが
 // /healthz を完全一致で横取りするため（D-073）。
-var unauthenticatedPaths = func() map[string]bool {
-	out := map[string]bool{healthPath: true}
-	for path := range staticPaths {
-		out[path] = true
-	}
-	return out
-}()
+var unauthenticatedPaths = map[string]bool{healthPath: true}
 
 // RequireBearerToken は Bearer トークンによる認証を要求する。
 //

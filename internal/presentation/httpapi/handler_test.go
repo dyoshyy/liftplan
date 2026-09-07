@@ -867,40 +867,33 @@ func TestGetSession_ExposesStalledExercises(t *testing.T) {
 	}
 }
 
-// --- 画面の配信 ---
+// --- 画面はもう配らない ---
 
-// 画面の殻は認証なしで開けること。
-// 認証の内側に置くと、トークンを入力する画面そのものが出せない。
-func TestStatic_ShellIsServedWithoutAuth(t *testing.T) {
+// 元は「画面の殻は認証なしで開ける」ことを検査していた。
+// やめた理由: 画面を Cloudflare Workers に移し、別オリジンから CORS で
+// この API を叩く形にした。バイナリに同居させていたのは
+// docs/plans/07-client.md の判断で、覆した経緯は
+// docs/superpowers/specs/2026-09-07-pwa-client-design.md にある。
+//
+// 「配らなくなった」を検査に残すのは、embed を戻したときに気づくため。
+func TestStatic_ShellIsNoLongerServed(t *testing.T) {
 	mux := newServer(t, true)
 
-	for path, wantType := range map[string]string{
-		"/":                "text/html",
-		"/app.js":          "text/javascript",
-		"/app.webmanifest": "application/manifest+json",
-		"/sw.js":           "text/javascript",
-		"/icon.svg":        "image/svg+xml",
+	for _, path := range []string{
+		"/", "/app.js", "/app.webmanifest", "/sw.js", "/icon.svg",
+		"/index.html", "/web/index.html", "/web/app.js", "/app.js.map",
 	} {
-		t.Run(path, func(t *testing.T) {
-			rec := do(t, mux, http.MethodGet, path, "")
-			if rec.Code != http.StatusOK {
-				t.Fatalf("認証なしで開けない: %d", rec.Code)
-			}
-			if ct := rec.Header().Get("Content-Type"); !strings.HasPrefix(ct, wantType) {
-				t.Errorf("Content-Type が誤り: %q（期待 %q）", ct, wantType)
-			}
-			if rec.Body.Len() == 0 {
-				t.Error("中身が空である")
-			}
-		})
+		if rec := do(t, mux, http.MethodGet, path, ""); rec.Code == http.StatusOK {
+			t.Errorf("%s が配信された。画面はサーバーから配らない", path)
+		}
 	}
 }
 
-// 画面を公開にしたことで API まで開いていないこと。
+// API が認証なしで通らないこと。
 //
 // 認証は cmd が被せるので、ルータ単体では判定できない。
 // 認証ミドルウェアを通した状態で確かめる。
-func TestStatic_DoesNotOpenTheAPI(t *testing.T) {
+func TestAPI_RequiresAuth(t *testing.T) {
 	h, reached := guarded(t)
 	for _, path := range []string{
 		"/api/sessions?date=2026-08-17", "/api/program", "/api/set-logs",
@@ -912,48 +905,5 @@ func TestStatic_DoesNotOpenTheAPI(t *testing.T) {
 	}
 	if *reached {
 		t.Error("認証なしでハンドラへ到達した")
-	}
-}
-
-// 埋め込みの中身が経路として漏れていないこと。
-func TestStatic_DoesNotExposeItsLayout(t *testing.T) {
-	mux := newServer(t, true)
-	for _, path := range []string{"/index.html", "/web/index.html", "/web/app.js", "/app.js.map"} {
-		if rec := do(t, mux, http.MethodGet, path, ""); rec.Code == http.StatusOK {
-			t.Errorf("%s が配信された", path)
-		}
-	}
-}
-
-// 画面がキャッシュされないこと。
-// キャッシュされると、直したのに古い画面が出続ける。
-func TestStatic_IsNotCached(t *testing.T) {
-	rec := do(t, newServer(t, true), http.MethodGet, "/", "")
-	if got := rec.Header().Get("Cache-Control"); got != "no-cache" {
-		t.Errorf("Cache-Control が誤り: %q", got)
-	}
-}
-
-// 埋め込んだ画面が、必要な要素を持っていること。
-// ビルドは通るが中身が空、という状態を防ぐ。
-func TestStatic_ShellReferencesItsAssets(t *testing.T) {
-	body := do(t, newServer(t, true), http.MethodGet, "/", "").Body.String()
-	for _, want := range []string{
-		"/app.js", "/app.webmanifest",
-		`id="mains"`, `id="accessories"`, `id="setup"`, `id="history"`, `id="settings"`,
-	} {
-		if !strings.Contains(body, want) {
-			t.Errorf("画面に %q が無い", want)
-		}
-	}
-
-	js := do(t, newServer(t, true), http.MethodGet, "/app.js", "").Body.String()
-	for _, want := range []string{
-		"/api/set-logs", "/api/conditions", "/api/sessions",
-		"/api/exercises", "/api/stats", "/api/program", "Bearer",
-	} {
-		if !strings.Contains(js, want) {
-			t.Errorf("app.js に %q が無い", want)
-		}
 	}
 }

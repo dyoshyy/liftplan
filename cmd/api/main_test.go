@@ -33,8 +33,12 @@ func authed(method, target string, body io.Reader) *http.Request {
 	return r
 }
 
+// testAllowedOrigin は画面のオリジン。CORS の許可一覧に入れないと起動しない。
+const testAllowedOrigin = "https://liftplan-web.example.workers.dev"
+
 func TestBuildHandler_ServesSession(t *testing.T) {
 	t.Setenv("AUTH_TOKEN", testAuthToken)
+	t.Setenv("ALLOWED_ORIGINS", testAllowedOrigin)
 	handler, closeRepos, err := buildHandler(context.Background())
 	if err != nil {
 		t.Fatalf("組み立てに失敗: %v", err)
@@ -51,6 +55,7 @@ func TestBuildHandler_ServesSession(t *testing.T) {
 
 func TestBuildHandler_Healthz(t *testing.T) {
 	t.Setenv("AUTH_TOKEN", testAuthToken)
+	t.Setenv("ALLOWED_ORIGINS", testAllowedOrigin)
 	handler, closeRepos, err := buildHandler(context.Background())
 	if err != nil {
 		t.Fatalf("組み立てに失敗: %v", err)
@@ -67,6 +72,7 @@ func TestBuildHandler_Healthz(t *testing.T) {
 // 起動直後に PUT /api/program を叩かないと何も使えない状態を避ける。
 func TestBuildHandler_WorksOutOfTheBox(t *testing.T) {
 	t.Setenv("AUTH_TOKEN", testAuthToken)
+	t.Setenv("ALLOWED_ORIGINS", testAllowedOrigin)
 	handler, closeRepos, err := buildHandler(context.Background())
 	if err != nil {
 		t.Fatalf("組み立てに失敗: %v", err)
@@ -98,6 +104,7 @@ func TestBuildHandler_WorksOutOfTheBox(t *testing.T) {
 // 層をまたいだ往復がここで初めて通る。
 func TestBuildHandler_RecordThenPlan(t *testing.T) {
 	t.Setenv("AUTH_TOKEN", testAuthToken)
+	t.Setenv("ALLOWED_ORIGINS", testAllowedOrigin)
 	handler, closeRepos, err := buildHandler(context.Background())
 	if err != nil {
 		t.Fatalf("組み立てに失敗: %v", err)
@@ -357,6 +364,7 @@ func TestBuildHandler_FailsFastOnBadSeed(t *testing.T) {
 	// シードが正しいことは他のテストが確かめている。ここでは
 	// 「エラーを握り潰していないか」を型で担保する。
 	t.Setenv("AUTH_TOKEN", testAuthToken)
+	t.Setenv("ALLOWED_ORIGINS", testAllowedOrigin)
 	handler, closeRepos, err := buildHandler(context.Background())
 	if err != nil {
 		t.Fatalf("シードが正しいのに失敗: %v", err)
@@ -425,6 +433,7 @@ func TestBuildHandler_UsesPostgresWhenConfigured(t *testing.T) {
 	}
 
 	t.Setenv("AUTH_TOKEN", testAuthToken)
+	t.Setenv("ALLOWED_ORIGINS", testAllowedOrigin)
 	first, closeFirst, err := buildHandler(context.Background())
 	if err != nil {
 		t.Fatalf("組み立てに失敗: %v", err)
@@ -450,6 +459,7 @@ func TestBuildHandler_UsesPostgresWhenConfigured(t *testing.T) {
 
 	// 組み立て直す＝再起動に相当する。
 	t.Setenv("AUTH_TOKEN", testAuthToken)
+	t.Setenv("ALLOWED_ORIGINS", testAllowedOrigin)
 	second, closeSecond, err := buildHandler(context.Background())
 	if err != nil {
 		t.Fatalf("2度目の組み立てに失敗: %v", err)
@@ -471,6 +481,7 @@ func TestBuildHandler_FallsBackToMemory(t *testing.T) {
 	t.Setenv("DATABASE_URL", "")
 
 	t.Setenv("AUTH_TOKEN", testAuthToken)
+	t.Setenv("ALLOWED_ORIGINS", testAllowedOrigin)
 	handler, closeRepos, err := buildHandler(context.Background())
 	if err != nil {
 		t.Fatalf("組み立てに失敗: %v", err)
@@ -490,6 +501,7 @@ func TestBuildHandler_FailsFastOnBadDatabaseURL(t *testing.T) {
 	t.Setenv("DATABASE_URL", "postgres://nobody:nobody@127.0.0.1:1/nothing")
 
 	t.Setenv("AUTH_TOKEN", testAuthToken)
+	t.Setenv("ALLOWED_ORIGINS", testAllowedOrigin)
 	if _, _, err := buildHandler(context.Background()); err == nil {
 		t.Error("到達できない接続先で起動した")
 	}
@@ -541,6 +553,7 @@ func TestBuildHandler_RefusesToStartWithoutAToken(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			t.Setenv("AUTH_TOKEN", token)
+			t.Setenv("ALLOWED_ORIGINS", testAllowedOrigin)
 			if _, _, err := buildHandler(context.Background()); err == nil {
 				t.Error("トークンが不十分なのに起動した")
 			}
@@ -549,6 +562,7 @@ func TestBuildHandler_RefusesToStartWithoutAToken(t *testing.T) {
 
 	t.Run("境界ちょうどなら起動する", func(t *testing.T) {
 		t.Setenv("AUTH_TOKEN", strings.Repeat("a", minTokenLength))
+		t.Setenv("ALLOWED_ORIGINS", testAllowedOrigin)
 		_, closeRepos, err := buildHandler(context.Background())
 		if err != nil {
 			t.Fatalf("十分な長さなのに起動しない: %v", err)
@@ -557,10 +571,52 @@ func TestBuildHandler_RefusesToStartWithoutAToken(t *testing.T) {
 	})
 }
 
+// 許可オリジンが未設定なら起動しないこと。
+//
+// AUTH_TOKEN と同じ理由。既定で全部許すと、設定漏れがそのまま
+// 「どのサイトからでもトークン付きで叩ける」状態になる。
+// 既定で何も許さないほうは「画面が動かない」として静かに出るだけで、
+// 原因に辿り着くまで時間がかかる。起動しないのが一番早く気づく。
+func TestBuildHandler_RefusesToStartWithoutAllowedOrigins(t *testing.T) {
+	t.Setenv("AUTH_TOKEN", testAuthToken)
+	t.Setenv("ALLOWED_ORIGINS", "")
+	if _, _, err := buildHandler(context.Background()); err == nil {
+		t.Error("許可オリジンが未設定なのに起動した")
+	}
+}
+
+// 組み立てたハンドラが preflight を認証の外側で返すこと。
+//
+// ミドルウェアを書いても重ね順を間違えれば、ブラウザからは
+// 原因の分からない 401 になる。配線そのものを検査する。
+func TestBuildHandler_AnswersPreflightWithoutCredentials(t *testing.T) {
+	t.Setenv("AUTH_TOKEN", testAuthToken)
+	t.Setenv("ALLOWED_ORIGINS", testAllowedOrigin)
+	handler, closeRepos, err := buildHandler(context.Background())
+	if err != nil {
+		t.Fatalf("組み立てに失敗: %v", err)
+	}
+	t.Cleanup(closeRepos)
+
+	r := httptest.NewRequest(http.MethodOptions, "/api/set-logs", nil)
+	r.Header.Set("Origin", testAllowedOrigin)
+	r.Header.Set("Access-Control-Request-Method", http.MethodPost)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, r)
+
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("preflight が %d（期待 204）body=%s", rec.Code, rec.Body.String())
+	}
+	if got := rec.Header().Get("Access-Control-Allow-Origin"); got != testAllowedOrigin {
+		t.Errorf("Allow-Origin が %q", got)
+	}
+}
+
 // 組み立てたハンドラが実際に認証を要求すること。
 // ミドルウェアを書いても配線を忘れれば意味がない。
 func TestBuildHandler_RequiresAuthentication(t *testing.T) {
 	t.Setenv("AUTH_TOKEN", testAuthToken)
+	t.Setenv("ALLOWED_ORIGINS", testAllowedOrigin)
 	handler, closeRepos, err := buildHandler(context.Background())
 	if err != nil {
 		t.Fatalf("組み立てに失敗: %v", err)
@@ -601,6 +657,7 @@ func TestBuildHandler_RequiresAuthentication(t *testing.T) {
 // 404 になり、Cloud Run の起動プローブが通らなくなる。
 func TestBuildHandler_ServesHealthCheck(t *testing.T) {
 	t.Setenv("AUTH_TOKEN", testAuthToken)
+	t.Setenv("ALLOWED_ORIGINS", testAllowedOrigin)
 	handler, closeRepos, err := buildHandler(context.Background())
 	if err != nil {
 		t.Fatalf("組み立てに失敗: %v", err)
