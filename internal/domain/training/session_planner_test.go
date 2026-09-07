@@ -274,10 +274,14 @@ func TestSessionPlanner_SleepDeprivationRaisesTargetRIR(t *testing.T) {
 	}
 }
 
-// デロードは停滞した種目にだけ適用すること。
-// 伸びている種目まで一律に下げると、本人の実感と噛み合わない。
-func TestSessionPlanner_DeloadAppliesOnlyToStalledLifts(t *testing.T) {
-	// ベンチだけ停滞、スクワットとデッドは伸びている履歴を作る。
+// stalledBenchRequest はベンチだけが停滞し、スクワットとデッドリフトは
+// 伸びている履歴のリクエストを返す。
+//
+// 停滞の判定には体重の記録が要る（減量中かどうかで扱いが変わる）ので、
+// 4週ぶんの体重も入れる。
+func stalledBenchRequest(t *testing.T) training.PlanRequest {
+	t.Helper()
+
 	logs := make([]*training.SetLog, 0, 30)
 	for i := range 9 {
 		day := planMonday.AddDays(-7 * (9 - i))
@@ -296,61 +300,108 @@ func TestSessionPlanner_DeloadAppliesOnlyToStalledLifts(t *testing.T) {
 	req := planRequest(t)
 	req.History = training.NewHistory(logs)
 	req.Conditions = training.NewConditionLog(conditions)
+	return req
+}
 
-	normal := mustPlan(t, req)
-	proposal, ok := normal.DeloadProposal()
-	if !ok {
-		t.Fatal("停滞しているのに提案が無い")
+// デロードは、承認された種目にだけ効く。
+//
+// 提案と承認を別々に扱うのは、提案が毎回計算し直されるため。体重の記録が
+// 数日途切れただけで提案は消えるので、承認を提案に紐づけると「承認したのに
+// 重量が下がらない」という説明のつかない挙動になる。
+//
+// 承認の粒度を種目にしているのも同じ理由。単一の bool だと、ベンチの提案を
+// 承認した状態のまま後からスクワットが停滞判定に入ったとき、新しい承認を
+// 経ずにスクワットまで下がる。
+func TestSessionPlanner_DeloadAppliesOnlyToAcceptedLifts(t *testing.T) {
+	cases := []struct {
+		name string
+		// ベンチだけが停滞した履歴を使うか。false なら伸びている履歴。
+		stalled  bool
+		accepted []training.ExerciseID
+		// 提案に載るべき種目。nil なら提案そのものが出ない。
+		wantProposal []training.ExerciseID
+		// 承認の結果、重量が下がる種目と、変わらない種目。
+		wantLowered   []training.ExerciseID
+		wantUnchanged []training.ExerciseID
+	}{
+		{
+			name:          "停滞していなければ提案は出ない",
+			stalled:       false,
+			wantProposal:  nil,
+			wantUnchanged: []training.ExerciseID{"bench", "squat", "deadlift"},
+		},
+		{
+			// 伸びている種目まで一律に下げると、本人の実感と噛み合わない。
+			name:          "停滞した種目だけが提案に載り、承認するとそれだけ下がる",
+			stalled:       true,
+			accepted:      []training.ExerciseID{"bench"},
+			wantProposal:  []training.ExerciseID{"bench"},
+			wantLowered:   []training.ExerciseID{"bench"},
+			wantUnchanged: []training.ExerciseID{"squat", "deadlift"},
+		},
+		{
+			// 提案の有無と承認は独立に効く。ここが紐づいていると、体重の
+			// 記録が途切れた日に「承認したのに下がらない」が起きる。
+			name:          "提案が出ていなくても、承認された種目は下がる",
+			stalled:       false,
+			accepted:      []training.ExerciseID{"bench"},
+			wantProposal:  nil,
+			wantLowered:   []training.ExerciseID{"bench"},
+			wantUnchanged: []training.ExerciseID{"squat", "deadlift"},
+		},
 	}
-	if len(proposal.StalledExercises()) != 1 || proposal.StalledExercises()[0] != "bench" {
-		t.Fatalf("停滞種目が誤り: %v", proposal.StalledExercises())
-	}
 
-	req.DeloadAccepted = proposal.StalledExercises()
-	deloaded := mustPlan(t, req)
-
-	weightOf := func(s training.PlannedSession, id training.ExerciseID) float64 {
-		t.Helper()
-		for _, set := range s.Main() {
-			if set.ExerciseID() == id {
-				w, ok := set.Weight()
-				if !ok {
-					t.Fatalf("%s の重量が確定していない", id)
-				}
-				return w.Kg()
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			req := planRequest(t)
+			if c.stalled {
+				req = stalledBenchRequest(t)
 			}
-		}
-		t.Fatalf("%s が見つからない", id)
-		return 0
-	}
 
-	if weightOf(deloaded, "bench") >= weightOf(normal, "bench") {
-		t.Errorf("停滞した種目の重量が下がっていない: %v → %v",
-			weightOf(normal, "bench"), weightOf(deloaded, "bench"))
-	}
-	for _, id := range []training.ExerciseID{"squat", "deadlift"} {
-		if weightOf(deloaded, id) != weightOf(normal, id) {
-			t.Errorf("伸びている種目 %s の重量が変わった: %v → %v",
-				id, weightOf(normal, id), weightOf(deloaded, id))
-		}
-	}
-}
+			normal := mustPlan(t, req)
 
-func TestSessionPlanner_DeloadKeepsSetCount(t *testing.T) {
-	req := planRequest(t)
-	normal := mustPlan(t, req)
+			proposal, ok := normal.DeloadProposal()
+			if len(c.wantProposal) == 0 {
+				if ok {
+					t.Errorf("提案が出ている: %v", proposal.StalledExercises())
+				}
+			} else {
+				if !ok {
+					t.Fatal("停滞しているのに提案が無い")
+				}
+				if !slices.Equal(proposal.StalledExercises(), c.wantProposal) {
+					t.Errorf("停滞種目が %v。%v のはず",
+						proposal.StalledExercises(), c.wantProposal)
+				}
+			}
 
-	req.DeloadAccepted = []training.ExerciseID{"bench", "squat", "deadlift"}
-	deloaded := mustPlan(t, req)
+			if len(c.accepted) == 0 {
+				return
+			}
 
-	if normal.Main()[0].Sets().Int() != deloaded.Main()[0].Sets().Int() {
-		t.Error("デロードでセット数が変わっている")
-	}
-}
+			req.DeloadAccepted = c.accepted
+			deloaded := mustPlan(t, req)
 
-func TestSessionPlanner_NoDeloadProposalWhenProgressing(t *testing.T) {
-	if _, ok := mustPlan(t, planRequest(t)).DeloadProposal(); ok {
-		t.Error("停滞していないのに提案が付いている")
+			for _, id := range c.wantLowered {
+				if mainWeight(t, deloaded, id) >= mainWeight(t, normal, id) {
+					t.Errorf("承認した %s の重量が下がっていない: %v → %v",
+						id, mainWeight(t, normal, id), mainWeight(t, deloaded, id))
+				}
+			}
+			for _, id := range c.wantUnchanged {
+				if mainWeight(t, deloaded, id) != mainWeight(t, normal, id) {
+					t.Errorf("承認していない %s の重量が変わった: %v → %v",
+						id, mainWeight(t, normal, id), mainWeight(t, deloaded, id))
+				}
+			}
+
+			// デロードで落とすのは強度であって量ではない。セット数まで
+			// 減らすと、週目標の消化が止まって残差が埋まらなくなる。
+			if got, want := mainSet(t, deloaded, "bench").Sets().Int(),
+				mainSet(t, normal, "bench").Sets().Int(); got != want {
+				t.Errorf("デロードでセット数が %d に変わった。%d のはず", got, want)
+			}
+		})
 	}
 }
 
@@ -868,28 +919,6 @@ func TestSessionPlanner_FinishedAccessoryStaysInTheList(t *testing.T) {
 	if len(second.Accessories()) != len(first.Accessories()) {
 		t.Errorf("補助の数が変わった: %d → %d",
 			len(first.Accessories()), len(second.Accessories()))
-	}
-}
-
-// 提案が無くても承認された種目にはデロードが効く。
-// 提案は毎回計算し直され、体重の記録が途切れるだけで消えるため、
-// 提案の有無に紐づけると「承認したのに下がらない」が起きる。
-func TestSessionPlanner_DeloadAppliesWithoutCurrentProposal(t *testing.T) {
-	req := planRequest(t)
-	normal := mustPlan(t, req)
-	if _, ok := normal.DeloadProposal(); ok {
-		t.Fatal("前提: 提案が出ていないこと")
-	}
-
-	req.DeloadAccepted = []training.ExerciseID{"bench"}
-	deloaded := mustPlan(t, req)
-
-	if mainWeight(t, deloaded, "bench") >= mainWeight(t, normal, "bench") {
-		t.Errorf("承認した種目の重量が下がっていない: %v → %v",
-			mainWeight(t, normal, "bench"), mainWeight(t, deloaded, "bench"))
-	}
-	if mainWeight(t, deloaded, "squat") != mainWeight(t, normal, "squat") {
-		t.Error("承認していない種目の重量が変わった")
 	}
 }
 
