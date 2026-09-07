@@ -25,65 +25,71 @@
   --radius-card: 14px;
 }
 
-:root {
-  color-scheme: dark;
-}
+/* 素の指定はレイヤーに入れる。
+   レイヤーに入れない CSS はどのレイヤーよりも強いので、素のまま置いた
+   button { background: none } が @layer components の .set / .btn / .chip の
+   背景と枠を打ち消す。ボタンが文字だけになる。 */
+@layer base {
+  :root {
+    color-scheme: dark;
+  }
 
-* {
-  box-sizing: border-box;
-  -webkit-tap-highlight-color: transparent;
-}
-
-body {
-  margin: 0;
-  background: var(--color-ground);
-  color: var(--color-text);
-  font-family: var(--font-sans);
-  font-size: 15px;
-  line-height: 1.6;
-  /* 下端に固定した状態バーの分だけ空ける。 */
-  padding-bottom: 92px;
-}
-
-button {
-  font: inherit;
-  color: inherit;
-  background: none;
-  border: none;
-  cursor: pointer;
-}
-
-button:focus-visible,
-input:focus-visible,
-select:focus-visible {
-  outline: 2px solid var(--color-amber);
-  outline-offset: 2px;
-}
-
-input,
-select {
-  font: inherit;
-  color: inherit;
-  background: var(--color-surface-2);
-  border: 1px solid var(--color-line);
-  border-radius: 10px;
-  padding: 12px;
-  width: 100%;
-}
-
-/* 数値入力のスピナーは指で押せる大きさにならない。ステッパーを別に置く。 */
-input[type="number"] {
-  -moz-appearance: textfield;
-}
-input::-webkit-outer-spin-button,
-input::-webkit-inner-spin-button {
-  -webkit-appearance: none;
-  margin: 0;
-}
-
-@media (prefers-reduced-motion: reduce) {
   * {
-    transition: none !important;
+    box-sizing: border-box;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  body {
+    margin: 0;
+    background: var(--color-ground);
+    color: var(--color-text);
+    font-family: var(--font-sans);
+    font-size: 15px;
+    line-height: 1.6;
+    /* 下端に固定した状態バーの分だけ空ける。 */
+    padding-bottom: 92px;
+  }
+
+  button {
+    font: inherit;
+    color: inherit;
+    background: none;
+    border: none;
+    cursor: pointer;
+  }
+
+  button:focus-visible,
+  input:focus-visible,
+  select:focus-visible {
+    outline: 2px solid var(--color-amber);
+    outline-offset: 2px;
+  }
+
+  input,
+  select {
+    font: inherit;
+    color: inherit;
+    background: var(--color-surface-2);
+    border: 1px solid var(--color-line);
+    border-radius: 10px;
+    padding: 12px;
+    width: 100%;
+  }
+
+  /* 数値入力のスピナーは指で押せる大きさにならない。ステッパーを別に置く。 */
+  input[type="number"] {
+    -moz-appearance: textfield;
+  }
+  input::-webkit-outer-spin-button,
+  input::-webkit-inner-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    * {
+      transition: none !important;
+    }
   }
 }
 
