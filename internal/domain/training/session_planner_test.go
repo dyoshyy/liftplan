@@ -114,60 +114,95 @@ func TestSessionPlanner_AllMainLiftsGetASlot(t *testing.T) {
 	}
 }
 
-// 週の1本目は標準スロット。設定より少ない回数しか通わなくても
-// メインリフト本体を実施できるようにするため。
-func TestSessionPlanner_FirstSessionOfWeekIsStandard(t *testing.T) {
-	s := mustPlan(t, planRequest(t))
-	for _, set := range s.Main() {
-		role, ok := set.Role()
-		if !ok || role != training.RoleStandard {
-			t.Errorf("週1本目の役割が誤り: %v", role)
-		}
-	}
-}
+// planRequestAt は週内で days 日目のリクエストを返す。
+//
+// done に挙げた日には「その日に通った」ことを表す記録を入れる。週の何本目かは
+// 履歴に記録のある日数で決まるので（sessionIndexInWeek）、ここを進めないと
+// 日付だけ動かしても常に1本目になる。
+//
+// 記録に curl を使うのは、メイン種目の推定1RMを動かさないため。bench で
+// 進めると、役割を見たいだけのケースで重量まで変わる。
+func planRequestAt(t *testing.T, days int, done ...int) training.PlanRequest {
+	t.Helper()
 
-func TestSessionPlanner_SecondSessionOfWeekIsHeavy(t *testing.T) {
+	logs := planHistory(t)
+	for i, d := range done {
+		logs = append(logs,
+			mkLogOn(t, fmt.Sprintf("done-%d", i), planMonday.AddDays(d), "curl", 20, 10, 2))
+	}
+
 	req := planRequest(t)
-	req.History = training.NewHistory(append(planHistory(t),
-		mkLogOn(t, "monday", planMonday, "bench", 80, 8, 2)))
-	req.Date = planMonday.AddDays(2)
+	req.History = training.NewHistory(logs)
+	req.Date = planMonday.AddDays(days)
+	return req
+}
 
-	for _, set := range mustPlan(t, req).Main() {
-		if role, _ := set.Role(); role != training.RoleHeavy {
-			t.Errorf("週2本目の役割が誤り: %v", role)
-		}
+// 週の何本目かでスロットの役割が決まる。
+//
+// 並び順は「重要な役割ほど先」で、強度の昇順ではない（slot.go）。設定した
+// 頻度より実際に通う回数が少ないと先頭のスロットしか使われないので、標準を
+// 先頭に置くことで、週に一度でも通えば通常の強度で実施することが保証される。
+func TestSessionPlanner_SlotRoleFollowsTheSessionIndex(t *testing.T) {
+	cases := []struct {
+		name string
+		done []int // 週内で既に通った日（月曜からの日数）
+		date int   // 対象日（月曜からの日数）
+		want training.SlotRole
+	}{
+		{
+			// 1本目を軽い日にすると、通常フォームの高い強度がいつまでも
+			// 記録されず、推定1RMが実力より低いまま固定される。
+			name: "週1本目は標準スロット",
+			done: nil, date: 0, want: training.RoleStandard,
+		},
+		{
+			name: "週2本目は高強度スロット",
+			done: []int{0}, date: 2, want: training.RoleHeavy,
+		},
+		{
+			name: "週3本目は軽い日",
+			done: []int{0, 2}, date: 4, want: training.RoleLight,
+		},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			main := mustPlan(t, planRequestAt(t, c.date, c.done...)).Main()
+			if len(main) == 0 {
+				t.Fatal("メイン種目が1つも出ていない")
+			}
+			for _, set := range main {
+				role, ok := set.Role()
+				if !ok || role != c.want {
+					t.Errorf("%s の役割が %v。%v のはず", set.ExerciseID(), role, c.want)
+				}
+			}
+		})
 	}
 }
 
-// バリエーションのスロットでは、メイン種目が派生に差し替わること。
 // 軽い日でも種目は差し替えない。強度とセット数だけが変わる。
 //
 // 以前は「BENCH のバリエーション」から1つ選んでベンチと入れ替えていた。
-// やめたのは、差し替えの対応表（MainLift）を維持する理由が他に無くなったため。
-// 軽い日にやるのは、その日の軸そのものを軽くやること。
+// やめたのは、差し替えの対応表（MainLift）を維持する理由が他に無くなったため
+// （D-114）。軽い日にやるのは、その日の軸そのものを軽くやること。
+//
+// larsen はかつてベンチのバリエーションだった種目で、いまは補助のひとつ。
+// メインの枠に現れたら、差し替えが復活している。
 func TestSessionPlanner_LightSlotKeepsTheSameExercise(t *testing.T) {
-	req := planRequest(t)
-	logs := planHistory(t)
-	logs = append(logs,
-		mkLogOn(t, "d1", planMonday, "bench", 80, 8, 2),
-		mkLogOn(t, "d2", planMonday.AddDays(2), "bench", 90, 5, 1))
-	req.History = training.NewHistory(logs)
-	req.Date = planMonday.AddDays(4) // 週3本目 = 軽い日
+	s := mustPlan(t, planRequestAt(t, 4, 0, 2)) // 週3本目 = 軽い日
 
 	found := false
-	for _, set := range mustPlan(t, req).Main() {
+	for _, set := range s.Main() {
 		if set.ExerciseID() == training.ExerciseID("larsen") {
 			t.Error("軽い日で種目が差し替わっている")
 		}
 		if set.ExerciseID() == training.ExerciseID("bench") {
 			found = true
-			if role, ok := set.Role(); !ok || role != training.RoleLight {
-				t.Errorf("前提: 3本目が軽い日であること: %v", role)
-			}
 		}
 	}
 	if !found {
-		t.Error("メイン種目が出ていない")
+		t.Error("軸のベンチが出ていない")
 	}
 }
 
@@ -182,6 +217,7 @@ func TestSessionPlanner_NoHistoryMeansNoWeight(t *testing.T) {
 	}
 }
 
+// 残差は補助種目で埋める。
 func TestSessionPlanner_FillsResidualWithAccessories(t *testing.T) {
 	s := mustPlan(t, planRequest(t))
 	if len(s.Accessories()) == 0 {
@@ -189,6 +225,8 @@ func TestSessionPlanner_FillsResidualWithAccessories(t *testing.T) {
 	}
 
 	for _, set := range s.Accessories() {
+		// 役割はメインのスロットにだけ付く。補助に付くと、強度帯が
+		// 二重に適用される。
 		if _, ok := set.Role(); ok {
 			t.Errorf("補助種目に役割が付いている: %v", set.ExerciseID())
 		}
@@ -196,20 +234,12 @@ func TestSessionPlanner_FillsResidualWithAccessories(t *testing.T) {
 			t.Errorf("補助種目のセット数が0以下: %v", set.ExerciseID())
 		}
 	}
-}
-
-// メインが埋めた区分は補助で狙わないこと。
-func TestSessionPlanner_AccessoriesAvoidRegionsCoveredByMains(t *testing.T) {
-	s := mustPlan(t, planRequest(t))
 
 	// ベンチが大胸筋中部を埋めているので、そこを狙う補助は要らない。
 	// このプールで大胸筋中部を狙う補助種目は無いが、上部と二頭は残る。
-	got := map[training.ExerciseID]bool{}
-	for _, set := range s.Accessories() {
-		got[set.ExerciseID()] = true
-	}
-	if !got["incline"] && !got["curl"] {
-		t.Errorf("残差を埋める補助が選ばれていない: %v", got)
+	ids := accessoryIDs(s)
+	if !slices.Contains(ids, "incline") && !slices.Contains(ids, "curl") {
+		t.Errorf("残差を埋める補助が選ばれていない: %v", ids)
 	}
 }
 
@@ -239,10 +269,14 @@ func TestSessionPlanner_SleepDeprivationRaisesTargetRIR(t *testing.T) {
 	}
 }
 
-// デロードは停滞した種目にだけ適用すること。
-// 伸びている種目まで一律に下げると、本人の実感と噛み合わない。
-func TestSessionPlanner_DeloadAppliesOnlyToStalledLifts(t *testing.T) {
-	// ベンチだけ停滞、スクワットとデッドは伸びている履歴を作る。
+// stalledBenchRequest はベンチだけが停滞し、スクワットとデッドリフトは
+// 伸びている履歴のリクエストを返す。
+//
+// 停滞の判定には体重の記録が要る（減量中かどうかで扱いが変わる）ので、
+// 4週ぶんの体重も入れる。
+func stalledBenchRequest(t *testing.T) training.PlanRequest {
+	t.Helper()
+
 	logs := make([]*training.SetLog, 0, 30)
 	for i := range 9 {
 		day := planMonday.AddDays(-7 * (9 - i))
@@ -261,61 +295,108 @@ func TestSessionPlanner_DeloadAppliesOnlyToStalledLifts(t *testing.T) {
 	req := planRequest(t)
 	req.History = training.NewHistory(logs)
 	req.Conditions = training.NewConditionLog(conditions)
+	return req
+}
 
-	normal := mustPlan(t, req)
-	proposal, ok := normal.DeloadProposal()
-	if !ok {
-		t.Fatal("停滞しているのに提案が無い")
+// デロードは、承認された種目にだけ効く。
+//
+// 提案と承認を別々に扱うのは、提案が毎回計算し直されるため。体重の記録が
+// 数日途切れただけで提案は消えるので、承認を提案に紐づけると「承認したのに
+// 重量が下がらない」という説明のつかない挙動になる。
+//
+// 承認の粒度を種目にしているのも同じ理由。単一の bool だと、ベンチの提案を
+// 承認した状態のまま後からスクワットが停滞判定に入ったとき、新しい承認を
+// 経ずにスクワットまで下がる。
+func TestSessionPlanner_DeloadAppliesOnlyToAcceptedLifts(t *testing.T) {
+	cases := []struct {
+		name string
+		// ベンチだけが停滞した履歴を使うか。false なら伸びている履歴。
+		stalled  bool
+		accepted []training.ExerciseID
+		// 提案に載るべき種目。nil なら提案そのものが出ない。
+		wantProposal []training.ExerciseID
+		// 承認の結果、重量が下がる種目と、変わらない種目。
+		wantLowered   []training.ExerciseID
+		wantUnchanged []training.ExerciseID
+	}{
+		{
+			name:          "停滞していなければ提案は出ない",
+			stalled:       false,
+			wantProposal:  nil,
+			wantUnchanged: []training.ExerciseID{"bench", "squat", "deadlift"},
+		},
+		{
+			// 伸びている種目まで一律に下げると、本人の実感と噛み合わない。
+			name:          "停滞した種目だけが提案に載り、承認するとそれだけ下がる",
+			stalled:       true,
+			accepted:      []training.ExerciseID{"bench"},
+			wantProposal:  []training.ExerciseID{"bench"},
+			wantLowered:   []training.ExerciseID{"bench"},
+			wantUnchanged: []training.ExerciseID{"squat", "deadlift"},
+		},
+		{
+			// 提案の有無と承認は独立に効く。ここが紐づいていると、体重の
+			// 記録が途切れた日に「承認したのに下がらない」が起きる。
+			name:          "提案が出ていなくても、承認された種目は下がる",
+			stalled:       false,
+			accepted:      []training.ExerciseID{"bench"},
+			wantProposal:  nil,
+			wantLowered:   []training.ExerciseID{"bench"},
+			wantUnchanged: []training.ExerciseID{"squat", "deadlift"},
+		},
 	}
-	if len(proposal.StalledExercises()) != 1 || proposal.StalledExercises()[0] != "bench" {
-		t.Fatalf("停滞種目が誤り: %v", proposal.StalledExercises())
-	}
 
-	req.DeloadAccepted = proposal.StalledExercises()
-	deloaded := mustPlan(t, req)
-
-	weightOf := func(s training.PlannedSession, id training.ExerciseID) float64 {
-		t.Helper()
-		for _, set := range s.Main() {
-			if set.ExerciseID() == id {
-				w, ok := set.Weight()
-				if !ok {
-					t.Fatalf("%s の重量が確定していない", id)
-				}
-				return w.Kg()
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			req := planRequest(t)
+			if c.stalled {
+				req = stalledBenchRequest(t)
 			}
-		}
-		t.Fatalf("%s が見つからない", id)
-		return 0
-	}
 
-	if weightOf(deloaded, "bench") >= weightOf(normal, "bench") {
-		t.Errorf("停滞した種目の重量が下がっていない: %v → %v",
-			weightOf(normal, "bench"), weightOf(deloaded, "bench"))
-	}
-	for _, id := range []training.ExerciseID{"squat", "deadlift"} {
-		if weightOf(deloaded, id) != weightOf(normal, id) {
-			t.Errorf("伸びている種目 %s の重量が変わった: %v → %v",
-				id, weightOf(normal, id), weightOf(deloaded, id))
-		}
-	}
-}
+			normal := mustPlan(t, req)
 
-func TestSessionPlanner_DeloadKeepsSetCount(t *testing.T) {
-	req := planRequest(t)
-	normal := mustPlan(t, req)
+			proposal, ok := normal.DeloadProposal()
+			if len(c.wantProposal) == 0 {
+				if ok {
+					t.Errorf("提案が出ている: %v", proposal.StalledExercises())
+				}
+			} else {
+				if !ok {
+					t.Fatal("停滞しているのに提案が無い")
+				}
+				if !slices.Equal(proposal.StalledExercises(), c.wantProposal) {
+					t.Errorf("停滞種目が %v。%v のはず",
+						proposal.StalledExercises(), c.wantProposal)
+				}
+			}
 
-	req.DeloadAccepted = []training.ExerciseID{"bench", "squat", "deadlift"}
-	deloaded := mustPlan(t, req)
+			if len(c.accepted) == 0 {
+				return
+			}
 
-	if normal.Main()[0].Sets().Int() != deloaded.Main()[0].Sets().Int() {
-		t.Error("デロードでセット数が変わっている")
-	}
-}
+			req.DeloadAccepted = c.accepted
+			deloaded := mustPlan(t, req)
 
-func TestSessionPlanner_NoDeloadProposalWhenProgressing(t *testing.T) {
-	if _, ok := mustPlan(t, planRequest(t)).DeloadProposal(); ok {
-		t.Error("停滞していないのに提案が付いている")
+			for _, id := range c.wantLowered {
+				if mainWeight(t, deloaded, id) >= mainWeight(t, normal, id) {
+					t.Errorf("承認した %s の重量が下がっていない: %v → %v",
+						id, mainWeight(t, normal, id), mainWeight(t, deloaded, id))
+				}
+			}
+			for _, id := range c.wantUnchanged {
+				if mainWeight(t, deloaded, id) != mainWeight(t, normal, id) {
+					t.Errorf("承認していない %s の重量が変わった: %v → %v",
+						id, mainWeight(t, normal, id), mainWeight(t, deloaded, id))
+				}
+			}
+
+			// デロードで落とすのは強度であって量ではない。セット数まで
+			// 減らすと、週目標の消化が止まって残差が埋まらなくなる。
+			if got, want := mainSet(t, deloaded, "bench").Sets().Int(),
+				mainSet(t, normal, "bench").Sets().Int(); got != want {
+				t.Errorf("デロードでセット数が %d に変わった。%d のはず", got, want)
+			}
+		})
 	}
 }
 
@@ -597,10 +678,13 @@ func TestSessionPlanner_SubtractsMainCoverageFromResidual(t *testing.T) {
 	}
 }
 
-// 残りセッション数で割ること。週の後半ほど1回あたりの量が増える。
-func TestSessionPlanner_DividesByRemainingSessions(t *testing.T) {
-	// 大胸筋上部を狙う補助を十分に用意する。種目が足りないと
-	// スロット数が頭打ちになり、割り算の違いが見えない。
+// chestUpperRequest は大胸筋上部だけを週目標に持つリクエストを返す。
+//
+// 同じ区分を狙う補助を6種目そろえるのは、種目が足りないとスロット数が
+// 頭打ちになり、残差の計算の違いが出力に現れないため。
+func chestUpperRequest(t *testing.T) training.PlanRequest {
+	t.Helper()
+
 	pool := planPool(t)
 	ids := []training.ExerciseID{"bench", "squat", "deadlift", "incline"}
 	for i := range 5 {
@@ -610,14 +694,21 @@ func TestSessionPlanner_DividesByRemainingSessions(t *testing.T) {
 		ids = append(ids, training.ExerciseID(id))
 	}
 
-	target := mustTarget(t, map[training.MuscleRegion]float64{training.ChestUpper: 12})
-	program, err := training.NewProgram(mustFrequency(t, 3), target, ids, big3())
+	program, err := training.NewProgram(mustFrequency(t, 3),
+		mustTarget(t, map[training.MuscleRegion]float64{training.ChestUpper: 12}),
+		ids, big3())
 	if err != nil {
 		t.Fatalf("プログラムの生成に失敗: %v", err)
 	}
 
 	req := planRequest(t)
 	req.Pool, req.Program = pool, program
+	return req
+}
+
+// 残りセッション数で割ること。週の後半ほど1回あたりの量が増える。
+func TestSessionPlanner_DividesByRemainingSessions(t *testing.T) {
+	req := chestUpperRequest(t)
 
 	// 週の1本目: 12 / 3 = 4セット → 2種目（3セットずつ）
 	first := mustPlan(t, req)
@@ -671,58 +762,44 @@ func TestSessionPlanner_VariationWeightComesFromItsOwnRecord(t *testing.T) {
 // 前の週の記録まで数えると残差が過小になり、当日の記録まで数えると
 // 計画中のメインと二重に数える。
 func TestSessionPlanner_WeeklyCoverageWindow(t *testing.T) {
-	pool := planPool(t)
-	ids := []training.ExerciseID{"bench", "squat", "deadlift", "incline"}
-	for i := range 5 {
-		id := fmt.Sprintf("chest_up_%d", i)
-		pool = append(pool, mkAccessory(t, id,
-			map[training.MuscleRegion]float64{training.ChestUpper: 1.0}))
-		ids = append(ids, training.ExerciseID(id))
-	}
-	target := mustTarget(t, map[training.MuscleRegion]float64{training.ChestUpper: 12})
-	program, err := training.NewProgram(mustFrequency(t, 3), target, ids, big3())
-	if err != nil {
-		t.Fatalf("プログラムの生成に失敗: %v", err)
-	}
-
-	base := training.PlanRequest{
-		Program: program, Pool: pool,
-		History:    training.NewHistory(planHistory(t)),
-		Conditions: training.NewConditionLog(nil),
-		Date:       planMonday,
-	}
+	base := chestUpperRequest(t)
 	want := len(mustPlan(t, base).Accessories())
 
-	t.Run("前の週の記録は数えない", func(t *testing.T) {
-		logs := planHistory(t)
-		for i := range 12 {
-			logs = append(logs, mkLogOn(t, fmt.Sprintf("prev-%d", i),
-				planMonday.AddDays(-3), "incline", 30, 10, 2))
-		}
-		req := base
-		req.History = training.NewHistory(logs)
+	cases := []struct {
+		name string
+		// 12セットぶんの記録を置く日（月曜からの日数）。窓に入っていれば
+		// 週目標12を使い切り、補助が減るはず。
+		daysFromMonday int
+	}{
+		{
+			// 前の週まで数えると残差が過小になり、週の頭から補助が減る。
+			name: "前の週の記録は数えない", daysFromMonday: -3,
+		},
+		{
+			// 以前は当日の記録も残差に含めていた。含めるとセッション中に
+			// 残差が動き、こなすたびにリストが入れ替わる。今日の計画は
+			// その日の始まりに確定させると決めた（D-116）。
+			name: "当日の記録は数えない", daysFromMonday: 0,
+		},
+	}
 
-		if got := len(mustPlan(t, req).Accessories()); got != want {
-			t.Errorf("前の週の記録が残差に影響している: %d → %d", want, got)
-		}
-	})
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			logs := planHistory(t)
+			for i := range 12 {
+				logs = append(logs, mkLogOn(t, fmt.Sprintf("out-%d", i),
+					planMonday.AddDays(c.daysFromMonday), "incline", 30, 10, 2))
+			}
 
-	// 以前は当日の記録も残差に含めていた。含めるとセッション中に残差が
-	// 動き、こなすたびにリストが入れ替わる。今日の計画はその日の始まりに
-	// 確定させると決めたので、当日は数えない（D-116）。
-	t.Run("当日の記録は数えない", func(t *testing.T) {
-		logs := planHistory(t)
-		for i := range 12 {
-			logs = append(logs, mkLogOn(t, fmt.Sprintf("today-%d", i),
-				planMonday, "incline", 30, 10, 2))
-		}
-		req := base
-		req.History = training.NewHistory(logs)
+			req := base
+			req.History = training.NewHistory(logs)
 
-		if got := len(mustPlan(t, req).Accessories()); got != want {
-			t.Errorf("当日の記録が残差に影響している: %d → %d", want, got)
-		}
-	})
+			if got := len(mustPlan(t, req).Accessories()); got != want {
+				t.Errorf("窓の外の記録が残差に影響している: 補助が %d 件。%d 件のはず",
+					got, want)
+			}
+		})
+	}
 }
 
 // 補助種目の重量も基準日を見て推定すること。
@@ -802,7 +879,11 @@ func mainWeight(t *testing.T, s training.PlannedSession, id training.ExerciseID)
 	return w.Kg()
 }
 
-// こなした補助もリストに残る。
+// 当日の記録は、補助のリストを一切動かさない。
+//
+// 内容も並びも、その日が始まった時点のまま。ジムで消化している最中に
+// リストが自分の下で動くと、どこまでやったか分からなくなる。実ブラウザで
+// 踏んだ。
 //
 // 以前は3セット終えると候補から外していた。外すと枠が空いて新しい種目が
 // 補充され、種目マスタが尽きるまでセッションが終わらなかった。それを
@@ -811,50 +892,66 @@ func mainWeight(t *testing.T, s training.PlannedSession, id training.ExerciseID)
 //
 // 当日を見なければ、どれも起きない。終えた種目は緑のまま残るだけで、
 // 終わりを判断するのは本人（D-116）。
-func TestSessionPlanner_FinishedAccessoryStaysInTheList(t *testing.T) {
-	req := planRequest(t)
-	first := mustPlan(t, req)
-	if len(first.Accessories()) == 0 {
-		t.Fatal("前提: 補助種目が提示されること")
-	}
-	done := first.Accessories()[0].ExerciseID()
-
-	logs := planHistory(t)
-	for i := range 3 {
-		logs = append(logs, mkLogOn(t, fmt.Sprintf("today-%d", i),
-			planMonday, string(done), 40, 10, 2))
-	}
-	req.History = training.NewHistory(logs)
-	second := mustPlan(t, req)
-
-	if !slices.Contains(accessoryIDs(second), done) {
-		t.Errorf("こなした補助 %s がリストから消えた: %v", done, accessoryIDs(second))
-	}
-	if len(second.Accessories()) != len(first.Accessories()) {
-		t.Errorf("補助の数が変わった: %d → %d",
-			len(first.Accessories()), len(second.Accessories()))
-	}
-}
-
-// 提案が無くても承認された種目にはデロードが効く。
-// 提案は毎回計算し直され、体重の記録が途切れるだけで消えるため、
-// 提案の有無に紐づけると「承認したのに下がらない」が起きる。
-func TestSessionPlanner_DeloadAppliesWithoutCurrentProposal(t *testing.T) {
-	req := planRequest(t)
-	normal := mustPlan(t, req)
-	if _, ok := normal.DeloadProposal(); ok {
-		t.Fatal("前提: 提案が出ていないこと")
+func TestSessionPlanner_TodaysLogsDoNotMoveTheAccessoryList(t *testing.T) {
+	cases := []struct {
+		name string
+		// 記録する種目の位置。負なら末尾から数える。
+		index int
+		// 記録するセット数。予定のセット数を受け取って決める。
+		sets func(planned int) int
+	}{
+		{
+			// 消えると残りのセットが記録できない。実運用では必ず踏む。
+			name:  "先頭を1セットだけこなしても消えない",
+			index: 0, sets: func(int) int { return 1 },
+		},
+		{
+			name:  "先頭を予定の1つ手前までこなしても消えない",
+			index: 0, sets: func(planned int) int { return planned - 1 },
+		},
+		{
+			// ここが「こなしたら外す」との分かれ目。外すと枠が空いて
+			// 新しい種目が補充され、セッションが終わらなくなる。
+			name:  "先頭を予定ぶん全部こなしても消えない",
+			index: 0, sets: func(planned int) int { return planned },
+		},
+		{
+			// 枠の調整は「始めたものを残す → 残りを埋める」という順で
+			// 組んでいたので、そのまま返すと着手済みが先頭に寄っていた。
+			// 1セット記録しただけでカードが飛ぶことになる。
+			name:  "並びの最後をこなしても、それが先頭に飛ばない",
+			index: -1, sets: func(int) int { return 1 },
+		},
 	}
 
-	req.DeloadAccepted = []training.ExerciseID{"bench"}
-	deloaded := mustPlan(t, req)
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			req := planRequest(t)
+			before := mustPlan(t, req)
+			if len(before.Accessories()) < 2 {
+				t.Fatalf("前提: 補助が2件以上出ること（いま %d 件）",
+					len(before.Accessories()))
+			}
 
-	if mainWeight(t, deloaded, "bench") >= mainWeight(t, normal, "bench") {
-		t.Errorf("承認した種目の重量が下がっていない: %v → %v",
-			mainWeight(t, normal, "bench"), mainWeight(t, deloaded, "bench"))
-	}
-	if mainWeight(t, deloaded, "squat") != mainWeight(t, normal, "squat") {
-		t.Error("承認していない種目の重量が変わった")
+			i := c.index
+			if i < 0 {
+				i += len(before.Accessories())
+			}
+			target := before.Accessories()[i]
+
+			logs := planHistory(t)
+			for n := range c.sets(target.Sets().Int()) {
+				logs = append(logs, mkLogOn(t, fmt.Sprintf("today-%d", n),
+					planMonday, string(target.ExerciseID()), 30, 10, 2))
+			}
+			req.History = training.NewHistory(logs)
+
+			after := mustPlan(t, req)
+			if !slices.Equal(accessoryIDs(after), accessoryIDs(before)) {
+				t.Errorf("当日の記録でリストが変わった:\n  前: %v\n  後: %v",
+					accessoryIDs(before), accessoryIDs(after))
+			}
+		})
 	}
 }
 
@@ -977,22 +1074,87 @@ func TestSessionPlanner_DoesNotDoubleCountTodaysMain(t *testing.T) {
 	}
 }
 
+// plannedWeight は今日のメニューのうち id の提示重量を返す。
+// メインと補助のどちらにあっても引ける。
+func plannedWeight(t *testing.T, s training.PlannedSession, id training.ExerciseID) (float64, bool) {
+	t.Helper()
+	for _, set := range append(s.Main(), s.Accessories()...) {
+		if set.ExerciseID() != id {
+			continue
+		}
+		w, ok := set.Weight()
+		return w.Kg(), ok
+	}
+	t.Fatalf("%s が今日のメニューに無い", id)
+	return 0, false
+}
+
 // 当日の記録で、その日の提示重量が動かないこと。
 //
 // 動くと、1セット目を記録した瞬間に2セット目の提示が変わる。しかも
 // RIR を守ってきついセットをこなすほど推定1RMが上がるので、
 // **追い込むほど次のセットが重くなる**。実際に画面で踏んだ。
 func TestSessionPlanner_TodaysLogsDoNotMoveTodaysWeight(t *testing.T) {
-	req := planRequest(t)
-	before := mainWeight(t, mustPlan(t, req), "bench")
+	cases := []struct {
+		name     string
+		exercise training.ExerciseID
+		// 基準の提示重量を確定させるために要る履歴。補助種目は過去の記録が
+		// 無いと重量が出ないので、そのぶんを先に置く。
+		prior func(t *testing.T) []*training.SetLog
+		// 当日こなす1セット。重量は基準からの差で指定する。
+		deltaKg   float64
+		reps, rir int
+	}{
+		{
+			name: "軸を、提示どおりの重量でこなしても動かない",
+			// RIR を守った、それなりにきついセット。推定1RMは上がる方向。
+			exercise: "bench", deltaKg: 0, reps: 6, rir: 1,
+		},
+		{
+			// 同じ重量で記録すると推定がそもそも上がらず、当日を混ぜても
+			// 数字が変わらないことがある。混ぜたら必ず変わる重さで確かめる。
+			name:     "軸を、明らかに重い重量でこなしても動かない",
+			exercise: "bench", deltaKg: 40, reps: 8, rir: 3,
+		},
+		{
+			name:     "補助でも動かない",
+			exercise: "incline", deltaKg: 5, reps: 12, rir: 0,
+			prior: func(t *testing.T) []*training.SetLog {
+				t.Helper()
+				return []*training.SetLog{
+					mkLogOn(t, "inc-old", planMonday.AddDays(-7), "incline", 40, 10, 2),
+				}
+			},
+		},
+	}
 
-	// 今日1セットこなす。RIR を守った、それなりにきついセット。
-	req.History = training.NewHistory(append(planHistory(t),
-		mkLogOn(t, "today-1", planMonday, "bench", before, 6, 1)))
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			logs := planHistory(t)
+			if c.prior != nil {
+				logs = append(logs, c.prior(t)...)
+			}
 
-	after := mainWeight(t, mustPlan(t, req), "bench")
-	if after != before {
-		t.Errorf("当日の記録で今日の重量が動いた: %v → %v", before, after)
+			req := planRequest(t)
+			req.History = training.NewHistory(logs)
+
+			before, ok := plannedWeight(t, mustPlan(t, req), c.exercise)
+			if !ok {
+				t.Fatalf("前提: %s の重量が提示されること", c.exercise)
+			}
+
+			req.History = training.NewHistory(append(logs,
+				mkLogOn(t, "today", planMonday, string(c.exercise),
+					before+c.deltaKg, c.reps, c.rir)))
+
+			after, ok := plannedWeight(t, mustPlan(t, req), c.exercise)
+			if !ok {
+				t.Fatalf("1セット記録したら %s が消えた", c.exercise)
+			}
+			if after != before {
+				t.Errorf("当日の記録で今日の重量が動いた: %v → %v", before, after)
+			}
+		})
 	}
 }
 
@@ -1013,101 +1175,6 @@ func TestSessionPlanner_TodaysLogsMoveLaterSessions(t *testing.T) {
 	later := mainWeight(t, mustPlan(t, req), "bench")
 	if later <= base {
 		t.Errorf("記録が後のセッションに反映されていない: %v → %v", base, later)
-	}
-}
-
-// 補助種目も、当日の記録で重量が動かないこと。
-func TestSessionPlanner_TodaysLogsDoNotMoveAccessoryWeight(t *testing.T) {
-	weightOf := func(t *testing.T, s training.PlannedSession) (float64, bool) {
-		t.Helper()
-		for _, a := range s.Accessories() {
-			if a.ExerciseID() != "incline" {
-				continue
-			}
-			w, ok := a.Weight()
-			return w.Kg(), ok
-		}
-		return 0, false
-	}
-
-	req := planRequest(t)
-	req.History = training.NewHistory(append(planHistory(t),
-		mkLogOn(t, "inc-old", planMonday.AddDays(-7), "incline", 40, 10, 2)))
-	before, ok := weightOf(t, mustPlan(t, req))
-	if !ok {
-		t.Fatal("incline の重量が確定していない")
-	}
-
-	// 今日1セットこなす。予定の3セットには届いていないので残る。
-	req.History = training.NewHistory(append(planHistory(t),
-		mkLogOn(t, "inc-old", planMonday.AddDays(-7), "incline", 40, 10, 2),
-		mkLogOn(t, "inc-today", planMonday, "incline", 45, 12, 0)))
-
-	after, ok := weightOf(t, mustPlan(t, req))
-	if !ok {
-		t.Fatal("1セット記録したら incline が消えた")
-	}
-	if after != before {
-		t.Errorf("当日の記録で補助の重量が動いた: %v → %v", before, after)
-	}
-}
-
-// 補助を1セット記録しても、その種目が今日のメニューから消えないこと。
-//
-// 消えると残りのセットが記録できない。実運用では必ず踏む。
-func TestSessionPlanner_PartiallyDoneAccessoryStays(t *testing.T) {
-	req := planRequest(t)
-	first := mustPlan(t, req)
-	if len(first.Accessories()) == 0 {
-		t.Fatal("前提: 補助種目が出ること")
-	}
-	target := first.Accessories()[0].ExerciseID()
-	perSet := first.Accessories()[0].Sets().Int()
-
-	// 予定より1つ少ないセット数まで記録する。
-	logs := planHistory(t)
-	for i := range perSet - 1 {
-		logs = append(logs, mkLogOn(t, fmt.Sprintf("part-%d", i),
-			planMonday, string(target), 30, 10, 2))
-	}
-	req.History = training.NewHistory(logs)
-
-	for _, a := range mustPlan(t, req).Accessories() {
-		if a.ExerciseID() == target {
-			return
-		}
-	}
-	t.Errorf("%d/%dセットしか終えていないのに %s が消えた", perSet-1, perSet, target)
-}
-
-// 補助の並びが、当日の記録で入れ替わらないこと。
-//
-// ジムで消化している最中にリストが自分の下で動くと、どこまでやったか
-// 分からなくなる。実ブラウザで踏んだ。
-func TestSessionPlanner_AccessoryOrderIsStableWithinASession(t *testing.T) {
-	req := planRequest(t)
-	ids := func(s training.PlannedSession) []training.ExerciseID {
-		out := make([]training.ExerciseID, 0, len(s.Accessories()))
-		for _, a := range s.Accessories() {
-			out = append(out, a.ExerciseID())
-		}
-		return out
-	}
-
-	before := ids(mustPlan(t, req))
-	if len(before) < 2 {
-		t.Fatal("前提: 補助が2件以上あること")
-	}
-
-	// 先頭の種目を1セット記録する。
-	req.History = training.NewHistory(append(planHistory(t),
-		mkLogOn(t, "one", planMonday, string(before[0]), 40, 10, 2)))
-
-	after := ids(mustPlan(t, req))
-	for i, id := range before {
-		if i >= len(after) || after[i] != id {
-			t.Fatalf("記録で並びが変わった:\n  前: %v\n  後: %v", before, after)
-		}
 	}
 }
 
@@ -1206,31 +1273,19 @@ func TestSessionPlanner_PlannedWorkIsConsumedExactly(t *testing.T) {
 	}
 }
 
-// 当日に明らかに重いセットを記録しても、その日の提示重量は動かない。
-//
-// 既存の「動かない」テストは同じ重量で記録しているので、推定が
-// そもそも上がらず、当日を混ぜても数字が変わらないことがある。
-// 混ぜたら必ず変わる重さで確かめる。
-func TestSessionPlanner_HeavyTodaysLogDoesNotMoveTodaysWeight(t *testing.T) {
-	req := planRequest(t)
-	before := mainWeight(t, mustPlan(t, req), "bench")
-	if before <= 0 {
-		t.Fatal("ベンチプレスの重量が提示されていない")
-	}
-
-	req.History = training.NewHistory(append(planHistory(t),
-		mkLogOn(t, "today-heavy", planMonday, "bench", before+40, 8, 3)))
-
-	after := mainWeight(t, mustPlan(t, req), "bench")
-	if after != before {
-		t.Errorf("当日の記録で今日の重量が動いた: %v → %v", before, after)
-	}
-}
-
-// 補助種目は決まった順で返る。
+// 補助種目は、同じ入力なら毎回同じ順で返る。
 //
 // 選択は集合から選ぶので、そのままだと呼ぶたびに順番が入れ替わる。
 // 画面では同じ内容のカードが並び替わり、どこまでやったか見失う。
+//
+// 以前はここで「IDの昇順であること」も見ていた。やめたのは、それが実装の
+// 契約ではなく偶然だったため。usablePool と AccessorySelector.Select の
+// ソートを両方とも逆順にする変異を入れても、この検査は緑のまま通った
+// （docs/refactoring.md「Select の中のソートが上流と重複している」）。
+//
+// Select が返す順序の契約は「最も放置している区分から」であって、
+// 昇順ではない。偶然を固定すると、優先度の付け方を変えたときに
+// 理由の無い赤が出る。
 func TestSessionPlanner_AccessoriesComeBackInAStableOrder(t *testing.T) {
 	req := planRequest(t)
 
@@ -1241,12 +1296,6 @@ func TestSessionPlanner_AccessoriesComeBackInAStableOrder(t *testing.T) {
 	}
 	if len(ids) < 2 {
 		t.Fatalf("補助が %d 種目しか出ないので順序を確かめられない", len(ids))
-	}
-
-	for i := 1; i < len(ids); i++ {
-		if ids[i-1] >= ids[i] {
-			t.Fatalf("決まった順になっていない: %v", ids)
-		}
 	}
 
 	// 何度開き直しても同じ順で出る。
@@ -1263,45 +1312,20 @@ func TestSessionPlanner_AccessoriesComeBackInAStableOrder(t *testing.T) {
 	}
 }
 
-// 着手済みの補助があっても、並びは決まった順のまま。
+// chinRequest はチンニング（自重係数0.95）を1つ足したリクエストを返す。
 //
-// 枠の調整は「始めたものを残す → 残りを埋める」という順で組むので、
-// そのまま返すと着手済みが先頭に寄る。1セット記録しただけで
-// カードが飛ぶことになる。
-func TestSessionPlanner_StartedAccessoriesDoNotJumpToTheTop(t *testing.T) {
-	req := planRequest(t)
-	base := mustPlan(t, req)
-	if len(base.Accessories()) < 2 {
-		t.Fatalf("補助が %d 種目しか出ない", len(base.Accessories()))
-	}
-
-	// 並びの後ろにあるものを1セットこなす。
-	last := base.Accessories()[len(base.Accessories())-1].ExerciseID()
-	req.History = training.NewHistory(append(planHistory(t),
-		mkLogOn(t, "started-1", planMonday, string(last), 20, 10, 2)))
-
-	after := mustPlan(t, req)
-	ids := make([]training.ExerciseID, 0, len(after.Accessories()))
-	for _, a := range after.Accessories() {
-		ids = append(ids, a.ExerciseID())
-	}
-	for i := 1; i < len(ids); i++ {
-		if ids[i-1] >= ids[i] {
-			t.Fatalf("着手したものが並びを崩した: %v", ids)
-		}
-	}
-}
-
-// 体重75kgを記録し、チンニング（係数0.95）を加重0kgで8回×3セット、過去に記録する。
-// 次の計画でチンニングに重量が出ること。
-func TestSessionPlanner_BodyWeightOnlySetsStillProduceAWeight(t *testing.T) {
-	const bodyweight = 75.0
+// addedKg はこれまで記録してきた加重。bodyweight が0なら体重の記録は
+// 一度も無いものとする。
+func chinRequest(t *testing.T, addedKg, bodyweight float64) training.PlanRequest {
+	t.Helper()
 
 	chin := mustExercise(t, training.ExerciseParams{
-		ID: "chin", Name: "chin", Kind: training.KindAccessory, Stimulus: map[training.MuscleRegion]float64{training.Lat: 1.0}, IncrementKg: 2.5, BodyweightFactor: 0.95,
+		ID: "chin", Name: "chin", Kind: training.KindAccessory,
+		Stimulus:         map[training.MuscleRegion]float64{training.Lat: 1.0},
+		IncrementKg:      2.5,
+		BodyweightFactor: 0.95,
 	})
 
-	pool := append(planPool(t), chin)
 	program, err := training.NewProgram(
 		mustFrequency(t, 3),
 		mustTarget(t, map[training.MuscleRegion]float64{training.Lat: 12}),
@@ -1312,39 +1336,138 @@ func TestSessionPlanner_BodyWeightOnlySetsStillProduceAWeight(t *testing.T) {
 		t.Fatalf("プログラムの生成に失敗: %v", err)
 	}
 
-	// 先週、自重（加重0kg）で3セッションこなした。体重も測ってある。
-	var logs []*training.SetLog
+	// 3セッションぶん記録する。推定1RMが立つ量。
+	logs := planHistory(t)
 	var conds []training.DailyCondition
 	for i, daysAgo := range []int{21, 14, 7} {
 		day := planMonday.AddDays(-daysAgo)
 		for set := range 3 {
 			logs = append(logs, mkLogOn(t,
-				fmt.Sprintf("chin-%d-%d", i, set), day, "chin", 0, 8, 2))
+				fmt.Sprintf("chin-%d-%d", i, set), day, "chin", addedKg, 8, 2))
 		}
-		conds = append(conds,
-			training.NewDailyCondition(day).WithBodyWeight(bodyweight))
+		if bodyweight > 0 {
+			conds = append(conds,
+				training.NewDailyCondition(day).WithBodyWeight(bodyweight))
+		}
 	}
 
-	s := mustPlan(t, training.PlanRequest{
+	return training.PlanRequest{
 		Program:    program,
-		Pool:       pool,
+		Pool:       append(planPool(t), chin),
 		History:    training.NewHistory(logs),
 		Conditions: training.NewConditionLog(conds),
 		Date:       planMonday,
-	})
+	}
+}
 
-	found := false
+// accessorySet は補助種目のうち id のものを返す。
+func accessorySet(t *testing.T, s training.PlannedSession, id training.ExerciseID) training.PlannedSet {
+	t.Helper()
 	for _, set := range s.Accessories() {
-		if set.ExerciseID() != training.ExerciseID("chin") {
-			continue
-		}
-		found = true
-		if _, ok := set.Weight(); !ok {
-			t.Error("自重だけの記録から重量が決まらない")
+		if set.ExerciseID() == id {
+			return set
 		}
 	}
-	if !found {
-		t.Fatal("前提: チンニングが補助として提示されること")
+	t.Fatalf("前提: %s が補助として提示されること", id)
+	return training.PlannedSet{}
+}
+
+// 自重種目の処方は「体重×係数」を引いた加重で出す。
+//
+// 体重×係数は既に体が負担しているので、付けるプレートはその差分だけ。
+// ここが効かないと、チンニングに「85kg」のような総負荷が提示される。
+func TestSessionPlanner_BodyweightExerciseIsPrescribedAsAddedWeight(t *testing.T) {
+	cases := []struct {
+		name       string
+		addedKg    float64 // これまで記録してきた加重
+		bodyweight float64 // 0 なら体重の記録が一度も無い
+		// 体が負担している分。提示はこれを下回らなければならない。
+		carriedKg float64
+		wantMaxKg float64
+	}{
+		{
+			// 自重だけの記録からでも重量が決まること。以前は0kgのセットを
+			// 推定から除外していたので、自重でやり続ける限り推定するものが
+			// 何も残らず、永久に「自分で決める」が出ていた。
+			name:    "加重0kgの記録からでも重量が決まる",
+			addedKg: 0, bodyweight: 75,
+			carriedKg: 75 * 0.95, wantMaxKg: 30,
+		},
+		{
+			name:    "加重で記録していれば、その周辺の加重が出る",
+			addedKg: 10, bodyweight: 75,
+			carriedKg: 75 * 0.95, wantMaxKg: 30,
+		},
+		{
+			// 元は「体重が分からなければ推測せず本人に返す」として
+			// 「自分で決める」を出していた。だが「何kgでやるか」はアプリが
+			// 答えるべき問いなので、既定体重70kgで処方する。推定と処方の
+			// 両側で同じ体重を使うため、既定値が実体からずれても出力は
+			// ほとんど動かない（体重20kgのずれで処方は1kg）。
+			name:    "体重を一度も測っていなければ既定体重で処方する",
+			addedKg: 10, bodyweight: 0,
+			carriedKg: defaultBodyWeight * 0.95, wantMaxKg: 30,
+		},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			s := mustPlan(t, chinRequest(t, c.addedKg, c.bodyweight))
+
+			w, ok := accessorySet(t, s, "chin").Weight()
+			if !ok {
+				t.Fatal("自重種目の重量が決まらない")
+			}
+			if w.Kg() >= c.carriedKg {
+				t.Errorf("提示が %vkg。体重込みの総負荷が出ている（%vkg 未満のはず）",
+					w.Kg(), c.carriedKg)
+			}
+			if w.Kg() > c.wantMaxKg {
+				t.Errorf("提示が %vkg。記録した加重 %vkg から出る値としておかしい",
+					w.Kg(), c.addedKg)
+			}
+
+			// 体重の欠落が、自重の乗らない種目まで巻き込まないこと。
+			decided := false
+			for _, set := range s.Main() {
+				if _, ok := set.Weight(); ok {
+					decided = true
+				}
+			}
+			if !decided {
+				t.Error("自重が乗らないメイン種目の重量まで決まらなくなっている")
+			}
+		})
+	}
+}
+
+// 既定体重が実体からずれても、処方はほとんど動かない。
+//
+// 体重を測っていない人には既定値70kgで処方する。実体が75kgでも、提示は
+// 0.25kgしか変わらない。推定1RMを出すときと処方を加重へ戻すときの両側で
+// 同じ体重を使うので、ずれの大半が打ち消し合うため。
+//
+// この打ち消しが効かないと、既定値の選び方が処方を大きく左右する。実際
+// 既定値を0にする変異では、引き算が消えて提示が3kg以上跳ねる。
+// 「体重の欠落は自分で決めるに落とす」をやめられたのは、この性質が
+// あるからで、性質そのものを検査しておかないと根拠が失われる。
+func TestSessionPlanner_DefaultBodyWeightBarelyMovesThePrescription(t *testing.T) {
+	const tolerance = 1.0
+
+	measured, ok := accessorySet(t,
+		mustPlan(t, chinRequest(t, 10, 75)), "chin").Weight()
+	if !ok {
+		t.Fatal("体重を測っている場合の重量が決まらない")
+	}
+	fallback, ok := accessorySet(t,
+		mustPlan(t, chinRequest(t, 10, 0)), "chin").Weight()
+	if !ok {
+		t.Fatal("体重を測っていない場合の重量が決まらない")
+	}
+
+	if diff := measured.Kg() - fallback.Kg(); diff > tolerance || diff < -tolerance {
+		t.Errorf("体重75kgで %vkg、既定70kgで %vkg。差が %vkg あり、%vkg を超える",
+			measured.Kg(), fallback.Kg(), diff, tolerance)
 	}
 }
 
@@ -1411,84 +1534,6 @@ func TestSessionPlanner_BodyweightSetsStillCountTowardCoverage(t *testing.T) {
 
 // 自重種目の提示は加重で出す。体重込みの総負荷を見せられても、
 // 何をすればいいか分からない。
-func TestSessionPlanner_BodyweightExerciseIsPrescribedAsAddedWeight(t *testing.T) {
-	const bodyweight = 75.0
-	const factor = 0.95
-
-	chin := mustExercise(t, training.ExerciseParams{
-		ID: "chin", Name: "chin", Kind: training.KindAccessory,
-		Stimulus:         map[training.MuscleRegion]float64{training.Lat: 1.0},
-		IncrementKg:      2.5,
-		BodyweightFactor: factor,
-	})
-
-	pool := append(planPool(t), chin)
-	program, err := training.NewProgram(
-		mustFrequency(t, 3),
-		mustTarget(t, map[training.MuscleRegion]float64{training.Lat: 12}),
-		[]training.ExerciseID{"bench", "squat", "deadlift", "chin"},
-		big3(),
-	)
-	if err != nil {
-		t.Fatalf("プログラムの生成に失敗: %v", err)
-	}
-
-	// 加重10kgで3セッションこなした。体重も測ってある。
-	var logs []*training.SetLog
-	var conds []training.DailyCondition
-	for i, daysAgo := range []int{21, 14, 7} {
-		day := planMonday.AddDays(-daysAgo)
-		for set := range 3 {
-			logs = append(logs, mkLogOn(t,
-				fmt.Sprintf("chin-%d-%d", i, set), day, "chin", 10, 8, 2))
-		}
-		conds = append(conds,
-			training.NewDailyCondition(day).WithBodyWeight(bodyweight))
-	}
-
-	s := mustPlan(t, training.PlanRequest{
-		Program:    program,
-		Pool:       pool,
-		History:    training.NewHistory(logs),
-		Conditions: training.NewConditionLog(conds),
-		Date:       planMonday,
-	})
-
-	found := false
-	for _, set := range s.Accessories() {
-		if set.ExerciseID() != training.ExerciseID("chin") {
-			continue
-		}
-		found = true
-		w, ok := set.Weight()
-		if !ok {
-			t.Fatal("加重で記録しているのに重量が決まらない")
-		}
-		// 体重×係数（71.25kg）は既に体が負担している。付けるプレートは
-		// その差分だけなので、提示はこれを下回る。
-		if w.Kg() >= bodyweight*factor {
-			t.Errorf("提示が %vkg。体重込みの総負荷が出ている（加重は %vkg 未満のはず）",
-				w.Kg(), bodyweight*factor)
-		}
-		// 記録した加重が10kgなので、その周辺の値になる。
-		if w.Kg() <= 0 || w.Kg() > 30 {
-			t.Errorf("提示が %vkg。加重10kgの記録から出る値としておかしい", w.Kg())
-		}
-	}
-	if !found {
-		t.Fatal("前提: チンニングが補助として提示されること")
-	}
-}
-
-// 体重を一度も測っていなくても、自重種目に重量が出る。
-//
-// 元は「体重が分からなければ推測せず本人に返す」として「自分で決める」を
-// 出していた。だが「何kgでやるか」はアプリが答えるべき問いなので、既定体重
-// 70kg で処方する。推定と処方の両側で同じ体重を使うため、既定値が実体から
-// ずれても出力はほとんど動かない（体重20kgのずれで処方は1kg）。
-//
-// 総負荷がそのまま出ないことも併せて見る。体重を0と見なすと引き算が消えて
-// 自重種目に総負荷を処方してしまう。
 func TestSessionPlanner_BodyweightExerciseFallsBackToDefaultBodyWeight(t *testing.T) {
 	chin := mustExercise(t, training.ExerciseParams{
 		ID: "chin", Name: "chin", Kind: training.KindAccessory,
