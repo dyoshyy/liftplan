@@ -69,45 +69,6 @@ export type HistoryResponse = {
   last_performances: Record<string, LastPerformance>;
 };
 
-export type TrendPoint = { date: string; kg: number };
-
-export type Trend = {
-  exercise_id: string;
-  name: string;
-  points: TrendPoint[];
-  current_kg: number;
-  change_kg: number;
-};
-
-export type Volume = {
-  region: string;
-  target_sets: number;
-  done_sets: number;
-};
-
-export type StatsResponse = {
-  from: string;
-  to: string;
-  trends: Trend[];
-  weekly_volume: Volume[];
-};
-
-export type Program = {
-  per_week: number;
-  weekly_target: Record<string, number>;
-  selected_exercises: string[];
-  declared_exercises: string[];
-};
-
-export type SetLogInput = {
-  id: string;
-  date: string;
-  exercise_id: string;
-  weight_kg: number;
-  reps: number;
-  rir: number;
-};
-
 export type ConditionInput = {
   date: string;
   body_weight_kg?: number;

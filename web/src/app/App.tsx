@@ -1,23 +1,21 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { getToken } from '../storage/local';
 import { label, today } from '../domain/date';
 import { Setup } from '../features/setup/Setup';
 import { Today } from '../features/today/Today';
-import { History } from '../features/history/History';
-import { Settings } from '../features/settings/Settings';
 import { StatusBar } from './StatusBar';
-import { Tabs, type View } from './Tabs';
-import { UpdatePrompt } from './UpdatePrompt';
 import { useLiftplan } from './useLiftplan';
 import { useOutbox } from './useOutbox';
 
+// 画面は1つ。履歴と設定は落とした（D-120）。
+//
+// 目的はジムで1回のセッションを記録し終えること。記録は溜まり続けるので、
+// 見たくなったときに履歴を戻せばよい。
 export function App() {
-  const { data, status, setStatus, loadAll, loadToday, recordLocally, forgetLocally } =
-    useLiftplan();
+  const { data, status, setStatus, loadAll, recordLocally, forgetLocally } = useLiftplan();
   const outbox = useOutbox(useCallback((id: string) => data.names.get(id) ?? id, [data.names]));
   const { flush, refresh } = outbox;
 
-  const [view, setView] = useState<View>('today');
   const [online, setOnline] = useState(navigator.onLine);
   const [hasToken, setHasToken] = useState(() => getToken() !== '');
 
@@ -41,10 +39,25 @@ export function App() {
     if (status === 'unauthorized') setHasToken(false);
   }, [status]);
 
+  // 復帰したときの判断に使う。status を購読すると、状態が変わるたびに
+  // イベントの登録し直しが起きる。
+  const statusRef = useRef(status);
+  statusRef.current = status;
+
+  // 復帰したら送るだけでなく、メニューも取り直す。
+  //
+  // 圏外で開くと「つながりません」だけの画面になる。電波が戻っても
+  // 送信しかしないと、**メニューは空のまま**で、利用者が「更新」を
+  // 押すまで今日の内容が出ない。ジムに着いて開き、電波を掴んだところで
+  // 何も出ないのは、壊れているのと区別がつかない。
+  //
+  // 取り直すのはメニューが無いときだけ。毎回取り直すと、記録の最中に
+  // 一瞬電波が切れただけで画面が組み替わる。
   useEffect(() => {
     const onOnline = () => {
       setOnline(true);
-      void flush();
+      if (statusRef.current === 'offline') void reload();
+      else void flush();
     };
     const onOffline = () => setOnline(false);
     window.addEventListener('online', onOnline);
@@ -53,80 +66,48 @@ export function App() {
       window.removeEventListener('online', onOnline);
       window.removeEventListener('offline', onOffline);
     };
-  }, [flush]);
+  }, [flush, reload]);
 
-  if (!hasToken) {
-    return (
-      <Shell tabs={null}>
-        <Setup
-          pending={outbox.pending}
-          onSaved={() => {
-            setHasToken(true);
-            setStatus('loading');
-          }}
-        />
-        <StatusBar
-          pending={outbox.pending}
-          rejected={outbox.rejected.length}
-          online={online}
-          onReload={() => void refresh()}
-        />
-      </Shell>
-    );
-  }
-
-  return (
-    <Shell tabs={<Tabs view={view} onChange={setView} />}>
-      <UpdatePrompt />
-
-      {view === 'today' && (
-        <Today
-          data={data}
-          offline={status === 'offline'}
-          rejected={outbox.rejected}
-          enqueue={outbox.enqueue}
-          onClearRejected={() => void outbox.clearRejected()}
-          onRetry={() => void reload()}
-          onRecordLocally={recordLocally}
-          onForgetLocally={forgetLocally}
-          onReloadToday={(accepted) => void loadToday(accepted)}
-        />
-      )}
-
-      {view === 'history' && <History stats={data.stats} days={data.days} />}
-
-      {view === 'settings' && (
-        <Settings
-          program={data.program}
-          exercises={data.exercises}
-          onSaved={() => void reload()}
-          onForget={() => setHasToken(false)}
-        />
-      )}
-
-      <StatusBar
-        pending={outbox.pending}
-        rejected={outbox.rejected.length}
-        online={online}
-        onReload={() => void reload()}
-      />
-    </Shell>
-  );
-}
-
-function Shell({ tabs, children }: { tabs: React.ReactNode; children: React.ReactNode }) {
   return (
     <>
       <header className="sticky top-0 z-30 border-b border-line-soft bg-ground/90 backdrop-blur-[10px]">
-        <div className="flex items-center gap-3 px-4 pb-2.5 pt-3.5">
+        <div className="flex items-center gap-3 px-4 pb-3.5 pt-3.5">
           <div className="num text-[19px] font-semibold uppercase tracking-[0.08em]">
             lift<span className="text-amber">plan</span>
           </div>
           <div className="ml-auto text-[13px] text-muted">{label(today())}</div>
         </div>
-        {tabs}
       </header>
-      <main className="mx-auto grid max-w-[620px] gap-3.5 p-4">{children}</main>
+
+      <main className="mx-auto grid max-w-[620px] gap-3.5 p-4">
+        {hasToken ? (
+          <Today
+            data={data}
+            offline={status === 'offline'}
+            rejected={outbox.rejected}
+            enqueue={outbox.enqueue}
+            onClearRejected={() => void outbox.clearRejected()}
+            onRetry={() => void reload()}
+            onRecordLocally={recordLocally}
+            onForgetLocally={forgetLocally}
+          />
+        ) : (
+          <Setup
+            pending={outbox.pending}
+            onSaved={() => {
+              setHasToken(true);
+              setStatus('loading');
+            }}
+          />
+        )}
+      </main>
+
+      <StatusBar
+        pending={outbox.pending}
+        rejected={outbox.rejected.length}
+        online={online}
+        onReload={() => void (hasToken ? reload() : refresh())}
+      />
     </>
   );
 }

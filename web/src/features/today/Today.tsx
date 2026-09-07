@@ -2,11 +2,10 @@ import { useState } from 'react';
 import type { RecordedSet } from '../../api/types';
 import { today } from '../../domain/date';
 import { newId } from '../../domain/id';
-import { acceptedDeload, setAcceptedDeload } from '../../storage/local';
 import type { Data } from '../../app/useLiftplan';
 import { ExerciseCard, type CardPlan } from './ExerciseCard';
 import { RecordSheet, type SheetTarget } from './RecordSheet';
-import { Condition } from './Condition';
+import { BodyWeight } from './BodyWeight';
 import type { QueueItem } from '../../outbox/db';
 
 type Props = {
@@ -18,11 +17,10 @@ type Props = {
   onRetry: () => void;
   onRecordLocally: (exerciseId: string, set: RecordedSet, replacing?: string) => void;
   onForgetLocally: (exerciseId: string, id: string) => void;
-  onReloadToday: (deloadAccepted?: string[]) => void;
 };
 
 export function Today(props: Props) {
-  const { data, offline, rejected, enqueue, onClearRejected, onRetry, onReloadToday } = props;
+  const { data, offline, rejected, enqueue, onClearRejected, onRetry } = props;
   const [sheet, setSheet] = useState<SheetTarget | null>(null);
 
   const nameOf = (id: string) => data.names.get(id) ?? id;
@@ -111,8 +109,6 @@ export function Today(props: Props) {
 
   return (
     <div className="grid gap-3.5">
-      <Deload session={data.session} nameOf={nameOf} onReloadToday={onReloadToday} />
-
       {offline && (
         <div className="card">
           <p className="card-title">つながりません</p>
@@ -153,7 +149,7 @@ export function Today(props: Props) {
       {leftovers.length > 0 && <p className="card-title mb-0">今日やったもの</p>}
       {leftovers.map(card)}
 
-      <Condition enqueue={enqueue} />
+      <BodyWeight enqueue={enqueue} />
 
       {sheet && (
         <RecordSheet
@@ -165,48 +161,6 @@ export function Today(props: Props) {
           onClose={() => setSheet(null)}
         />
       )}
-    </div>
-  );
-}
-
-function Deload({
-  session,
-  nameOf,
-  onReloadToday,
-}: {
-  session: Data['session'];
-  nameOf: (id: string) => string;
-  onReloadToday: (accepted?: string[]) => void;
-}) {
-  const date = today();
-  const accepted = acceptedDeload(date);
-  const proposal = session?.deload_proposal;
-  const stalled = proposal?.stalled_exercises ?? [];
-
-  if (accepted.length === 0 && stalled.length === 0) return null;
-
-  // 承認済み。同じ提案を出し続けると、効いたのかどうか分からない。
-  const done = accepted.length > 0;
-
-  return (
-    <div className="card border-amber/40 bg-amber/15">
-      <h2 className="mb-1.5 text-[15px]">デロードの提案</h2>
-      <p className="mb-3.5 text-[13px] text-muted">
-        {done ? `${accepted.map(nameOf).join('・')}を落として組み直しました。` : proposal?.reason}
-      </p>
-      <button
-        type="button"
-        className="btn"
-        onClick={() => {
-          const next = done ? [] : stalled;
-          setAcceptedDeload(date, next);
-          onReloadToday(next);
-        }}
-      >
-        {done
-          ? '元に戻す'
-          : `${stalled.map(nameOf).join('・')}を${Math.round((proposal?.intensity_drop_pct ?? 0) * 100)}%落とす`}
-      </button>
     </div>
   );
 }

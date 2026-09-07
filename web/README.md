@@ -40,9 +40,9 @@ pnpm build
 | `src/api/` | fetch と契約の型 | 画面を知らない |
 | `src/outbox/` | 送信の待ち行列（IndexedDB） | **React も fetch も知らない** |
 | `src/domain/` | 日付・セットの整形・区分の日本語 | React も fetch も知らない |
-| `src/storage/` | localStorage（トークン・承認済みデロード） | 画面を知らない |
-| `src/features/` | 今日・履歴・設定・最初の設定 | — |
-| `src/app/` | タブ・状態表示・SW の登録 | — |
+| `src/storage/` | localStorage（トークン） | 画面を知らない |
+| `src/features/` | 今日・最初の設定 | — |
+| `src/app/` | 画面の骨組みと状態表示 | — |
 
 **`outbox/` が React も fetch も知らないのが要点。**ジムで一番壊れてほしくない
 ロジック（再送・冪等ID・修正時の削除→再投入・4xx の破棄）を、DOM も
@@ -52,7 +52,13 @@ pnpm build
 
 - **DB名・ストア名・localStorage のキーを変えない。**送りきれていない記録が読めなくなる
 - **`sw.ts` で `skipWaiting()` を自動で呼ばない。**記録シートを開いている最中に
-  画面が差し替わると、入力中の値が消える
+  画面が差し替わると、入力中の値が消える。待機中の新版は全てのクライアントが
+  閉じたときに有効になる
+- **SW の登録は `main.tsx` に置く。**画面の中の部品から登録すると、その部品が
+  描かれるまで登録されない（実際、更新通知の部品に置いていたときは、トークンを
+  入れるまで登録されなかった）
+- **履歴・設定は落としてある（D-120）。**サーバーの `/api/stats` と `/api/program`
+  は残っているので、戻すときは呼び出しを足すだけ
 - **`src/api/types.ts` は `../internal/presentation/httpapi/dto.go` と対。**
   サーバーは `DisallowUnknownFields` なので、余分なフィールドを送ると 400 で
   弾かれ、待ち行列がそれを捨てる。片方だけ変えない

@@ -49,7 +49,7 @@ export function ExerciseCard({ plan, name, last, recorded, onOpen }: Props) {
           <span className="ml-auto text-xs text-faint">{last.days_ago}日前</span>
         </div>
       ) : (
-        <div className="note">記録がまだありません</div>
+        <div className="note">前回の記録がありません</div>
       )}
 
       <div className="grid auto-cols-fr grid-flow-col gap-2">
