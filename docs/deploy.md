@@ -127,6 +127,56 @@ gcloud run revisions describe <リビジョン名> --region=asia-southeast1 \
   --project=liftplan-85309 --format='value(metadata.labels)'
 ```
 
+## GitHub のリポジトリ名は GCP に握られている
+
+**リポジトリをリネームすると、デプロイの認証が壊れる。**サービスアカウントの鍵を
+GitHub に置かず Workload Identity 連携を使っているので、GCP 側が
+「どのリポジトリからなら名乗ってよいか」を**完全一致の文字列で**持っている。
+
+2箇所ある。
+
+```bash
+# 1. プロバイダの条件
+gcloud iam workload-identity-pools providers describe liftplan-server \
+  --project=liftplan-85309 --location=global --workload-identity-pool=github \
+  --format='value(attributeCondition)'
+
+# 2. サービスアカウントの紐付け
+gcloud iam service-accounts get-iam-policy \
+  github-deployer@liftplan-85309.iam.gserviceaccount.com --project=liftplan-85309
+```
+
+リネームするときは、**先に GCP を「両方許す」状態にしてから**リネームする。逆順にすると、
+リネームから GCP 更新までのあいだデプロイできない。
+
+```bash
+# 先に両方を許す
+gcloud iam workload-identity-pools providers update-oidc liftplan-server \
+  --project=liftplan-85309 --location=global --workload-identity-pool=github \
+  --attribute-condition="assertion.repository in ['dyoshyy/旧','dyoshyy/新'] && assertion.ref=='refs/heads/main'"
+
+gcloud iam service-accounts add-iam-policy-binding \
+  github-deployer@liftplan-85309.iam.gserviceaccount.com --project=liftplan-85309 \
+  --role=roles/iam.workloadIdentityUser \
+  --member="principalSet://iam.googleapis.com/projects/385680444543/locations/global/workloadIdentityPools/github/attribute.repository/dyoshyy/新"
+
+# リネームして、デプロイが1本通るのを確認してから、古い名前を落とす
+```
+
+**古い名前を落とすのは、新しい名前でデプロイが1本通ってから。**先に落とすと、
+失敗したときに戻す先が無くなる。
+
+### 名前のうち、リポジトリ名と関係ないもの
+
+リポジトリ名に合わせて変えたくなるが、**変えてはいけない・変えなくてよい**もの。
+
+| 名前 | 判断 |
+|---|---|
+| Cloud Run のサービス `liftplan-server` | **変えない。**サービス名は変更できず作り直しになる。URL が変わり、`API_BASE`（画面のビルド）とヘルスチェックが全部つられる |
+| Artifact Registry の `liftplan` / イメージのパス | リポジトリ名から導かれていない。そのまま |
+| WIF プロバイダ名 `providers/liftplan-server` | ただのリソース名。一致している必要がない。変えるなら作り直し |
+| Go のモジュールパス | GitHub がリダイレクトするので動き続ける。変えるなら 57 ファイルの機械的な置換で、単独の PR にする |
+
 ## 運用
 
 - **コールドスタート**: `--min-instances=0` なので、しばらく使わないと初回が数秒かかる。ジムで最初に開くときだけ効く。気になるなら `--min-instances=1` にする（常時課金になる）
