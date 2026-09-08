@@ -8,6 +8,12 @@ import (
 
 	"github.com/dyoshyy/liftplan-server/internal/domain/training"
 	"github.com/dyoshyy/liftplan-server/internal/domain/training/seed"
+
+	"github.com/dyoshyy/liftplan-server/internal/domain/training/condition"
+	"github.com/dyoshyy/liftplan-server/internal/domain/training/exercise"
+	"github.com/dyoshyy/liftplan-server/internal/domain/training/planning"
+	"github.com/dyoshyy/liftplan-server/internal/domain/training/program"
+	"github.com/dyoshyy/liftplan-server/internal/domain/training/setlog"
 )
 
 // このファイルはシードが実運用で破綻しないことを検証する通し検証。
@@ -29,7 +35,7 @@ var weekdays = map[int][]int{
 
 // trueOneRepMax はシミュレーション上の本人の実力。期間中は一定とする。
 // 週目標が届くかどうかは重量ではなくセット数の話なので、伸びは考えない。
-func trueOneRepMax(id training.ExerciseID) float64 {
+func trueOneRepMax(id exercise.ExerciseID) float64 {
 	switch id {
 	case "squat":
 		return 140
@@ -43,9 +49,9 @@ func trueOneRepMax(id training.ExerciseID) float64 {
 
 type simResult struct {
 	achieved  map[training.MuscleRegion]float64 // 週あたりの平均刺激量
-	target    training.WeeklyVolumeTarget
+	target    program.WeeklyVolumeTarget
 	setsPer   []int                       // セッションごとの総セット数
-	picked    map[training.ExerciseID]int // 種目ごとの選出回数
+	picked    map[exercise.ExerciseID]int // 種目ごとの選出回数
 	weeks     int
 	undecided int // 重量が未確定のまま提示された延べ件数
 }
@@ -65,10 +71,10 @@ func simulate(t *testing.T, frequency, weeks int) simResult {
 }
 
 // simulateWithout は指定した種目をプログラムから外して回す。
-func simulateWithout(t *testing.T, frequency, weeks int, excluded ...training.ExerciseID) simResult {
+func simulateWithout(t *testing.T, frequency, weeks int, excluded ...exercise.ExerciseID) simResult {
 	t.Helper()
 
-	skip := make(map[training.ExerciseID]bool, len(excluded))
+	skip := make(map[exercise.ExerciseID]bool, len(excluded))
 	for _, id := range excluded {
 		skip[id] = true
 	}
@@ -77,7 +83,7 @@ func simulateWithout(t *testing.T, frequency, weeks int, excluded ...training.Ex
 	if err != nil {
 		t.Fatalf("シードが不正: %v", err)
 	}
-	freq, err := training.NewFrequency(frequency)
+	freq, err := program.NewFrequency(frequency)
 	if err != nil {
 		t.Fatalf("頻度が不正: %v", err)
 	}
@@ -86,8 +92,8 @@ func simulateWithout(t *testing.T, frequency, weeks int, excluded ...training.Ex
 		t.Fatalf("週目標が不正: %v", err)
 	}
 
-	byID := make(map[training.ExerciseID]*training.Exercise, len(all))
-	ids := make([]training.ExerciseID, 0, len(all))
+	byID := make(map[exercise.ExerciseID]*exercise.Exercise, len(all))
+	ids := make([]exercise.ExerciseID, 0, len(all))
 	for _, e := range all {
 		byID[e.ID()] = e
 		if !skip[e.ID()] {
@@ -96,34 +102,34 @@ func simulateWithout(t *testing.T, frequency, weeks int, excluded ...training.Ex
 	}
 	// 伸ばしたい種目は、選択に残っている BIG3 だけにする。
 	// 構成によってはスクワットを外すので、declared ⊂ selected を保つ。
-	declared := make([]training.ExerciseID, 0, 3)
-	for _, id := range []training.ExerciseID{"bench", "squat", "deadlift"} {
+	declared := make([]exercise.ExerciseID, 0, 3)
+	for _, id := range []exercise.ExerciseID{"bench", "squat", "deadlift"} {
 		if !skip[id] {
 			declared = append(declared, id)
 		}
 	}
-	program, err := training.NewProgram(freq, target, ids, declared)
+	program, err := program.NewProgram(freq, target, ids, declared)
 	if err != nil {
 		t.Fatalf("プログラムの生成に失敗: %v", err)
 	}
 
-	planner := training.DefaultSessionPlanner()
+	planner := planning.DefaultSessionPlanner()
 	res := simResult{
 		achieved: map[training.MuscleRegion]float64{},
 		target:   target,
-		picked:   map[training.ExerciseID]int{},
+		picked:   map[exercise.ExerciseID]int{},
 		weeks:    weeks,
 	}
 
-	var logs []*training.SetLog
+	var logs []*setlog.SetLog
 	n := 0
 	for w := range weeks {
 		for _, off := range weekdays[frequency] {
 			date := simStart.AddDays(w*7 + off)
-			s, err := planner.Plan(training.PlanRequest{
+			s, err := planner.Plan(planning.PlanRequest{
 				Program: program, Pool: all,
-				History:    training.NewHistory(logs),
-				Conditions: training.NewConditionLog(nil),
+				History:    setlog.NewHistory(logs),
+				Conditions: condition.NewConditionLog(nil),
 				Date:       date,
 			})
 			if err != nil {
@@ -147,7 +153,7 @@ func simulateWithout(t *testing.T, frequency, weeks int, excluded ...training.Ex
 				for range set.Sets().Int() {
 					n++
 					total++
-					l, err := training.NewSetLog(training.SetLogParams{
+					l, err := setlog.NewSetLog(setlog.SetLogParams{
 						ID: fmt.Sprintf("l%05d", n), PerformedOn: date,
 						ExerciseID: string(set.ExerciseID()),
 						WeightKg:   kg, Reps: 8, RIR: set.TargetRIR().Int(),
@@ -219,7 +225,7 @@ func TestSimulation_WeeklyTargetIsAttainableAtEveryFrequency(t *testing.T) {
 func TestSimulation_EveryAccessoryGetsUsedInSomeSetup(t *testing.T) {
 	all, _ := seed.Exercises()
 
-	used := map[training.ExerciseID]bool{}
+	used := map[exercise.ExerciseID]bool{}
 	for f := 1; f <= 4; f++ {
 		for id := range simulate(t, f, 8).picked {
 			used[id] = true
@@ -231,7 +237,7 @@ func TestSimulation_EveryAccessoryGetsUsedInSomeSetup(t *testing.T) {
 	//
 	//   デッドリフト … ハム・臀筋の主働筋枠が空く
 	//   スクワット   … 大腿四頭・内転筋の枠が空く（レッグプレス、アダクション）
-	for _, without := range []training.ExerciseID{"deadlift", "squat"} {
+	for _, without := range []exercise.ExerciseID{"deadlift", "squat"} {
 		for id := range simulateWithout(t, 3, 8, without).picked {
 			used[id] = true
 		}
@@ -266,35 +272,35 @@ func TestSimulation_SessionLengthIsReasonable(t *testing.T) {
 // 重量の未確定は最初だけで、記録が溜まれば解消すること。
 func TestSimulation_WeightsResolveQuickly(t *testing.T) {
 	all, _ := seed.Exercises()
-	freq, _ := training.NewFrequency(3)
+	freq, _ := program.NewFrequency(3)
 	target, _ := seed.DefaultWeeklyTarget(freq)
 
-	ids := make([]training.ExerciseID, 0, len(all))
-	byID := map[training.ExerciseID]*training.Exercise{}
+	ids := make([]exercise.ExerciseID, 0, len(all))
+	byID := map[exercise.ExerciseID]*exercise.Exercise{}
 	for _, e := range all {
 		byID[e.ID()] = e
 		ids = append(ids, e.ID())
 	}
-	program, _ := training.NewProgram(freq, target, ids,
-		[]training.ExerciseID{"bench", "squat", "deadlift"})
-	planner := training.DefaultSessionPlanner()
+	program, _ := program.NewProgram(freq, target, ids,
+		[]exercise.ExerciseID{"bench", "squat", "deadlift"})
+	planner := planning.DefaultSessionPlanner()
 
 	// 体重を一度は測っている人を想定する。自重種目の負荷は体重×係数＋加重なので、
 	// 体重が無いとチンニングとディップスは推定にも処方にも乗らない
 	// （その挙動は TestSessionPlanner_BodyweightExerciseNeedsABodyWeight で固定した）。
-	conditions := training.NewConditionLog([]training.DailyCondition{
-		training.NewDailyCondition(simStart).WithBodyWeight(75),
+	conditions := condition.NewConditionLog([]condition.DailyCondition{
+		condition.NewDailyCondition(simStart).WithBodyWeight(75),
 	})
 
-	var logs []*training.SetLog
+	var logs []*setlog.SetLog
 	n := 0
 	lastUndecided := -1
-	seen := map[training.ExerciseID]bool{}
+	seen := map[exercise.ExerciseID]bool{}
 	for i := range 12 {
 		date := simStart.AddDays(i / 3 * 7).AddDays((i % 3) * 2)
-		s, err := planner.Plan(training.PlanRequest{
+		s, err := planner.Plan(planning.PlanRequest{
 			Program: program, Pool: all,
-			History:    training.NewHistory(logs),
+			History:    setlog.NewHistory(logs),
 			Conditions: conditions,
 			Date:       date,
 		})
@@ -320,7 +326,7 @@ func TestSimulation_WeightsResolveQuickly(t *testing.T) {
 			seen[set.ExerciseID()] = true
 			for range set.Sets().Int() {
 				n++
-				l, _ := training.NewSetLog(training.SetLogParams{
+				l, _ := setlog.NewSetLog(setlog.SetLogParams{
 					ID: fmt.Sprintf("r%05d", n), PerformedOn: date,
 					ExerciseID: string(set.ExerciseID()),
 					WeightKg:   kg, Reps: 8, RIR: set.TargetRIR().Int(),
@@ -352,7 +358,7 @@ func TestSimulation_Report(t *testing.T) {
 			t.Logf("  %-16s 目標 %5.1f 実測 %5.1f  %3.0f%%",
 				r, res.target.Sets(r), res.achieved[r], res.rate(r)*100)
 		}
-		unused := []training.ExerciseID{}
+		unused := []exercise.ExerciseID{}
 		all, _ := seed.Exercises()
 		for _, e := range all {
 			if res.picked[e.ID()] == 0 {

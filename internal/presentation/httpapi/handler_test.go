@@ -19,6 +19,10 @@ import (
 	"github.com/dyoshyy/liftplan-server/internal/domain/training/seed"
 	"github.com/dyoshyy/liftplan-server/internal/infrastructure/memory"
 	"github.com/dyoshyy/liftplan-server/internal/presentation/httpapi"
+
+	"github.com/dyoshyy/liftplan-server/internal/domain/training/exercise"
+	"github.com/dyoshyy/liftplan-server/internal/domain/training/planning"
+	"github.com/dyoshyy/liftplan-server/internal/domain/training/program"
 )
 
 func newServer(t *testing.T, configured bool) http.Handler {
@@ -34,16 +38,16 @@ func newServer(t *testing.T, configured bool) http.Handler {
 
 	programs := memory.NewProgramRepository(nil)
 	if configured {
-		freq, _ := training.NewFrequency(3)
+		freq, _ := program.NewFrequency(3)
 		target, err := seed.DefaultWeeklyTarget(freq)
 		if err != nil {
 			t.Fatalf("週目標が不正: %v", err)
 		}
-		selected := make([]training.ExerciseID, 0, len(pool))
+		selected := make([]exercise.ExerciseID, 0, len(pool))
 		for _, e := range pool {
 			selected = append(selected, e.ID())
 		}
-		program, err := training.NewProgram(freq, target, selected, []training.ExerciseID{"bench", "squat", "deadlift"})
+		program, err := program.NewProgram(freq, target, selected, []exercise.ExerciseID{"bench", "squat", "deadlift"})
 		if err != nil {
 			t.Fatalf("プログラムが不正: %v", err)
 		}
@@ -53,7 +57,7 @@ func newServer(t *testing.T, configured bool) http.Handler {
 	}
 
 	handler := httpapi.NewHandler(
-		usecase.NewGetSession(exercises, logs, conditions, programs, training.DefaultSessionPlanner()),
+		usecase.NewGetSession(exercises, logs, conditions, programs, planning.DefaultSessionPlanner()),
 		usecase.NewRecordSets(logs, exercises),
 		usecase.NewRecordConditions(conditions),
 		usecase.NewConfigureProgram(exercises, programs),
@@ -61,7 +65,7 @@ func newServer(t *testing.T, configured bool) http.Handler {
 		usecase.NewDeleteSetLog(logs),
 		query.NewExercises(exercises),
 		query.NewHistory(logs, exercises),
-		query.NewStats(logs, exercises, programs, training.DefaultOneRepMaxEstimator()),
+		query.NewStats(logs, exercises, programs, planning.DefaultOneRepMaxEstimator()),
 	)
 	return handler.Routes()
 }
@@ -411,7 +415,7 @@ func TestGetSession_RequiresDate(t *testing.T) {
 // 取得に失敗するリポジトリ。500 の経路を作るために使う。
 type brokenExercises struct{}
 
-func (brokenExercises) FindAll(context.Context) ([]*training.Exercise, error) {
+func (brokenExercises) FindAll(context.Context) ([]*exercise.Exercise, error) {
 	return nil, errors.New("種目テーブル exercises_v2 の接続文字列が不正: user=admin")
 }
 
@@ -422,13 +426,13 @@ func TestGetSession_InternalErrorDoesNotLeak(t *testing.T) {
 	if err != nil {
 		t.Fatalf("シードが不正: %v", err)
 	}
-	freq, _ := training.NewFrequency(3)
+	freq, _ := program.NewFrequency(3)
 	target, _ := seed.DefaultWeeklyTarget(freq)
-	selected := make([]training.ExerciseID, 0, len(pool))
+	selected := make([]exercise.ExerciseID, 0, len(pool))
 	for _, e := range pool {
 		selected = append(selected, e.ID())
 	}
-	program, err := training.NewProgram(freq, target, selected, []training.ExerciseID{"bench", "squat", "deadlift"})
+	program, err := program.NewProgram(freq, target, selected, []exercise.ExerciseID{"bench", "squat", "deadlift"})
 	if err != nil {
 		t.Fatalf("プログラムが不正: %v", err)
 	}
@@ -437,7 +441,7 @@ func TestGetSession_InternalErrorDoesNotLeak(t *testing.T) {
 	conditions := memory.NewConditionRepository()
 
 	mux := httpapi.NewHandler(
-		usecase.NewGetSession(brokenExercises{}, logs, conditions, programs, training.DefaultSessionPlanner()),
+		usecase.NewGetSession(brokenExercises{}, logs, conditions, programs, planning.DefaultSessionPlanner()),
 		usecase.NewRecordSets(logs, brokenExercises{}),
 		usecase.NewRecordConditions(conditions),
 		usecase.NewConfigureProgram(brokenExercises{}, programs),
@@ -445,7 +449,7 @@ func TestGetSession_InternalErrorDoesNotLeak(t *testing.T) {
 		usecase.NewDeleteSetLog(logs),
 		query.NewExercises(brokenExercises{}),
 		query.NewHistory(logs, brokenExercises{}),
-		query.NewStats(logs, brokenExercises{}, programs, training.DefaultOneRepMaxEstimator()),
+		query.NewStats(logs, brokenExercises{}, programs, planning.DefaultOneRepMaxEstimator()),
 	).Routes()
 
 	rec := do(t, mux, http.MethodGet, "/api/sessions?date=2026-08-17", "")

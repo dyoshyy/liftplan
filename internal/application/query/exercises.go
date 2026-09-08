@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"sort"
 
-	"github.com/dyoshyy/liftplan-server/internal/domain/training"
+	"github.com/dyoshyy/liftplan-server/internal/domain/training/exercise"
 )
 
 // Exercise は種目マスタの1件。
@@ -13,17 +13,17 @@ import (
 // 画面が種目IDを日本語で出すために要る。`bench` のままだと、
 // ジムで一瞬見て何の種目か分からない。
 type Exercise struct {
-	ID          training.ExerciseID
+	ID          exercise.ExerciseID
 	Name        string
 	IncrementKg float64
 }
 
 // Exercises は種目マスタを読む経路。
 type Exercises struct {
-	repo training.ExerciseReader
+	repo exercise.Reader
 }
 
-func NewExercises(repo training.ExerciseReader) *Exercises {
+func NewExercises(repo exercise.Reader) *Exercises {
 	return &Exercises{repo: repo}
 }
 

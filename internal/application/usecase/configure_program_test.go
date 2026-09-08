@@ -8,6 +8,12 @@ import (
 	"github.com/dyoshyy/liftplan-server/internal/application/usecase"
 	"github.com/dyoshyy/liftplan-server/internal/domain/training"
 	"github.com/dyoshyy/liftplan-server/internal/domain/training/seed"
+
+	"github.com/dyoshyy/liftplan-server/internal/domain/training/condition"
+	"github.com/dyoshyy/liftplan-server/internal/domain/training/exercise"
+	"github.com/dyoshyy/liftplan-server/internal/domain/training/planning"
+	"github.com/dyoshyy/liftplan-server/internal/domain/training/program"
+	"github.com/dyoshyy/liftplan-server/internal/domain/training/setlog"
 )
 
 func configureInput(t *testing.T) usecase.ConfigureProgramInput {
@@ -17,7 +23,7 @@ func configureInput(t *testing.T) usecase.ConfigureProgramInput {
 	if err != nil {
 		t.Fatalf("シードが不正: %v", err)
 	}
-	freq, err := training.NewFrequency(3)
+	freq, err := program.NewFrequency(3)
 	if err != nil {
 		t.Fatalf("頻度が不正: %v", err)
 	}
@@ -30,13 +36,13 @@ func configureInput(t *testing.T) usecase.ConfigureProgramInput {
 	for _, r := range target.Regions() {
 		sets[r] = target.Sets(r)
 	}
-	selected := make([]training.ExerciseID, 0, len(pool))
+	selected := make([]exercise.ExerciseID, 0, len(pool))
 	for _, e := range pool {
 		selected = append(selected, e.ID())
 	}
 	return usecase.ConfigureProgramInput{
 		PerWeek: 3, Target: sets, Selected: selected,
-		Declared: []training.ExerciseID{"bench", "squat", "deadlift"},
+		Declared: []exercise.ExerciseID{"bench", "squat", "deadlift"},
 	}
 }
 
@@ -74,7 +80,7 @@ func TestConfigureProgram_RejectsUnknownExercise(t *testing.T) {
 	in.Selected = append(in.Selected, "存在しない種目")
 
 	err := newConfigure(t, programs).Execute(context.Background(), in)
-	if !errors.Is(err, training.ErrExerciseNotFound) {
+	if !errors.Is(err, exercise.ErrExerciseNotFound) {
 		t.Errorf("未知の種目が弾かれていない: %v", err)
 	}
 	if programs.savedProgram() != nil {
@@ -131,7 +137,7 @@ func TestConfigureProgram_RejectsSelectionWithoutDeclared(t *testing.T) {
 
 	programs := &fakeProgram{}
 	err := newConfigure(t, programs).Execute(context.Background(), in)
-	if !errors.Is(err, training.ErrNoDeclaredExercise) {
+	if !errors.Is(err, program.ErrNoDeclaredExercise) {
 		t.Errorf("宣言ゼロが弾かれていない: %v", err)
 	}
 	if !errors.Is(err, usecase.ErrInvalidInput) {
@@ -156,10 +162,10 @@ func TestConfigureProgram_ProducesAUsableProgram(t *testing.T) {
 
 	uc := usecase.NewGetSession(
 		&fakeExercises{all: pool},
-		&fakeLogs{history: training.NewHistory(nil)},
-		&fakeConditions{log: training.NewConditionLog(nil)},
+		&fakeLogs{history: setlog.NewHistory(nil)},
+		&fakeConditions{log: condition.NewConditionLog(nil)},
 		&fakeProgram{program: programs.savedProgram()},
-		training.DefaultSessionPlanner(),
+		planning.DefaultSessionPlanner(),
 	)
 	s, err := uc.Execute(context.Background(), usecase.GetSessionInput{Date: testDate})
 	if err != nil {
@@ -183,7 +189,7 @@ func TestConfigureProgram_ClassifiesInvalidInput(t *testing.T) {
 		"選択が空":    func(in *usecase.ConfigureProgramInput) { in.Selected = nil },
 		"種目の重複":   func(in *usecase.ConfigureProgramInput) { in.Selected = append(in.Selected, in.Selected[0]) },
 		"実在しない種目": func(in *usecase.ConfigureProgramInput) { in.Selected = append(in.Selected, "無い種目") },
-		"メイン種目ゼロ": func(in *usecase.ConfigureProgramInput) { in.Selected = []training.ExerciseID{"barbell_curl"} },
+		"メイン種目ゼロ": func(in *usecase.ConfigureProgramInput) { in.Selected = []exercise.ExerciseID{"barbell_curl"} },
 	}
 	for name, mutate := range invalid {
 		t.Run(name, func(t *testing.T) {
@@ -235,7 +241,7 @@ func TestConfigureProgram_ValidatesInputBeforeTouchingIO(t *testing.T) {
 func TestConfigureProgram_RejectsSelectionDisjointFromTarget(t *testing.T) {
 	in := configureInput(t)
 	in.Target = map[training.MuscleRegion]float64{training.Biceps: 12}
-	in.Selected = []training.ExerciseID{"squat", "calf_raise"}
+	in.Selected = []exercise.ExerciseID{"squat", "calf_raise"}
 
 	programs := &fakeProgram{}
 	err := newConfigure(t, programs).Execute(context.Background(), in)
@@ -250,7 +256,7 @@ func TestConfigureProgram_RejectsSelectionDisjointFromTarget(t *testing.T) {
 // nil を含む種目マスタで落ちないこと。
 func TestConfigureProgram_SkipsNilExercisesInThePool(t *testing.T) {
 	pool, _ := seed.Exercises()
-	withNil := append([]*training.Exercise{nil}, pool...)
+	withNil := append([]*exercise.Exercise{nil}, pool...)
 
 	programs := &fakeProgram{}
 	uc := usecase.NewConfigureProgram(&fakeExercises{all: withNil}, programs)

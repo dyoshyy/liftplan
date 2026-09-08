@@ -4,19 +4,19 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/dyoshyy/liftplan-server/internal/domain/training"
+	"github.com/dyoshyy/liftplan-server/internal/domain/training/condition"
 )
 
 // RecordConditions は日次コンディションを保存するユースケース。
 type RecordConditions struct {
-	repo training.ConditionWriter
+	repo condition.Writer
 }
 
-func NewRecordConditions(repo training.ConditionWriter) *RecordConditions {
+func NewRecordConditions(repo condition.Writer) *RecordConditions {
 	return &RecordConditions{repo: repo}
 }
 
-func (u *RecordConditions) Execute(ctx context.Context, items []training.DailyCondition) error {
+func (u *RecordConditions) Execute(ctx context.Context, items []condition.DailyCondition) error {
 	// 空は成功として扱う。クライアントは同期のたびに送ってくるので、
 	// 送るものが無い回に I/O を起こす理由がない。「空を送ってきた」ことを
 	// エラーにすると、正常な同期がエラーログを埋める。

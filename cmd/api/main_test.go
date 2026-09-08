@@ -180,7 +180,7 @@ func TestDefaultProgram_ExcludesVariations(t *testing.T) {
 	if err != nil {
 		t.Fatalf("シードが不正: %v", err)
 	}
-	program, err := defaultProgram(pool)
+	prog, err := defaultProgram(pool)
 	if err != nil {
 		t.Fatalf("初期プログラムが不正: %v", err)
 	}
@@ -188,7 +188,7 @@ func TestDefaultProgram_ExcludesVariations(t *testing.T) {
 	// 全種目が選ばれていること。かつてバリエーションは選択に入れずとも
 	// 自動で回っていたが、その抜け道を塞いだので明示的に選ぶ必要がある。
 	for _, e := range pool {
-		if !program.Includes(e.ID()) {
+		if !prog.Includes(e.ID()) {
 			t.Errorf("%s が選択に含まれていない", e.ID())
 		}
 	}
@@ -335,11 +335,11 @@ func TestDefaultProgram_MatchesTheDocumentedFrequency(t *testing.T) {
 	if err != nil {
 		t.Fatalf("シードが不正: %v", err)
 	}
-	program, err := defaultProgram(pool)
+	prog, err := defaultProgram(pool)
 	if err != nil {
 		t.Fatalf("初期プログラムが不正: %v", err)
 	}
-	if got := program.Frequency().PerWeek(); got != 3 {
+	if got := prog.Frequency().PerWeek(); got != 3 {
 		t.Errorf("既定の頻度が誤り: %d（README は週3回と書いている）", got)
 	}
 }

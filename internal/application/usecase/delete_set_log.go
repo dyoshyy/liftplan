@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/dyoshyy/liftplan-server/internal/domain/training"
+	"github.com/dyoshyy/liftplan-server/internal/domain/training/setlog"
 )
 
 // DeleteSetLog は打ち間違いを取り消すユースケース。
@@ -13,14 +13,14 @@ import (
 // 値を書き換えるのではなく「これは起きなかった」と言っている。
 // 訂正の手段が無いほうが害が大きく、間違った記録が推定1RMを汚したまま残る。
 type DeleteSetLog struct {
-	repo training.SetLogWriter
+	repo setlog.Writer
 }
 
-func NewDeleteSetLog(repo training.SetLogWriter) *DeleteSetLog {
+func NewDeleteSetLog(repo setlog.Writer) *DeleteSetLog {
 	return &DeleteSetLog{repo: repo}
 }
 
-func (u *DeleteSetLog) Execute(ctx context.Context, id training.SetLogID) error {
+func (u *DeleteSetLog) Execute(ctx context.Context, id setlog.SetLogID) error {
 	if id == "" {
 		return fmt.Errorf("%w: 取り消す記録のIDが無い", ErrInvalidInput)
 	}

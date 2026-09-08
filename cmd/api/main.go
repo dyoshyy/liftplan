@@ -20,11 +20,16 @@ import (
 
 	"github.com/dyoshyy/liftplan-server/internal/application/query"
 	"github.com/dyoshyy/liftplan-server/internal/application/usecase"
-	"github.com/dyoshyy/liftplan-server/internal/domain/training"
 	"github.com/dyoshyy/liftplan-server/internal/domain/training/seed"
 	"github.com/dyoshyy/liftplan-server/internal/infrastructure/memory"
 	"github.com/dyoshyy/liftplan-server/internal/infrastructure/postgres"
 	"github.com/dyoshyy/liftplan-server/internal/presentation/httpapi"
+
+	"github.com/dyoshyy/liftplan-server/internal/domain/training/condition"
+	"github.com/dyoshyy/liftplan-server/internal/domain/training/exercise"
+	"github.com/dyoshyy/liftplan-server/internal/domain/training/planning"
+	"github.com/dyoshyy/liftplan-server/internal/domain/training/program"
+	"github.com/dyoshyy/liftplan-server/internal/domain/training/setlog"
 )
 
 const defaultFrequencyPerWeek = 3
@@ -165,18 +170,18 @@ func port() string {
 // のは「使う側が要る分だけ受け取る」ためで、実装を組み立てる側まで
 // 半分にすると、同じインスタンスを2つのフィールドに入れることになる。
 type setLogStore interface {
-	training.SetLogReader
-	training.SetLogWriter
+	setlog.Reader
+	setlog.Writer
 }
 
 type conditionStore interface {
-	training.ConditionReader
-	training.ConditionWriter
+	condition.Reader
+	condition.Writer
 }
 
 type programStore interface {
-	training.ProgramReader
-	training.ProgramWriter
+	program.Reader
+	program.Writer
 }
 
 // repositories は差し替えの対象になる口の集まり。
@@ -185,7 +190,7 @@ type programStore interface {
 // 組み立ての途中に条件分岐が散ると、どちらの実装が使われているかが
 // 読めなくなる。
 type repositories struct {
-	exercises  training.ExerciseReader
+	exercises  exercise.Reader
 	logs       setLogStore
 	conditions conditionStore
 	programs   programStore
@@ -211,7 +216,7 @@ func buildHandler(ctx context.Context) (http.Handler, func(), error) {
 	conditions := repos.conditions
 	programs := repos.programs
 
-	planner := training.DefaultSessionPlanner()
+	planner := planning.DefaultSessionPlanner()
 
 	handler := httpapi.NewHandler(
 		usecase.NewGetSession(exercises, logs, conditions, programs, planner),
@@ -222,7 +227,7 @@ func buildHandler(ctx context.Context) (http.Handler, func(), error) {
 		usecase.NewDeleteSetLog(logs),
 		query.NewExercises(exercises),
 		query.NewHistory(logs, exercises),
-		query.NewStats(logs, exercises, programs, training.DefaultOneRepMaxEstimator()),
+		query.NewStats(logs, exercises, programs, planning.DefaultOneRepMaxEstimator()),
 	)
 	guarded, err := withAuth(handler.Routes())
 	if err != nil {
@@ -320,13 +325,13 @@ func withHealthCheck(next http.Handler, ping func(context.Context) error) http.H
 // 種目マスタだけは常にインメモリ。シードはバイナリ同梱の静的なマスタで、
 // DB に置くとマイグレーションのたびに種目の追加・改名が絡み、
 // ErrExerciseNotFound の意味が「まだ流していない」と混ざる。
-func openRepositories(ctx context.Context, pool []*training.Exercise) (repositories, error) {
+func openRepositories(ctx context.Context, pool []*exercise.Exercise) (repositories, error) {
 	exercises := memory.NewExerciseRepository(pool)
 
 	url := os.Getenv("DATABASE_URL")
 	if url == "" {
 		slog.Warn("DATABASE_URL が無いのでインメモリで動く。再起動すると記録は消える")
-		program, err := defaultProgram(pool)
+		prog, err := defaultProgram(pool)
 		if err != nil {
 			return repositories{}, err
 		}
@@ -334,7 +339,7 @@ func openRepositories(ctx context.Context, pool []*training.Exercise) (repositor
 			exercises:  exercises,
 			logs:       memory.NewSetLogRepository(),
 			conditions: memory.NewConditionRepository(),
-			programs:   memory.NewProgramRepository(program),
+			programs:   memory.NewProgramRepository(prog),
 			ping:       func(context.Context) error { return nil },
 			close:      func() {},
 		}, nil
@@ -375,23 +380,23 @@ func openRepositories(ctx context.Context, pool []*training.Exercise) (repositor
 func seedProgramIfMissing(
 	ctx context.Context,
 	programs programStore,
-	pool []*training.Exercise,
+	pool []*exercise.Exercise,
 ) error {
 	switch _, err := programs.Get(ctx); {
 	case err == nil:
 		return nil
-	case !errors.Is(err, training.ErrProgramNotConfigured):
+	case !errors.Is(err, program.ErrProgramNotConfigured):
 		return fmt.Errorf("プログラムの確認に失敗: %w", err)
 	}
 
-	program, err := defaultProgram(pool)
+	prog, err := defaultProgram(pool)
 	if err != nil {
 		return err
 	}
-	if err := programs.Save(ctx, program); err != nil {
+	if err := programs.Save(ctx, prog); err != nil {
 		return fmt.Errorf("初期プログラムを保存できない: %w", err)
 	}
-	slog.Info("初期プログラムを保存した", "per_week", program.Frequency().PerWeek())
+	slog.Info("初期プログラムを保存した", "per_week", prog.Frequency().PerWeek())
 	return nil
 }
 
@@ -400,8 +405,8 @@ func seedProgramIfMissing(
 // バリエーションはメインに付随して自動で回るため、選択には含めない。
 // 初期値を入れておくのは、起動直後に PUT /api/program を叩かないと
 // 何も使えない状態を避けるため。設定はいつでも上書きできる。
-func defaultProgram(pool []*training.Exercise) (*training.Program, error) {
-	freq, err := training.NewFrequency(defaultFrequencyPerWeek)
+func defaultProgram(pool []*exercise.Exercise) (*program.Program, error) {
+	freq, err := program.NewFrequency(defaultFrequencyPerWeek)
 	if err != nil {
 		return nil, fmt.Errorf("既定の頻度が不正: %w", err)
 	}
@@ -412,9 +417,9 @@ func defaultProgram(pool []*training.Exercise) (*training.Program, error) {
 	}
 
 	// 全種目を選んでおく。外したいものはあとから設定で外せる。
-	selected := make([]training.ExerciseID, 0, len(pool))
+	selected := make([]exercise.ExerciseID, 0, len(pool))
 	for _, e := range pool {
 		selected = append(selected, e.ID())
 	}
-	return training.NewProgram(freq, target, selected, seed.DefaultDeclared())
+	return program.NewProgram(freq, target, selected, seed.DefaultDeclared())
 }

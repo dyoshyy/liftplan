@@ -6,6 +6,10 @@ import (
 	"sort"
 
 	"github.com/dyoshyy/liftplan-server/internal/domain/training"
+	"github.com/dyoshyy/liftplan-server/internal/domain/training/exercise"
+	"github.com/dyoshyy/liftplan-server/internal/domain/training/planning"
+	"github.com/dyoshyy/liftplan-server/internal/domain/training/program"
+	"github.com/dyoshyy/liftplan-server/internal/domain/training/setlog"
 )
 
 // Point は推定1RMの1点。
@@ -19,7 +23,7 @@ type Point struct {
 // 伸びているかを答える唯一の線。体感は当てにならないし、実施重量だけを
 // 見てもレップ数が違えば比較にならない。
 type Trend struct {
-	ExerciseID training.ExerciseID
+	ExerciseID exercise.ExerciseID
 	Name       string
 	Points     []Point
 	CurrentKg  float64
@@ -36,17 +40,17 @@ type RegionVolume struct {
 
 // Stats は振り返りのための読み取り経路。
 type Stats struct {
-	logs      training.SetLogReader
-	exercises training.ExerciseReader
-	programs  training.ProgramReader
-	estimator training.OneRepMaxEstimator
+	logs      setlog.Reader
+	exercises exercise.Reader
+	programs  program.Reader
+	estimator planning.OneRepMaxEstimator
 }
 
 func NewStats(
-	logs training.SetLogReader,
-	exercises training.ExerciseReader,
-	programs training.ProgramReader,
-	estimator training.OneRepMaxEstimator,
+	logs setlog.Reader,
+	exercises exercise.Reader,
+	programs program.Reader,
+	estimator planning.OneRepMaxEstimator,
 ) *Stats {
 	return &Stats{logs: logs, exercises: exercises, programs: programs, estimator: estimator}
 }
@@ -61,14 +65,14 @@ func (q *Stats) Trends(ctx context.Context, from, to training.Date) ([]Trend, er
 		return nil, fmt.Errorf("期間が指定されていない")
 	}
 
-	h, pool, program, err := q.load(ctx)
+	h, pool, prog, err := q.load(ctx)
 	if err != nil {
 		return nil, err
 	}
 
 	out := []Trend{}
 	for _, e := range pool {
-		if e == nil || !program.Declares(e.ID()) {
+		if e == nil || !prog.Declares(e.ID()) {
 			continue
 		}
 
@@ -110,16 +114,16 @@ func (q *Stats) WeeklyVolume(ctx context.Context, asOf training.Date) ([]RegionV
 		return nil, fmt.Errorf("基準日が指定されていない")
 	}
 
-	h, pool, program, err := q.load(ctx)
+	h, pool, prog, err := q.load(ctx)
 	if err != nil {
 		return nil, err
 	}
 
 	// 数え方はエンジンと同じものを使う。別々に実装すると、画面に出る
 	// 数字とエンジンが使う数字がずれて、どちらが正しいか分からなくなる。
-	coverage := training.CoverageBetween(h, pool, asOf.WeekStart(), asOf)
+	coverage := planning.CoverageBetween(h, pool, asOf.WeekStart(), asOf)
 
-	target := program.WeeklyTarget()
+	target := prog.WeeklyTarget()
 	out := make([]RegionVolume, 0, len(target.Regions()))
 	for _, r := range target.Regions() {
 		out = append(out, RegionVolume{
@@ -142,27 +146,27 @@ func (q *Stats) WeeklyVolume(ctx context.Context, asOf training.Date) ([]RegionV
 }
 
 func (q *Stats) load(ctx context.Context) (
-	training.History, []*training.Exercise, *training.Program, error,
+	setlog.History, []*exercise.Exercise, *program.Program, error,
 ) {
 	if err := ctx.Err(); err != nil {
-		return training.History{}, nil, nil, fmt.Errorf("読み取りが中断された: %w", err)
+		return setlog.History{}, nil, nil, fmt.Errorf("読み取りが中断された: %w", err)
 	}
 
 	h, err := q.logs.FindAll(ctx)
 	if err != nil {
-		return training.History{}, nil, nil, fmt.Errorf("実績の取得に失敗: %w", err)
+		return setlog.History{}, nil, nil, fmt.Errorf("実績の取得に失敗: %w", err)
 	}
 	pool, err := q.exercises.FindAll(ctx)
 	if err != nil {
-		return training.History{}, nil, nil, fmt.Errorf("種目の取得に失敗: %w", err)
+		return setlog.History{}, nil, nil, fmt.Errorf("種目の取得に失敗: %w", err)
 	}
-	program, err := q.programs.Get(ctx)
+	prog, err := q.programs.Get(ctx)
 	if err != nil {
-		return training.History{}, nil, nil, fmt.Errorf("プログラムの取得に失敗: %w", err)
+		return setlog.History{}, nil, nil, fmt.Errorf("プログラムの取得に失敗: %w", err)
 	}
-	if program == nil {
-		return training.History{}, nil, nil,
-			fmt.Errorf("プログラムの取得: %w", training.ErrProgramNotConfigured)
+	if prog == nil {
+		return setlog.History{}, nil, nil,
+			fmt.Errorf("プログラムの取得: %w", program.ErrProgramNotConfigured)
 	}
-	return h, pool, program, nil
+	return h, pool, prog, nil
 }

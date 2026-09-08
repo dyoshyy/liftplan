@@ -10,13 +10,16 @@ import (
 	"github.com/dyoshyy/liftplan-server/internal/domain/training"
 	"github.com/dyoshyy/liftplan-server/internal/domain/training/seed"
 	"github.com/dyoshyy/liftplan-server/internal/infrastructure/memory"
+
+	"github.com/dyoshyy/liftplan-server/internal/domain/training/condition"
+	"github.com/dyoshyy/liftplan-server/internal/domain/training/setlog"
 )
 
 var day = training.MustDate(2026, time.August, 17)
 
-func mkSetLog(t *testing.T, id string, kg float64) *training.SetLog {
+func mkSetLog(t *testing.T, id string, kg float64) *setlog.SetLog {
 	t.Helper()
-	l, err := training.NewSetLog(training.SetLogParams{
+	l, err := setlog.NewSetLog(setlog.SetLogParams{
 		ID: id, PerformedOn: day, ExerciseID: "bench",
 		WeightKg: kg, Reps: 9, RIR: 2,
 	})
@@ -83,10 +86,10 @@ func TestRepositories_AreSafeForConcurrentUse(t *testing.T) {
 		wg.Add(1)
 		go func(i int) {
 			defer wg.Done()
-			_ = logs.Save(ctx, []*training.SetLog{mkSetLog(t, fmt.Sprintf("c%03d", i), 85)})
+			_ = logs.Save(ctx, []*setlog.SetLog{mkSetLog(t, fmt.Sprintf("c%03d", i), 85)})
 			_, _ = logs.FindAll(ctx)
-			_ = conditions.Save(ctx, []training.DailyCondition{
-				training.NewDailyCondition(day.AddDays(-i)).WithBodyWeight(75),
+			_ = conditions.Save(ctx, []condition.DailyCondition{
+				condition.NewDailyCondition(day.AddDays(-i)).WithBodyWeight(75),
 			})
 			_, _ = conditions.FindAll(ctx)
 			_, _ = programs.Get(ctx)

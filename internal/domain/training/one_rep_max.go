@@ -31,8 +31,8 @@ type OneRepMax struct {
 }
 
 func NewOneRepMax(kg float64) (OneRepMax, error) {
-	q := quantize(kg)
-	if err := validateRange("推定1RM", q, smallestPositive, maxOneRepMaxKg); err != nil {
+	q := Quantize(kg)
+	if err := ValidateRange("推定1RM", q, SmallestPositive, maxOneRepMaxKg); err != nil {
 		return OneRepMax{}, err
 	}
 	return OneRepMax{kg: q}, nil

@@ -6,6 +6,8 @@ import (
 
 	"github.com/dyoshyy/liftplan-server/internal/domain/training"
 	"github.com/dyoshyy/liftplan-server/internal/infrastructure/postgres"
+
+	"github.com/dyoshyy/liftplan-server/internal/domain/training/setlog"
 )
 
 // 再起動しても記録が残ること。インメモリ実装との唯一の違いがここ。
@@ -13,14 +15,14 @@ func TestSetLogRepository_SurvivesReconnect(t *testing.T) {
 	pool := migratedDB(t)
 	ctx := context.Background()
 
-	log, err := training.NewSetLog(training.SetLogParams{
+	log, err := setlog.NewSetLog(setlog.SetLogParams{
 		ID: "persist", PerformedOn: training.MustDate(2026, 8, 17),
 		ExerciseID: "bench", WeightKg: 87.5, Reps: 8, RIR: 2,
 	})
 	if err != nil {
 		t.Fatalf("ログ生成に失敗: %v", err)
 	}
-	if err := postgres.NewSetLogRepository(pool).Save(ctx, []*training.SetLog{log}); err != nil {
+	if err := postgres.NewSetLogRepository(pool).Save(ctx, []*setlog.SetLog{log}); err != nil {
 		t.Fatalf("保存に失敗: %v", err)
 	}
 
@@ -44,9 +46,9 @@ func TestSetLogRepository_RoundTripsWeights(t *testing.T) {
 	ctx := context.Background()
 
 	want := []float64{0, 1.25, 2.5, 42.5, 87.5, 102.5, 187.5, 999.99}
-	logs := make([]*training.SetLog, 0, len(want))
+	logs := make([]*setlog.SetLog, 0, len(want))
 	for i, kg := range want {
-		l, err := training.NewSetLog(training.SetLogParams{
+		l, err := setlog.NewSetLog(setlog.SetLogParams{
 			ID: string(rune('a' + i)), PerformedOn: training.MustDate(2026, 8, 17),
 			ExerciseID: "bench", WeightKg: kg, Reps: 8, RIR: 2,
 		})
@@ -60,12 +62,12 @@ func TestSetLogRepository_RoundTripsWeights(t *testing.T) {
 	}
 
 	h, _ := repo.FindAll(ctx)
-	got := make(map[training.SetLogID]float64, len(h.Logs()))
+	got := make(map[setlog.SetLogID]float64, len(h.Logs()))
 	for _, l := range h.Logs() {
 		got[l.ID()] = l.Weight().Kg()
 	}
 	for i, kg := range want {
-		id := training.SetLogID(rune('a' + i))
+		id := setlog.SetLogID(rune('a' + i))
 		if got[id] != kg {
 			t.Errorf("%vkg が %v になった", kg, got[id])
 		}
@@ -85,9 +87,9 @@ func TestSetLogRepository_RoundTripsDates(t *testing.T) {
 		training.MustDate(2026, 12, 31),
 		training.MustDate(2024, 2, 29), // 閏日
 	}
-	logs := make([]*training.SetLog, 0, len(dates))
+	logs := make([]*setlog.SetLog, 0, len(dates))
 	for i, d := range dates {
-		l, err := training.NewSetLog(training.SetLogParams{
+		l, err := setlog.NewSetLog(setlog.SetLogParams{
 			ID: string(rune('a' + i)), PerformedOn: d,
 			ExerciseID: "bench", WeightKg: 85, Reps: 8, RIR: 2,
 		})
@@ -101,12 +103,12 @@ func TestSetLogRepository_RoundTripsDates(t *testing.T) {
 	}
 
 	h, _ := repo.FindAll(ctx)
-	got := make(map[training.SetLogID]training.Date, len(h.Logs()))
+	got := make(map[setlog.SetLogID]training.Date, len(h.Logs()))
 	for _, l := range h.Logs() {
 		got[l.ID()] = l.PerformedOn()
 	}
 	for i, d := range dates {
-		id := training.SetLogID(rune('a' + i))
+		id := setlog.SetLogID(rune('a' + i))
 		if !got[id].Equal(d) {
 			t.Errorf("%v が %v になった", d, got[id])
 		}
@@ -119,8 +121,8 @@ func TestSetLogRepository_DetectsConflictUnderConcurrency(t *testing.T) {
 	repo := postgres.NewSetLogRepository(migratedDB(t))
 	ctx := context.Background()
 
-	mk := func(kg float64) *training.SetLog {
-		l, err := training.NewSetLog(training.SetLogParams{
+	mk := func(kg float64) *setlog.SetLog {
+		l, err := setlog.NewSetLog(setlog.SetLogParams{
 			ID: "race", PerformedOn: training.MustDate(2026, 8, 17),
 			ExerciseID: "bench", WeightKg: kg, Reps: 8, RIR: 2,
 		})
@@ -133,7 +135,7 @@ func TestSetLogRepository_DetectsConflictUnderConcurrency(t *testing.T) {
 	results := make(chan error, 8)
 	for i := range 8 {
 		go func(i int) {
-			results <- repo.Save(ctx, []*training.SetLog{mk(80 + float64(i)*2.5)})
+			results <- repo.Save(ctx, []*setlog.SetLog{mk(80 + float64(i)*2.5)})
 		}(i)
 	}
 
@@ -180,14 +182,14 @@ func TestSetLogRepository_StoresTheSameCalendarDate(t *testing.T) {
 	pool := migratedDB(t)
 	ctx := context.Background()
 
-	log, err := training.NewSetLog(training.SetLogParams{
+	log, err := setlog.NewSetLog(setlog.SetLogParams{
 		ID: "tz", PerformedOn: training.MustDate(2026, 8, 17),
 		ExerciseID: "bench", WeightKg: 85, Reps: 8, RIR: 2,
 	})
 	if err != nil {
 		t.Fatalf("ログ生成に失敗: %v", err)
 	}
-	if err := postgres.NewSetLogRepository(pool).Save(ctx, []*training.SetLog{log}); err != nil {
+	if err := postgres.NewSetLogRepository(pool).Save(ctx, []*setlog.SetLog{log}); err != nil {
 		t.Fatalf("保存に失敗: %v", err)
 	}
 

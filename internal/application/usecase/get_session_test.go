@@ -10,18 +10,24 @@ import (
 	"github.com/dyoshyy/liftplan-server/internal/application/usecase"
 	"github.com/dyoshyy/liftplan-server/internal/domain/training"
 	"github.com/dyoshyy/liftplan-server/internal/domain/training/seed"
+
+	"github.com/dyoshyy/liftplan-server/internal/domain/training/condition"
+	"github.com/dyoshyy/liftplan-server/internal/domain/training/exercise"
+	"github.com/dyoshyy/liftplan-server/internal/domain/training/planning"
+	"github.com/dyoshyy/liftplan-server/internal/domain/training/program"
+	"github.com/dyoshyy/liftplan-server/internal/domain/training/setlog"
 )
 
 var testDate = training.MustDate(2026, time.August, 17)
 
 type fakeExercises struct {
 	mu    sync.Mutex
-	all   []*training.Exercise
+	all   []*exercise.Exercise
 	calls int
 	err   error
 }
 
-func (f *fakeExercises) FindAll(context.Context) ([]*training.Exercise, error) {
+func (f *fakeExercises) FindAll(context.Context) ([]*exercise.Exercise, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.calls++
@@ -39,15 +45,15 @@ func (f *fakeExercises) callCount() int {
 
 type fakeLogs struct {
 	mu      sync.Mutex
-	history training.History
-	saved   []*training.SetLog
-	deleted []training.SetLogID
+	history setlog.History
+	saved   []*setlog.SetLog
+	deleted []setlog.SetLogID
 	calls   int
 	finds   int
 	err     error
 }
 
-func (f *fakeLogs) FindAll(context.Context) (training.History, error) {
+func (f *fakeLogs) FindAll(context.Context) (setlog.History, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.finds++
@@ -58,7 +64,7 @@ func (f *fakeLogs) findCount() int {
 	defer f.mu.Unlock()
 	return f.finds
 }
-func (f *fakeLogs) Save(_ context.Context, logs []*training.SetLog) error {
+func (f *fakeLogs) Save(_ context.Context, logs []*setlog.SetLog) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.calls++
@@ -68,7 +74,7 @@ func (f *fakeLogs) Save(_ context.Context, logs []*training.SetLog) error {
 	f.saved = append(f.saved, logs...)
 	return nil
 }
-func (f *fakeLogs) Delete(_ context.Context, id training.SetLogID) error {
+func (f *fakeLogs) Delete(_ context.Context, id setlog.SetLogID) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.deleted = append(f.deleted, id)
@@ -82,18 +88,18 @@ func (f *fakeLogs) callCount() int {
 
 type fakeConditions struct {
 	mu    sync.Mutex
-	log   training.ConditionLog
-	saved []training.DailyCondition
+	log   condition.ConditionLog
+	saved []condition.DailyCondition
 	calls int
 	err   error
 }
 
-func (f *fakeConditions) FindAll(context.Context) (training.ConditionLog, error) {
+func (f *fakeConditions) FindAll(context.Context) (condition.ConditionLog, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return f.log, f.err
 }
-func (f *fakeConditions) Save(_ context.Context, items []training.DailyCondition) error {
+func (f *fakeConditions) Save(_ context.Context, items []condition.DailyCondition) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.calls++
@@ -111,19 +117,19 @@ func (f *fakeConditions) callCount() int {
 
 type fakeProgram struct {
 	mu      sync.Mutex
-	program *training.Program
-	saved   *training.Program
+	program *program.Program
+	saved   *program.Program
 	calls   int
 	err     error
 }
 
-func (f *fakeProgram) Get(context.Context) (*training.Program, error) {
+func (f *fakeProgram) Get(context.Context) (*program.Program, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.calls++
 	return f.program, f.err
 }
-func (f *fakeProgram) Save(_ context.Context, p *training.Program) error {
+func (f *fakeProgram) Save(_ context.Context, p *program.Program) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if f.err != nil {
@@ -137,15 +143,15 @@ func (f *fakeProgram) callCount() int {
 	defer f.mu.Unlock()
 	return f.calls
 }
-func (f *fakeProgram) savedProgram() *training.Program {
+func (f *fakeProgram) savedProgram() *program.Program {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return f.saved
 }
 
-func buildProgram(t *testing.T, pool []*training.Exercise) *training.Program {
+func buildProgram(t *testing.T, pool []*exercise.Exercise) *program.Program {
 	t.Helper()
-	freq, err := training.NewFrequency(3)
+	freq, err := program.NewFrequency(3)
 	if err != nil {
 		t.Fatalf("頻度が不正: %v", err)
 	}
@@ -153,11 +159,11 @@ func buildProgram(t *testing.T, pool []*training.Exercise) *training.Program {
 	if err != nil {
 		t.Fatalf("週目標が不正: %v", err)
 	}
-	selected := make([]training.ExerciseID, 0, len(pool))
+	selected := make([]exercise.ExerciseID, 0, len(pool))
 	for _, e := range pool {
 		selected = append(selected, e.ID())
 	}
-	p, err := training.NewProgram(freq, target, selected, []training.ExerciseID{"bench", "squat", "deadlift"})
+	p, err := program.NewProgram(freq, target, selected, []exercise.ExerciseID{"bench", "squat", "deadlift"})
 	if err != nil {
 		t.Fatalf("プログラムが不正: %v", err)
 	}
@@ -172,15 +178,15 @@ func newGetSession(t *testing.T, logs *fakeLogs, conditions *fakeConditions, pro
 	}
 	return usecase.NewGetSession(
 		&fakeExercises{all: pool}, logs, conditions, program,
-		training.DefaultSessionPlanner(),
+		planning.DefaultSessionPlanner(),
 	)
 }
 
 func TestGetSession_ReturnsPlannedSession(t *testing.T) {
 	pool, _ := seed.Exercises()
 	uc := newGetSession(t,
-		&fakeLogs{history: training.NewHistory(nil)},
-		&fakeConditions{log: training.NewConditionLog(nil)},
+		&fakeLogs{history: setlog.NewHistory(nil)},
+		&fakeConditions{log: condition.NewConditionLog(nil)},
 		&fakeProgram{program: buildProgram(t, pool)},
 	)
 
@@ -198,13 +204,13 @@ func TestGetSession_ReturnsPlannedSession(t *testing.T) {
 
 func TestGetSession_PropagatesProgramNotConfigured(t *testing.T) {
 	uc := newGetSession(t,
-		&fakeLogs{history: training.NewHistory(nil)},
-		&fakeConditions{log: training.NewConditionLog(nil)},
-		&fakeProgram{err: training.ErrProgramNotConfigured},
+		&fakeLogs{history: setlog.NewHistory(nil)},
+		&fakeConditions{log: condition.NewConditionLog(nil)},
+		&fakeProgram{err: program.ErrProgramNotConfigured},
 	)
 
 	_, err := uc.Execute(context.Background(), usecase.GetSessionInput{Date: testDate})
-	if !errors.Is(err, training.ErrProgramNotConfigured) {
+	if !errors.Is(err, program.ErrProgramNotConfigured) {
 		t.Errorf("未設定エラーが伝播していない: %v", err)
 	}
 }
@@ -214,7 +220,7 @@ func TestGetSession_PropagatesRepositoryError(t *testing.T) {
 	pool, _ := seed.Exercises()
 	uc := newGetSession(t,
 		&fakeLogs{err: boom},
-		&fakeConditions{log: training.NewConditionLog(nil)},
+		&fakeConditions{log: condition.NewConditionLog(nil)},
 		&fakeProgram{program: buildProgram(t, pool)},
 	)
 
@@ -226,8 +232,8 @@ func TestGetSession_PropagatesRepositoryError(t *testing.T) {
 func TestGetSession_RejectsZeroDate(t *testing.T) {
 	pool, _ := seed.Exercises()
 	uc := newGetSession(t,
-		&fakeLogs{history: training.NewHistory(nil)},
-		&fakeConditions{log: training.NewConditionLog(nil)},
+		&fakeLogs{history: setlog.NewHistory(nil)},
+		&fakeConditions{log: condition.NewConditionLog(nil)},
 		&fakeProgram{program: buildProgram(t, pool)},
 	)
 
@@ -245,9 +251,9 @@ func TestGetSession_PassesDeloadAcceptanceThrough(t *testing.T) {
 	}
 
 	// 重量が確定するだけの履歴を積む。
-	logs := make([]*training.SetLog, 0, 12)
+	logs := make([]*setlog.SetLog, 0, 12)
 	for i := range 4 {
-		l, err := training.NewSetLog(training.SetLogParams{
+		l, err := setlog.NewSetLog(setlog.SetLogParams{
 			ID: "b" + string(rune('0'+i)), PerformedOn: testDate.AddDays(-7 * (4 - i)),
 			ExerciseID: "bench", WeightKg: 85, Reps: 8, RIR: 2,
 		})
@@ -258,11 +264,11 @@ func TestGetSession_PassesDeloadAcceptanceThrough(t *testing.T) {
 	}
 
 	uc := newGetSession(t,
-		&fakeLogs{history: training.NewHistory(logs)},
-		&fakeConditions{log: training.NewConditionLog(nil)},
+		&fakeLogs{history: setlog.NewHistory(logs)},
+		&fakeConditions{log: condition.NewConditionLog(nil)},
 		&fakeProgram{program: buildProgram(t, pool)})
 
-	weightOf := func(t *testing.T, s training.PlannedSession) float64 {
+	weightOf := func(t *testing.T, s planning.PlannedSession) float64 {
 		t.Helper()
 		for _, set := range s.Main() {
 			if set.ExerciseID() != "bench" {
@@ -284,7 +290,7 @@ func TestGetSession_PassesDeloadAcceptanceThrough(t *testing.T) {
 	}
 	deloaded, err := uc.Execute(context.Background(), usecase.GetSessionInput{
 		Date:           testDate,
-		DeloadAccepted: []training.ExerciseID{"bench"},
+		DeloadAccepted: []exercise.ExerciseID{"bench"},
 	})
 	if err != nil {
 		t.Fatalf("実行に失敗: %v", err)
@@ -298,8 +304,8 @@ func TestGetSession_PassesDeloadAcceptanceThrough(t *testing.T) {
 
 // 対象日が未指定なら、リポジトリを一度も叩かずに弾くこと。
 func TestGetSession_RejectsZeroDateBeforeTouchingRepositories(t *testing.T) {
-	logs := &fakeLogs{history: training.NewHistory(nil)}
-	conditions := &fakeConditions{log: training.NewConditionLog(nil)}
+	logs := &fakeLogs{history: setlog.NewHistory(nil)}
+	conditions := &fakeConditions{log: condition.NewConditionLog(nil)}
 	programs := &fakeProgram{}
 	uc := newGetSession(t, logs, conditions, programs)
 
@@ -317,12 +323,12 @@ func TestGetSession_RejectsZeroDateBeforeTouchingRepositories(t *testing.T) {
 // 潰すと、プレゼンテーション層が初期設定へ誘導できない。
 func TestGetSession_KeepsProgramNotConfiguredIdentifiable(t *testing.T) {
 	uc := newGetSession(t,
-		&fakeLogs{history: training.NewHistory(nil)},
-		&fakeConditions{log: training.NewConditionLog(nil)},
-		&fakeProgram{err: training.ErrProgramNotConfigured})
+		&fakeLogs{history: setlog.NewHistory(nil)},
+		&fakeConditions{log: condition.NewConditionLog(nil)},
+		&fakeProgram{err: program.ErrProgramNotConfigured})
 
 	_, err := uc.Execute(context.Background(), usecase.GetSessionInput{Date: testDate})
-	if !errors.Is(err, training.ErrProgramNotConfigured) {
+	if !errors.Is(err, program.ErrProgramNotConfigured) {
 		t.Errorf("未設定が判別できない形になっている: %v", err)
 	}
 }
@@ -335,18 +341,18 @@ func TestGetSession_ConditionsReachTheDomain(t *testing.T) {
 		t.Fatalf("シードが不正: %v", err)
 	}
 
-	items := []training.DailyCondition{
-		training.NewDailyCondition(testDate).WithSleepHours(4),
+	items := []condition.DailyCondition{
+		condition.NewDailyCondition(testDate).WithSleepHours(4),
 	}
 	for i := 1; i <= 14; i++ {
 		items = append(items,
-			training.NewDailyCondition(testDate.AddDays(-i)).WithSleepHours(7))
+			condition.NewDailyCondition(testDate.AddDays(-i)).WithSleepHours(7))
 	}
 
 	rirOf := func(t *testing.T, conditions *fakeConditions) int {
 		t.Helper()
 		uc := newGetSession(t,
-			&fakeLogs{history: training.NewHistory(nil)},
+			&fakeLogs{history: setlog.NewHistory(nil)},
 			conditions,
 			&fakeProgram{program: buildProgram(t, pool)})
 		s, err := uc.Execute(context.Background(), usecase.GetSessionInput{Date: testDate})
@@ -359,8 +365,8 @@ func TestGetSession_ConditionsReachTheDomain(t *testing.T) {
 		return s.Main()[0].TargetRIR().Int()
 	}
 
-	base := rirOf(t, &fakeConditions{log: training.NewConditionLog(nil)})
-	deprived := rirOf(t, &fakeConditions{log: training.NewConditionLog(items)})
+	base := rirOf(t, &fakeConditions{log: condition.NewConditionLog(nil)})
+	deprived := rirOf(t, &fakeConditions{log: condition.NewConditionLog(items)})
 
 	if deprived <= base {
 		t.Errorf("睡眠不足がRIR補正に届いていない: %d → %d", base, deprived)
@@ -374,8 +380,8 @@ func TestGetSession_PropagatesConditionError(t *testing.T) {
 	}
 	boom := errors.New("読めない")
 	uc := newGetSession(t,
-		&fakeLogs{history: training.NewHistory(nil)},
-		&fakeConditions{log: training.NewConditionLog(nil), err: boom},
+		&fakeLogs{history: setlog.NewHistory(nil)},
+		&fakeConditions{log: condition.NewConditionLog(nil), err: boom},
 		&fakeProgram{program: buildProgram(t, pool)})
 
 	if _, err := uc.Execute(context.Background(), usecase.GetSessionInput{Date: testDate}); !errors.Is(err, boom) {
@@ -386,12 +392,12 @@ func TestGetSession_PropagatesConditionError(t *testing.T) {
 // リポジトリが契約に反して (nil, nil) を返しても、未設定として扱えること。
 func TestGetSession_TreatsNilProgramAsNotConfigured(t *testing.T) {
 	uc := newGetSession(t,
-		&fakeLogs{history: training.NewHistory(nil)},
-		&fakeConditions{log: training.NewConditionLog(nil)},
+		&fakeLogs{history: setlog.NewHistory(nil)},
+		&fakeConditions{log: condition.NewConditionLog(nil)},
 		&fakeProgram{})
 
 	_, err := uc.Execute(context.Background(), usecase.GetSessionInput{Date: testDate})
-	if !errors.Is(err, training.ErrProgramNotConfigured) {
+	if !errors.Is(err, program.ErrProgramNotConfigured) {
 		t.Errorf("nil のプログラムが未設定として扱われていない: %v", err)
 	}
 }
@@ -402,9 +408,9 @@ func TestGetSession_StopsOnCancelledContext(t *testing.T) {
 	if err != nil {
 		t.Fatalf("シードが不正: %v", err)
 	}
-	logs := &fakeLogs{history: training.NewHistory(nil)}
+	logs := &fakeLogs{history: setlog.NewHistory(nil)}
 	uc := newGetSession(t, logs,
-		&fakeConditions{log: training.NewConditionLog(nil)},
+		&fakeConditions{log: condition.NewConditionLog(nil)},
 		&fakeProgram{program: buildProgram(t, pool)})
 
 	ctx, cancel := context.WithCancel(context.Background())

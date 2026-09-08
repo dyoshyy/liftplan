@@ -9,6 +9,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/dyoshyy/liftplan-server/internal/domain/training"
+	"github.com/dyoshyy/liftplan-server/internal/domain/training/condition"
 )
 
 // ConditionRepository は日次コンディションの Postgres 実装。
@@ -25,47 +26,47 @@ func NewConditionRepository(pool *pgxpool.Pool) *ConditionRepository {
 // 並べ替えないのは NewConditionLog が日付で整列するため。ここで
 // 並べても結果は変わらず、意味のある処理に見えて実は何もしていない
 // コードが残るだけになる。
-func (r *ConditionRepository) FindAll(ctx context.Context) (training.ConditionLog, error) {
+func (r *ConditionRepository) FindAll(ctx context.Context) (condition.ConditionLog, error) {
 	rows, err := r.pool.Query(ctx, `
 		SELECT date, body_weight_kg, sleep_hours FROM daily_conditions`)
 	if err != nil {
-		return training.ConditionLog{}, wrapUnavailable(err, "コンディションを読めない")
+		return condition.ConditionLog{}, wrapUnavailable(err, "コンディションを読めない")
 	}
 	defer rows.Close()
 
-	var out []training.DailyCondition
+	var out []condition.DailyCondition
 	for rows.Next() {
 		c, err := scanCondition(rows)
 		if err != nil {
-			return training.ConditionLog{}, err
+			return condition.ConditionLog{}, err
 		}
 		out = append(out, c)
 	}
 	if err := rows.Err(); err != nil {
-		return training.ConditionLog{}, wrapUnavailable(err, "コンディションを読めない")
+		return condition.ConditionLog{}, wrapUnavailable(err, "コンディションを読めない")
 	}
-	return training.NewConditionLog(out), nil
+	return condition.NewConditionLog(out), nil
 }
 
-func scanCondition(rows pgx.Rows) (training.DailyCondition, error) {
+func scanCondition(rows pgx.Rows) (condition.DailyCondition, error) {
 	var (
 		date       time.Time
 		bodyWeight *float64
 		sleepHours *float64
 	)
 	if err := rows.Scan(&date, &bodyWeight, &sleepHours); err != nil {
-		return training.DailyCondition{}, wrapUnavailable(err, "コンディションを読めない")
+		return condition.DailyCondition{}, wrapUnavailable(err, "コンディションを読めない")
 	}
 
 	d, err := training.FromTime(date, time.UTC)
 	if err != nil {
-		return training.DailyCondition{}, fmt.Errorf("コンディションの日付が不正: %w", err)
+		return condition.DailyCondition{}, fmt.Errorf("コンディションの日付が不正: %w", err)
 	}
 
 	// ポインタで受けるのは、欠損と 0 を区別するため。非ポインタだと
 	// 体重の欠損が 0kg、睡眠の欠損が 0時間になり、どちらも有意味な値と
 	// 区別できなくなる。
-	c := training.NewDailyCondition(d)
+	c := condition.NewDailyCondition(d)
 	if bodyWeight != nil {
 		c = c.WithBodyWeight(*bodyWeight)
 	}
@@ -82,7 +83,7 @@ func scanCondition(rows pgx.Rows) (training.DailyCondition, error) {
 // 記録するので、これは日常的に起きる。
 //
 // EXCLUDED が NULL のときに既存値を残す COALESCE が「項目ごとの上書き」。
-func (r *ConditionRepository) Save(ctx context.Context, items []training.DailyCondition) error {
+func (r *ConditionRepository) Save(ctx context.Context, items []condition.DailyCondition) error {
 	if len(items) == 0 {
 		return nil
 	}
@@ -90,7 +91,7 @@ func (r *ConditionRepository) Save(ctx context.Context, items []training.DailyCo
 	// 同一呼び出し内の重複を先に合成する。1文ずつ流すと、同じ日付が
 	// 2件あったときに ON CONFLICT が同一コマンド内で二度当たり、
 	// Postgres が「行を二度更新できない」と拒否する。
-	staged := make(map[training.Date]training.DailyCondition, len(items))
+	staged := make(map[training.Date]condition.DailyCondition, len(items))
 	order := make([]training.Date, 0, len(items))
 	for i, c := range items {
 		// 日付の無い記録を黙って捨てない。捨てると、クライアントは
@@ -142,6 +143,6 @@ func optional(v float64, ok bool) *float64 {
 }
 
 var (
-	_ training.ConditionReader = (*ConditionRepository)(nil)
-	_ training.ConditionWriter = (*ConditionRepository)(nil)
+	_ condition.Reader = (*ConditionRepository)(nil)
+	_ condition.Writer = (*ConditionRepository)(nil)
 )

@@ -1,6 +1,9 @@
 package seed
 
-import "github.com/dyoshyy/liftplan-server/internal/domain/training"
+import (
+	"github.com/dyoshyy/liftplan-server/internal/domain/training"
+	"github.com/dyoshyy/liftplan-server/internal/domain/training/program"
+)
 
 // baseProfile は週3回を基準にした筋区分ごとの目標セット数。
 //
@@ -54,11 +57,11 @@ const baseFrequency = 3
 //
 // 不満が出た区分だけ後から調整すればよく、最初から自分で全部決める
 // 必要はない。
-func DefaultWeeklyTarget(f training.Frequency) (training.WeeklyVolumeTarget, error) {
+func DefaultWeeklyTarget(f program.Frequency) (program.WeeklyVolumeTarget, error) {
 	scale := float64(f.PerWeek()) / baseFrequency
 	scaled := make(map[training.MuscleRegion]float64, len(baseProfile))
 	for r, sets := range baseProfile {
 		scaled[r] = sets * scale
 	}
-	return training.NewWeeklyVolumeTarget(scaled)
+	return program.NewWeeklyVolumeTarget(scaled)
 }

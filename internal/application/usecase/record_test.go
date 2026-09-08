@@ -6,15 +6,18 @@ import (
 	"testing"
 
 	"github.com/dyoshyy/liftplan-server/internal/application/usecase"
-	"github.com/dyoshyy/liftplan-server/internal/domain/training"
 	"github.com/dyoshyy/liftplan-server/internal/domain/training/seed"
+
+	"github.com/dyoshyy/liftplan-server/internal/domain/training/condition"
+	"github.com/dyoshyy/liftplan-server/internal/domain/training/exercise"
+	"github.com/dyoshyy/liftplan-server/internal/domain/training/setlog"
 )
 
 func TestRecordSets_SavesLogs(t *testing.T) {
-	repo := &fakeLogs{history: training.NewHistory(nil)}
+	repo := &fakeLogs{history: setlog.NewHistory(nil)}
 	uc := newRecordSets(t, repo)
 
-	log, err := training.NewSetLog(training.SetLogParams{
+	log, err := setlog.NewSetLog(setlog.SetLogParams{
 		ID: "01J-A", PerformedOn: testDate, ExerciseID: "bench",
 		WeightKg: 85, Reps: 9, RIR: 2,
 	})
@@ -22,7 +25,7 @@ func TestRecordSets_SavesLogs(t *testing.T) {
 		t.Fatalf("ログ生成に失敗: %v", err)
 	}
 
-	if err := uc.Execute(context.Background(), []*training.SetLog{log}); err != nil {
+	if err := uc.Execute(context.Background(), []*setlog.SetLog{log}); err != nil {
 		t.Fatalf("実行に失敗: %v", err)
 	}
 	if len(repo.saved) != 1 {
@@ -31,7 +34,7 @@ func TestRecordSets_SavesLogs(t *testing.T) {
 }
 
 func TestRecordSets_EmptyIsNoop(t *testing.T) {
-	repo := &fakeLogs{history: training.NewHistory(nil)}
+	repo := &fakeLogs{history: setlog.NewHistory(nil)}
 	if err := newRecordSets(t, repo).Execute(context.Background(), nil); err != nil {
 		t.Errorf("空の保存でエラーになった: %v", err)
 	}
@@ -46,21 +49,21 @@ func TestRecordSets_PropagatesError(t *testing.T) {
 	boom := errors.New("書けない")
 	repo := &fakeLogs{err: boom}
 
-	log, _ := training.NewSetLog(training.SetLogParams{
+	log, _ := setlog.NewSetLog(setlog.SetLogParams{
 		ID: "01J-B", PerformedOn: testDate, ExerciseID: "bench",
 		WeightKg: 85, Reps: 9, RIR: 2,
 	})
-	if err := newRecordSets(t, repo).Execute(context.Background(), []*training.SetLog{log}); !errors.Is(err, boom) {
+	if err := newRecordSets(t, repo).Execute(context.Background(), []*setlog.SetLog{log}); !errors.Is(err, boom) {
 		t.Errorf("エラーが伝播していない: %v", err)
 	}
 }
 
 func TestRecordConditions_SavesItems(t *testing.T) {
-	repo := &fakeConditions{log: training.NewConditionLog(nil)}
+	repo := &fakeConditions{log: condition.NewConditionLog(nil)}
 	uc := usecase.NewRecordConditions(repo)
 
-	item := training.NewDailyCondition(testDate).WithBodyWeight(75).WithSleepHours(7)
-	if err := uc.Execute(context.Background(), []training.DailyCondition{item}); err != nil {
+	item := condition.NewDailyCondition(testDate).WithBodyWeight(75).WithSleepHours(7)
+	if err := uc.Execute(context.Background(), []condition.DailyCondition{item}); err != nil {
 		t.Fatalf("実行に失敗: %v", err)
 	}
 	if len(repo.saved) != 1 {
@@ -69,7 +72,7 @@ func TestRecordConditions_SavesItems(t *testing.T) {
 }
 
 func TestRecordConditions_EmptyIsNoop(t *testing.T) {
-	repo := &fakeConditions{log: training.NewConditionLog(nil)}
+	repo := &fakeConditions{log: condition.NewConditionLog(nil)}
 	if err := usecase.NewRecordConditions(repo).Execute(context.Background(), nil); err != nil {
 		t.Errorf("空の保存でエラーになった: %v", err)
 	}
@@ -81,10 +84,10 @@ func TestRecordConditions_EmptyIsNoop(t *testing.T) {
 func TestRecordConditions_PropagatesError(t *testing.T) {
 	boom := errors.New("書けない")
 	repo := &fakeConditions{err: boom}
-	item := training.NewDailyCondition(testDate).WithBodyWeight(75)
+	item := condition.NewDailyCondition(testDate).WithBodyWeight(75)
 
 	err := usecase.NewRecordConditions(repo).Execute(
-		context.Background(), []training.DailyCondition{item})
+		context.Background(), []condition.DailyCondition{item})
 	if !errors.Is(err, boom) {
 		t.Errorf("エラーが伝播していない: %v", err)
 	}
@@ -93,8 +96,8 @@ func TestRecordConditions_PropagatesError(t *testing.T) {
 // nil を混ぜたままリポジトリに渡さないこと。
 // 実装側で panic するか黙って飛ばされるかが実装依存になる。
 func TestRecordSets_RejectsNilEntries(t *testing.T) {
-	repo := &fakeLogs{history: training.NewHistory(nil)}
-	log, err := training.NewSetLog(training.SetLogParams{
+	repo := &fakeLogs{history: setlog.NewHistory(nil)}
+	log, err := setlog.NewSetLog(setlog.SetLogParams{
 		ID: "01J-C", PerformedOn: testDate, ExerciseID: "bench",
 		WeightKg: 85, Reps: 9, RIR: 2,
 	})
@@ -103,7 +106,7 @@ func TestRecordSets_RejectsNilEntries(t *testing.T) {
 	}
 
 	err = newRecordSets(t, repo).Execute(
-		context.Background(), []*training.SetLog{log, nil})
+		context.Background(), []*setlog.SetLog{log, nil})
 	if !errors.Is(err, usecase.ErrInvalidInput) {
 		t.Errorf("nil が弾かれていない: %v", err)
 	}
@@ -113,7 +116,7 @@ func TestRecordSets_RejectsNilEntries(t *testing.T) {
 }
 
 // newRecordSets はシードの種目マスタを使う RecordSets を作る。
-func newRecordSets(t *testing.T, repo training.SetLogWriter) *usecase.RecordSets {
+func newRecordSets(t *testing.T, repo setlog.Writer) *usecase.RecordSets {
 	t.Helper()
 	pool, err := seed.Exercises()
 	if err != nil {
@@ -126,8 +129,8 @@ func newRecordSets(t *testing.T, repo training.SetLogWriter) *usecase.RecordSets
 // 受け取ると、その実績はどの筋区分にも計上されないまま履歴に残り続ける。
 // 削除の口が無く、同じIDの再送は衝突になるので復旧できない。
 func TestRecordSets_RejectsUnknownExercise(t *testing.T) {
-	repo := &fakeLogs{history: training.NewHistory(nil)}
-	log, err := training.NewSetLog(training.SetLogParams{
+	repo := &fakeLogs{history: setlog.NewHistory(nil)}
+	log, err := setlog.NewSetLog(setlog.SetLogParams{
 		ID: "01J-U", PerformedOn: testDate, ExerciseID: "存在しない種目",
 		WeightKg: 85, Reps: 9, RIR: 2,
 	})
@@ -135,8 +138,8 @@ func TestRecordSets_RejectsUnknownExercise(t *testing.T) {
 		t.Fatalf("ログ生成に失敗: %v", err)
 	}
 
-	err = newRecordSets(t, repo).Execute(context.Background(), []*training.SetLog{log})
-	if !errors.Is(err, training.ErrExerciseNotFound) {
+	err = newRecordSets(t, repo).Execute(context.Background(), []*setlog.SetLog{log})
+	if !errors.Is(err, exercise.ErrExerciseNotFound) {
 		t.Errorf("未知の種目が弾かれていない: %v", err)
 	}
 	if !errors.Is(err, usecase.ErrInvalidInput) {
@@ -149,8 +152,8 @@ func TestRecordSets_RejectsUnknownExercise(t *testing.T) {
 
 // キャンセル済みの context では保存しないこと。
 func TestRecordSets_StopsOnCancelledContext(t *testing.T) {
-	repo := &fakeLogs{history: training.NewHistory(nil)}
-	log, _ := training.NewSetLog(training.SetLogParams{
+	repo := &fakeLogs{history: setlog.NewHistory(nil)}
+	log, _ := setlog.NewSetLog(setlog.SetLogParams{
 		ID: "01J-K", PerformedOn: testDate, ExerciseID: "bench",
 		WeightKg: 85, Reps: 9, RIR: 2,
 	})
@@ -158,7 +161,7 @@ func TestRecordSets_StopsOnCancelledContext(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	if err := newRecordSets(t, repo).Execute(ctx, []*training.SetLog{log}); !errors.Is(err, context.Canceled) {
+	if err := newRecordSets(t, repo).Execute(ctx, []*setlog.SetLog{log}); !errors.Is(err, context.Canceled) {
 		t.Errorf("キャンセルが伝わっていない: %v", err)
 	}
 	if repo.callCount() != 0 {
@@ -167,12 +170,12 @@ func TestRecordSets_StopsOnCancelledContext(t *testing.T) {
 }
 
 func TestRecordConditions_StopsOnCancelledContext(t *testing.T) {
-	repo := &fakeConditions{log: training.NewConditionLog(nil)}
+	repo := &fakeConditions{log: condition.NewConditionLog(nil)}
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	item := training.NewDailyCondition(testDate).WithBodyWeight(75)
-	err := usecase.NewRecordConditions(repo).Execute(ctx, []training.DailyCondition{item})
+	item := condition.NewDailyCondition(testDate).WithBodyWeight(75)
+	err := usecase.NewRecordConditions(repo).Execute(ctx, []condition.DailyCondition{item})
 	if !errors.Is(err, context.Canceled) {
 		t.Errorf("キャンセルが伝わっていない: %v", err)
 	}

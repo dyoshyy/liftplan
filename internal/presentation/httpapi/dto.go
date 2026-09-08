@@ -7,6 +7,9 @@ package httpapi
 import (
 	"github.com/dyoshyy/liftplan-server/internal/application/usecase"
 	"github.com/dyoshyy/liftplan-server/internal/domain/training"
+	"github.com/dyoshyy/liftplan-server/internal/domain/training/exercise"
+	"github.com/dyoshyy/liftplan-server/internal/domain/training/planning"
+	"github.com/dyoshyy/liftplan-server/internal/domain/training/program"
 )
 
 // plannedSetDTO の WeightKg が null になるのはバグではなく仕様。
@@ -36,7 +39,7 @@ type sessionDTO struct {
 	Deload      *deloadProposalDTO `json:"deload_proposal"`
 }
 
-func toPlannedSetDTO(s training.PlannedSet) plannedSetDTO {
+func toPlannedSetDTO(s planning.PlannedSet) plannedSetDTO {
 	dto := plannedSetDTO{
 		ExerciseID: string(s.ExerciseID()),
 		Sets:       s.Sets().Int(),
@@ -52,7 +55,7 @@ func toPlannedSetDTO(s training.PlannedSet) plannedSetDTO {
 	return dto
 }
 
-func toSessionDTO(s training.PlannedSession) sessionDTO {
+func toSessionDTO(s planning.PlannedSession) sessionDTO {
 	main := make([]plannedSetDTO, 0, len(s.Main()))
 	for _, v := range s.Main() {
 		main = append(main, toPlannedSetDTO(v))
@@ -126,7 +129,7 @@ type programDTO struct {
 	Declared []string           `json:"declared_exercises"`
 }
 
-func toProgramDTO(p *training.Program) programDTO {
+func toProgramDTO(p *program.Program) programDTO {
 	target := map[string]float64{}
 	for _, r := range p.WeeklyTarget().Regions() {
 		target[string(r)] = p.WeeklyTarget().Sets(r)
@@ -155,13 +158,13 @@ func (d programDTO) toInput() usecase.ConfigureProgramInput {
 	for k, v := range d.Target {
 		target[training.MuscleRegion(k)] = v
 	}
-	selected := make([]training.ExerciseID, 0, len(d.Selected))
+	selected := make([]exercise.ExerciseID, 0, len(d.Selected))
 	for _, id := range d.Selected {
-		selected = append(selected, training.ExerciseID(id))
+		selected = append(selected, exercise.ExerciseID(id))
 	}
-	declared := make([]training.ExerciseID, 0, len(d.Declared))
+	declared := make([]exercise.ExerciseID, 0, len(d.Declared))
 	for _, id := range d.Declared {
-		declared = append(declared, training.ExerciseID(id))
+		declared = append(declared, exercise.ExerciseID(id))
 	}
 	return usecase.ConfigureProgramInput{
 		PerWeek: d.PerWeek, Target: target, Selected: selected, Declared: declared,

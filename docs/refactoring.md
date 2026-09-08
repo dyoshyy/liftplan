@@ -108,3 +108,15 @@ PR #41 でこの抜け道を塞いだので、**いまは選択に含まれて�
 
 **「セットが記録された日の数」で進めれば回避策が要らなくなる。**
 D-117 で `SlotCatalog.Select` を「その種目にとって何本目か」に変えるので、そのとき一緒に見る。
+
+---
+
+## センチネルの名前がパッケージ名と重なっている
+
+**症状。**集約でパッケージを割った（D-122）結果、`exercise.ErrExerciseNotFound`・`program.ErrProgramNotConfigured`・`setlog.ErrConflictingSetLog` のように、パッケージ名が名前の中で二度出る。
+
+**やらなかった理由。**D-122 は機械的な移動で、「全テストが緑のまま」が検収だった。改名を混ぜるとその検収が効かなくなる。
+
+**やるなら。**`exercise.ErrNotFound`・`program.ErrNotConfigured`・`setlog.ErrConflict` の形。呼び出し側は `errors.Is` の引数だけなので影響範囲は小さい。同時に `exercise.ExerciseID` → `exercise.ID`、`setlog.SetLogID` → `setlog.ID`、`condition.ConditionLog` → `condition.Log` も揃うかを見る。
+
+**やらないと決める理由もありうる。**`ExerciseID` は presentation 層まで名前が届いていて、そこでは `exercise.` が付かない文脈もある。短くして曖昧になるなら、重なったままのほうがいい。
