@@ -44,15 +44,26 @@ var ErrRepositoryUnavailable = errors.New("保存先に到達できない")
 // 分からないまま推定1RMが動く。
 var ErrConflictingSetLog = errors.New("同じIDで内容の異なるセットログがある")
 
-// ExerciseRepository は種目マスタの取得口。
+// ExerciseReader は種目マスタの取得口。
+//
+// 種目マスタはシードから流し込まれるだけで、実行時に書き換わらない。
+// 書き手が居ないので Writer は無い。必要になってから足す。
 //
 // FindAll が返すスライスと要素は、呼び出し側が自由に扱ってよい。
 // リポジトリ内部の可変状態をエイリアスして返してはならない。
-type ExerciseRepository interface {
+type ExerciseReader interface {
 	FindAll(ctx context.Context) ([]*Exercise, error)
 }
 
-// SetLogRepository は実績ログの永続化口。
+// SetLogReader は実績ログの取得口。
+//
+// FindAll が返す History は、リポジトリ内部の可変状態を
+// エイリアスしてはならない。Save と並行に呼ばれる。
+type SetLogReader interface {
+	FindAll(ctx context.Context) (History, error)
+}
+
+// SetLogWriter は実績ログの書き込み口。
 //
 // Save は次を満たすこと。
 //
@@ -66,8 +77,6 @@ type ExerciseRepository interface {
 //     1セッション25セットの半分だけが残ると、その週の刺激量が
 //     実態と食い違ったまま計画に効き続ける。
 //
-// FindAll が返す History は、リポジトリ内部の可変状態を
-// エイリアスしてはならない。Save と並行に呼ばれる。
 // Delete は打ち間違いの訂正のためにある。
 //
 // SetLog は「確定した実績1セット」で、生成後は変更しない。削除はその
@@ -80,34 +89,43 @@ type ExerciseRepository interface {
 //
 // 存在しないIDの削除は成功として扱う。再送で二度目が来ることがあり、
 // そこでエラーにすると「消えているのに消せない」という状態になる。
-type SetLogRepository interface {
-	FindAll(ctx context.Context) (History, error)
+type SetLogWriter interface {
 	Save(ctx context.Context, logs []*SetLog) error
 	Delete(ctx context.Context, id SetLogID) error
 }
 
-// ConditionRepository は日次コンディションの永続化口。
+// ConditionReader は日次コンディションの取得口。
+//
+// FindAll が返す ConditionLog は、リポジトリ内部の可変状態を
+// エイリアスしてはならない。
+type ConditionReader interface {
+	FindAll(ctx context.Context) (ConditionLog, error)
+}
+
+// ConditionWriter は日次コンディションの書き込み口。
 //
 // Save は冪等であること。同じ日付を二度送ったら、後から来た値で
 // 項目ごとに上書きする（DailyCondition.Merge と同じ規則）。
 // 日付ごと置き換えると、体重だけを送ったときに睡眠時間が消える。
 //
-// 全か無かで書くこと。FindAll が返す ConditionLog は、リポジトリ内部の
-// 可変状態をエイリアスしてはならない。
-type ConditionRepository interface {
-	FindAll(ctx context.Context) (ConditionLog, error)
+// 全か無かで書くこと。
+type ConditionWriter interface {
 	Save(ctx context.Context, items []DailyCondition) error
 }
 
-// ProgramRepository はユーザー設定の取得・保存口。
+// ProgramReader はユーザー設定の取得口。
 //
 // Get は未設定の場合 ErrProgramNotConfigured を返す。(nil, nil) を
 // 返してはならない。呼び出し側が nil を「未設定」と「取得成功」の
 // どちらとも解釈できてしまう。
+type ProgramReader interface {
+	Get(ctx context.Context) (*Program, error)
+}
+
+// ProgramWriter はユーザー設定の保存口。
 //
 // Save は冪等であること。プログラムはユーザーごとに1つで、
 // 保存は常に全体の置き換えになる。
-type ProgramRepository interface {
-	Get(ctx context.Context) (*Program, error)
+type ProgramWriter interface {
 	Save(ctx context.Context, p *Program) error
 }

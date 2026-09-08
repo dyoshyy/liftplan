@@ -3,6 +3,8 @@ package training_test
 import (
 	"context"
 	"errors"
+	"reflect"
+	"slices"
 	"testing"
 
 	"github.com/dyoshyy/liftplan-server/internal/domain/training"
@@ -42,21 +44,58 @@ func (stubProgramRepo) Save(context.Context, *training.Program) error { return n
 // 追加とシグネチャ変更だけ。メソッド値を期待する関数型に取り出す向きが
 // 要る。この2つを揃えて初めて形が固定される。
 func TestRepositoryInterfaces_KeepTheirShape(t *testing.T) {
-	var exercises training.ExerciseRepository = stubExerciseRepo{}
-	var logs training.SetLogRepository = stubSetLogRepo{}
-	var conditions training.ConditionRepository = stubConditionRepo{}
-	var programs training.ProgramRepository = stubProgramRepo{}
+	var exercises training.ExerciseReader = stubExerciseRepo{}
+	var logsR training.SetLogReader = stubSetLogRepo{}
+	var logsW training.SetLogWriter = stubSetLogRepo{}
+	var conditionsR training.ConditionReader = stubConditionRepo{}
+	var conditionsW training.ConditionWriter = stubConditionRepo{}
+	var programsR training.ProgramReader = stubProgramRepo{}
+	var programsW training.ProgramWriter = stubProgramRepo{}
 
 	var (
 		_ func(context.Context) ([]*training.Exercise, error)    = exercises.FindAll
-		_ func(context.Context) (training.History, error)        = logs.FindAll
-		_ func(context.Context, []*training.SetLog) error        = logs.Save
-		_ func(context.Context, training.SetLogID) error         = logs.Delete
-		_ func(context.Context) (training.ConditionLog, error)   = conditions.FindAll
-		_ func(context.Context, []training.DailyCondition) error = conditions.Save
-		_ func(context.Context) (*training.Program, error)       = programs.Get
-		_ func(context.Context, *training.Program) error         = programs.Save
+		_ func(context.Context) (training.History, error)        = logsR.FindAll
+		_ func(context.Context, []*training.SetLog) error        = logsW.Save
+		_ func(context.Context, training.SetLogID) error         = logsW.Delete
+		_ func(context.Context) (training.ConditionLog, error)   = conditionsR.FindAll
+		_ func(context.Context, []training.DailyCondition) error = conditionsW.Save
+		_ func(context.Context) (*training.Program, error)       = programsR.Get
+		_ func(context.Context, *training.Program) error         = programsW.Save
 	)
+}
+
+// 読みと書きが別のインターフェースであること。
+//
+// Reader に書き込みメソッドが紛れ込むと、読むだけの経路が書ける口を
+// 持ってしまい、分けた意味がそこで消える。代入で満たすことを確かめる
+// だけでは検出できない（メソッドが増えてもスタブは満たし続ける）ので、
+// メソッド集合そのものを固定する。
+func TestRepositoryInterfaces_ReadAndWriteStaySeparate(t *testing.T) {
+	cases := []struct {
+		name string
+		typ  reflect.Type
+		want []string
+	}{
+		{"ExerciseReader", reflect.TypeOf((*training.ExerciseReader)(nil)).Elem(), []string{"FindAll"}},
+		{"SetLogReader", reflect.TypeOf((*training.SetLogReader)(nil)).Elem(), []string{"FindAll"}},
+		{"SetLogWriter", reflect.TypeOf((*training.SetLogWriter)(nil)).Elem(), []string{"Delete", "Save"}},
+		{"ConditionReader", reflect.TypeOf((*training.ConditionReader)(nil)).Elem(), []string{"FindAll"}},
+		{"ConditionWriter", reflect.TypeOf((*training.ConditionWriter)(nil)).Elem(), []string{"Save"}},
+		{"ProgramReader", reflect.TypeOf((*training.ProgramReader)(nil)).Elem(), []string{"Get"}},
+		{"ProgramWriter", reflect.TypeOf((*training.ProgramWriter)(nil)).Elem(), []string{"Save"}},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var got []string
+			for i := range tc.typ.NumMethod() {
+				got = append(got, tc.typ.Method(i).Name)
+			}
+			if !slices.Equal(got, tc.want) {
+				t.Errorf("メソッド集合が %v（期待 %v）", got, tc.want)
+			}
+		})
+	}
 }
 
 // 未設定は状態なので、呼び出し側が errors.Is で判別して

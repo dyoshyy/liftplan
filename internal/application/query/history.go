@@ -56,13 +56,13 @@ type LastPerformance struct {
 
 // History は実績を読むための経路。
 type History struct {
-	logs      training.SetLogRepository
-	exercises training.ExerciseRepository
+	logs      training.SetLogReader
+	exercises training.ExerciseReader
 }
 
 func NewHistory(
-	logs training.SetLogRepository,
-	exercises training.ExerciseRepository,
+	logs training.SetLogReader,
+	exercises training.ExerciseReader,
 ) *History {
 	return &History{logs: logs, exercises: exercises}
 }

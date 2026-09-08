@@ -113,7 +113,7 @@ func TestRecordSets_RejectsNilEntries(t *testing.T) {
 }
 
 // newRecordSets はシードの種目マスタを使う RecordSets を作る。
-func newRecordSets(t *testing.T, repo training.SetLogRepository) *usecase.RecordSets {
+func newRecordSets(t *testing.T, repo training.SetLogWriter) *usecase.RecordSets {
 	t.Helper()
 	pool, err := seed.Exercises()
 	if err != nil {

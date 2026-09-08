@@ -15,13 +15,13 @@ import (
 // どの筋区分にも計上されないまま履歴に残り続ける。削除の口が無く、
 // 同じIDの再送は衝突になるので、打ち間違い1回で復旧できなくなる。
 type RecordSets struct {
-	repo      training.SetLogRepository
-	exercises training.ExerciseRepository
+	repo      training.SetLogWriter
+	exercises training.ExerciseReader
 }
 
 func NewRecordSets(
-	repo training.SetLogRepository,
-	exercises training.ExerciseRepository,
+	repo training.SetLogWriter,
+	exercises training.ExerciseReader,
 ) *RecordSets {
 	return &RecordSets{repo: repo, exercises: exercises}
 }

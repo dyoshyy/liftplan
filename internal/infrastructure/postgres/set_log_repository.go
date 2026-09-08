@@ -247,4 +247,7 @@ func toTime(d training.Date) time.Time {
 	return time.Date(d.Year(), d.Month(), d.Day(), 0, 0, 0, 0, time.UTC)
 }
 
-var _ training.SetLogRepository = (*SetLogRepository)(nil)
+var (
+	_ training.SetLogReader = (*SetLogRepository)(nil)
+	_ training.SetLogWriter = (*SetLogRepository)(nil)
+)

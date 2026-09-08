@@ -115,4 +115,7 @@ func (r *ProgramRepository) Save(ctx context.Context, p *training.Program) error
 	return nil
 }
 
-var _ training.ProgramRepository = (*ProgramRepository)(nil)
+var (
+	_ training.ProgramReader = (*ProgramRepository)(nil)
+	_ training.ProgramWriter = (*ProgramRepository)(nil)
+)

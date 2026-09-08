@@ -36,16 +36,16 @@ type RegionVolume struct {
 
 // Stats は振り返りのための読み取り経路。
 type Stats struct {
-	logs      training.SetLogRepository
-	exercises training.ExerciseRepository
-	programs  training.ProgramRepository
+	logs      training.SetLogReader
+	exercises training.ExerciseReader
+	programs  training.ProgramReader
 	estimator training.OneRepMaxEstimator
 }
 
 func NewStats(
-	logs training.SetLogRepository,
-	exercises training.ExerciseRepository,
-	programs training.ProgramRepository,
+	logs training.SetLogReader,
+	exercises training.ExerciseReader,
+	programs training.ProgramReader,
 	estimator training.OneRepMaxEstimator,
 ) *Stats {
 	return &Stats{logs: logs, exercises: exercises, programs: programs, estimator: estimator}

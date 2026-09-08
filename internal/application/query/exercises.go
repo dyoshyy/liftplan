@@ -20,10 +20,10 @@ type Exercise struct {
 
 // Exercises は種目マスタを読む経路。
 type Exercises struct {
-	repo training.ExerciseRepository
+	repo training.ExerciseReader
 }
 
-func NewExercises(repo training.ExerciseRepository) *Exercises {
+func NewExercises(repo training.ExerciseReader) *Exercises {
 	return &Exercises{repo: repo}
 }
 

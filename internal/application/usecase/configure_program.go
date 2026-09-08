@@ -38,13 +38,13 @@ type ConfigureProgramInput struct {
 // 突合は「判断」ではなく入力検証なので、ドメインではなくここに置く。
 // 種目マスタの取得が I/O である以上、ドメインには置けない。
 type ConfigureProgram struct {
-	exercises training.ExerciseRepository
-	programs  training.ProgramRepository
+	exercises training.ExerciseReader
+	programs  training.ProgramWriter
 }
 
 func NewConfigureProgram(
-	exercises training.ExerciseRepository,
-	programs training.ProgramRepository,
+	exercises training.ExerciseReader,
+	programs training.ProgramWriter,
 ) *ConfigureProgram {
 	return &ConfigureProgram{exercises: exercises, programs: programs}
 }

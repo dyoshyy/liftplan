@@ -19,18 +19,18 @@ type GetSessionInput struct {
 
 // GetSession は指定日のセッションを導出するユースケース。
 type GetSession struct {
-	exercises  training.ExerciseRepository
-	logs       training.SetLogRepository
-	conditions training.ConditionRepository
-	programs   training.ProgramRepository
+	exercises  training.ExerciseReader
+	logs       training.SetLogReader
+	conditions training.ConditionReader
+	programs   training.ProgramReader
 	planner    training.SessionPlanner
 }
 
 func NewGetSession(
-	exercises training.ExerciseRepository,
-	logs training.SetLogRepository,
-	conditions training.ConditionRepository,
-	programs training.ProgramRepository,
+	exercises training.ExerciseReader,
+	logs training.SetLogReader,
+	conditions training.ConditionReader,
+	programs training.ProgramReader,
 	planner training.SessionPlanner,
 ) *GetSession {
 	return &GetSession{

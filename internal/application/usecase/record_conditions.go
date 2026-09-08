@@ -9,10 +9,10 @@ import (
 
 // RecordConditions は日次コンディションを保存するユースケース。
 type RecordConditions struct {
-	repo training.ConditionRepository
+	repo training.ConditionWriter
 }
 
-func NewRecordConditions(repo training.ConditionRepository) *RecordConditions {
+func NewRecordConditions(repo training.ConditionWriter) *RecordConditions {
 	return &RecordConditions{repo: repo}
 }
 

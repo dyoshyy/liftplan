@@ -161,16 +161,34 @@ func port() string {
 	return "8080"
 }
 
+// 配線層は読みと書きの両方を持つ。ドメインが口を半分ずつに割っている
+// のは「使う側が要る分だけ受け取る」ためで、実装を組み立てる側まで
+// 半分にすると、同じインスタンスを2つのフィールドに入れることになる。
+type setLogStore interface {
+	training.SetLogReader
+	training.SetLogWriter
+}
+
+type conditionStore interface {
+	training.ConditionReader
+	training.ConditionWriter
+}
+
+type programStore interface {
+	training.ProgramReader
+	training.ProgramWriter
+}
+
 // repositories は差し替えの対象になる口の集まり。
 //
 // この構造体があるのは、インメモリと Postgres の選択を1箇所に閉じるため。
 // 組み立ての途中に条件分岐が散ると、どちらの実装が使われているかが
 // 読めなくなる。
 type repositories struct {
-	exercises  training.ExerciseRepository
-	logs       training.SetLogRepository
-	conditions training.ConditionRepository
-	programs   training.ProgramRepository
+	exercises  training.ExerciseReader
+	logs       setLogStore
+	conditions conditionStore
+	programs   programStore
 	// ping は保存先に到達できるかを確かめる。インメモリなら常に成功する。
 	ping  func(context.Context) error
 	close func()
@@ -356,7 +374,7 @@ func openRepositories(ctx context.Context, pool []*training.Exercise) (repositor
 // 何も使えない状態を避ける。すでに設定があれば触らない。
 func seedProgramIfMissing(
 	ctx context.Context,
-	programs training.ProgramRepository,
+	programs programStore,
 	pool []*training.Exercise,
 ) error {
 	switch _, err := programs.Get(ctx); {

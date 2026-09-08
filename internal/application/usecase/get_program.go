@@ -13,10 +13,10 @@ import (
 // 直に叩くと、キャンセルの扱いやエラーの包み方がその経路だけ他と違い、
 // 実装を差し替えたときに誰も気づけない。
 type GetProgram struct {
-	programs training.ProgramRepository
+	programs training.ProgramReader
 }
 
-func NewGetProgram(programs training.ProgramRepository) *GetProgram {
+func NewGetProgram(programs training.ProgramReader) *GetProgram {
 	return &GetProgram{programs: programs}
 }
 

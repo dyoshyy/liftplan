@@ -13,10 +13,10 @@ import (
 // 値を書き換えるのではなく「これは起きなかった」と言っている。
 // 訂正の手段が無いほうが害が大きく、間違った記録が推定1RMを汚したまま残る。
 type DeleteSetLog struct {
-	repo training.SetLogRepository
+	repo training.SetLogWriter
 }
 
-func NewDeleteSetLog(repo training.SetLogRepository) *DeleteSetLog {
+func NewDeleteSetLog(repo training.SetLogWriter) *DeleteSetLog {
 	return &DeleteSetLog{repo: repo}
 }
 

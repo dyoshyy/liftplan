@@ -141,4 +141,7 @@ func optional(v float64, ok bool) *float64 {
 	return &v
 }
 
-var _ training.ConditionRepository = (*ConditionRepository)(nil)
+var (
+	_ training.ConditionReader = (*ConditionRepository)(nil)
+	_ training.ConditionWriter = (*ConditionRepository)(nil)
+)
