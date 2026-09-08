@@ -186,7 +186,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # pnpm の版は web/package.json の packageManager が唯一の出どころ。
+      # 指定しないとリポジトリのルートを見に行くが、そこは Go のリポジトリで
+      # package.json が無い。version: をここに書くと版が2箇所になってずれる。
       - uses: pnpm/action-setup@v4
+        with:
+          package_json_file: web/package.json
+
       - uses: actions/setup-node@v4
         with:
           node-version: 22
