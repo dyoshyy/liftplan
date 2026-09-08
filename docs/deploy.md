@@ -127,6 +127,79 @@ gcloud run revisions describe <リビジョン名> --region=asia-southeast1 \
   --project=liftplan-85309 --format='value(metadata.labels)'
 ```
 
+## GitHub 側に入れておくもの
+
+`deploy.yml` はこれらが無いと**途中で止まる**。既定値に落ちない作りにしてあるので、
+設定漏れは黙って通らずジョブの失敗として出る。
+
+| 種類 | 名前 | 中身 |
+|---|---|---|
+| リポジトリ変数 | `ALLOWED_ORIGINS` | 画面のオリジン。Workers の URL（例 `https://liftplan-web.<サブドメイン>.workers.dev`） |
+| リポジトリ変数 | `API_BASE` | この API の URL。`https://liftplan-server-vjeuvyzwlq-as.a.run.app` |
+| シークレット | `CLOUDFLARE_API_TOKEN` | Workers のデプロイ用 |
+| シークレット | `CLOUDFLARE_ACCOUNT_ID` | 同上 |
+
+```bash
+gh variable set API_BASE --body 'https://liftplan-server-vjeuvyzwlq-as.a.run.app'
+gh variable set ALLOWED_ORIGINS --body 'https://liftplan-web.<サブドメイン>.workers.dev'
+gh secret set CLOUDFLARE_API_TOKEN
+gh secret set CLOUDFLARE_ACCOUNT_ID
+```
+
+**`ALLOWED_ORIGINS` は鶏と卵になる。**画面をまだ一度も出していないと Workers の URL が
+確定していない。Worker 名（`web/wrangler.jsonc` の `name`）とアカウントのサブドメインから
+決まるので、先に手元で `pnpm deploy` を1回流して URL を確定させるのが早い。
+
+## GitHub のリポジトリ名は GCP に握られている
+
+**リポジトリをリネームすると、デプロイの認証が壊れる。**サービスアカウントの鍵を
+GitHub に置かず Workload Identity 連携を使っているので、GCP 側が
+「どのリポジトリからなら名乗ってよいか」を**完全一致の文字列で**持っている。
+
+2箇所ある。
+
+```bash
+# 1. プロバイダの条件
+gcloud iam workload-identity-pools providers describe liftplan-server \
+  --project=liftplan-85309 --location=global --workload-identity-pool=github \
+  --format='value(attributeCondition)'
+
+# 2. サービスアカウントの紐付け
+gcloud iam service-accounts get-iam-policy \
+  github-deployer@liftplan-85309.iam.gserviceaccount.com --project=liftplan-85309
+```
+
+リネームするときは、**先に GCP を「両方許す」状態にしてから**リネームする。逆順にすると、
+リネームから GCP 更新までのあいだデプロイできない。
+
+```bash
+# 先に両方を許す
+gcloud iam workload-identity-pools providers update-oidc liftplan-server \
+  --project=liftplan-85309 --location=global --workload-identity-pool=github \
+  --attribute-condition="assertion.repository in ['dyoshyy/旧','dyoshyy/新'] && assertion.ref=='refs/heads/main'"
+
+gcloud iam service-accounts add-iam-policy-binding \
+  github-deployer@liftplan-85309.iam.gserviceaccount.com --project=liftplan-85309 \
+  --role=roles/iam.workloadIdentityUser \
+  --member="principalSet://iam.googleapis.com/projects/385680444543/locations/global/workloadIdentityPools/github/attribute.repository/dyoshyy/新"
+
+# リネームして、デプロイが1本通るのを確認してから、古い名前を落とす
+```
+
+**古い名前を落とすのは、新しい名前でデプロイが1本通ってから。**先に落とすと、
+失敗したときに戻す先が無くなる。
+
+### 名前のうち、リポジトリ名と関係ないもの
+
+リポジトリ名に合わせて変えたくなるが、**変えてはいけない・変えなくてよい**もの。
+
+| 名前 | 判断 |
+|---|---|
+| Cloud Run のサービス `liftplan-server` | **変えない。**サービス名は変更できず作り直しになる。URL が変わり、`API_BASE`（画面のビルド）とヘルスチェックが全部つられる |
+| Artifact Registry の `liftplan` / イメージのパス | リポジトリ名から導かれていない。そのまま |
+| WIF プロバイダ名 `providers/liftplan-server` | ただのリソース名。一致している必要がない。変えるなら作り直し |
+| Go のモジュールパス | GitHub がリダイレクトするので動き続ける。変えるなら 57 ファイルの機械的な置換で、単独の PR にする |
+
 ## 運用
 
 - **コールドスタート**: `--min-instances=0` なので、しばらく使わないと初回が数秒かかる。ジムで最初に開くときだけ効く。気になるなら `--min-instances=1` にする（常時課金になる）
