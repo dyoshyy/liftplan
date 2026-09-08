@@ -127,6 +127,29 @@ gcloud run revisions describe <リビジョン名> --region=asia-southeast1 \
   --project=liftplan-85309 --format='value(metadata.labels)'
 ```
 
+## GitHub 側に入れておくもの
+
+`deploy.yml` はこれらが無いと**途中で止まる**。既定値に落ちない作りにしてあるので、
+設定漏れは黙って通らずジョブの失敗として出る。
+
+| 種類 | 名前 | 中身 |
+|---|---|---|
+| リポジトリ変数 | `ALLOWED_ORIGINS` | 画面のオリジン。Workers の URL（例 `https://liftplan-web.<サブドメイン>.workers.dev`） |
+| リポジトリ変数 | `API_BASE` | この API の URL。`https://liftplan-server-vjeuvyzwlq-as.a.run.app` |
+| シークレット | `CLOUDFLARE_API_TOKEN` | Workers のデプロイ用 |
+| シークレット | `CLOUDFLARE_ACCOUNT_ID` | 同上 |
+
+```bash
+gh variable set API_BASE --body 'https://liftplan-server-vjeuvyzwlq-as.a.run.app'
+gh variable set ALLOWED_ORIGINS --body 'https://liftplan-web.<サブドメイン>.workers.dev'
+gh secret set CLOUDFLARE_API_TOKEN
+gh secret set CLOUDFLARE_ACCOUNT_ID
+```
+
+**`ALLOWED_ORIGINS` は鶏と卵になる。**画面をまだ一度も出していないと Workers の URL が
+確定していない。Worker 名（`web/wrangler.jsonc` の `name`）とアカウントのサブドメインから
+決まるので、先に手元で `pnpm deploy` を1回流して URL を確定させるのが早い。
+
 ## GitHub のリポジトリ名は GCP に握られている
 
 **リポジトリをリネームすると、デプロイの認証が壊れる。**サービスアカウントの鍵を
