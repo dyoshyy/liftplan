@@ -78,14 +78,25 @@ func (s AccessorySelector) IsZero() bool { return s == AccessorySelector{} }
 // 週目標の大きい区分（大腿四頭筋16セット）が常に勝ち、小さい区分
 // （僧帽筋上部6セット）にスロットが一度も回らない。上限に張り付く低頻度では、
 // その区分が永久に0セットのままになる。
+//
+// exclude には今日メインで処方した種目を渡す。同じ種目をメインと補助で
+// 二重に出さないため。それ以外は、宣言されていてもいなくても候補になる。
+// 宣言は「伸ばしたい」という目標であって「ヘビーでしかやらない」ではない
+// ので、除きすぎると脚の日にスクワットがどこにも出なくなる（D-117）。
 func (s AccessorySelector) Select(
 	residual map[MuscleRegion]float64,
 	pool []*Exercise,
 	h History,
 	date Date,
+	exclude []ExerciseID,
 ) []ExerciseID {
 	if s.IsZero() || len(residual) == 0 || date.IsZero() {
 		return nil
+	}
+
+	excluded := make(map[ExerciseID]bool, len(exclude))
+	for _, id := range exclude {
+		excluded[id] = true
 	}
 
 	byID := make(map[ExerciseID]*Exercise, len(pool))
@@ -94,10 +105,15 @@ func (s AccessorySelector) Select(
 		if e == nil {
 			continue
 		}
+		// byID は候補リストではなく、履歴のIDから種目を引く辞書。
+		// 除外した種目もここには入れる。抜くと recovering と
+		// regionStaleness がその種目の過去の記録を読めなくなり、
+		// 「昨日その区分を刺激した」が見えなくなる。
 		byID[e.ID()] = e
-		if e.Kind() == KindAccessory {
-			accessories = append(accessories, e)
+		if excluded[e.ID()] {
+			continue
 		}
+		accessories = append(accessories, e)
 	}
 	sort.Slice(accessories, func(i, j int) bool { return accessories[i].ID() < accessories[j].ID() })
 

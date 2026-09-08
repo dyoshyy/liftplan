@@ -57,7 +57,6 @@ func exercise(t *testing.T, id, name string) *training.Exercise {
 	e, err := training.NewExercise(training.ExerciseParams{
 		ID:          id,
 		Name:        name,
-		Kind:        training.KindMain,
 		IncrementKg: 2.5,
 		Stimulus:    map[training.MuscleRegion]float64{training.ChestMid: 1},
 	})

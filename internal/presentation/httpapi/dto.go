@@ -173,7 +173,6 @@ func (d programDTO) toInput() usecase.ConfigureProgramInput {
 type exerciseDTO struct {
 	ID          string  `json:"id"`
 	Name        string  `json:"name"`
-	Kind        string  `json:"kind"`
 	IncrementKg float64 `json:"increment_kg"`
 }
 

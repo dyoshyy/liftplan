@@ -93,7 +93,6 @@ func (p StimulusProfile) IsEmpty() bool { return len(p.m) == 0 }
 type ExerciseParams struct {
 	ID               string
 	Name             string
-	Kind             ExerciseKind
 	Stimulus         map[MuscleRegion]float64
 	IncrementKg      float64
 	BodyweightFactor float64
@@ -105,7 +104,6 @@ type ExerciseParams struct {
 type Exercise struct {
 	id               ExerciseID
 	name             string
-	kind             ExerciseKind
 	stimulus         StimulusProfile
 	increment        Increment
 	bodyweightFactor BodyweightFactor
@@ -126,9 +124,6 @@ func NewExercise(p ExerciseParams) (*Exercise, error) {
 	if name == "" {
 		return nil, fmt.Errorf("種目 %s の名前が空である", id)
 	}
-	if !p.Kind.Valid() {
-		return nil, fmt.Errorf("種目 %s の種別が不正: %q", id, p.Kind)
-	}
 	stimulus, err := NewStimulusProfile(p.Stimulus)
 	if err != nil {
 		return nil, fmt.Errorf("種目 %s: %w", id, err)
@@ -145,7 +140,6 @@ func NewExercise(p ExerciseParams) (*Exercise, error) {
 	e := &Exercise{
 		id:               id,
 		name:             name,
-		kind:             p.Kind,
 		stimulus:         stimulus,
 		increment:        increment,
 		bodyweightFactor: bodyweightFactor,
@@ -156,7 +150,6 @@ func NewExercise(p ExerciseParams) (*Exercise, error) {
 
 func (e *Exercise) ID() ExerciseID                     { return e.id }
 func (e *Exercise) Name() string                       { return e.name }
-func (e *Exercise) Kind() ExerciseKind                 { return e.kind }
 func (e *Exercise) Stimulus() StimulusProfile          { return e.stimulus }
 func (e *Exercise) Increment() Increment               { return e.increment }
 func (e *Exercise) BodyweightFactor() BodyweightFactor { return e.bodyweightFactor }

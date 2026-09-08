@@ -33,7 +33,6 @@ func (h *Handler) handleGetExercises(w http.ResponseWriter, r *http.Request) {
 		out = append(out, exerciseDTO{
 			ID:          string(e.ID),
 			Name:        e.Name,
-			Kind:        string(e.Kind),
 			IncrementKg: e.IncrementKg,
 		})
 	}

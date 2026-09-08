@@ -21,7 +21,6 @@ func TestGetExercises_ReturnsJapaneseNames(t *testing.T) {
 		Exercises []struct {
 			ID   string `json:"id"`
 			Name string `json:"name"`
-			Kind string `json:"kind"`
 		} `json:"exercises"`
 	}
 	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
@@ -37,9 +36,6 @@ func TestGetExercises_ReturnsJapaneseNames(t *testing.T) {
 		}
 		if e.Name == e.ID {
 			t.Errorf("%s の名前がIDのままである", e.ID)
-		}
-		if e.Kind == "" {
-			t.Errorf("%s の種別が空である", e.ID)
 		}
 	}
 }

@@ -15,7 +15,6 @@ import (
 type Exercise struct {
 	ID          training.ExerciseID
 	Name        string
-	Kind        training.ExerciseKind
 	IncrementKg float64
 }
 
@@ -46,7 +45,6 @@ func (q *Exercises) All(ctx context.Context) ([]Exercise, error) {
 		item := Exercise{
 			ID:          e.ID(),
 			Name:        e.Name(),
-			Kind:        e.Kind(),
 			IncrementKg: e.Increment().Kg(),
 		}
 		out = append(out, item)

@@ -12,7 +12,6 @@ func benchParams() training.ExerciseParams {
 	return training.ExerciseParams{
 		ID:   "bench",
 		Name: "ベンチプレス",
-		Kind: training.KindMain,
 		Stimulus: map[training.MuscleRegion]float64{
 			training.ChestMid:       1.0,
 			training.TricepsLateral: 0.5,
@@ -39,9 +38,6 @@ func TestNewExercise_Main(t *testing.T) {
 	if e.Name() != "ベンチプレス" {
 		t.Errorf("名前が誤り: %v", e.Name())
 	}
-	if e.Kind() != training.KindMain {
-		t.Errorf("種別が誤り: %v", e.Kind())
-	}
 	if e.Increment().Kg() != 2.5 {
 		t.Errorf("増加単位が誤り: %v", e.Increment().Kg())
 	}
@@ -57,8 +53,6 @@ func TestNewExercise_RejectsInvalidFields(t *testing.T) {
 		{"IDの前後に空白", func(p *training.ExerciseParams) { p.ID = " bench " }},
 		{"名前が空", func(p *training.ExerciseParams) { p.Name = "" }},
 		{"名前が空白のみ", func(p *training.ExerciseParams) { p.Name = "  " }},
-		{"種別が不正", func(p *training.ExerciseParams) { p.Kind = "WARMUP" }},
-		{"種別が空", func(p *training.ExerciseParams) { p.Kind = "" }},
 		{"刺激が空", func(p *training.ExerciseParams) { p.Stimulus = nil }},
 		{"増加単位が0", func(p *training.ExerciseParams) { p.IncrementKg = 0 }},
 		{"増加単位が負", func(p *training.ExerciseParams) { p.IncrementKg = -2.5 }},
@@ -308,7 +302,6 @@ func TestNewExercise_AllErrorsIdentifyTheExercise(t *testing.T) {
 		mutate func(*training.ExerciseParams)
 	}{
 		{"増加単位", func(p *training.ExerciseParams) { p.IncrementKg = 0 }},
-		{"種別", func(p *training.ExerciseParams) { p.Kind = "WARMUP" }},
 		{"刺激が空", func(p *training.ExerciseParams) { p.Stimulus = nil }},
 		{
 			"未知の筋区分",

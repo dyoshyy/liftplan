@@ -130,37 +130,6 @@ func TestMuscleRegion_InvalidValues(t *testing.T) {
 	}
 }
 
-func TestExerciseKind_Valid(t *testing.T) {
-	all := training.AllExerciseKinds()
-	if len(all) != 2 {
-		t.Errorf("種別は2つであるべき: %d", len(all))
-	}
-	for _, k := range all {
-		if !k.Valid() {
-			t.Errorf("%s が Valid でない", k)
-		}
-	}
-	for _, k := range []training.ExerciseKind{"", "OTHER", "main", "MAIN "} {
-		if k.Valid() {
-			t.Errorf("不正な種別が Valid になっている: %q", k)
-		}
-	}
-}
-
-func TestExerciseKind_ListCoversAllConstants(t *testing.T) {
-	seen := map[training.ExerciseKind]bool{}
-	for _, k := range training.AllExerciseKinds() {
-		seen[k] = true
-	}
-	for _, k := range []training.ExerciseKind{
-		training.KindMain, training.KindAccessory,
-	} {
-		if !seen[k] {
-			t.Errorf("一覧に %s が含まれていない", k)
-		}
-	}
-}
-
 func TestTaxonomy_ValuesAreScreamingSnakeCase(t *testing.T) {
 	// 永続化と JSON の表現をこの文字列に依存させるため、表記を固定しておく。
 	check := func(t *testing.T, kind, value string) {
@@ -178,8 +147,5 @@ func TestTaxonomy_ValuesAreScreamingSnakeCase(t *testing.T) {
 	}
 	for _, r := range training.AllMuscleRegions() {
 		check(t, "MuscleRegion", string(r))
-	}
-	for _, k := range training.AllExerciseKinds() {
-		check(t, "ExerciseKind", string(k))
 	}
 }
