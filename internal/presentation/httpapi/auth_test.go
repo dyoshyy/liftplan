@@ -110,6 +110,10 @@ func TestRequireBearerToken_LetsHealthChecksThrough(t *testing.T) {
 
 // 素通しするのは決めた経路の完全一致だけであること。
 // 前方一致で判定していると /health-secret のような経路が開く。
+//
+// /index.html と /app.js.map は、画面を同居させていた頃の名残。
+// いまは配っていないので経路として存在しないが、素通しの一覧に
+// 紛れ込んでいないことを見る意味は残る（D-119）。
 func TestRequireBearerToken_OnlyExemptsExactPaths(t *testing.T) {
 	for _, path := range []string{
 		"/health/../api/sessions", "/healthz", "/health-secret",

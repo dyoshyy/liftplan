@@ -1,0 +1,17 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "liftplan-web",
+  "compatibility_date": "2026-09-01",
+
+  // 静的資産だけを配る Worker。サーバーコードは持たない。
+  // API は Cloud Run 側にあり、クロスオリジンで叩く。
+  "assets": {
+    "directory": "./dist",
+    // 画面は1つ。未知のパスは index.html を返す。
+    "not_found_handling": "single-page-application"
+  },
+
+  "observability": {
+    "enabled": true
+  }
+}

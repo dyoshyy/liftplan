@@ -63,3 +63,46 @@ jobs:
             echo "Postgres のテストがスキップされている"
             exit 1
           fi
+
+  # 画面の検査。サーバーとは別ジョブにする。
+  # 片方が落ちたときに、どちらが壊れたのかがログを開かずに分かる。
+  web:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # pnpm の版は web/package.json の packageManager が唯一の出どころ。
+      # 指定しないとリポジトリのルートを見に行くが、そこは Go のリポジトリで
+      # package.json が無い。version: をここに書くと版が2箇所になってずれる。
+      - uses: pnpm/action-setup@v4
+        with:
+          package_json_file: web/package.json
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: web/pnpm-lock.yaml
+
+      - name: 依存を入れる
+        run: pnpm install --frozen-lockfile
+
+      - name: typecheck
+        run: pnpm typecheck
+
+      - name: vitest
+        run: pnpm test
+
+      # ビルドが通ることまで見る。型が通ってもビルドが落ちる経路がある
+      # （Service Worker の生成は tsc を通らない）。
+      #
+      # VITE_API_BASE はここでは検査用のダミー。未設定だとビルドが止まる
+      # 仕様なので、値そのものは何でもよいが、渡さないと検査が回らない。
+      - name: build
+        env:
+          VITE_API_BASE: https://api.example.invalid
+        run: pnpm build

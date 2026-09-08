@@ -14,6 +14,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -210,7 +211,12 @@ func buildHandler(ctx context.Context) (http.Handler, func(), error) {
 		repos.close()
 		return nil, nil, err
 	}
-	return withHealthCheck(guarded, repos.ping), repos.close, nil
+	shared, err := withCORS(guarded)
+	if err != nil {
+		repos.close()
+		return nil, nil, err
+	}
+	return withHealthCheck(shared, repos.ping), repos.close, nil
 }
 
 // minTokenLength は認証トークンの最短の長さ。
@@ -235,6 +241,30 @@ func withAuth(next http.Handler) (http.Handler, error) {
 			"AUTH_TOKEN が短すぎる: %d文字（最低 %d文字）", len(token), minTokenLength)
 	}
 	return httpapi.RequireBearerToken(token)(next), nil
+}
+
+// withCORS は画面のオリジンからのクロスオリジン要求を許す。
+//
+// 認証の外側に被せる。preflight の OPTIONS にはブラウザが Authorization を
+// 付けないので、内側に置くと必ず 401 になる。
+//
+// AUTH_TOKEN と同じく未設定なら起動しない。既定で全部許すと、設定漏れが
+// そのまま「どのサイトからでもトークン付きで叩ける」状態になる。既定で
+// 何も許さないほうは、設定漏れが「画面が動かない」として静かに出るだけで、
+// 原因に辿り着くまで時間がかかる。起動しないのが一番早く気づく。
+func withCORS(next http.Handler) (http.Handler, error) {
+	raw := os.Getenv("ALLOWED_ORIGINS")
+	if raw == "" {
+		return nil, fmt.Errorf(
+			"ALLOWED_ORIGINS が設定されていない。画面のオリジンをカンマ区切りで指定すること" +
+				"（例: https://liftplan-web.example.workers.dev,http://localhost:5173）")
+	}
+
+	origins := strings.Split(raw, ",")
+	for i, o := range origins {
+		origins[i] = strings.TrimSpace(o)
+	}
+	return httpapi.AllowOrigins(origins)(next), nil
 }
 
 // withHealthCheck はヘルスチェックを保存先の疎通込みで応答する。

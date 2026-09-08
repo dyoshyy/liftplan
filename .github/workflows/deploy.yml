@@ -13,6 +13,11 @@ concurrency:
 
 env:
   PROJECT_ID: liftplan-85309
+  # 画面のオリジンと API の場所は GitHub のリポジトリ変数から取る。
+  # ここに直書きすると、URL が変わったときにコードの変更として出る。
+  # 未設定なら下のジョブが落ちる（黙って既定値に落ちない）。
+  ALLOWED_ORIGINS: ${{ vars.ALLOWED_ORIGINS }}
+  API_BASE: ${{ vars.API_BASE }}
   REGION: asia-southeast1
   SERVICE: liftplan-server
   REPOSITORY: liftplan
@@ -76,6 +81,15 @@ jobs:
             exit 1
           fi
 
+      # 未設定のまま出すと、サーバーは ALLOWED_ORIGINS 無しで起動を拒む。
+      # 出してから気づくより、出す前に止めるほうが速い。
+      - name: 許可オリジンが設定されているか確かめる
+        run: |
+          if [ -z "${ALLOWED_ORIGINS}" ]; then
+            echo "リポジトリ変数 ALLOWED_ORIGINS が未設定。画面のオリジンを入れること"
+            exit 1
+          fi
+
       - id: auth
         uses: google-github-actions/auth@v2
         with:
@@ -119,6 +133,7 @@ jobs:
             --max-instances=2 \
             --cpu=1 --memory=512Mi \
             --set-secrets=DATABASE_URL=liftplan-database-url:latest,AUTH_TOKEN=liftplan-auth-token:latest \
+            --set-env-vars="ALLOWED_ORIGINS=${ALLOWED_ORIGINS}" \
             --allow-unauthenticated \
             --quiet
 
@@ -153,3 +168,53 @@ jobs:
             exit 1
           fi
           echo "認証: 401"
+
+  # 画面は API のあとに出す。
+  #
+  # 逆順にすると「新しいクライアント → 古いサーバー」の窓ができる。
+  # サーバーは DisallowUnknownFields なので、クライアントが増やした
+  # フィールドは 400 で返り、待ち行列はそれを再送不能とみなして捨てる。
+  # 記録が消える。同居させていた頃は成果物が1つで自動的に守られていた
+  # 性質なので、分離した以上ここに明示する。
+  web:
+    needs: deploy
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # pnpm の版は web/package.json の packageManager が唯一の出どころ。
+      # 指定しないとリポジトリのルートを見に行くが、そこは Go のリポジトリで
+      # package.json が無い。version: をここに書くと版が2箇所になってずれる。
+      - uses: pnpm/action-setup@v4
+        with:
+          package_json_file: web/package.json
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: web/pnpm-lock.yaml
+
+      - name: 依存を入れる
+        run: pnpm install --frozen-lockfile
+
+      - name: ビルド
+        env:
+          VITE_API_BASE: ${{ vars.API_BASE }}
+        run: |
+          if [ -z "${VITE_API_BASE}" ]; then
+            echo "リポジトリ変数 API_BASE が未設定。Cloud Run の URL を入れること"
+            exit 1
+          fi
+          pnpm build
+
+      - name: Cloudflare Workers へデプロイ
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          workingDirectory: web

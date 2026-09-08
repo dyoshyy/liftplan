@@ -1,0 +1,236 @@
+@import "tailwindcss";
+
+/* ジムで使う器具としての画面。暗い側に振り切っている。
+   照明の下でまぶしくないこと、有機ELで電池を食わないこと、
+   視線がセットの合間に一瞬だけ落ちる前提。 */
+@theme {
+  --color-ground: #0e1216;
+  --color-surface: #161c22;
+  --color-surface-2: #1e262e;
+  --color-line: #2a343e;
+  --color-line-soft: #212a33;
+  --color-text: #e7edf3;
+  --color-muted: #83919f;
+  --color-faint: #5d6b78;
+
+  /* IPF のプレート色から。15kg の黄が主アクセント、10kg の緑が完了、
+     25kg の赤が取り消し。競技の色をそのまま持ち込んでいる。 */
+  --color-amber: #e0a82e;
+  --color-green: #4f9d63;
+  --color-red: #c4453c;
+
+  --font-num: Oswald, "Zen Kaku Gothic New", sans-serif;
+  --font-sans: "Zen Kaku Gothic New", system-ui, sans-serif;
+
+  --radius-card: 14px;
+}
+
+/* 素の指定はレイヤーに入れる。
+   レイヤーに入れない CSS はどのレイヤーよりも強いので、素のまま置いた
+   button { background: none } が @layer components の .set / .btn / .chip の
+   背景と枠を打ち消す。ボタンが文字だけになる。 */
+@layer base {
+  :root {
+    color-scheme: dark;
+  }
+
+  * {
+    box-sizing: border-box;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  body {
+    margin: 0;
+    background: var(--color-ground);
+    color: var(--color-text);
+    font-family: var(--font-sans);
+    font-size: 15px;
+    line-height: 1.6;
+    /* 下端に固定した状態バーの分だけ空ける。 */
+    padding-bottom: 92px;
+  }
+
+  button {
+    font: inherit;
+    color: inherit;
+    background: none;
+    border: none;
+    cursor: pointer;
+  }
+
+  button:focus-visible,
+  input:focus-visible,
+  select:focus-visible {
+    outline: 2px solid var(--color-amber);
+    outline-offset: 2px;
+  }
+
+  input,
+  select {
+    font: inherit;
+    color: inherit;
+    background: var(--color-surface-2);
+    border: 1px solid var(--color-line);
+    border-radius: 10px;
+    padding: 12px;
+    width: 100%;
+  }
+
+  /* 数値入力のスピナーは指で押せる大きさにならない。ステッパーを別に置く。 */
+  input[type="number"] {
+    -moz-appearance: textfield;
+  }
+  input::-webkit-outer-spin-button,
+  input::-webkit-inner-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    * {
+      transition: none !important;
+    }
+  }
+}
+
+@layer components {
+  /* 何度も出てくる複合的な見た目だけをここに置く。
+     一度しか使わないものはユーティリティで書く。 */
+
+  .num {
+    font-family: var(--font-num);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .card {
+    background: var(--color-surface);
+    border: 1px solid var(--color-line);
+    border-radius: var(--radius-card);
+    padding: 16px;
+  }
+
+  .card-title {
+    font-size: 12px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--color-faint);
+    margin: 0 0 12px;
+  }
+
+  .note {
+    font-size: 12px;
+    color: var(--color-faint);
+    line-height: 1.7;
+  }
+
+  .btn {
+    display: block;
+    width: 100%;
+    padding: 15px;
+    border-radius: 12px;
+    font-weight: 700;
+    text-align: center;
+    background: var(--color-amber);
+    color: #1a1204;
+  }
+
+  .btn-quiet {
+    background: var(--color-surface-2);
+    border: 1px solid var(--color-line);
+    color: var(--color-text);
+    font-weight: 500;
+  }
+
+  .btn-danger {
+    background: transparent;
+    border: 1px solid color-mix(in srgb, var(--color-red) 55%, transparent);
+    color: var(--color-red);
+    font-weight: 500;
+  }
+
+  .chip {
+    padding: 8px 12px;
+    border-radius: 999px;
+    border: 1px solid var(--color-line);
+    background: var(--color-surface-2);
+    font-size: 13px;
+    color: var(--color-muted);
+  }
+
+  .chip[aria-pressed="true"] {
+    background: color-mix(in srgb, var(--color-amber) 16%, transparent);
+    border-color: color-mix(in srgb, var(--color-amber) 45%, transparent);
+    color: var(--color-text);
+  }
+
+  .field {
+    display: grid;
+    gap: 6px;
+  }
+
+  .field label {
+    font-size: 12px;
+    color: var(--color-muted);
+    letter-spacing: 0.04em;
+  }
+
+  .set {
+    min-height: 64px;
+    border-radius: 12px;
+    background: var(--color-surface-2);
+    border: 1px solid var(--color-line);
+    display: grid;
+    place-content: center;
+    gap: 3px;
+    text-align: center;
+    transition: transform 0.06s ease;
+  }
+
+  .set:active {
+    transform: scale(0.96);
+  }
+
+  .set-done {
+    background: color-mix(in srgb, var(--color-green) 16%, transparent);
+    border-color: color-mix(in srgb, var(--color-green) 45%, transparent);
+  }
+
+  /* 記録シートは下から出す。片手で親指が届く位置に置く。 */
+  dialog {
+    position: fixed;
+    inset: auto 0 0 0;
+    margin: auto auto 0;
+    padding: 0;
+    width: 100%;
+    max-width: 620px;
+    border: none;
+    background: var(--color-surface);
+    color: var(--color-text);
+    border-radius: 18px 18px 0 0;
+    border-top: 1px solid var(--color-line);
+  }
+
+  dialog::backdrop {
+    background: rgb(0 0 0 / 0.66);
+  }
+
+  .stepper {
+    display: grid;
+    grid-template-columns: 60px 1fr 60px;
+    gap: 8px;
+  }
+
+  .stepper button {
+    background: var(--color-surface-2);
+    border: 1px solid var(--color-line);
+    border-radius: 10px;
+    font-size: 24px;
+    line-height: 1;
+  }
+
+  .stepper input {
+    text-align: center;
+    font-family: var(--font-num);
+    font-size: 22px;
+  }
+}
