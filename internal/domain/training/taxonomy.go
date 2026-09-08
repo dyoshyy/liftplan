@@ -65,27 +65,6 @@ func AllMuscleRegions() []MuscleRegion { return clone(allMuscleRegions) }
 
 func (r MuscleRegion) Valid() bool { return validMuscleRegions[r] }
 
-// ExerciseKind は種目の役割。
-//
-//	KindMain      … その日の軸になる種目
-//	KindAccessory … 補助種目。残差を埋めるために選ばれる
-type ExerciseKind string
-
-const (
-	KindMain      ExerciseKind = "MAIN"
-	KindAccessory ExerciseKind = "ACCESSORY"
-)
-
-var (
-	allExerciseKinds   = sortedValues(KindMain, KindAccessory)
-	validExerciseKinds = lookup(allExerciseKinds)
-)
-
-// AllExerciseKinds は全種別を文字列値の昇順で返す。
-func AllExerciseKinds() []ExerciseKind { return clone(allExerciseKinds) }
-
-func (k ExerciseKind) Valid() bool { return validExerciseKinds[k] }
-
 // sortedValues は可変長で受けた値を昇順に並べた新しいスライスを返す。
 //
 // 引数のスライスをその場でソートすると、`sortedValues(s...)` と書かれたときに

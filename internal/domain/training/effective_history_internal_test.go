@@ -15,7 +15,7 @@ func TestEffectiveHistory_KeepsEverySet(t *testing.T) {
 	day := MustDate(2026, time.August, 17)
 
 	chin, err := NewExercise(ExerciseParams{
-		ID: "chin", Name: "チンニング", Kind: KindAccessory,
+		ID: "chin", Name: "チンニング",
 		Stimulus:         map[MuscleRegion]float64{Lat: 1.0},
 		IncrementKg:      2.5,
 		BodyweightFactor: 0.95,

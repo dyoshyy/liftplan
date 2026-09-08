@@ -42,11 +42,26 @@ func TestExercises_IDsAreUnique(t *testing.T) {
 	}
 }
 
-func TestExercises_AccessoriesCoverEveryRegion(t *testing.T) {
+// 既定の宣言（BIG3）を外しても、残りの種目で全区分を狙えること。
+//
+// 元は「Kind == ACCESSORY の種目が全区分をカバーする」を検査していた。
+// メイン/補助はマスタの属性ではなくなったので（D-117）、既定の宣言を
+// 除いた集合で見る。宣言を入れ替える人がいても、区分が浮かないこと。
+// lookupIDs は種目IDの集合を引きやすい形にする。
+func lookupIDs(ids []training.ExerciseID) map[training.ExerciseID]bool {
+	out := make(map[training.ExerciseID]bool, len(ids))
+	for _, id := range ids {
+		out[id] = true
+	}
+	return out
+}
+
+func TestExercises_NonDeclaredCoverEveryRegion(t *testing.T) {
 	all, _ := seed.Exercises()
+	declared := lookupIDs(seed.DefaultDeclared())
 	covered := map[training.MuscleRegion]bool{}
 	for _, e := range all {
-		if e.Kind() != training.KindAccessory {
+		if declared[e.ID()] {
 			continue
 		}
 		for _, r := range e.Stimulus().Regions() {
@@ -124,8 +139,9 @@ func TestSeed_EveryTargetRegionHasANonMainExercise(t *testing.T) {
 	}
 
 	covered := map[training.MuscleRegion]bool{}
+	declared := lookupIDs(seed.DefaultDeclared())
 	for _, e := range all {
-		if e.Kind() == training.KindMain {
+		if declared[e.ID()] {
 			continue
 		}
 		for _, r := range e.Stimulus().Regions() {
@@ -147,8 +163,9 @@ func TestExercises_EveryRegionHasAPrimaryAccessory(t *testing.T) {
 	all, _ := seed.Exercises()
 
 	primary := map[training.MuscleRegion]bool{}
+	declared := lookupIDs(seed.DefaultDeclared())
 	for _, e := range all {
-		if e.Kind() != training.KindAccessory {
+		if declared[e.ID()] {
 			continue
 		}
 		for _, r := range e.Stimulus().Regions() {

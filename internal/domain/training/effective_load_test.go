@@ -23,7 +23,7 @@ func bodyWeightOn(t *testing.T, date training.Date, kg float64) training.Conditi
 func chinning(t *testing.T) *training.Exercise {
 	t.Helper()
 	return mustExercise(t, training.ExerciseParams{
-		ID: "chin", Name: "チンニング", Kind: training.KindAccessory,
+		ID: "chin", Name: "チンニング",
 		Stimulus:         map[training.MuscleRegion]float64{training.Lat: 1.0},
 		IncrementKg:      2.5,
 		BodyweightFactor: 0.95,
@@ -33,7 +33,7 @@ func chinning(t *testing.T) *training.Exercise {
 func benchPress(t *testing.T) *training.Exercise {
 	t.Helper()
 	return mustExercise(t, training.ExerciseParams{
-		ID: "bench", Name: "ベンチプレス", Kind: training.KindMain,
+		ID: "bench", Name: "ベンチプレス",
 		Stimulus:    map[training.MuscleRegion]float64{training.ChestMid: 1.0},
 		IncrementKg: 2.5,
 	})

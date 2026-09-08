@@ -15,7 +15,7 @@ var planMonday = training.MustDate(2026, time.August, 17) // 月曜
 func mainExercise(t *testing.T, id string, stimulus map[training.MuscleRegion]float64) *training.Exercise {
 	t.Helper()
 	return mustExercise(t, training.ExerciseParams{
-		ID: id, Name: id, Kind: training.KindMain,
+		ID: id, Name: id,
 		Stimulus: stimulus, IncrementKg: 2.5,
 	})
 }
@@ -25,7 +25,7 @@ func planPool(t *testing.T) []*training.Exercise {
 
 	// かつてベンチのバリエーションだった種目。いまは補助のひとつ。
 	p := training.ExerciseParams{
-		ID: "larsen", Name: "larsen", Kind: training.KindAccessory,
+		ID: "larsen", Name: "larsen",
 		Stimulus:    map[training.MuscleRegion]float64{training.ChestMid: 1.0},
 		IncrementKg: 2.5,
 	}
@@ -1320,7 +1320,7 @@ func chinRequest(t *testing.T, addedKg, bodyweight float64) training.PlanRequest
 	t.Helper()
 
 	chin := mustExercise(t, training.ExerciseParams{
-		ID: "chin", Name: "chin", Kind: training.KindAccessory,
+		ID: "chin", Name: "chin",
 		Stimulus:         map[training.MuscleRegion]float64{training.Lat: 1.0},
 		IncrementKg:      2.5,
 		BodyweightFactor: 0.95,
@@ -1483,7 +1483,7 @@ func TestSessionPlanner_DefaultBodyWeightBarelyMovesThePrescription(t *testing.T
 func TestSessionPlanner_BodyweightSetsStillCountTowardCoverage(t *testing.T) {
 	// 広背筋だけを狙う自重種目と、同じ区分を狙う補助を5つ。
 	chin := mustExercise(t, training.ExerciseParams{
-		ID: "chin", Name: "chin", Kind: training.KindAccessory,
+		ID: "chin", Name: "chin",
 		Stimulus:         map[training.MuscleRegion]float64{training.Lat: 1.0},
 		IncrementKg:      2.5,
 		BodyweightFactor: 0.95,
@@ -1536,7 +1536,7 @@ func TestSessionPlanner_BodyweightSetsStillCountTowardCoverage(t *testing.T) {
 // 何をすればいいか分からない。
 func TestSessionPlanner_BodyweightExerciseFallsBackToDefaultBodyWeight(t *testing.T) {
 	chin := mustExercise(t, training.ExerciseParams{
-		ID: "chin", Name: "chin", Kind: training.KindAccessory,
+		ID: "chin", Name: "chin",
 		Stimulus:         map[training.MuscleRegion]float64{training.Lat: 1.0},
 		IncrementKg:      2.5,
 		BodyweightFactor: 0.95,

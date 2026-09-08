@@ -237,8 +237,9 @@ func TestSimulation_EveryAccessoryGetsUsedInSomeSetup(t *testing.T) {
 		}
 	}
 
+	declared := lookupIDs(seed.DefaultDeclared())
 	for _, e := range all {
-		if e.Kind() != training.KindAccessory {
+		if declared[e.ID()] {
 			continue
 		}
 		if !used[e.ID()] {
