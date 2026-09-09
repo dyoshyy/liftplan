@@ -4,8 +4,8 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/dyoshyy/liftplan-server/internal/domain/training/exercise"
-	"github.com/dyoshyy/liftplan-server/internal/domain/training/setlog"
+	"github.com/dyoshyy/liftplan/internal/domain/training/exercise"
+	"github.com/dyoshyy/liftplan/internal/domain/training/setlog"
 )
 
 // RecordSets は実績ログを保存するユースケース。

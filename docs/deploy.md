@@ -198,7 +198,7 @@ gcloud iam service-accounts add-iam-policy-binding \
 | Cloud Run のサービス `liftplan-server` | **変えない。**サービス名は変更できず作り直しになる。URL が変わり、`API_BASE`（画面のビルド）とヘルスチェックが全部つられる |
 | Artifact Registry の `liftplan` / イメージのパス | リポジトリ名から導かれていない。そのまま |
 | WIF プロバイダ名 `providers/liftplan-server` | ただのリソース名。一致している必要がない。変えるなら作り直し |
-| Go のモジュールパス | GitHub がリダイレクトするので動き続ける。変えるなら 57 ファイルの機械的な置換で、単独の PR にする |
+| Go のモジュールパス | **変えた**（D-123）。GitHub のリダイレクトで動き続けてはいたが、import に古い名前が残り続けるので単独の PR で置換した |
 
 ## 運用
 

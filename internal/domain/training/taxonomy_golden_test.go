@@ -9,7 +9,7 @@ import (
 	"sort"
 	"testing"
 
-	"github.com/dyoshyy/liftplan-server/internal/domain/training"
+	"github.com/dyoshyy/liftplan/internal/domain/training"
 )
 
 // 列挙の文字列値は DB と JSON にそのまま永続化される。値を変えると既存データが

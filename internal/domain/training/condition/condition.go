@@ -3,7 +3,7 @@ package condition
 import (
 	"sort"
 
-	"github.com/dyoshyy/liftplan-server/internal/domain/training"
+	"github.com/dyoshyy/liftplan/internal/domain/training"
 )
 
 const (

@@ -7,12 +7,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/dyoshyy/liftplan-server/internal/domain/training"
-	"github.com/dyoshyy/liftplan-server/internal/domain/training/seed"
-	"github.com/dyoshyy/liftplan-server/internal/infrastructure/memory"
+	"github.com/dyoshyy/liftplan/internal/domain/training"
+	"github.com/dyoshyy/liftplan/internal/domain/training/seed"
+	"github.com/dyoshyy/liftplan/internal/infrastructure/memory"
 
-	"github.com/dyoshyy/liftplan-server/internal/domain/training/condition"
-	"github.com/dyoshyy/liftplan-server/internal/domain/training/setlog"
+	"github.com/dyoshyy/liftplan/internal/domain/training/condition"
+	"github.com/dyoshyy/liftplan/internal/domain/training/setlog"
 )
 
 var day = training.MustDate(2026, time.August, 17)

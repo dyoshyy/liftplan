@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/dyoshyy/liftplan-server/internal/domain/training"
+	"github.com/dyoshyy/liftplan/internal/domain/training"
 )
 
 func mustWeight(t *testing.T, kg float64) training.Weight {

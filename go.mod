@@ -1,4 +1,4 @@
-module github.com/dyoshyy/liftplan-server
+module github.com/dyoshyy/liftplan
 
 go 1.26
 

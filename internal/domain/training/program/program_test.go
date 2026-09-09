@@ -6,9 +6,9 @@ import (
 	"strconv"
 	"testing"
 
-	"github.com/dyoshyy/liftplan-server/internal/domain/training"
-	"github.com/dyoshyy/liftplan-server/internal/domain/training/exercise"
-	"github.com/dyoshyy/liftplan-server/internal/domain/training/program"
+	"github.com/dyoshyy/liftplan/internal/domain/training"
+	"github.com/dyoshyy/liftplan/internal/domain/training/exercise"
+	"github.com/dyoshyy/liftplan/internal/domain/training/program"
 )
 
 func mustTarget(t *testing.T, m map[training.MuscleRegion]float64) program.WeeklyVolumeTarget {

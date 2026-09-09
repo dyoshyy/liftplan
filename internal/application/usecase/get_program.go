@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/dyoshyy/liftplan-server/internal/domain/training/program"
+	"github.com/dyoshyy/liftplan/internal/domain/training/program"
 )
 
 // GetProgram は保存されているプログラムを返すユースケース。

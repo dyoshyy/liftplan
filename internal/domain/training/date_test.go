@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/dyoshyy/liftplan-server/internal/domain/training"
+	"github.com/dyoshyy/liftplan/internal/domain/training"
 )
 
 // baseDay は履歴の起点。8月1日を1日目とする。

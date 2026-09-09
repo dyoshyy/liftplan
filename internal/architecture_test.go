@@ -9,7 +9,7 @@ import (
 	"testing"
 )
 
-const modulePrefix = "github.com/dyoshyy/liftplan-server/"
+const modulePrefix = "github.com/dyoshyy/liftplan/"
 
 // layer は Onion の1層。depth が小さいほど内側。
 type layer struct {

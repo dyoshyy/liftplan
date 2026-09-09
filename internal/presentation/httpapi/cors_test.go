@@ -5,7 +5,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/dyoshyy/liftplan-server/internal/presentation/httpapi"
+	"github.com/dyoshyy/liftplan/internal/presentation/httpapi"
 )
 
 const allowed = "https://liftplan-web.example.workers.dev"

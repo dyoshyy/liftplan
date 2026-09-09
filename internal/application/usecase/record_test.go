@@ -5,12 +5,12 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/dyoshyy/liftplan-server/internal/application/usecase"
-	"github.com/dyoshyy/liftplan-server/internal/domain/training/seed"
+	"github.com/dyoshyy/liftplan/internal/application/usecase"
+	"github.com/dyoshyy/liftplan/internal/domain/training/seed"
 
-	"github.com/dyoshyy/liftplan-server/internal/domain/training/condition"
-	"github.com/dyoshyy/liftplan-server/internal/domain/training/exercise"
-	"github.com/dyoshyy/liftplan-server/internal/domain/training/setlog"
+	"github.com/dyoshyy/liftplan/internal/domain/training/condition"
+	"github.com/dyoshyy/liftplan/internal/domain/training/exercise"
+	"github.com/dyoshyy/liftplan/internal/domain/training/setlog"
 )
 
 func TestRecordSets_SavesLogs(t *testing.T) {

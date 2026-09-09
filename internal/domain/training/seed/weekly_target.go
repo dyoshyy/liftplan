@@ -1,8 +1,8 @@
 package seed
 
 import (
-	"github.com/dyoshyy/liftplan-server/internal/domain/training"
-	"github.com/dyoshyy/liftplan-server/internal/domain/training/program"
+	"github.com/dyoshyy/liftplan/internal/domain/training"
+	"github.com/dyoshyy/liftplan/internal/domain/training/program"
 )
 
 // baseProfile は週3回を基準にした筋区分ごとの目標セット数。

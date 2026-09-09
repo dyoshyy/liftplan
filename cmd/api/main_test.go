@@ -14,8 +14,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/dyoshyy/liftplan-server/internal/domain/training/seed"
-	"github.com/dyoshyy/liftplan-server/internal/presentation/httpapi"
+	"github.com/dyoshyy/liftplan/internal/domain/training/seed"
+	"github.com/dyoshyy/liftplan/internal/presentation/httpapi"
 )
 
 // testAuthToken はテスト用の認証トークン。本番と同じ経路を通すために、

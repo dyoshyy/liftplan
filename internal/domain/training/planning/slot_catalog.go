@@ -1,7 +1,7 @@
 package planning
 
 import (
-	"github.com/dyoshyy/liftplan-server/internal/domain/training/program"
+	"github.com/dyoshyy/liftplan/internal/domain/training/program"
 )
 
 // SlotCatalog は週の頻度に対する強度配分を持つドメインサービス。無状態。

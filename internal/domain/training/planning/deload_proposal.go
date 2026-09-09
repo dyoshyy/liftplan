@@ -1,7 +1,7 @@
 package planning
 
 import (
-	"github.com/dyoshyy/liftplan-server/internal/domain/training/exercise"
+	"github.com/dyoshyy/liftplan/internal/domain/training/exercise"
 )
 
 // DeloadProposal はデロードの提案。適用はしない。

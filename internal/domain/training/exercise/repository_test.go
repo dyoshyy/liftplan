@@ -6,7 +6,7 @@ import (
 	"slices"
 	"testing"
 
-	"github.com/dyoshyy/liftplan-server/internal/domain/training/exercise"
+	"github.com/dyoshyy/liftplan/internal/domain/training/exercise"
 )
 
 // Reader を満たす最小実装。

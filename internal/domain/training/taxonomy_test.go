@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/dyoshyy/liftplan-server/internal/domain/training"
+	"github.com/dyoshyy/liftplan/internal/domain/training"
 )
 
 func TestMuscleRegion_Resolution(t *testing.T) {

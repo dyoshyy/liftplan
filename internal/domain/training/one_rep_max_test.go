@@ -5,7 +5,7 @@ import (
 	"strconv"
 	"testing"
 
-	"github.com/dyoshyy/liftplan-server/internal/domain/training"
+	"github.com/dyoshyy/liftplan/internal/domain/training"
 )
 
 func estimate(t *testing.T, kg float64, reps, rir int) training.OneRepMax {

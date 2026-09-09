@@ -5,10 +5,10 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/dyoshyy/liftplan-server/internal/application/query"
-	"github.com/dyoshyy/liftplan-server/internal/domain/training"
-	"github.com/dyoshyy/liftplan-server/internal/domain/training/exercise"
-	"github.com/dyoshyy/liftplan-server/internal/domain/training/setlog"
+	"github.com/dyoshyy/liftplan/internal/application/query"
+	"github.com/dyoshyy/liftplan/internal/domain/training"
+	"github.com/dyoshyy/liftplan/internal/domain/training/exercise"
+	"github.com/dyoshyy/liftplan/internal/domain/training/setlog"
 )
 
 // defaultHistoryDays は期間を指定しなかったときに遡る日数。
