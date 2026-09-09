@@ -5,10 +5,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/dyoshyy/liftplan-server/internal/domain/training"
-	"github.com/dyoshyy/liftplan-server/internal/domain/training/exercise"
-	"github.com/dyoshyy/liftplan-server/internal/domain/training/program"
-	"github.com/dyoshyy/liftplan-server/internal/domain/training/setlog"
+	"github.com/dyoshyy/liftplan/internal/domain/training"
+	"github.com/dyoshyy/liftplan/internal/domain/training/exercise"
+	"github.com/dyoshyy/liftplan/internal/domain/training/program"
+	"github.com/dyoshyy/liftplan/internal/domain/training/setlog"
 )
 
 // このパッケージのテストだけで使う小さなヘルパー。

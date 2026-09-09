@@ -4,10 +4,10 @@ import (
 	"context"
 	"testing"
 
-	"github.com/dyoshyy/liftplan-server/internal/domain/training"
-	"github.com/dyoshyy/liftplan-server/internal/infrastructure/postgres"
+	"github.com/dyoshyy/liftplan/internal/domain/training"
+	"github.com/dyoshyy/liftplan/internal/infrastructure/postgres"
 
-	"github.com/dyoshyy/liftplan-server/internal/domain/training/setlog"
+	"github.com/dyoshyy/liftplan/internal/domain/training/setlog"
 )
 
 // 再起動しても記録が残ること。インメモリ実装との唯一の違いがここ。

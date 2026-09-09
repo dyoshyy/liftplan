@@ -5,8 +5,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/dyoshyy/liftplan-server/internal/domain/training"
-	"github.com/dyoshyy/liftplan-server/internal/domain/training/exercise"
+	"github.com/dyoshyy/liftplan/internal/domain/training"
+	"github.com/dyoshyy/liftplan/internal/domain/training/exercise"
 )
 
 func benchParams() exercise.ExerciseParams {

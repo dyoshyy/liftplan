@@ -18,18 +18,18 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/dyoshyy/liftplan-server/internal/application/query"
-	"github.com/dyoshyy/liftplan-server/internal/application/usecase"
-	"github.com/dyoshyy/liftplan-server/internal/domain/training/seed"
-	"github.com/dyoshyy/liftplan-server/internal/infrastructure/memory"
-	"github.com/dyoshyy/liftplan-server/internal/infrastructure/postgres"
-	"github.com/dyoshyy/liftplan-server/internal/presentation/httpapi"
+	"github.com/dyoshyy/liftplan/internal/application/query"
+	"github.com/dyoshyy/liftplan/internal/application/usecase"
+	"github.com/dyoshyy/liftplan/internal/domain/training/seed"
+	"github.com/dyoshyy/liftplan/internal/infrastructure/memory"
+	"github.com/dyoshyy/liftplan/internal/infrastructure/postgres"
+	"github.com/dyoshyy/liftplan/internal/presentation/httpapi"
 
-	"github.com/dyoshyy/liftplan-server/internal/domain/training/condition"
-	"github.com/dyoshyy/liftplan-server/internal/domain/training/exercise"
-	"github.com/dyoshyy/liftplan-server/internal/domain/training/planning"
-	"github.com/dyoshyy/liftplan-server/internal/domain/training/program"
-	"github.com/dyoshyy/liftplan-server/internal/domain/training/setlog"
+	"github.com/dyoshyy/liftplan/internal/domain/training/condition"
+	"github.com/dyoshyy/liftplan/internal/domain/training/exercise"
+	"github.com/dyoshyy/liftplan/internal/domain/training/planning"
+	"github.com/dyoshyy/liftplan/internal/domain/training/program"
+	"github.com/dyoshyy/liftplan/internal/domain/training/setlog"
 )
 
 const defaultFrequencyPerWeek = 3

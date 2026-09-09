@@ -7,7 +7,7 @@ import (
 	"slices"
 	"testing"
 
-	"github.com/dyoshyy/liftplan-server/internal/domain/training/program"
+	"github.com/dyoshyy/liftplan/internal/domain/training/program"
 )
 
 // Reader と Writer の両方を満たす最小実装。

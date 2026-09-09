@@ -1,10 +1,10 @@
 package planning
 
 import (
-	"github.com/dyoshyy/liftplan-server/internal/domain/training"
-	"github.com/dyoshyy/liftplan-server/internal/domain/training/condition"
-	"github.com/dyoshyy/liftplan-server/internal/domain/training/exercise"
-	"github.com/dyoshyy/liftplan-server/internal/domain/training/setlog"
+	"github.com/dyoshyy/liftplan/internal/domain/training"
+	"github.com/dyoshyy/liftplan/internal/domain/training/condition"
+	"github.com/dyoshyy/liftplan/internal/domain/training/exercise"
+	"github.com/dyoshyy/liftplan/internal/domain/training/setlog"
 )
 
 // EffectiveLoad は記録を推定に使う負荷へ読み替える。記録に入っているのは

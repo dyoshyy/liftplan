@@ -7,7 +7,7 @@ import (
 	"github.com/jackc/pgerrcode"
 	"github.com/jackc/pgx/v5/pgconn"
 
-	"github.com/dyoshyy/liftplan-server/internal/domain/training"
+	"github.com/dyoshyy/liftplan/internal/domain/training"
 )
 
 // wrapUnavailable は「保存先に到達できない」類の失敗を翻訳する。

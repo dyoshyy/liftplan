@@ -9,8 +9,8 @@
 層を語るから**。
 
 ```go
-import "github.com/dyoshyy/liftplan-server/internal/presentation/httpapi"
-import "github.com/dyoshyy/liftplan-server/internal/infrastructure/postgres"
+import "github.com/dyoshyy/liftplan/internal/presentation/httpapi"
+import "github.com/dyoshyy/liftplan/internal/infrastructure/postgres"
 ```
 
 この2行が同じファイルに並んでいたら、依存方向の違反だと**読んだ瞬間に分かる**。

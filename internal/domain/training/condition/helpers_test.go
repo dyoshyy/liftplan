@@ -4,7 +4,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/dyoshyy/liftplan-server/internal/domain/training"
+	"github.com/dyoshyy/liftplan/internal/domain/training"
 )
 
 // このパッケージのテストだけで使う小さなヘルパー。

@@ -6,8 +6,8 @@ import (
 	"slices"
 	"sort"
 
-	"github.com/dyoshyy/liftplan-server/internal/domain/training"
-	"github.com/dyoshyy/liftplan-server/internal/domain/training/exercise"
+	"github.com/dyoshyy/liftplan/internal/domain/training"
+	"github.com/dyoshyy/liftplan/internal/domain/training/exercise"
 )
 
 // 週目標セット数の範囲。

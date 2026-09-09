@@ -11,7 +11,7 @@ import (
 	"testing"
 )
 
-const modulePath = "github.com/dyoshyy/liftplan-server"
+const modulePath = "github.com/dyoshyy/liftplan"
 
 // domainRoot はこのテストファイルの位置から internal/domain を解決する。
 //

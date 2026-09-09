@@ -6,7 +6,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/dyoshyy/liftplan-server/internal/infrastructure/postgres"
+	"github.com/dyoshyy/liftplan/internal/infrastructure/postgres"
 )
 
 func TestMigrate_CreatesEverySchemaObject(t *testing.T) {

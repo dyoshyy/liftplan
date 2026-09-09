@@ -5,9 +5,9 @@ import (
 	"sort"
 	"testing"
 
-	"github.com/dyoshyy/liftplan-server/internal/domain/training"
-	"github.com/dyoshyy/liftplan-server/internal/domain/training/planning"
-	"github.com/dyoshyy/liftplan-server/internal/domain/training/program"
+	"github.com/dyoshyy/liftplan/internal/domain/training"
+	"github.com/dyoshyy/liftplan/internal/domain/training/planning"
+	"github.com/dyoshyy/liftplan/internal/domain/training/program"
 )
 
 func mustFrequency(t *testing.T, n int) program.Frequency {

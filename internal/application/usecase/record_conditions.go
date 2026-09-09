@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/dyoshyy/liftplan-server/internal/domain/training/condition"
+	"github.com/dyoshyy/liftplan/internal/domain/training/condition"
 )
 
 // RecordConditions は日次コンディションを保存するユースケース。

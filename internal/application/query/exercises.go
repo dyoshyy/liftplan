@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"sort"
 
-	"github.com/dyoshyy/liftplan-server/internal/domain/training/exercise"
+	"github.com/dyoshyy/liftplan/internal/domain/training/exercise"
 )
 
 // Exercise は種目マスタの1件。

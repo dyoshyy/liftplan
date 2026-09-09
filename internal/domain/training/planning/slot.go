@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"sort"
 
-	"github.com/dyoshyy/liftplan-server/internal/domain/training"
+	"github.com/dyoshyy/liftplan/internal/domain/training"
 )
 
 // SlotRole は週内スロットの役割。

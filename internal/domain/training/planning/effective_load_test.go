@@ -5,10 +5,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/dyoshyy/liftplan-server/internal/domain/training"
-	"github.com/dyoshyy/liftplan-server/internal/domain/training/condition"
-	"github.com/dyoshyy/liftplan-server/internal/domain/training/exercise"
-	"github.com/dyoshyy/liftplan-server/internal/domain/training/planning"
+	"github.com/dyoshyy/liftplan/internal/domain/training"
+	"github.com/dyoshyy/liftplan/internal/domain/training/condition"
+	"github.com/dyoshyy/liftplan/internal/domain/training/exercise"
+	"github.com/dyoshyy/liftplan/internal/domain/training/planning"
 )
 
 // 体重の既定値。体重を一度も記録していない利用者に使う。

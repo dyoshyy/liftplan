@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/dyoshyy/liftplan-server/internal/presentation/httpapi"
+	"github.com/dyoshyy/liftplan/internal/presentation/httpapi"
 )
 
 const testToken = "0123456789abcdef0123456789abcdef"

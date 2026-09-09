@@ -10,13 +10,13 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/dyoshyy/liftplan-server/internal/application/query"
-	"github.com/dyoshyy/liftplan-server/internal/application/usecase"
-	"github.com/dyoshyy/liftplan-server/internal/domain/training"
-	"github.com/dyoshyy/liftplan-server/internal/domain/training/condition"
-	"github.com/dyoshyy/liftplan-server/internal/domain/training/exercise"
-	"github.com/dyoshyy/liftplan-server/internal/domain/training/program"
-	"github.com/dyoshyy/liftplan-server/internal/domain/training/setlog"
+	"github.com/dyoshyy/liftplan/internal/application/query"
+	"github.com/dyoshyy/liftplan/internal/application/usecase"
+	"github.com/dyoshyy/liftplan/internal/domain/training"
+	"github.com/dyoshyy/liftplan/internal/domain/training/condition"
+	"github.com/dyoshyy/liftplan/internal/domain/training/exercise"
+	"github.com/dyoshyy/liftplan/internal/domain/training/program"
+	"github.com/dyoshyy/liftplan/internal/domain/training/setlog"
 )
 
 type Handler struct {

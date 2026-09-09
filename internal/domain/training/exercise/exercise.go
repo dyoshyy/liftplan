@@ -6,7 +6,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/dyoshyy/liftplan-server/internal/domain/training"
+	"github.com/dyoshyy/liftplan/internal/domain/training"
 )
 
 // maxStimulusRegions は1種目が寄与できる筋区分の数の上限。

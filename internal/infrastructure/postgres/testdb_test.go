@@ -11,7 +11,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/dyoshyy/liftplan-server/internal/infrastructure/postgres"
+	"github.com/dyoshyy/liftplan/internal/infrastructure/postgres"
 )
 
 // TEST_DATABASE_URL が無いときの扱い。

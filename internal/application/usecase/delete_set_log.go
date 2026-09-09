@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/dyoshyy/liftplan-server/internal/domain/training/setlog"
+	"github.com/dyoshyy/liftplan/internal/domain/training/setlog"
 )
 
 // DeleteSetLog は打ち間違いを取り消すユースケース。

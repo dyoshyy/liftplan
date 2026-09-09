@@ -1,8 +1,8 @@
 package planning
 
 import (
-	"github.com/dyoshyy/liftplan-server/internal/domain/training"
-	"github.com/dyoshyy/liftplan-server/internal/domain/training/exercise"
+	"github.com/dyoshyy/liftplan/internal/domain/training"
+	"github.com/dyoshyy/liftplan/internal/domain/training/exercise"
 )
 
 // PlannedSet はその日にやることの1単位。
