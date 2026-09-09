@@ -413,7 +413,7 @@ func TestBuildHandler_UsesPostgresWhenConfigured(t *testing.T) {
 		h.ServeHTTP(rec, r)
 		return rec.Code
 	}
-	benchWeight := func(t *testing.T, h http.Handler) *float64 {
+	heavyWeight := func(t *testing.T, h http.Handler) *float64 {
 		t.Helper()
 		rec := httptest.NewRecorder()
 		h.ServeHTTP(rec, authed(http.MethodGet, "/api/sessions?date=2026-08-17", nil))
@@ -429,13 +429,10 @@ func TestBuildHandler_UsesPostgresWhenConfigured(t *testing.T) {
 		if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
 			t.Fatalf("応答を解釈できない: %v", err)
 		}
-		for _, m := range got.Main {
-			if m.ExerciseID == "bench" {
-				return m.WeightKg
-			}
+		if len(got.Main) != 1 {
+			t.Fatalf("ヘビー枠が1つでない: %d", len(got.Main))
 		}
-		t.Fatal("bench がメインに無い")
-		return nil
+		return got.Main[0].WeightKg
 	}
 
 	t.Setenv("AUTH_TOKEN", testAuthToken)
@@ -446,18 +443,23 @@ func TestBuildHandler_UsesPostgresWhenConfigured(t *testing.T) {
 	}
 
 	// 前のテスト実行の残りを消してから始める。
+	// 宣言した3種目すべてに記録する。ヘビー枠は「最後にやったのが最も
+	// 古い種目」で、一度もやっていない種目が最優先になるので、ベンチだけ
+	// 記録すると未実施のスクワットが軸に来て重量が確定しない。
 	id := fmt.Sprintf("e2e-%d", time.Now().UnixNano())
-	logs := make([]string, 0, 3)
+	logs := make([]string, 0, 9)
 	for i := range 3 {
-		logs = append(logs, fmt.Sprintf(
-			`{"id":"%s-%d","date":"2026-08-10","exercise_id":"bench",`+
-				`"weight_kg":85,"reps":8,"rir":2}`, id, i))
+		for _, ex := range []string{"bench", "squat", "deadlift"} {
+			logs = append(logs, fmt.Sprintf(
+				`{"id":"%s-%d-%s","date":"2026-08-10","exercise_id":%q,`+
+					`"weight_kg":85,"reps":8,"rir":2}`, id, i, ex, ex))
+		}
 	}
 	if code := post(t, first, "/api/set-logs",
 		`{"logs":[`+strings.Join(logs, ",")+`]}`); code != http.StatusNoContent {
 		t.Fatalf("記録に失敗: %d", code)
 	}
-	before := benchWeight(t, first)
+	before := heavyWeight(t, first)
 	if before == nil {
 		t.Fatal("記録したのに重量が未確定")
 	}
@@ -472,7 +474,7 @@ func TestBuildHandler_UsesPostgresWhenConfigured(t *testing.T) {
 	}
 	t.Cleanup(closeSecond)
 
-	after := benchWeight(t, second)
+	after := heavyWeight(t, second)
 	if after == nil {
 		t.Fatal("組み立て直したら記録が消えた")
 	}
