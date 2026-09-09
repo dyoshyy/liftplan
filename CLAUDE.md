@@ -102,7 +102,11 @@ func TestSessionPlanner_FinishedAccessoryStaysInTheList(t *testing.T) {
 
 **doc コメントは宣言名で始める。**`go doc` の出力と補完で効く。
 
-**ファイル名でドメインサービスと型を分ける。**サービスは役割の名詞で終わる（`_planner` `_selector` `_policy` `_analyzer` `_estimator` `_catalog`）。ディレクトリは割らない（理由は `internal/domain/training/doc.go`）。
+**ドメイン層は集約でディレクトリを割る。**`training/{exercise,setlog,condition,program}` が集約、`training/planning` がドメインサービス、`training` 直下はどの集約にも属さない値（日付・単位・筋区分・推定1RM）。集約をまたいで判断するものは全て `planning` に置く（理由は `internal/domain/training/doc.go`、経緯は D-122）。
+
+**`planning` の中はファイル名で分ける。**サービスは役割の名詞で終わる（`_planner` `_selector` `_policy` `_analyzer` `_estimator` `_catalog`）。ここをさらにディレクトリで割ると、`PlannedSet` のような非公開フィールドしか持たない型が公開コンストラクタを要求される。
+
+**リポジトリのインターフェースは読みと書きに分ける。**集約のパッケージに `Reader` / `Writer` を置き、使う側は要る半分だけを受け取る。
 
 ## PR は小さく、1本に1つの判断
 

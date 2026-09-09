@@ -7,6 +7,8 @@ import (
 	"sort"
 
 	"github.com/dyoshyy/liftplan-server/internal/domain/training"
+	"github.com/dyoshyy/liftplan-server/internal/domain/training/exercise"
+	"github.com/dyoshyy/liftplan-server/internal/domain/training/program"
 )
 
 // ErrInvalidInput は入力そのものが不正であることを表す。
@@ -25,8 +27,8 @@ var ErrInvalidInput = errors.New("入力が不正である")
 type ConfigureProgramInput struct {
 	PerWeek  int
 	Target   map[training.MuscleRegion]float64
-	Selected []training.ExerciseID
-	Declared []training.ExerciseID
+	Selected []exercise.ExerciseID
+	Declared []exercise.ExerciseID
 }
 
 // ConfigureProgram はユーザーのプログラム設定を保存するユースケース。
@@ -38,13 +40,13 @@ type ConfigureProgramInput struct {
 // 突合は「判断」ではなく入力検証なので、ドメインではなくここに置く。
 // 種目マスタの取得が I/O である以上、ドメインには置けない。
 type ConfigureProgram struct {
-	exercises training.ExerciseRepository
-	programs  training.ProgramRepository
+	exercises exercise.Reader
+	programs  program.Writer
 }
 
 func NewConfigureProgram(
-	exercises training.ExerciseRepository,
-	programs training.ProgramRepository,
+	exercises exercise.Reader,
+	programs program.Writer,
 ) *ConfigureProgram {
 	return &ConfigureProgram{exercises: exercises, programs: programs}
 }
@@ -53,15 +55,15 @@ func (u *ConfigureProgram) Execute(ctx context.Context, in ConfigureProgramInput
 	// I/O を必要としない検証を先に済ませる。後回しにすると、頻度が範囲外
 	// という自明な入力ミスが、種目マスタの障害時に「種目の取得に失敗」として
 	// 返る。クライアントは自分の入力を直さずリトライを繰り返す。
-	frequency, err := training.NewFrequency(in.PerWeek)
+	frequency, err := program.NewFrequency(in.PerWeek)
 	if err != nil {
 		return fmt.Errorf("%w: 頻度: %w", ErrInvalidInput, err)
 	}
-	target, err := training.NewWeeklyVolumeTarget(in.Target)
+	target, err := program.NewWeeklyVolumeTarget(in.Target)
 	if err != nil {
 		return fmt.Errorf("%w: 週目標: %w", ErrInvalidInput, err)
 	}
-	program, err := training.NewProgram(frequency, target, in.Selected, in.Declared)
+	prog, err := program.NewProgram(frequency, target, in.Selected, in.Declared)
 	if err != nil {
 		return fmt.Errorf("%w: プログラム: %w", ErrInvalidInput, err)
 	}
@@ -74,19 +76,19 @@ func (u *ConfigureProgram) Execute(ctx context.Context, in ConfigureProgramInput
 	if err != nil {
 		return fmt.Errorf("種目の取得に失敗: %w", err)
 	}
-	if err := verifySelection(pool, program); err != nil {
+	if err := verifySelection(pool, prog); err != nil {
 		return err
 	}
 
-	if err := u.programs.Save(ctx, program); err != nil {
+	if err := u.programs.Save(ctx, prog); err != nil {
 		return fmt.Errorf("プログラムの保存に失敗: %w", err)
 	}
 	return nil
 }
 
 // verifySelection は選択された種目を種目マスタと突合する。
-func verifySelection(pool []*training.Exercise, program *training.Program) error {
-	known := make(map[training.ExerciseID]*training.Exercise, len(pool))
+func verifySelection(pool []*exercise.Exercise, prog *program.Program) error {
+	known := make(map[exercise.ExerciseID]*exercise.Exercise, len(pool))
 	for _, e := range pool {
 		if e == nil {
 			continue
@@ -94,11 +96,11 @@ func verifySelection(pool []*training.Exercise, program *training.Program) error
 		known[e.ID()] = e
 	}
 
-	selected := make([]*training.Exercise, 0, len(pool))
-	for _, id := range program.SelectedExercises() {
+	selected := make([]*exercise.Exercise, 0, len(pool))
+	for _, id := range prog.SelectedExercises() {
 		e, ok := known[id]
 		if !ok {
-			return fmt.Errorf("%w: %w: %s", ErrInvalidInput, training.ErrExerciseNotFound, id)
+			return fmt.Errorf("%w: %w: %s", ErrInvalidInput, exercise.ErrExerciseNotFound, id)
 		}
 		selected = append(selected, e)
 	}
@@ -109,10 +111,10 @@ func verifySelection(pool []*training.Exercise, program *training.Program) error
 	// 区分ごとに種目を要求はしない。特定の区分を埋める種目を持っていない
 	// のは普通のことで、その区分の達成率が低く出るのは情報として正しい。
 	// 弾くのは、目標と選択がまったく噛み合っていない場合だけ。
-	if !stimulatesAnyTarget(selected, program) {
+	if !stimulatesAnyTarget(selected, prog) {
 		return fmt.Errorf(
 			"%w: 選択した種目が週目標のどの筋区分も刺激しない: %v",
-			ErrInvalidInput, sortedRegions(program.WeeklyTarget()))
+			ErrInvalidInput, sortedRegions(prog.WeeklyTarget()))
 	}
 	return nil
 }
@@ -123,10 +125,10 @@ func verifySelection(pool []*training.Exercise, program *training.Program) error
 // 選択に含まれなくても自動で回る抜け道があったため。抜け道を塞いだので、
 // 選択された種目だけを見ればよい。
 func stimulatesAnyTarget(
-	selected []*training.Exercise,
-	program *training.Program,
+	selected []*exercise.Exercise,
+	prog *program.Program,
 ) bool {
-	target := program.WeeklyTarget()
+	target := prog.WeeklyTarget()
 	for _, e := range selected {
 		for _, r := range e.Stimulus().Regions() {
 			if target.Sets(r) > 0 {
@@ -137,7 +139,7 @@ func stimulatesAnyTarget(
 	return false
 }
 
-func sortedRegions(t training.WeeklyVolumeTarget) []training.MuscleRegion {
+func sortedRegions(t program.WeeklyVolumeTarget) []training.MuscleRegion {
 	out := t.Regions()
 	sort.Slice(out, func(i, j int) bool { return out[i] < out[j] })
 	return out

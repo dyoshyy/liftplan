@@ -13,6 +13,10 @@ import (
 	"github.com/dyoshyy/liftplan-server/internal/application/query"
 	"github.com/dyoshyy/liftplan-server/internal/application/usecase"
 	"github.com/dyoshyy/liftplan-server/internal/domain/training"
+	"github.com/dyoshyy/liftplan-server/internal/domain/training/condition"
+	"github.com/dyoshyy/liftplan-server/internal/domain/training/exercise"
+	"github.com/dyoshyy/liftplan-server/internal/domain/training/program"
+	"github.com/dyoshyy/liftplan-server/internal/domain/training/setlog"
 )
 
 type Handler struct {
@@ -74,9 +78,9 @@ func respondError(w http.ResponseWriter, err error) {
 		writeError(w, http.StatusRequestEntityTooLarge, err.Error())
 	case errors.Is(err, usecase.ErrInvalidInput):
 		writeError(w, http.StatusBadRequest, err.Error())
-	case errors.Is(err, training.ErrProgramNotConfigured):
+	case errors.Is(err, program.ErrProgramNotConfigured):
 		writeError(w, http.StatusConflict, "プログラムが未設定である")
-	case errors.Is(err, training.ErrConflictingSetLog):
+	case errors.Is(err, setlog.ErrConflictingSetLog):
 		writeError(w, http.StatusConflict, err.Error())
 	case errors.Is(err, training.ErrRepositoryUnavailable):
 		// 後で送り直せば通る。500 と混ぜるとクライアントが諦める。
@@ -100,17 +104,17 @@ func invalidInput(message string) error {
 //
 // 空要素は落とす。"a,,b" や末尾のカンマはクライアントの組み立てで
 // 普通に生まれるので、そのたびに 400 を返す理由がない。
-func parseExerciseIDs(raw string) []training.ExerciseID {
+func parseExerciseIDs(raw string) []exercise.ExerciseID {
 	if raw == "" {
 		return nil
 	}
-	out := make([]training.ExerciseID, 0, strings.Count(raw, ",")+1)
+	out := make([]exercise.ExerciseID, 0, strings.Count(raw, ",")+1)
 	for _, part := range strings.Split(raw, ",") {
 		part = strings.TrimSpace(part)
 		if part == "" {
 			continue
 		}
-		out = append(out, training.ExerciseID(part))
+		out = append(out, exercise.ExerciseID(part))
 	}
 	return out
 }
@@ -146,7 +150,7 @@ func (h *Handler) handlePostSetLogs(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	logs := make([]*training.SetLog, 0, len(req.Logs))
+	logs := make([]*setlog.SetLog, 0, len(req.Logs))
 	for i, dto := range req.Logs {
 		date, err := training.ParseDate(dto.Date)
 		if err != nil {
@@ -158,7 +162,7 @@ func (h *Handler) handlePostSetLogs(w http.ResponseWriter, r *http.Request) {
 				fmt.Sprintf("logs[%d]: weight_kg / reps / rir は必須である", i))
 			return
 		}
-		log, err := training.NewSetLog(training.SetLogParams{
+		log, err := setlog.NewSetLog(setlog.SetLogParams{
 			ID:          dto.ID,
 			PerformedOn: date,
 			ExerciseID:  dto.ExerciseID,
@@ -187,7 +191,7 @@ func (h *Handler) handlePostConditions(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	items := make([]training.DailyCondition, 0, len(req.Conditions))
+	items := make([]condition.DailyCondition, 0, len(req.Conditions))
 	for i, dto := range req.Conditions {
 		date, err := training.ParseDate(dto.Date)
 		if err != nil {
@@ -198,7 +202,7 @@ func (h *Handler) handlePostConditions(w http.ResponseWriter, r *http.Request) {
 		// 取り込み全体を止めないための判断で、集めた記録を扱う場面では正しい。
 		// だが保存要求では別で、黙って捨てるとクライアントは成功したと
 		// 受け取ったまま記録が消える。しかも取得口が無いので検知できない。
-		c := training.NewDailyCondition(date)
+		c := condition.NewDailyCondition(date)
 		if dto.BodyWeightKg != nil {
 			c = c.WithBodyWeight(*dto.BodyWeightKg)
 			if _, ok := c.BodyWeightKg(); !ok {
@@ -231,18 +235,18 @@ func (h *Handler) handlePostConditions(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) handleGetProgram(w http.ResponseWriter, r *http.Request) {
-	program, err := h.getProgram.Execute(r.Context())
+	prog, err := h.getProgram.Execute(r.Context())
 	if err != nil {
 		// 取得の文脈では 404。まだ存在しないという意味であって、
 		// 状態の衝突ではない。
-		if errors.Is(err, training.ErrProgramNotConfigured) {
+		if errors.Is(err, program.ErrProgramNotConfigured) {
 			writeError(w, http.StatusNotFound, "プログラムが未設定である")
 			return
 		}
 		respondError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, toProgramDTO(program))
+	writeJSON(w, http.StatusOK, toProgramDTO(prog))
 }
 
 func (h *Handler) handlePutProgram(w http.ResponseWriter, r *http.Request) {

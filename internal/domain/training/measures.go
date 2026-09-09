@@ -3,6 +3,7 @@ package training
 import (
 	"fmt"
 	"math"
+	"sort"
 )
 
 // 現実的な上限。
@@ -29,14 +30,14 @@ const (
 // それが JSON に出るとユーザーの目に触れる。
 const quantum = 1e6
 
-// quantize は浮動小数点の計算残差を落とす。
+// Quantize は浮動小数点の計算残差を落とす。
 //
 // 検証の「前」に適用すること。後に適用すると、検証を通った値が量子化で
 // +Inf になったり 0 に潰れたりして、コンストラクタが自分で不変条件を破る。
-func quantize(v float64) float64 { return math.Round(v*quantum) / quantum }
+func Quantize(v float64) float64 { return math.Round(v*quantum) / quantum }
 
-// validateRange は量子化済みの値が [min, max] に収まるかを検査する。
-func validateRange(name string, v, min, max float64) error {
+// ValidateRange は量子化済みの値が [min, max] に収まるかを検査する。
+func ValidateRange(name string, v, min, max float64) error {
 	if math.IsNaN(v) {
 		return fmt.Errorf("%sが数値ではない", name)
 	}
@@ -49,8 +50,8 @@ func validateRange(name string, v, min, max float64) error {
 	return nil
 }
 
-// smallestPositive は量子化後に0に潰れない最小の正の値。
-const smallestPositive = 1 / quantum
+// SmallestPositive は量子化後に0に潰れない最小の正の値。
+const SmallestPositive = 1 / quantum
 
 // Increment はジムのプレート構成に対応する重量の刻み。
 type Increment struct {
@@ -58,8 +59,8 @@ type Increment struct {
 }
 
 func NewIncrement(kg float64) (Increment, error) {
-	q := quantize(kg)
-	if err := validateRange("増加単位", q, smallestPositive, maxIncrementKg); err != nil {
+	q := Quantize(kg)
+	if err := ValidateRange("増加単位", q, SmallestPositive, maxIncrementKg); err != nil {
 		return Increment{}, err
 	}
 	return Increment{kg: q}, nil
@@ -76,9 +77,9 @@ type Weight struct {
 }
 
 func NewWeight(kg float64) (Weight, error) {
-	q := quantize(kg)
+	q := Quantize(kg)
 	// 自重種目を0kgで記録する運用があるため下限は0。
-	if err := validateRange("重量", q, 0, maxWeightKg); err != nil {
+	if err := ValidateRange("重量", q, 0, maxWeightKg); err != nil {
 		return Weight{}, err
 	}
 	return Weight{kg: q}, nil
@@ -152,8 +153,8 @@ type IntensityPct struct {
 }
 
 func NewIntensityPct(v float64) (IntensityPct, error) {
-	q := quantize(v)
-	if err := validateRange("強度", q, smallestPositive, 1); err != nil {
+	q := Quantize(v)
+	if err := ValidateRange("強度", q, SmallestPositive, 1); err != nil {
 		return IntensityPct{}, err
 	}
 	return IntensityPct{v: q}, nil
@@ -179,7 +180,7 @@ func (i IntensityPct) Reduce(pct float64) IntensityPct {
 	if pct > maxReduction {
 		pct = maxReduction
 	}
-	return IntensityPct{v: quantize(i.v * (1 - pct))}
+	return IntensityPct{v: Quantize(i.v * (1 - pct))}
 }
 
 // Ratio は比率。バリエーションの対メイン係数に使う。
@@ -188,8 +189,8 @@ type Ratio struct {
 }
 
 func NewRatio(v float64) (Ratio, error) {
-	q := quantize(v)
-	if err := validateRange("比率", q, smallestPositive, maxRatio); err != nil {
+	q := Quantize(v)
+	if err := ValidateRange("比率", q, SmallestPositive, maxRatio); err != nil {
 		return Ratio{}, err
 	}
 	return Ratio{v: q}, nil
@@ -217,8 +218,8 @@ type Contribution struct {
 }
 
 func NewContribution(v float64) (Contribution, error) {
-	q := quantize(v)
-	if err := validateRange("寄与度", q, smallestPositive, 1); err != nil {
+	q := Quantize(v)
+	if err := ValidateRange("寄与度", q, SmallestPositive, 1); err != nil {
 		return Contribution{}, err
 	}
 	return Contribution{v: q}, nil
@@ -228,7 +229,7 @@ func (c Contribution) Float() float64 { return c.v }
 
 // TimesSets は指定セット数ぶんの刺激量。StimulusCoverage の積み上げに使う。
 func (c Contribution) TimesSets(s SetCount) float64 {
-	return quantize(c.v * float64(s.v))
+	return Quantize(c.v * float64(s.v))
 }
 
 type BodyweightFactor struct {
@@ -236,11 +237,27 @@ type BodyweightFactor struct {
 }
 
 func NewBodyweightFactor(factor float64) (BodyweightFactor, error) {
-	q := quantize(factor)
-	if err := validateRange("自重係数", q, 0, maxBodyweightFactor); err != nil {
+	q := Quantize(factor)
+	if err := ValidateRange("自重係数", q, 0, maxBodyweightFactor); err != nil {
 		return BodyweightFactor{}, err
 	}
 	return BodyweightFactor{q}, nil
 }
 
 func (f BodyweightFactor) Float() float64 { return f.v }
+
+// Median は昇順ソートした上での中央値。呼び出し側が非空を保証すること。
+//
+// 量子化はここでは行わない。生成を必ず NewOneRepMax に通すことで、
+// 検証と量子化を一箇所に集約する。
+func Median(values []float64) float64 {
+	sorted := make([]float64, len(values))
+	copy(sorted, values)
+	sort.Float64s(sorted)
+
+	n := len(sorted)
+	if n%2 == 1 {
+		return sorted[n/2]
+	}
+	return (sorted[n/2-1] + sorted[n/2]) / 2
+}

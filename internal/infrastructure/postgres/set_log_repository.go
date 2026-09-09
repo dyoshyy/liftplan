@@ -13,6 +13,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/dyoshyy/liftplan-server/internal/domain/training"
+	"github.com/dyoshyy/liftplan-server/internal/domain/training/setlog"
 )
 
 // SetLogRepository は実績ログの Postgres 実装。
@@ -28,7 +29,7 @@ func NewSetLogRepository(pool *pgxpool.Pool) *SetLogRepository {
 //
 // 順序を固定するのは、揺れると History の重複解決や推定1RMの畳み込みが
 // 呼び出しごとに変わり、同じ入力から違う計画が出るため。
-func (r *SetLogRepository) FindAll(ctx context.Context) (training.History, error) {
+func (r *SetLogRepository) FindAll(ctx context.Context) (setlog.History, error) {
 	rows, err := r.pool.Query(ctx, `
 		SELECT id, performed_on, exercise_id, weight_kg, reps, rir
 		FROM set_logs
@@ -37,25 +38,25 @@ func (r *SetLogRepository) FindAll(ctx context.Context) (training.History, error
 		-- 食い違う。順序が揺れると同じ入力から違う計画が出る。
 		ORDER BY id COLLATE "C"`)
 	if err != nil {
-		return training.History{}, wrapUnavailable(err, "実績を読めない")
+		return setlog.History{}, wrapUnavailable(err, "実績を読めない")
 	}
 	defer rows.Close()
 
-	var out []*training.SetLog
+	var out []*setlog.SetLog
 	for rows.Next() {
 		log, err := scanSetLog(rows)
 		if err != nil {
-			return training.History{}, err
+			return setlog.History{}, err
 		}
 		out = append(out, log)
 	}
 	if err := rows.Err(); err != nil {
-		return training.History{}, wrapUnavailable(err, "実績を読めない")
+		return setlog.History{}, wrapUnavailable(err, "実績を読めない")
 	}
-	return training.NewHistory(out), nil
+	return setlog.NewHistory(out), nil
 }
 
-func scanSetLog(rows pgx.Rows) (*training.SetLog, error) {
+func scanSetLog(rows pgx.Rows) (*setlog.SetLog, error) {
 	var (
 		id, exerciseID string
 		performedOn    time.Time
@@ -73,7 +74,7 @@ func scanSetLog(rows pgx.Rows) (*training.SetLog, error) {
 
 	// 保存済みの値も必ずコンストラクタを通す。DB に不正な値が
 	// 入っていても、ここで止めればドメインには届かない。
-	log, err := training.NewSetLog(training.SetLogParams{
+	log, err := setlog.NewSetLog(setlog.SetLogParams{
 		ID: id, PerformedOn: date, ExerciseID: exerciseID,
 		WeightKg: weightKg, Reps: reps, RIR: rir,
 	})
@@ -99,7 +100,7 @@ const maxSaveAttempts = 3
 // 再送はこの設計が日常的に起こると想定しているものなので、これは致命的。
 //
 // トランザクションで包むことが、そのまま「全か無か」の実装になる。
-func (r *SetLogRepository) Save(ctx context.Context, logs []*training.SetLog) error {
+func (r *SetLogRepository) Save(ctx context.Context, logs []*setlog.SetLog) error {
 	if len(logs) == 0 {
 		return nil
 	}
@@ -129,15 +130,15 @@ func (r *SetLogRepository) Save(ctx context.Context, logs []*training.SetLog) er
 // ID順に固定するのは、行ロックを取る順序を揃えてデッドロックを消すため。
 // map の反復順のまま流すと、同じ入力でも呼び出しごとに INSERT 順が変わり、
 // 同一リクエストの二重送信どうしが互いを待って詰まる。
-func stageSetLogs(logs []*training.SetLog) (map[training.SetLogID]*training.SetLog, []string, error) {
-	staged := make(map[training.SetLogID]*training.SetLog, len(logs))
+func stageSetLogs(logs []*setlog.SetLog) (map[setlog.SetLogID]*setlog.SetLog, []string, error) {
+	staged := make(map[setlog.SetLogID]*setlog.SetLog, len(logs))
 	for i, l := range logs {
 		if l == nil {
 			return nil, nil, fmt.Errorf("%d番目のセットログが nil である", i)
 		}
 		if prev, dup := staged[l.ID()]; dup {
 			if !prev.Equals(l) {
-				return nil, nil, fmt.Errorf("%w: %s", training.ErrConflictingSetLog, l.ID())
+				return nil, nil, fmt.Errorf("%w: %s", setlog.ErrConflictingSetLog, l.ID())
 			}
 			continue
 		}
@@ -154,7 +155,7 @@ func stageSetLogs(logs []*training.SetLog) (map[training.SetLogID]*training.SetL
 
 func (r *SetLogRepository) saveOnce(
 	ctx context.Context,
-	staged map[training.SetLogID]*training.SetLog,
+	staged map[setlog.SetLogID]*setlog.SetLog,
 	ids []string,
 ) error {
 	tx, err := r.pool.Begin(ctx)
@@ -165,7 +166,7 @@ func (r *SetLogRepository) saveOnce(
 
 	batch := &pgx.Batch{}
 	for _, id := range ids {
-		l := staged[training.SetLogID(id)]
+		l := staged[setlog.SetLogID(id)]
 		batch.Queue(`
 			INSERT INTO set_logs (id, performed_on, exercise_id, weight_kg, reps, rir)
 			VALUES ($1, $2, $3, $4, $5, $6)
@@ -186,7 +187,7 @@ func (r *SetLogRepository) saveOnce(
 	if err != nil {
 		return fmt.Errorf("保存後の実績を読めない: %w", err)
 	}
-	stored := make(map[training.SetLogID]*training.SetLog, len(ids))
+	stored := make(map[setlog.SetLogID]*setlog.SetLog, len(ids))
 	for rows.Next() {
 		log, err := scanSetLog(rows)
 		if err != nil {
@@ -201,13 +202,13 @@ func (r *SetLogRepository) saveOnce(
 	}
 
 	for _, id := range ids {
-		want := staged[training.SetLogID(id)]
-		got, ok := stored[training.SetLogID(id)]
+		want := staged[setlog.SetLogID(id)]
+		got, ok := stored[setlog.SetLogID(id)]
 		if !ok {
 			return fmt.Errorf("実績 %s が保存されていない", id)
 		}
 		if !got.Equals(want) {
-			return fmt.Errorf("%w: %s", training.ErrConflictingSetLog, id)
+			return fmt.Errorf("%w: %s", setlog.ErrConflictingSetLog, id)
 		}
 	}
 
@@ -231,7 +232,7 @@ func isRetryable(err error) bool {
 //
 // 影響行数を見ないのは、再送で二度目が来たときにエラーにしないため。
 // 「消えているのに消せない」という状態を作らない。
-func (r *SetLogRepository) Delete(ctx context.Context, id training.SetLogID) error {
+func (r *SetLogRepository) Delete(ctx context.Context, id setlog.SetLogID) error {
 	if _, err := r.pool.Exec(ctx,
 		"DELETE FROM set_logs WHERE id = $1", string(id)); err != nil {
 		return wrapUnavailable(err, "実績を削除できない")
@@ -247,4 +248,7 @@ func toTime(d training.Date) time.Time {
 	return time.Date(d.Year(), d.Month(), d.Day(), 0, 0, 0, 0, time.UTC)
 }
 
-var _ training.SetLogRepository = (*SetLogRepository)(nil)
+var (
+	_ setlog.Reader = (*SetLogRepository)(nil)
+	_ setlog.Writer = (*SetLogRepository)(nil)
+)

@@ -7,6 +7,8 @@ import (
 
 	"github.com/dyoshyy/liftplan-server/internal/application/query"
 	"github.com/dyoshyy/liftplan-server/internal/domain/training"
+	"github.com/dyoshyy/liftplan-server/internal/domain/training/exercise"
+	"github.com/dyoshyy/liftplan-server/internal/domain/training/setlog"
 )
 
 // defaultHistoryDays は期間を指定しなかったときに遡る日数。
@@ -70,7 +72,7 @@ func (h *Handler) handleGetSetLogs(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) handleDeleteSetLog(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
-	if err := h.deleteSetLog.Execute(r.Context(), training.SetLogID(id)); err != nil {
+	if err := h.deleteSetLog.Execute(r.Context(), setlog.SetLogID(id)); err != nil {
 		respondError(w, err)
 		return
 	}
@@ -172,7 +174,7 @@ func toDayDTOs(days []query.Day) []dayDTO {
 	return out
 }
 
-func toLastDTOs(last map[training.ExerciseID]query.LastPerformance) map[string]lastDTO {
+func toLastDTOs(last map[exercise.ExerciseID]query.LastPerformance) map[string]lastDTO {
 	out := make(map[string]lastDTO, len(last))
 	for id, l := range last {
 		out[string(id)] = lastDTO{

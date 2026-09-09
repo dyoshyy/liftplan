@@ -6,48 +6,52 @@ import (
 
 	"github.com/dyoshyy/liftplan-server/internal/application/query"
 	"github.com/dyoshyy/liftplan-server/internal/domain/training"
+	"github.com/dyoshyy/liftplan-server/internal/domain/training/exercise"
+	"github.com/dyoshyy/liftplan-server/internal/domain/training/planning"
+	"github.com/dyoshyy/liftplan-server/internal/domain/training/program"
+	"github.com/dyoshyy/liftplan-server/internal/domain/training/setlog"
 )
 
 type stubProgram struct {
-	program *training.Program
-	err     error
+	prog *program.Program
+	err  error
 }
 
-func (s *stubProgram) Get(context.Context) (*training.Program, error) { return s.program, s.err }
-func (s *stubProgram) Save(context.Context, *training.Program) error  { return nil }
+func (s *stubProgram) Get(context.Context) (*program.Program, error) { return s.prog, s.err }
+func (s *stubProgram) Save(context.Context, *program.Program) error  { return nil }
 
-func program(t *testing.T, sets map[training.MuscleRegion]float64, selected []training.ExerciseID) *training.Program {
+func newProgram(t *testing.T, sets map[training.MuscleRegion]float64, selected []exercise.ExerciseID) *program.Program {
 	t.Helper()
-	freq, err := training.NewFrequency(3)
+	freq, err := program.NewFrequency(3)
 	if err != nil {
 		t.Fatalf("頻度が不正: %v", err)
 	}
-	target, err := training.NewWeeklyVolumeTarget(sets)
+	target, err := program.NewWeeklyVolumeTarget(sets)
 	if err != nil {
 		t.Fatalf("週目標が不正: %v", err)
 	}
-	p, err := training.NewProgram(freq, target, selected, selected)
+	p, err := program.NewProgram(freq, target, selected, selected)
 	if err != nil {
 		t.Fatalf("プログラムが不正: %v", err)
 	}
 	return p
 }
 
-func newStats(t *testing.T, logs []*training.SetLog, pool []*training.Exercise, p *training.Program) *query.Stats {
+func newStats(t *testing.T, logs []*setlog.SetLog, pool []*exercise.Exercise, p *program.Program) *query.Stats {
 	t.Helper()
 	return query.NewStats(
-		&stubLogs{history: training.NewHistory(logs)},
+		&stubLogs{history: setlog.NewHistory(logs)},
 		&stubExercises{all: pool},
-		&stubProgram{program: p},
-		training.DefaultOneRepMaxEstimator(),
+		&stubProgram{prog: p},
+		planning.DefaultOneRepMaxEstimator(),
 	)
 }
 
-func defaultProgram(t *testing.T) *training.Program {
+func defaultProgram(t *testing.T) *program.Program {
 	t.Helper()
-	return program(t,
+	return newProgram(t,
 		map[training.MuscleRegion]float64{training.ChestMid: 10, training.Lat: 8},
-		[]training.ExerciseID{"bench"},
+		[]exercise.ExerciseID{"bench"},
 	)
 }
 
@@ -55,12 +59,12 @@ func defaultProgram(t *testing.T) *training.Program {
 // 並びが崩れると、伸びているのに減っているように見える。
 func TestTrends_古い順に並び現在値は最後の点(t *testing.T) {
 	q := newStats(t,
-		[]*training.SetLog{
+		[]*setlog.SetLog{
 			log(t, "c", "2026-08-18", "bench", 100, 5, 1),
 			log(t, "a", "2026-08-04", "bench", 90, 5, 1),
 			log(t, "b", "2026-08-11", "bench", 95, 5, 1),
 		},
-		[]*training.Exercise{exercise(t, "bench", "ベンチプレス")},
+		[]*exercise.Exercise{newExercise(t, "bench", "ベンチプレス")},
 		defaultProgram(t),
 	)
 
@@ -90,11 +94,11 @@ func TestTrends_古い順に並び現在値は最後の点(t *testing.T) {
 
 func TestTrends_期間の外を含めない(t *testing.T) {
 	q := newStats(t,
-		[]*training.SetLog{
+		[]*setlog.SetLog{
 			log(t, "a", "2026-07-01", "bench", 90, 5, 1),
 			log(t, "b", "2026-08-11", "bench", 95, 5, 1),
 		},
-		[]*training.Exercise{exercise(t, "bench", "ベンチプレス")},
+		[]*exercise.Exercise{newExercise(t, "bench", "ベンチプレス")},
 		defaultProgram(t),
 	)
 
@@ -110,8 +114,8 @@ func TestTrends_期間の外を含めない(t *testing.T) {
 // 記録が無い種目は線が引けないので出さない。0 として出すと床に張り付く。
 func TestTrends_記録の無い種目は出さない(t *testing.T) {
 	q := newStats(t,
-		[]*training.SetLog{log(t, "a", "2026-08-11", "bench", 95, 5, 1)},
-		[]*training.Exercise{exercise(t, "bench", "ベンチプレス"), exercise(t, "squat", "スクワット")},
+		[]*setlog.SetLog{log(t, "a", "2026-08-11", "bench", 95, 5, 1)},
+		[]*exercise.Exercise{newExercise(t, "bench", "ベンチプレス"), newExercise(t, "squat", "スクワット")},
 		defaultProgram(t),
 	)
 
@@ -134,13 +138,13 @@ func TestTrends_期間が無ければ断る(t *testing.T) {
 // 週目標に対する充足。埋まっていない区分が上に来る。
 // 補助種目が選ばれる理由がここで見える。
 func TestWeeklyVolume_埋まっていない順に並ぶ(t *testing.T) {
-	bench := exercise(t, "bench", "ベンチプレス")
+	bench := newExercise(t, "bench", "ベンチプレス")
 	q := newStats(t,
-		[]*training.SetLog{
+		[]*setlog.SetLog{
 			log(t, "a", "2026-08-18", "bench", 100, 5, 1),
 			log(t, "b", "2026-08-18", "bench", 100, 5, 1),
 		},
-		[]*training.Exercise{bench},
+		[]*exercise.Exercise{bench},
 		defaultProgram(t),
 	)
 
@@ -177,8 +181,8 @@ func TestWeeklyVolume_埋まっていない順に並ぶ(t *testing.T) {
 // 埋まって見えて補助種目が選ばれなくなる。
 func TestWeeklyVolume_先週を含めない(t *testing.T) {
 	q := newStats(t,
-		[]*training.SetLog{log(t, "a", "2026-08-11", "bench", 100, 5, 1)},
-		[]*training.Exercise{exercise(t, "bench", "ベンチプレス")},
+		[]*setlog.SetLog{log(t, "a", "2026-08-11", "bench", 100, 5, 1)},
+		[]*exercise.Exercise{newExercise(t, "bench", "ベンチプレス")},
 		defaultProgram(t),
 	)
 
@@ -195,10 +199,10 @@ func TestWeeklyVolume_先週を含めない(t *testing.T) {
 
 func TestWeeklyVolume_プログラムが無ければ断る(t *testing.T) {
 	q := query.NewStats(
-		&stubLogs{history: training.NewHistory(nil)},
+		&stubLogs{history: setlog.NewHistory(nil)},
 		&stubExercises{},
-		&stubProgram{program: nil},
-		training.DefaultOneRepMaxEstimator(),
+		&stubProgram{prog: nil},
+		planning.DefaultOneRepMaxEstimator(),
 	)
 	if _, err := q.WeeklyVolume(context.Background(), date(t, "2026-08-18")); err == nil {
 		t.Fatal("プログラム未設定なのに通った")

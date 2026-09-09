@@ -15,11 +15,13 @@ import (
 	"sort"
 
 	"github.com/dyoshyy/liftplan-server/internal/domain/training"
+	"github.com/dyoshyy/liftplan-server/internal/domain/training/exercise"
+	"github.com/dyoshyy/liftplan-server/internal/domain/training/setlog"
 )
 
 // Set は実績1セット。
 type Set struct {
-	ID       training.SetLogID
+	ID       setlog.SetLogID
 	WeightKg float64
 	Reps     int
 	RIR      int
@@ -27,7 +29,7 @@ type Set struct {
 
 // ExerciseLog は1つの種目で、その日にこなしたセットの集まり。
 type ExerciseLog struct {
-	ExerciseID training.ExerciseID
+	ExerciseID exercise.ExerciseID
 	Name       string
 	Sets       []Set
 }
@@ -56,13 +58,13 @@ type LastPerformance struct {
 
 // History は実績を読むための経路。
 type History struct {
-	logs      training.SetLogRepository
-	exercises training.ExerciseRepository
+	logs      setlog.Reader
+	exercises exercise.Reader
 }
 
 func NewHistory(
-	logs training.SetLogRepository,
-	exercises training.ExerciseRepository,
+	logs setlog.Reader,
+	exercises exercise.Reader,
 ) *History {
 	return &History{logs: logs, exercises: exercises}
 }
@@ -85,13 +87,13 @@ func (q *History) Days(ctx context.Context, from, to training.Date) ([]Day, erro
 	// 入る。種目ごとに分けるのはここの仕事。
 	byDate := map[training.Date]*Day{}
 	order := []training.Date{}
-	index := map[training.Date]map[training.ExerciseID]int{}
+	index := map[training.Date]map[exercise.ExerciseID]int{}
 
 	for _, s := range h.OnOrAfter(from).OnOrBefore(to).Sessions() {
 		day := &Day{Date: s.Date()}
 		byDate[s.Date()] = day
 		order = append(order, s.Date())
-		index[s.Date()] = map[training.ExerciseID]int{}
+		index[s.Date()] = map[exercise.ExerciseID]int{}
 
 		for _, l := range s.Logs() {
 			id := l.ExerciseID()
@@ -132,7 +134,7 @@ func (q *History) Days(ctx context.Context, from, to training.Date) ([]Day, erro
 func (q *History) LastPerformances(
 	ctx context.Context,
 	asOf training.Date,
-) (map[training.ExerciseID]LastPerformance, error) {
+) (map[exercise.ExerciseID]LastPerformance, error) {
 	if asOf.IsZero() {
 		return nil, fmt.Errorf("基準日が指定されていない")
 	}
@@ -144,8 +146,8 @@ func (q *History) LastPerformances(
 
 	// 種目ごとに、最も新しい日を選ぶ。1日に複数種目が入るので、
 	// セッション単位ではなく種目単位で見る必要がある。
-	latest := map[training.ExerciseID]training.Date{}
-	logs := map[training.ExerciseID][]*training.SetLog{}
+	latest := map[exercise.ExerciseID]training.Date{}
+	logs := map[exercise.ExerciseID][]*setlog.SetLog{}
 
 	for _, l := range h.Before(asOf).Logs() {
 		id := l.ExerciseID()
@@ -159,7 +161,7 @@ func (q *History) LastPerformances(
 		}
 	}
 
-	out := make(map[training.ExerciseID]LastPerformance, len(latest))
+	out := make(map[exercise.ExerciseID]LastPerformance, len(latest))
 	for id, date := range latest {
 		ls := logs[id]
 		if len(ls) == 0 {
@@ -189,22 +191,22 @@ func (q *History) LastPerformances(
 
 // load は履歴と種目名をまとめて取る。
 func (q *History) load(ctx context.Context) (
-	training.History, map[training.ExerciseID]string, error,
+	setlog.History, map[exercise.ExerciseID]string, error,
 ) {
 	if err := ctx.Err(); err != nil {
-		return training.History{}, nil, fmt.Errorf("読み取りが中断された: %w", err)
+		return setlog.History{}, nil, fmt.Errorf("読み取りが中断された: %w", err)
 	}
 
 	h, err := q.logs.FindAll(ctx)
 	if err != nil {
-		return training.History{}, nil, fmt.Errorf("実績の取得に失敗: %w", err)
+		return setlog.History{}, nil, fmt.Errorf("実績の取得に失敗: %w", err)
 	}
 	pool, err := q.exercises.FindAll(ctx)
 	if err != nil {
-		return training.History{}, nil, fmt.Errorf("種目の取得に失敗: %w", err)
+		return setlog.History{}, nil, fmt.Errorf("種目の取得に失敗: %w", err)
 	}
 
-	names := make(map[training.ExerciseID]string, len(pool))
+	names := make(map[exercise.ExerciseID]string, len(pool))
 	for _, e := range pool {
 		if e == nil {
 			continue

@@ -5,6 +5,9 @@ import (
 
 	"github.com/dyoshyy/liftplan-server/internal/domain/training"
 	"github.com/dyoshyy/liftplan-server/internal/domain/training/seed"
+
+	"github.com/dyoshyy/liftplan-server/internal/domain/training/exercise"
+	"github.com/dyoshyy/liftplan-server/internal/domain/training/program"
 )
 
 func TestExercises_AreValid(t *testing.T) {
@@ -20,11 +23,11 @@ func TestExercises_AreValid(t *testing.T) {
 // BIG3 がシードに入っていること。既定の軸がここから引かれる。
 func TestExercises_ContainsBigThree(t *testing.T) {
 	all, _ := seed.Exercises()
-	found := map[training.ExerciseID]bool{}
+	found := map[exercise.ExerciseID]bool{}
 	for _, e := range all {
 		found[e.ID()] = true
 	}
-	for _, want := range []training.ExerciseID{"squat", "bench", "deadlift"} {
+	for _, want := range []exercise.ExerciseID{"squat", "bench", "deadlift"} {
 		if !found[want] {
 			t.Errorf("%s がシードに無い", want)
 		}
@@ -33,7 +36,7 @@ func TestExercises_ContainsBigThree(t *testing.T) {
 
 func TestExercises_IDsAreUnique(t *testing.T) {
 	all, _ := seed.Exercises()
-	seen := map[training.ExerciseID]bool{}
+	seen := map[exercise.ExerciseID]bool{}
 	for _, e := range all {
 		if seen[e.ID()] {
 			t.Errorf("種目IDが重複している: %s", e.ID())
@@ -48,8 +51,8 @@ func TestExercises_IDsAreUnique(t *testing.T) {
 // メイン/補助はマスタの属性ではなくなったので（D-117）、既定の宣言を
 // 除いた集合で見る。宣言を入れ替える人がいても、区分が浮かないこと。
 // lookupIDs は種目IDの集合を引きやすい形にする。
-func lookupIDs(ids []training.ExerciseID) map[training.ExerciseID]bool {
-	out := make(map[training.ExerciseID]bool, len(ids))
+func lookupIDs(ids []exercise.ExerciseID) map[exercise.ExerciseID]bool {
+	out := make(map[exercise.ExerciseID]bool, len(ids))
 	for _, id := range ids {
 		out[id] = true
 	}
@@ -77,7 +80,7 @@ func TestExercises_NonDeclaredCoverEveryRegion(t *testing.T) {
 
 func TestDefaultWeeklyTarget_CoversEveryRegion(t *testing.T) {
 	for f := 1; f <= 4; f++ {
-		freq, err := training.NewFrequency(f)
+		freq, err := program.NewFrequency(f)
 		if err != nil {
 			t.Fatalf("頻度が不正: %v", err)
 		}
@@ -129,7 +132,7 @@ func TestExercises_ReturnsFreshInstances(t *testing.T) {
 // 目標へ届かせる方法が無くなる。
 func TestSeed_EveryTargetRegionHasANonMainExercise(t *testing.T) {
 	all, _ := seed.Exercises()
-	freq, err := training.NewFrequency(3)
+	freq, err := program.NewFrequency(3)
 	if err != nil {
 		t.Fatalf("頻度が不正: %v", err)
 	}
@@ -183,7 +186,7 @@ func TestExercises_EveryRegionHasAPrimaryAccessory(t *testing.T) {
 
 // メインリフトの主働筋が取り違えられていないこと。
 func TestExercises_MainLiftsHaveTheRightPrimaryMover(t *testing.T) {
-	want := map[training.ExerciseID]training.MuscleRegion{
+	want := map[exercise.ExerciseID]training.MuscleRegion{
 		"squat":    training.Quad,
 		"bench":    training.ChestMid,
 		"deadlift": training.Hamstring,
@@ -221,7 +224,7 @@ func TestExercises_IncrementsArePracticable(t *testing.T) {
 // 推定に入る。ドメイン側に仕組みがあっても、ここが埋まっていなければ
 // 誰にも効かない。
 func TestExercises_BodyweightExercisesHaveAFactor(t *testing.T) {
-	want := map[training.ExerciseID]float64{
+	want := map[exercise.ExerciseID]float64{
 		"pull_up":        0.95,
 		"dip":            0.93,
 		"back_extension": 0.55,

@@ -3,12 +3,13 @@ package httpapi_test
 import (
 	"testing"
 
-	"github.com/dyoshyy/liftplan-server/internal/domain/training"
 	"github.com/dyoshyy/liftplan-server/internal/presentation/httpapi"
+
+	"github.com/dyoshyy/liftplan-server/internal/domain/training/exercise"
 )
 
 func TestParseExerciseIDs(t *testing.T) {
-	cases := map[string][]training.ExerciseID{
+	cases := map[string][]exercise.ExerciseID{
 		"":                nil,
 		"bench":           {"bench"},
 		"bench,squat":     {"bench", "squat"},

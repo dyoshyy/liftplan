@@ -2199,3 +2199,73 @@ Workers Builds は版を上げるだけで活性化せず、本番の切り替�
 
 **戻す条件。**PR ごとに画面を実機で見たくなったとき。そのときは折衷案（本番は
 `versions upload`）から入る。いきなり本番を渡さない。
+
+## D-122 ドメイン層を集約でパッケージに割る。D-115 を覆す
+
+**判断**: `internal/domain/training/` を集約ごとのパッケージに割る。リポジトリのインターフェースは読み口（`Reader`）と書き口（`Writer`）に分け、集約のパッケージに置く。
+
+```
+training/           743行  日付・単位・筋区分・推定1RM（どの集約にも属さない値）
+training/exercise/  195行  種目マスタ
+training/setlog/    390行  実績ログと History
+training/condition/ 211行  日次コンディション
+training/program/   219行  ユーザー設定
+training/planning/ 1612行  ドメインサービス
+training/seed/      237行  初期データ
+```
+
+集約の境界は既にソース上にあった。`//ddd:aggregate` が付いていた4つ（`Program` `SetLog` `Exercise` `DailyCondition`）がそのままパッケージになっている。リポジトリのインターフェースが4つあったことと一致する。
+
+### D-115 を覆す
+
+D-115 は「ディレクトリは割らない」と決めた。**その根拠は今も正しい。**`PlannedSet` は非公開フィールドしか持たないため同じパッケージの `Plan` からしか作れず、別パッケージにすると公開コンストラクタが要る。同じことが `PlannedSession`・`StimulusCoverage`・`DeloadProposal`・`SlotTemplate` にも起きる。
+
+覆せたのは、**D-115 が検討した割り方が違った**から。あのとき机に載っていたのは `entity/` と `service/`、つまり**型とサービスを引き剥がす**案で、これは `PlannedSet` と `SessionPlanner` を別パッケージに置く。保証が消えるのは当然だった。
+
+今回は**ドメインサービスを1つのパッケージ（`planning`）にまとめている**。`PlannedSet` も `PlannedSession` も `StimulusCoverage` も `DeloadProposal` も `SlotTemplate` も、それを組み立てるサービスと同居したままになる。D-115 が守ろうとしたものは1つも失われていない。
+
+D-115 が挙げた他の代償は実際に払った。以下がその全部。
+
+### 公開せざるを得なかったもの
+
+| 元 | 今 | 理由 |
+|---|---|---|
+| `quantize` | `training.Quantize` | condition・program・planning が値の生成前に通す |
+| `validateRange` | `training.ValidateRange` | 同上 |
+| `smallestPositive` | `training.SmallestPositive` | 「正の最小値」を下限にする検証が3パッケージにある |
+| `median` | `training.Median` | setlog（中央値1RM）と planning（Theil-Sen）の両方が使う |
+| `defaultBodyWeightKg` | `condition.DefaultBodyWeightKg` | 実効負荷の計算（planning）が既定値を要る |
+| `maxSleepHours` | `condition.MaxSleepHours` | `ConditionAnalyzer` が閾値の上限として使う |
+
+6つとも**純粋な計算か定数**で、公開しても不変条件は増えない。エンティティの内部状態に触れる口は1つも開けていない。
+
+### 複製したもの
+
+`sortedValues` / `clone` / `lookup`（`~string` に対する10行の汎用ジェネリクス）を `planning/slot.go` に複製した。`SlotRole` の一覧を作るためだけに使う。公開すると、ドメインの語彙に意味を持たない汎用関数が並ぶ。10行の重複のほうが安い。
+
+テストヘルパも同じ判断で、`helpers_test.go` を各パッケージに置いて複製した。共有用のパッケージ（`trainingtest` のような）を立てる案は採らなかった。**テストのためだけに存在する本番パッケージ**が層の中に増え、`architecture_test.go` の走査対象にもなる。数行の重複より高くつく。
+
+### 移したもの
+
+- `Frequency`（`slot.go` → `program/frequency.go`）。`Program` が値として持つもので、`SlotCatalog` は消費するだけ。`planning` に残すと `program` → `planning` の逆向き依存が生まれる
+- `ConditionAnalyzer` の窓の定数（`condition.go` → `planning/condition_analyzer.go`）。解析器の検証にしか使っておらず、集約の不変条件ではなかった
+
+### 内部フィールドから公開アクセサに変えた箇所
+
+- `ConditionAnalyzer.baselineSleep`: `log.items` → `log.Items()`
+- `EffectiveLoad` / `AddedWeight`: `e.bodyweightFactor` → `e.BodyweightFactor()`
+
+境界をまたぐ非公開フィールドの参照はこの2箇所だけだった。どちらも既に公開アクセサがあり、集約の外から中身を触っていたことがパッケージを割ったことで露見した形になる。
+
+### 名前がパッケージと衝突した箇所
+
+`program` `exercise` はローカル変数・関数名としても使われていた。パッケージ名が影に入るので、ローカル側を改名した（`program` → `prog`、`seed` の `exercise()` → `spec()`、query のテストヘルパ `exercise()` → `newExercise()`）。**import に別名を付けて逃げる案は採らなかった。**呼び出し側ごとに `exercise` の指すものが変わる。
+
+### やらなかったこと
+
+センチネルの名前は変えていない（`exercise.ErrExerciseNotFound`、`program.ErrProgramNotConfigured`）。パッケージ名と重なって読みにくいが、**機械的な移動に改名を混ぜない**。`docs/refactoring.md` に貯めた。
+
+### 検収
+
+ロジックは変えていない。全テストが緑のままであることが検収。`Reader` に `Save` を足す変異でリポジトリの形の検査が落ちることは確認した。
+

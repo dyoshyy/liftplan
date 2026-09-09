@@ -10,6 +10,8 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/dyoshyy/liftplan-server/internal/domain/training"
+	"github.com/dyoshyy/liftplan-server/internal/domain/training/exercise"
+	"github.com/dyoshyy/liftplan-server/internal/domain/training/program"
 )
 
 // ProgramRepository はユーザー設定の Postgres 実装。
@@ -28,7 +30,7 @@ func NewProgramRepository(pool *pgxpool.Pool) *ProgramRepository {
 //
 // (nil, nil) を返さない。返すと、呼び出し側が nil を「未設定」と
 // 「取得成功」のどちらとも解釈できてしまう。
-func (r *ProgramRepository) Get(ctx context.Context) (*training.Program, error) {
+func (r *ProgramRepository) Get(ctx context.Context) (*program.Program, error) {
 	var (
 		perWeek                             int
 		rawTarget, rawSelected, rawDeclared []byte
@@ -37,7 +39,7 @@ func (r *ProgramRepository) Get(ctx context.Context) (*training.Program, error) 
 		SELECT per_week, weekly_target, selected, declared FROM program WHERE id`).
 		Scan(&perWeek, &rawTarget, &rawSelected, &rawDeclared)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return nil, training.ErrProgramNotConfigured
+		return nil, program.ErrProgramNotConfigured
 	}
 	if err != nil {
 		return nil, wrapUnavailable(err, "プログラムを読めない")
@@ -47,11 +49,11 @@ func (r *ProgramRepository) Get(ctx context.Context) (*training.Program, error) 
 	if err := json.Unmarshal(rawTarget, &target); err != nil {
 		return nil, fmt.Errorf("週目標を解釈できない: %w", err)
 	}
-	var selected []training.ExerciseID
+	var selected []exercise.ExerciseID
 	if err := json.Unmarshal(rawSelected, &selected); err != nil {
 		return nil, fmt.Errorf("選択種目を解釈できない: %w", err)
 	}
-	var declared []training.ExerciseID
+	var declared []exercise.ExerciseID
 	if err := json.Unmarshal(rawDeclared, &declared); err != nil {
 		return nil, fmt.Errorf("宣言種目を解釈できない: %w", err)
 	}
@@ -62,15 +64,15 @@ func (r *ProgramRepository) Get(ctx context.Context) (*training.Program, error) 
 	// 不正な値がドメインへ届くことはない。それでも通すのは、
 	// 「週の頻度が設定されていない」ではなく「99回は範囲外」という
 	// 診断が出るようにするため。原因の分かるエラーは運用の資産になる。
-	frequency, err := training.NewFrequency(perWeek)
+	frequency, err := program.NewFrequency(perWeek)
 	if err != nil {
 		return nil, fmt.Errorf("保存された頻度が不正: %w", err)
 	}
-	weeklyTarget, err := training.NewWeeklyVolumeTarget(target)
+	weeklyTarget, err := program.NewWeeklyVolumeTarget(target)
 	if err != nil {
 		return nil, fmt.Errorf("保存された週目標が不正: %w", err)
 	}
-	program, err := training.NewProgram(frequency, weeklyTarget, selected, declared)
+	program, err := program.NewProgram(frequency, weeklyTarget, selected, declared)
 	if err != nil {
 		return nil, fmt.Errorf("保存されたプログラムが不正: %w", err)
 	}
@@ -79,7 +81,7 @@ func (r *ProgramRepository) Get(ctx context.Context) (*training.Program, error) 
 
 // Save はプログラムを保存する。プログラムはユーザーごとに1つなので、
 // 保存は常に全体の置き換えになる。
-func (r *ProgramRepository) Save(ctx context.Context, p *training.Program) error {
+func (r *ProgramRepository) Save(ctx context.Context, p *program.Program) error {
 	if p == nil {
 		return fmt.Errorf("プログラムが nil である")
 	}
@@ -115,4 +117,7 @@ func (r *ProgramRepository) Save(ctx context.Context, p *training.Program) error
 	return nil
 }
 
-var _ training.ProgramRepository = (*ProgramRepository)(nil)
+var (
+	_ program.Reader = (*ProgramRepository)(nil)
+	_ program.Writer = (*ProgramRepository)(nil)
+)
