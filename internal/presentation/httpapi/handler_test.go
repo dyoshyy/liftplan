@@ -102,8 +102,8 @@ func TestGetSession_Success(t *testing.T) {
 	if body.Date != "2026-08-17" {
 		t.Errorf("日付が誤り: %s", body.Date)
 	}
-	if len(body.Main) != 3 {
-		t.Errorf("メインが3種目でない: %d", len(body.Main))
+	if len(body.Main) != 1 {
+		t.Errorf("ヘビー枠が1つでない: %d", len(body.Main))
 	}
 	if len(body.Accessories) == 0 {
 		t.Error("補助種目が空である")
@@ -146,7 +146,14 @@ func TestGetSession_ProgramNotConfigured(t *testing.T) {
 func TestPostSetLogs(t *testing.T) {
 	server := newServer(t, true)
 
-	payload := `{"logs":[{"id":"01J-A","date":"2026-08-17","exercise_id":"bench","weight_kg":85,"reps":9,"rir":2}]}`
+	// 宣言した3種目すべてに記録する。ヘビー枠は「最後にやったのが最も
+	// 古い種目」で、一度もやっていない種目が最優先になるので、ベンチだけ
+	// 記録すると未実施のスクワットやデッドリフトが軸に来て、重量が
+	// 確定しないまま返る。
+	payload := `{"logs":[` +
+		`{"id":"01J-A","date":"2026-08-17","exercise_id":"bench","weight_kg":85,"reps":9,"rir":2},` +
+		`{"id":"01J-B","date":"2026-08-17","exercise_id":"squat","weight_kg":110,"reps":9,"rir":2},` +
+		`{"id":"01J-C","date":"2026-08-17","exercise_id":"deadlift","weight_kg":140,"reps":9,"rir":2}]}`
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPost, "/api/set-logs", bytes.NewBufferString(payload))
 	req.Header.Set("Content-Type", "application/json")
@@ -169,14 +176,12 @@ func TestPostSetLogs(t *testing.T) {
 	if err := json.Unmarshal(rec2.Body.Bytes(), &body); err != nil {
 		t.Fatalf("JSONが壊れている: %v", err)
 	}
-	found := false
-	for _, m := range body.Main {
-		if m.ExerciseID == "bench" && m.WeightKg != nil {
-			found = true
-		}
+	if len(body.Main) != 1 {
+		t.Fatalf("ヘビー枠が1つでない: %d", len(body.Main))
 	}
-	if !found {
-		t.Error("記録したログが重量算出に反映されていない")
+	if body.Main[0].WeightKg == nil {
+		t.Errorf("記録したログが重量算出に反映されていない: %s",
+			body.Main[0].ExerciseID)
 	}
 }
 
@@ -485,13 +490,27 @@ func stalledServer(t *testing.T) http.Handler {
 	t.Helper()
 	mux := newServer(t, true)
 
+	// 宣言した3種目すべてに記録する。ヘビー枠は「最後にやったのが最も
+	// 古い種目」で、一度もやっていない種目が最優先になる。ベンチだけ
+	// 積むと、未実施のスクワットが軸に来てベンチがメインに現れない。
+	//
+	// ベンチだけ重量を据え置き、他は伸ばす。停滞判定に載るのはベンチだけ。
 	var logs []string
 	for i := range 10 {
 		date := training.MustDate(2026, time.June, 1).AddDays(i * 7)
 		for s := range 3 {
-			logs = append(logs, fmt.Sprintf(
-				`{"id":"b%d-%d","date":"%s","exercise_id":"bench","weight_kg":85,"reps":8,"rir":2}`,
-				i, s, date.String()))
+			for _, spec := range []struct {
+				id string
+				kg float64
+			}{
+				{"bench", 85},
+				{"squat", 110 + float64(i)*2.5},
+				{"deadlift", 140 + float64(i)*2.5},
+			} {
+				logs = append(logs, fmt.Sprintf(
+					`{"id":"%s%d-%d","date":"%s","exercise_id":%q,"weight_kg":%g,"reps":8,"rir":2}`,
+					spec.id, i, s, date.String(), spec.id, spec.kg))
+			}
 		}
 	}
 	if rec := do(t, mux, http.MethodPost, "/api/set-logs",

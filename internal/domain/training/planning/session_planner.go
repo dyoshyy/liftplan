@@ -103,24 +103,24 @@ func (p SessionPlanner) Plan(req PlanRequest) (PlannedSession, error) {
 
 	pool := p.usablePool(req)
 	estHistory := effectiveHistory(historyBefore(req), pool, req.Conditions)
-	mains := declaredExercises(pool, req.Program)
-	if len(mains) == 0 {
+	heavy := p.heavyLift(req, pool)
+	if heavy == nil {
 		// 到達しない。NewProgram が宣言ゼロを弾き、declared ⊂ selected なので
 		// pool に必ず1つ以上残る。集約の不変条件が破れたときの最後の砦として残す。
-		return PlannedSession{}, errors.New("メイン種目が1つも選ばれていない")
+		return PlannedSession{}, errors.New("伸ばしたい種目が1つも選ばれていない")
 	}
 
-	template, ok := p.slots.Select(req.Program.Frequency(), sessionIndexInWeek(req.History, req.Date))
+	template, ok := p.slots.Select(req.Program.Frequency(), liftIndexInWeek(historyBefore(req), heavy.ID(), req.Date))
 	if !ok {
 		return PlannedSession{}, fmt.Errorf(
 			"週%d回に対応するスロット構成が無い", req.Program.Frequency().PerWeek())
 	}
 
-	mainIDs := make([]exercise.ExerciseID, 0, len(mains))
-	for _, e := range mains {
-		mainIDs = append(mainIDs, e.ID())
-	}
-	proposal, hasProposal := p.deload.Propose(req.History, mainIDs, req.Conditions, req.Date)
+	// 停滞の判定は宣言した種目すべてに対して行う。ヘビー枠1つに絞らないのは、
+	// 今日出ない種目の停滞も知りたいため。提案が出るのと、それを適用するのは
+	// 別の話で、適用されるのは承認された種目だけ。
+	proposal, hasProposal := p.deload.Propose(
+		req.History, req.Program.DeclaredExercises(), req.Conditions, req.Date)
 
 	// デロードは承認された種目にだけ適用する。伸びている種目まで一律に下げると、
 	// 本人の実感と噛み合わない。
@@ -142,12 +142,8 @@ func (p SessionPlanner) Plan(req PlanRequest) (PlannedSession, error) {
 	// 意味が違うため、基準が違ってよい。
 	coverage := CoverageBetween(req.History, pool, req.Date.WeekStart(), req.Date.AddDays(-1))
 
-	main := make([]PlannedSet, 0, len(mains))
-	for _, e := range mains {
-		set, performed := p.planMain(req, pool, estHistory, e, template, deloadTargets[e.ID()], rirBump)
-		main = append(main, set)
-		coverage = coverage.Plus(performed.Stimulus(), set.Sets())
-	}
+	set, performed := p.planMain(req, pool, estHistory, heavy, template, deloadTargets[heavy.ID()], rirBump)
+	coverage = coverage.Plus(performed.Stimulus(), set.Sets())
 
 	// 設定より多く通った場合でも、残り1セッション分は狙えるようにする。
 	// 0 以下にすると残差が空になり、補助が1つも出ないまま
@@ -163,7 +159,7 @@ func (p SessionPlanner) Plan(req PlanRequest) (PlannedSession, error) {
 	//
 	// Select が返す順序は「最も放置している区分から」という優先度で、
 	// 一日中変わらないので、そのまま画面の並びになる。
-	chosen := p.accessory.Select(gaps, pool, historyBefore(req), req.Date, mainIDs)
+	chosen := p.accessory.Select(gaps, pool, historyBefore(req), req.Date, heavy.ID())
 
 	accessories := make([]PlannedSet, 0, len(chosen))
 	for _, id := range chosen {
@@ -172,7 +168,7 @@ func (p SessionPlanner) Plan(req PlanRequest) (PlannedSession, error) {
 
 	return PlannedSession{
 		date:        req.Date,
-		main:        main,
+		main:        []PlannedSet{set},
 		accessories: accessories,
 		proposal:    proposal,
 		hasProposal: hasProposal,
@@ -197,6 +193,7 @@ func (p SessionPlanner) usablePool(req PlanRequest) []*exercise.Exercise {
 	return out
 }
 
+// declaredExercises はプログラムで宣言された種目だけを返す。派生バリエーションは含まない。
 func declaredExercises(pool []*exercise.Exercise, prog *program.Program) []*exercise.Exercise {
 	out := make([]*exercise.Exercise, 0, len(pool))
 	for _, e := range pool {
@@ -211,7 +208,10 @@ func declaredExercises(pool []*exercise.Exercise, prog *program.Program) []*exer
 // 2つ目の返り値は実際に行う種目（バリエーションに差し替わることがある）。
 func (p SessionPlanner) planMain(
 	req PlanRequest,
-	pool []*exercise.Exercise, historyBefore setlog.History, main *exercise.Exercise, template SlotTemplate,
+	pool []*exercise.Exercise,
+	historyBefore setlog.History,
+	main *exercise.Exercise,
+	template SlotTemplate,
 	deloaded bool,
 	rirBump int,
 ) (PlannedSet, *exercise.Exercise) {
@@ -330,4 +330,36 @@ func CoverageBetween(h setlog.History, pool []*exercise.Exercise, from, to train
 // 曜日の割り当てはドメインの責務ではないため、実績から導出する。
 func sessionIndexInWeek(h setlog.History, date training.Date) int {
 	return h.OnOrAfter(date.WeekStart()).Before(date).SessionCount()
+}
+
+// liftIndexInWeek はその種目を、今週すでに何回やったかを返す。
+//
+// 週の何本目かではなく種目ごとに数えるのは、ヘビー枠が1セッションに
+// 1つになったため。宣言が3つあれば、週3回通ってもベンチは週1回しか
+// 出ない。週の本数で引くと、その1回に「週3本目＝軽い日」が当たる。
+func liftIndexInWeek(h setlog.History, id exercise.ExerciseID, date training.Date) int {
+	return h.ForExercise(id).OnOrAfter(date.WeekStart()).Before(date).SessionCount()
+}
+
+// heavyLift は今日メインでやる＝高重量を扱う種目を返す。
+//
+// 宣言のうち、最後に実施したのが最も古い種目を返す。未着手の種目があればそれを優先する。
+func (p SessionPlanner) heavyLift(req PlanRequest, pool []*exercise.Exercise) *exercise.Exercise {
+	h := historyBefore(req)
+
+	var stalest *exercise.Exercise
+	var stalestDate training.Date
+
+	for _, c := range declaredExercises(pool, req.Program) {
+		last, ok := h.LastPerformed(c.ID())
+		if !ok {
+			return c // 未着手の種目があればそれを優先する
+		}
+		if stalest == nil || last.Before(stalestDate) {
+			stalest = c
+			stalestDate = last
+		}
+	}
+	return stalest
+
 }

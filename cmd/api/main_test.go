@@ -92,8 +92,8 @@ func TestBuildHandler_WorksOutOfTheBox(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
 		t.Fatalf("応答を解釈できない: %v", err)
 	}
-	if len(got.Main) != 3 {
-		t.Errorf("メイン種目が3つでない: %d", len(got.Main))
+	if len(got.Main) != 1 {
+		t.Errorf("ヘビー枠が1つでない: %d", len(got.Main))
 	}
 	if len(got.Accessories) == 0 {
 		t.Error("補助種目が1つも出ていない")
@@ -121,12 +121,18 @@ func TestBuildHandler_RecordThenPlan(t *testing.T) {
 		}
 	}
 
+	// 宣言した3種目すべてに記録を入れる。ヘビー枠は「最後にやったのが
+	// 最も古い種目」で、一度もやっていない種目が最優先になるので、
+	// ベンチだけ記録すると未実施のスクワットやデッドリフトが軸に来る。
+	// 同じ日に揃えると、同点でマスタ順（ID昇順）の bench が選ばれる。
 	var logs []string
 	for i := range 3 {
 		for s := range 3 {
-			logs = append(logs, fmt.Sprintf(
-				`{"id":"e%d-%d","date":"2026-07-%02d","exercise_id":"bench",`+
-					`"weight_kg":85,"reps":8,"rir":2}`, i, s, 6+i*7))
+			for _, id := range []string{"bench", "squat", "deadlift"} {
+				logs = append(logs, fmt.Sprintf(
+					`{"id":"e%d-%d-%s","date":"2026-07-%02d","exercise_id":%q,`+
+						`"weight_kg":85,"reps":8,"rir":2}`, i, s, id, 6+i*7, id))
+			}
 		}
 	}
 	post(t, "/api/set-logs", `{"logs":[`+strings.Join(logs, ",")+`]}`)

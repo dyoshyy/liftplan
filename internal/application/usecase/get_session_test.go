@@ -194,8 +194,8 @@ func TestGetSession_ReturnsPlannedSession(t *testing.T) {
 	if err != nil {
 		t.Fatalf("実行に失敗: %v", err)
 	}
-	if len(got.Main()) != 3 {
-		t.Errorf("メインが3種目でない: %d", len(got.Main()))
+	if len(got.Main()) != 1 {
+		t.Errorf("ヘビー枠が1つでない: %d", len(got.Main()))
 	}
 	if !got.Date().Equal(testDate) {
 		t.Errorf("日付が誤り: %v", got.Date())
@@ -250,17 +250,24 @@ func TestGetSession_PassesDeloadAcceptanceThrough(t *testing.T) {
 		t.Fatalf("シードが不正: %v", err)
 	}
 
-	// 重量が確定するだけの履歴を積む。
+	// 重量が確定するだけの履歴を、宣言した3種目すべてに積む。
+	//
+	// ヘビー枠は「最後にやったのが最も古い種目」で、一度もやっていない
+	// 種目が最優先になる。ベンチだけ積むと、未実施のデッドリフトが軸に
+	// 選ばれて重量が確定しない。
 	logs := make([]*setlog.SetLog, 0, 12)
 	for i := range 4 {
-		l, err := setlog.NewSetLog(setlog.SetLogParams{
-			ID: "b" + string(rune('0'+i)), PerformedOn: testDate.AddDays(-7 * (4 - i)),
-			ExerciseID: "bench", WeightKg: 85, Reps: 8, RIR: 2,
-		})
-		if err != nil {
-			t.Fatalf("ログ生成に失敗: %v", err)
+		for _, id := range []exercise.ExerciseID{"bench", "squat", "deadlift"} {
+			l, err := setlog.NewSetLog(setlog.SetLogParams{
+				ID:          string(id) + string(rune('0'+i)),
+				PerformedOn: testDate.AddDays(-7 * (4 - i)),
+				ExerciseID:  string(id), WeightKg: 85, Reps: 8, RIR: 2,
+			})
+			if err != nil {
+				t.Fatalf("ログ生成に失敗: %v", err)
+			}
+			logs = append(logs, l)
 		}
-		logs = append(logs, l)
 	}
 
 	uc := newGetSession(t,
@@ -268,20 +275,18 @@ func TestGetSession_PassesDeloadAcceptanceThrough(t *testing.T) {
 		&fakeConditions{log: condition.NewConditionLog(nil)},
 		&fakeProgram{program: buildProgram(t, pool)})
 
+	// ヘビー枠の種目を承認する。どれが軸になるかは履歴で決まるので、
+	// 種目名を決め打ちにすると「メインに無い」で落ちる。
 	weightOf := func(t *testing.T, s planning.PlannedSession) float64 {
 		t.Helper()
-		for _, set := range s.Main() {
-			if set.ExerciseID() != "bench" {
-				continue
-			}
-			w, ok := set.Weight()
-			if !ok {
-				t.Fatal("ベンチの重量が確定していない")
-			}
-			return w.Kg()
+		if len(s.Main()) != 1 {
+			t.Fatalf("ヘビー枠が1つでない: %d", len(s.Main()))
 		}
-		t.Fatal("ベンチがメインに無い")
-		return 0
+		w, ok := s.Main()[0].Weight()
+		if !ok {
+			t.Fatalf("%s の重量が確定していない", s.Main()[0].ExerciseID())
+		}
+		return w.Kg()
 	}
 
 	normal, err := uc.Execute(context.Background(), usecase.GetSessionInput{Date: testDate})
@@ -290,7 +295,7 @@ func TestGetSession_PassesDeloadAcceptanceThrough(t *testing.T) {
 	}
 	deloaded, err := uc.Execute(context.Background(), usecase.GetSessionInput{
 		Date:           testDate,
-		DeloadAccepted: []exercise.ExerciseID{"bench"},
+		DeloadAccepted: []exercise.ExerciseID{normal.Main()[0].ExerciseID()},
 	})
 	if err != nil {
 		t.Fatalf("実行に失敗: %v", err)
