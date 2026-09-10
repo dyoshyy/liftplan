@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
-	"net/url"
 	"strings"
 	"testing"
 	"time"
@@ -91,9 +90,6 @@ func TestGetSession_Success(t *testing.T) {
 		Accessories []struct {
 			ExerciseID string `json:"exercise_id"`
 		} `json:"accessories"`
-		Deload *struct {
-			Reason string `json:"reason"`
-		} `json:"deload_proposal"`
 	}
 	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
 		t.Fatalf("JSONが壊れている: %v", err)
@@ -377,17 +373,6 @@ func TestGetSession_ClientDisconnectIsNot500(t *testing.T) {
 	}
 }
 
-// デロードの承認は種目IDのカンマ区切り（D-022）。
-func TestGetSession_ParsesDeloadAcceptance(t *testing.T) {
-	mux := newServer(t, true)
-	for _, raw := range []string{"bench", "bench,squat", "bench,,squat,", " bench , squat "} {
-		rec := do(t, mux, http.MethodGet, "/api/sessions?date=2026-08-17&deload_accepted="+url.QueryEscape(raw), "")
-		if rec.Code != http.StatusOK {
-			t.Errorf("deload_accepted=%q で失敗: %d body=%s", raw, rec.Code, rec.Body.String())
-		}
-	}
-}
-
 // メソッドが違えばルーティングされないこと。
 func TestRoutes_RejectWrongMethod(t *testing.T) {
 	mux := newServer(t, true)
@@ -549,10 +534,6 @@ type sessionResponse struct {
 		ExerciseID string   `json:"exercise_id"`
 		WeightKg   *float64 `json:"weight_kg"`
 	} `json:"main"`
-	Deload *struct {
-		Reason           string  `json:"reason"`
-		IntensityDropPct float64 `json:"intensity_drop_pct"`
-	} `json:"deload_proposal"`
 }
 
 func (s sessionResponse) weightOf(t *testing.T, id string) float64 {
@@ -567,56 +548,6 @@ func (s sessionResponse) weightOf(t *testing.T, id string) float64 {
 	}
 	t.Fatalf("%s がメインに無い", id)
 	return 0
-}
-
-// 停滞していればデロード提案が応答に載ること。
-// 載らないと、ユーザーは重量が上がらない理由を知る手立てがない。
-func TestGetSession_IncludesDeloadProposal(t *testing.T) {
-	got := fetchSession(t, stalledServer(t), "")
-	if got.Deload == nil {
-		t.Fatal("停滞しているのに提案が応答に無い")
-	}
-	if got.Deload.Reason == "" {
-		t.Error("提案の根拠が空である")
-	}
-	if got.Deload.IntensityDropPct <= 0 {
-		t.Errorf("低下率が載っていない: %v", got.Deload.IntensityDropPct)
-	}
-}
-
-// 承認した種目IDが実際にドメインへ届くこと。
-// 空要素や前後の空白が混ざっても同じ結果になること。
-func TestGetSession_DeloadAcceptanceReachesTheDomain(t *testing.T) {
-	mux := stalledServer(t)
-	normal := fetchSession(t, mux, "").weightOf(t, "bench")
-
-	for _, raw := range []string{"bench", ",bench,", " bench "} {
-		got := fetchSession(t, mux, "&deload_accepted="+url.QueryEscape(raw)).weightOf(t, "bench")
-		if got >= normal {
-			t.Errorf("deload_accepted=%q が届いていない: %v → %v", raw, normal, got)
-		}
-	}
-
-	// 承認していない種目は変わらない。
-	before := fetchSession(t, mux, "")
-	after := fetchSession(t, mux, "&deload_accepted=bench")
-	for i, m := range before.Main {
-		if m.ExerciseID == "bench" {
-			continue
-		}
-		got := after.Main[i]
-		if got.ExerciseID != m.ExerciseID {
-			t.Fatalf("メインの構成が変わった: %s → %s", m.ExerciseID, got.ExerciseID)
-		}
-		if (m.WeightKg == nil) != (got.WeightKg == nil) {
-			t.Errorf("%s の重量の確定状態が変わった", m.ExerciseID)
-			continue
-		}
-		if m.WeightKg != nil && *m.WeightKg != *got.WeightKg {
-			t.Errorf("承認していない %s の重量が変わった: %v → %v",
-				m.ExerciseID, *m.WeightKg, *got.WeightKg)
-		}
-	}
 }
 
 // --- HTTP 境界の入力検証 ---
@@ -846,47 +777,6 @@ func TestDecodeError_DoesNotLeakGoTypes(t *testing.T) {
 		if strings.Contains(rec.Body.String(), leak) {
 			t.Errorf("内部の型名が漏れている（%q）: %s", leak, rec.Body.String())
 		}
-	}
-}
-
-// 承認された種目が実在しないなら 400。黙って無視すると、
-// ユーザーは承認したつもりでいるのに重量が下がらない。
-func TestGetSession_RejectsUnknownDeloadAcceptance(t *testing.T) {
-	rec := do(t, newServer(t, true),
-		http.MethodGet, "/api/sessions?date=2026-08-17&deload_accepted=無い種目", "")
-	if rec.Code != http.StatusBadRequest {
-		t.Errorf("実在しない種目の承認が 400 でない: %d body=%s", rec.Code, rec.Body.String())
-	}
-}
-
-// 停滞した種目が機械可読な形で応答に載ること。
-// 根拠の散文から抜き出させると、文言を変えた瞬間に
-// デロードが静かに効かなくなる。
-func TestGetSession_ExposesStalledExercises(t *testing.T) {
-	rec := do(t, stalledServer(t), http.MethodGet, "/api/sessions?date=2026-08-17", "")
-	if rec.Code != http.StatusOK {
-		t.Fatalf("ステータスが誤り: %d", rec.Code)
-	}
-
-	var got struct {
-		Deload *struct {
-			StalledExercises []string `json:"stalled_exercises"`
-		} `json:"deload_proposal"`
-	}
-	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
-		t.Fatalf("応答を解釈できない: %v", err)
-	}
-	if got.Deload == nil {
-		t.Fatal("提案が無い")
-	}
-	if len(got.Deload.StalledExercises) != 1 || got.Deload.StalledExercises[0] != "bench" {
-		t.Errorf("停滞種目が載っていない: %v", got.Deload.StalledExercises)
-	}
-
-	// 載っている ID をそのまま承認に渡せること。
-	query := "&deload_accepted=" + url.QueryEscape(strings.Join(got.Deload.StalledExercises, ","))
-	if rec := do(t, stalledServer(t), http.MethodGet, "/api/sessions?date=2026-08-17"+query, ""); rec.Code != http.StatusOK {
-		t.Errorf("載っている ID を承認に渡せない: %d body=%s", rec.Code, rec.Body.String())
 	}
 }
 

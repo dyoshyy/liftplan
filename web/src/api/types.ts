@@ -13,17 +13,10 @@ export type PlannedSet = {
   role?: string;
 };
 
-export type DeloadProposal = {
-  reason: string;
-  intensity_drop_pct: number;
-  stalled_exercises: string[];
-};
-
 export type Session = {
   date: string;
   main: PlannedSet[];
   accessories: PlannedSet[];
-  deload_proposal: DeloadProposal | null;
 };
 
 export type Exercise = {

@@ -23,20 +23,10 @@ type plannedSetDTO struct {
 	Role       string   `json:"role,omitempty"`
 }
 
-// StalledExercises を載せるのは、クライアントが承認する種目IDを
-// 根拠の散文から抜き出さなくて済むようにするため。散文のパースに
-// 頼らせると、文言を変えた瞬間にデロードが静かに効かなくなる。
-type deloadProposalDTO struct {
-	Reason           string   `json:"reason"`
-	IntensityDropPct float64  `json:"intensity_drop_pct"`
-	StalledExercises []string `json:"stalled_exercises"`
-}
-
 type sessionDTO struct {
-	Date        string             `json:"date"`
-	Main        []plannedSetDTO    `json:"main"`
-	Accessories []plannedSetDTO    `json:"accessories"`
-	Deload      *deloadProposalDTO `json:"deload_proposal"`
+	Date        string          `json:"date"`
+	Main        []plannedSetDTO `json:"main"`
+	Accessories []plannedSetDTO `json:"accessories"`
 }
 
 func toPlannedSetDTO(s planning.PlannedSet) plannedSetDTO {
@@ -69,17 +59,6 @@ func toSessionDTO(s planning.PlannedSession) sessionDTO {
 		Date:        s.Date().String(),
 		Main:        main,
 		Accessories: accessories,
-	}
-	if p, ok := s.DeloadProposal(); ok {
-		stalled := make([]string, 0, len(p.StalledExercises()))
-		for _, id := range p.StalledExercises() {
-			stalled = append(stalled, string(id))
-		}
-		out.Deload = &deloadProposalDTO{
-			Reason:           p.Reason(),
-			IntensityDropPct: p.IntensityDropPct(),
-			StalledExercises: stalled,
-		}
 	}
 	return out
 }

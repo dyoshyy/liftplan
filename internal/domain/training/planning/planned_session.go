@@ -32,8 +32,6 @@ type PlannedSession struct {
 	date        training.Date
 	main        []PlannedSet
 	accessories []PlannedSet
-	proposal    DeloadProposal
-	hasProposal bool
 }
 
 func (s PlannedSession) Date() training.Date { return s.date }
@@ -48,8 +46,4 @@ func (s PlannedSession) Accessories() []PlannedSet {
 	out := make([]PlannedSet, len(s.accessories))
 	copy(out, s.accessories)
 	return out
-}
-
-func (s PlannedSession) DeloadProposal() (DeloadProposal, bool) {
-	return s.proposal, s.hasProposal
 }

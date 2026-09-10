@@ -2284,3 +2284,46 @@ D-115 が挙げた他の代償は実際に払った。以下がその全部。
 
 **戻す手順**: この判断ごと revert する。GitHub のリダイレクトは両方向に効くので、どちらのパスでも `go get` は通る。
 
+
+
+---
+
+## D-124 デロード機能をやめる
+
+**日付**：2026-09-10
+**覆す判断**：D-016（停滞判定とデロード提案）、旧仕様 §6
+
+停滞を判定してデロードを提案する仕組みを、コードから丸ごと削除した。
+
+- `DeloadPolicy` / `DeloadProposal` とそのテスト（592行）
+- `PlanRequest.DeloadAccepted`、`PlannedSession.DeloadProposal()`
+- API の `deload_proposal` と `?deload_accepted=`、`parseExerciseIDs`
+- PWA の `DeloadProposal` 型
+
+### 理由
+
+**いま要らないと判断した。**`CLAUDE.md` の「必要になるまで作らない」で、判断の順序の1番目——「それが無いといま壊れるか」に対して、壊れない。
+
+停滞したときに重量を落とすのは本人ができる。アプリが答えるべき問いの表に
+「進めるか落とすか」を挙げていたが、**提案が出ても承認の操作が要る**ので、
+結局そこで本人が判断している。判断を取り上げきれていない機能だった。
+
+### 残したもの
+
+**`ConditionAnalyzer` は残す。**睡眠不足で目標RIRを上げる機能で、デロードとは
+別物。これまで `SessionPlanner` が `DeloadPolicy.Analyzer()` 経由で受け取って
+いたので、直接持つ形に付け替えた。
+
+`NewSessionPlanner` の第4引数が `DeloadPolicy` から `ConditionAnalyzer` に
+変わっている。
+
+### 契約の変更
+
+API から `deload_proposal` フィールドと `deload_accepted` クエリが消える。
+**DBには保存されていない**ので移行は不要。PWA 側の型も同時に落とした。
+
+### 戻すときの手順
+
+この判断ごと revert すればよい。停滞判定のロジック（`stallSessions` 窓、
+減量中は発火させない、体重が無ければ発火させない）は D-016 と旧仕様に
+書いてあるので、必要になったら読み直せる。
