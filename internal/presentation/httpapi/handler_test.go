@@ -85,7 +85,7 @@ func TestGetSession_Success(t *testing.T) {
 			WeightKg   *float64 `json:"weight_kg"`
 			Sets       int      `json:"sets"`
 			TargetRIR  int      `json:"target_rir"`
-			Role       string   `json:"role"`
+			Intent     string   `json:"intent"`
 		} `json:"main"`
 		Accessories []struct {
 			ExerciseID string `json:"exercise_id"`
@@ -682,7 +682,7 @@ func TestPostConditions_SleepReachesThePlan(t *testing.T) {
 		Main []struct {
 			Sets      int    `json:"sets"`
 			TargetRIR int    `json:"target_rir"`
-			Role      string `json:"role"`
+			Intent    string `json:"intent"`
 		} `json:"main"`
 	}
 	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
@@ -697,8 +697,8 @@ func TestPostConditions_SleepReachesThePlan(t *testing.T) {
 	if got.Main[0].Sets != 4 {
 		t.Errorf("セット数が誤り: %d（期待 4）", got.Main[0].Sets)
 	}
-	if got.Main[0].Role != "STANDARD" {
-		t.Errorf("役割が載っていない: %q", got.Main[0].Role)
+	if got.Main[0].Intent != "STANDARD" {
+		t.Errorf("狙いが載っていない: %q", got.Main[0].Intent)
 	}
 }
 

@@ -20,7 +20,7 @@ type plannedSetDTO struct {
 	WeightKg   *float64 `json:"weight_kg"`
 	Sets       int      `json:"sets"`
 	TargetRIR  int      `json:"target_rir"`
-	Role       string   `json:"role,omitempty"`
+	Intent     string   `json:"intent,omitempty"`
 }
 
 type sessionDTO struct {
@@ -39,8 +39,8 @@ func toPlannedSetDTO(s planning.PlannedSet) plannedSetDTO {
 		kg := w.Kg()
 		dto.WeightKg = &kg
 	}
-	if role, ok := s.Role(); ok {
-		dto.Role = string(role)
+	if intent, ok := s.Intent(); ok {
+		dto.Intent = string(intent)
 	}
 	return dto
 }

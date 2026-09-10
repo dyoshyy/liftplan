@@ -84,8 +84,8 @@ var panickingFunctions = []struct {
 		reason:       "コンパイル時に確定するリテラル専用。外部入力は ParseDate か FromTime を通すこと",
 	},
 	{
-		name:         "newSlotTemplate",
-		allowedFiles: []string{"slot.go"},
+		name:         "newPrescription",
+		allowedFiles: []string{"prescription.go"},
 		reason:       "カタログ定義専用。実行時の値を渡すとパッケージのロード自体が失敗する",
 	},
 }
