@@ -89,14 +89,13 @@ func (s AccessorySelector) IsZero() bool { return s == AccessorySelector{} }
 // ので、除きすぎると脚の日にスクワットがどこにも出なくなる（D-117）。
 func (s AccessorySelector) Select(
 	residual map[training.MuscleRegion]float64,
-	pool []*exercise.Exercise, h setlog.History, date training.Date, exclude []exercise.ExerciseID) []exercise.ExerciseID {
+	pool []*exercise.Exercise,
+	h setlog.History,
+	date training.Date,
+	exclude exercise.ExerciseID,
+) []exercise.ExerciseID {
 	if s.IsZero() || len(residual) == 0 || date.IsZero() {
 		return nil
-	}
-
-	excluded := make(map[exercise.ExerciseID]bool, len(exclude))
-	for _, id := range exclude {
-		excluded[id] = true
 	}
 
 	byID := make(map[exercise.ExerciseID]*exercise.Exercise, len(pool))
@@ -110,7 +109,7 @@ func (s AccessorySelector) Select(
 		// regionStaleness がその種目の過去の記録を読めなくなり、
 		// 「昨日その区分を刺激した」が見えなくなる。
 		byID[e.ID()] = e
-		if excluded[e.ID()] {
+		if e.ID() == exclude {
 			continue
 		}
 		accessories = append(accessories, e)

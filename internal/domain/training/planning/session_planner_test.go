@@ -103,52 +103,224 @@ func mustPlan(t *testing.T, req planning.PlanRequest) planning.PlannedSession {
 	return s
 }
 
-func TestSessionPlanner_AllMainLiftsGetASlot(t *testing.T) {
+// ヘビー枠は1セッションに1つ。
+//
+// 以前は宣言した種目すべてにスロットを割り当てていた。週5回にすると
+// 1種目あたり19セット/週になり、それが maxFrequencyPerWeek = 4 の
+// 理由になっていた。1つに絞ると、週6でも各種目は週1〜2回で収まる。
+//
+// 選ばれなかった宣言は補助として残差を埋める。「伸ばしたい」という
+// 目標であって「ヘビーでしかやらない」ではない（D-117）。
+func TestSessionPlanner_HeavySlotIsExactlyOne(t *testing.T) {
 	s := mustPlan(t, planRequest(t))
 
-	got := map[exercise.ExerciseID]bool{}
-	for _, set := range s.Main() {
-		got[set.ExerciseID()] = true
-	}
-	for _, want := range []exercise.ExerciseID{"bench", "squat", "deadlift"} {
-		if !got[want] {
-			t.Errorf("%s にスロットが割り当てられていない: %v", want, got)
-		}
+	if len(s.Main()) != 1 {
+		t.Errorf("ヘビー枠が %d 件。1件のはず: %v", len(s.Main()), s.Main())
 	}
 	if !s.Date().Equal(planMonday) {
 		t.Errorf("日付が誤り: %v", s.Date())
 	}
 }
 
-// planRequestAt は週内で days 日目のリクエストを返す。
+// benchOnlyProgram は宣言をベンチ1つに絞ったプログラムを返す。
 //
-// done に挙げた日には「その日に通った」ことを表す記録を入れる。週の何本目かは
-// 履歴に記録のある日数で決まるので（sessionIndexInWeek）、ここを進めないと
-// 日付だけ動かしても常に1本目になる。
+// ヘビー枠は宣言のうち最終実施日が最も古いものが取るので、宣言が複数
+// あると「今日どれが軸になるか」が履歴で動く。役割や強度だけを見たい
+// テストでは、宣言を1つにして軸を固定する。
+func benchOnlyProgram(t *testing.T) *program.Program {
+	t.Helper()
+
+	target := mustTarget(t, map[training.MuscleRegion]float64{
+		training.ChestMid: 12, training.ChestUpper: 9, training.Quad: 12, training.Biceps: 9,
+	})
+	p, err := program.NewProgram(mustFrequency(t, 3), target,
+		[]exercise.ExerciseID{"bench", "squat", "deadlift", "incline", "curl"},
+		[]exercise.ExerciseID{"bench"})
+	if err != nil {
+		t.Fatalf("プログラムの生成に失敗: %v", err)
+	}
+	return p
+}
+
+// planRequestAt は、ベンチを今週すでに done 回やった状態で days 日目の
+// リクエストを返す。宣言はベンチ1つに絞る。
 //
-// 記録に curl を使うのは、メイン種目の推定1RMを動かさないため。bench で
-// 進めると、役割を見たいだけのケースで重量まで変わる。
+// スロットの役割は「その種目にとって今週何本目か」で決まる（liftIndexInWeek）。
+// 週の通算本数ではないので、他の種目で日数を進めても役割は動かない。
+//
+// 以前は curl で週を進めていた。ヘビー枠が1つになる前は、週の通算本数が
+// 役割を決めていたため。宣言が3つあれば週3回通ってもベンチは週1回しか
+// 出ないので、通算で引くとその1回に「週3本目＝軽い日」が当たる（D-117）。
 func planRequestAt(t *testing.T, days int, done ...int) planning.PlanRequest {
 	t.Helper()
 
 	logs := planHistory(t)
 	for i, d := range done {
 		logs = append(logs,
-			mkLogOn(t, fmt.Sprintf("done-%d", i), planMonday.AddDays(d), "curl", 20, 10, 2))
+			mkLogOn(t, fmt.Sprintf("done-%d", i), planMonday.AddDays(d), "bench", 85, 8, 2))
 	}
 
 	req := planRequest(t)
+	req.Program = benchOnlyProgram(t)
 	req.History = setlog.NewHistory(logs)
 	req.Date = planMonday.AddDays(days)
 	return req
 }
 
-// 週の何本目かでスロットの役割が決まる。
+// スロットの役割は、他の種目で通った日数に影響されない。
+//
+// ヘビー枠が1セッションに1つになったので、宣言が3つあれば週3回通っても
+// 各種目は週1回しか出ない。週の通算本数で引くと、その1回に「週3本目＝
+// 軽い日」が当たり、どの種目も通常の強度で実施されないまま推定1RMが
+// 実力より低く固定される（D-117）。
+//
+// 宣言が1つのテストでは、通算本数と種目ごとの本数が一致してしまうので
+// この差は出ない。3つ宣言した状態で確かめる。
+func TestSessionPlanner_SlotRoleIgnoresOtherLifts(t *testing.T) {
+	logs := planHistory(t)
+
+	// 2日通い、その日のヘビー枠をこなす。3日目は週の通算3本目になるが、
+	// そこで初めて出る種目にとっては1本目。
+	for day := range 2 {
+		req := planRequest(t)
+		req.History = setlog.NewHistory(logs)
+		req.Date = planMonday.AddDays(day)
+
+		heavy := mustPlan(t, req).Main()[0].ExerciseID()
+		logs = append(logs, mkLogOn(t, fmt.Sprintf("d%d", day),
+			planMonday.AddDays(day), string(heavy), 80, 8, 2))
+	}
+
+	req := planRequest(t)
+	req.History = setlog.NewHistory(logs)
+	req.Date = planMonday.AddDays(2)
+
+	main := mustPlan(t, req).Main()[0]
+	role, ok := main.Role()
+	if !ok {
+		t.Fatalf("%s に役割が付いていない", main.ExerciseID())
+	}
+	if role != planning.RoleStandard {
+		t.Errorf("%s の役割が %v。今週まだやっていないので STANDARD のはず",
+			main.ExerciseID(), role)
+	}
+}
+
+// 宣言した種目は順に回ってくる。回数を設定する箇所はどこにも無い。
+//
+// ヘビー枠は「最後にやったのが最も古い種目」なので、こなすたびに次の
+// 種目へ移る。宣言が3つで週3回通えば、各種目は週1回ヘビーになる。
+// 宣言を4つに増やせば3回に3回。「ベンチを週2回」というノブを置かずに、
+// 頻度が宣言の数と通う回数から導かれる（D-117）。
+//
+// これが緑になれば設計が成立している。却下した「種目ごとの週N回」を
+// 置かずに済んでいる、ということ。
+func TestSessionPlanner_DeclaredExercisesTakeTurns(t *testing.T) {
+	logs := planHistory(t)
+	seen := make([]exercise.ExerciseID, 0, 6)
+
+	// 6日連続で通い、その日のヘビー枠を毎回こなす。
+	for day := range 6 {
+		req := planRequest(t)
+		req.History = setlog.NewHistory(logs)
+		req.Date = planMonday.AddDays(day)
+
+		main := mustPlan(t, req).Main()
+		if len(main) != 1 {
+			t.Fatalf("%d日目のヘビー枠が %d 件", day, len(main))
+		}
+		heavy := main[0].ExerciseID()
+		seen = append(seen, heavy)
+
+		logs = append(logs, mkLogOn(t, fmt.Sprintf("d%d", day),
+			planMonday.AddDays(day), string(heavy), 80, 8, 2))
+	}
+
+	// 宣言は3つ。連続で同じ種目が来てはいけない。
+	for i := 1; i < len(seen); i++ {
+		if seen[i] == seen[i-1] {
+			t.Errorf("同じ種目が連続した: %v", seen)
+			break
+		}
+	}
+
+	// 6日で各種目が2回ずつ回る。
+	count := map[exercise.ExerciseID]int{}
+	for _, id := range seen {
+		count[id]++
+	}
+	for _, id := range big3() {
+		if count[id] != 2 {
+			t.Errorf("%s が %d 回。6日で3種目なら2回のはず: %v", id, count[id], seen)
+		}
+	}
+}
+
+// 同じ日に複数の宣言が候補になったら、最終実施日が古い方を取る
+// 一度もやってない種目は最優先
+func TestSessionPlanner_HeavySlotGoesToTheStalestDeclared(t *testing.T) {
+	cases := []struct {
+		name          string
+		lastPerformed map[exercise.ExerciseID]int
+		want          exercise.ExerciseID
+	}{{
+		name: "最後にやったのが最も古い種目がヘビー枠になる",
+		lastPerformed: map[exercise.ExerciseID]int{
+			"bench": -2, "squat": -3, "deadlift": -6,
+		},
+		want: "deadlift",
+	},
+		{
+			// 記録が無い＝一度もやっていない。日付のゼロ値が最も古い。
+			// ここが逆だと、新しく宣言した種目が永久に出ない。
+			name: "一度もやっていない種目が最優先",
+			lastPerformed: map[exercise.ExerciseID]int{
+				"bench": -2, "squat": -3,
+			},
+			want: "deadlift",
+		},
+		{
+			// 同点はマスタ順。決定性のため。
+			name: "最終実施日が同じならマスタ順",
+			lastPerformed: map[exercise.ExerciseID]int{
+				"bench": -3, "squat": -3, "deadlift": -3,
+			},
+			want: "bench",
+		},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			logs := []*setlog.SetLog{}
+			for id, daysAgo := range c.lastPerformed {
+				logs = append(logs, mkLogOn(t, string(id)+"-last",
+					planMonday.AddDays(daysAgo), string(id), 80, 8, 2))
+			}
+
+			req := planRequest(t)
+			req.History = setlog.NewHistory(logs)
+
+			main := mustPlan(t, req).Main()
+			if len(main) != 1 {
+				t.Fatalf("ヘビー枠が %d 件。1件のはず", len(main))
+			}
+			if main[0].ExerciseID() != c.want {
+				t.Errorf("ヘビー枠が %s。%s のはず", main[0].ExerciseID(), c.want)
+			}
+		})
+	}
+}
+
+// その種目を今週何本目にやるかで、スロットの役割が決まる。
+//
+// 週の通算本数ではない。ヘビー枠が1セッションに1つになったので、宣言が
+// 3つあれば週3回通ってもベンチは週1回しか出ない。通算で引くと、その1回に
+// 「週3本目＝軽い日」が当たる（D-117）。
 //
 // 並び順は「重要な役割ほど先」で、強度の昇順ではない（slot.go）。設定した
 // 頻度より実際に通う回数が少ないと先頭のスロットしか使われないので、標準を
 // 先頭に置くことで、週に一度でも通えば通常の強度で実施することが保証される。
-func TestSessionPlanner_SlotRoleFollowsTheSessionIndex(t *testing.T) {
+func TestSessionPlanner_SlotRoleFollowsTheLiftIndex(t *testing.T) {
 	cases := []struct {
 		name string
 		done []int // 週内で既に通った日（月曜からの日数）
@@ -333,22 +505,26 @@ func TestSessionPlanner_DeloadAppliesOnlyToAcceptedLifts(t *testing.T) {
 		},
 		{
 			// 伸びている種目まで一律に下げると、本人の実感と噛み合わない。
-			name:          "停滞した種目だけが提案に載り、承認するとそれだけ下がる",
-			stalled:       true,
-			accepted:      []exercise.ExerciseID{"bench"},
-			wantProposal:  []exercise.ExerciseID{"bench"},
-			wantLowered:   []exercise.ExerciseID{"bench"},
-			wantUnchanged: []exercise.ExerciseID{"squat", "deadlift"},
+			name:         "停滞した種目だけが提案に載り、承認するとそれだけ下がる",
+			stalled:      true,
+			accepted:     []exercise.ExerciseID{"bench"},
+			wantProposal: []exercise.ExerciseID{"bench"},
+			wantLowered:  []exercise.ExerciseID{"bench"},
+			// deadlift は週目標にハムも脊柱起立筋も無いので、ヘビー枠を
+			// 外れると今日のメニューに出ない。比べようがないので入れない。
+			wantUnchanged: []exercise.ExerciseID{"squat"},
 		},
 		{
 			// 提案の有無と承認は独立に効く。ここが紐づいていると、体重の
 			// 記録が途切れた日に「承認したのに下がらない」が起きる。
-			name:          "提案が出ていなくても、承認された種目は下がる",
-			stalled:       false,
-			accepted:      []exercise.ExerciseID{"bench"},
-			wantProposal:  nil,
-			wantLowered:   []exercise.ExerciseID{"bench"},
-			wantUnchanged: []exercise.ExerciseID{"squat", "deadlift"},
+			name:         "提案が出ていなくても、承認された種目は下がる",
+			stalled:      false,
+			accepted:     []exercise.ExerciseID{"bench"},
+			wantProposal: nil,
+			wantLowered:  []exercise.ExerciseID{"bench"},
+			// deadlift は週目標にハムも脊柱起立筋も無いので、ヘビー枠を
+			// 外れると今日のメニューに出ない。比べようがないので入れない。
+			wantUnchanged: []exercise.ExerciseID{"squat"},
 		},
 	}
 
@@ -389,10 +565,18 @@ func TestSessionPlanner_DeloadAppliesOnlyToAcceptedLifts(t *testing.T) {
 						id, mainWeight(t, normal, id), mainWeight(t, deloaded, id))
 				}
 			}
+			// 承認していない宣言はヘビー枠に選ばれず、補助として出る。
+			// メインだけを見ると「見つからない」で落ちるので、今日の
+			// メニュー全体から引く。
 			for _, id := range c.wantUnchanged {
-				if mainWeight(t, deloaded, id) != mainWeight(t, normal, id) {
+				before, ok := plannedWeight(t, normal, id)
+				if !ok {
+					continue // 重量が確定していないものは比べようがない
+				}
+				after, _ := plannedWeight(t, deloaded, id)
+				if after != before {
 					t.Errorf("承認していない %s の重量が変わった: %v → %v",
-						id, mainWeight(t, normal, id), mainWeight(t, deloaded, id))
+						id, before, after)
 				}
 			}
 
@@ -850,8 +1034,8 @@ func TestSessionPlanner_SkipsNilExercisesInPool(t *testing.T) {
 	req.Pool = append([]*exercise.Exercise{nil}, append(planPool(t), nil)...)
 
 	s := mustPlan(t, req)
-	if len(s.Main()) != 3 {
-		t.Errorf("nil が混ざるとメインが揃わない: %d", len(s.Main()))
+	if len(s.Main()) != 1 {
+		t.Errorf("nil が混ざるとヘビー枠が揃わない: %d", len(s.Main()))
 	}
 }
 
@@ -1027,13 +1211,10 @@ func TestSessionPlanner_UsesInjectedConditionAnalyzer(t *testing.T) {
 // スロットの役割ごとに強度が変わる。ここが効かないと
 // HEAVY もバリエーション日も標準日と同じ重量になる。
 func TestSessionPlanner_SlotRoleChangesIntensity(t *testing.T) {
-	standard := mustPlan(t, planRequest(t))
+	standard := mustPlan(t, planRequestAt(t, 0))
 
-	req := planRequest(t)
-	// メインの推定1RMを動かさないよう、補助種目で週内の本数だけ進める。
-	req.History = setlog.NewHistory(append(planHistory(t),
-		mkLogOn(t, "warm", planMonday, "curl", 20, 10, 2)))
-	req.Date = planMonday.AddDays(1)
+	// ベンチを今週1本こなした状態の翌日。ベンチにとって2本目＝高強度。
+	req := planRequestAt(t, 1, 0)
 
 	heavy := mustPlan(t, req)
 	if role, _ := mainSet(t, heavy, "bench").Role(); role != planning.RoleHeavy {
@@ -1167,7 +1348,9 @@ func TestSessionPlanner_TodaysLogsDoNotMoveTodaysWeight(t *testing.T) {
 // 翌日以降には反映されること。当日を外すのは「その日の中で動かない」
 // ためであって、記録を無視するためではない。
 func TestSessionPlanner_TodaysLogsMoveLaterSessions(t *testing.T) {
-	req := planRequest(t)
+	// 宣言をベンチ1つに絞る。3つあると、今日ベンチを記録した時点で
+	// 最終実施日が最も新しくなり、翌週のヘビー枠が別の種目に移る。
+	req := planRequestAt(t, 0)
 	base := mainWeight(t, mustPlan(t, req), "bench")
 
 	// 今日、推定を押し上げる内容で記録する。

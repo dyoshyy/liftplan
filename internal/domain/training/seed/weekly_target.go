@@ -16,33 +16,33 @@ import (
 // 狙わなくても BIG3 と各種プレスで埋まる。ここを小さく置くと、埋まって
 // いるのに残差が常に0になり、その区分を主働筋とする種目が永久に選ばれない。
 var baseProfile = map[training.MuscleRegion]float64{
-	training.ChestUpper: 8,
-	training.ChestMid:   14,
-	training.ChestLower: 8,
+	training.ChestUpper: 5,
+	training.ChestMid:   10,
+	training.ChestLower: 4.5,
 
-	training.Lat:       12,
-	training.TrapMid:   12,
-	training.TrapUpper: 6,
-	training.Erector:   18,
+	training.Lat:       8.5,
+	training.TrapMid:   8,
+	training.TrapUpper: 4,
+	training.Erector:   12.5,
 
-	training.FrontDelt: 13,
-	training.SideDelt:  8,
-	training.RearDelt:  7,
+	training.FrontDelt: 8.5,
+	training.SideDelt:  4,
+	training.RearDelt:  4,
 
-	training.TricepsLong:    8,
-	training.TricepsLateral: 16,
+	training.TricepsLong:    4,
+	training.TricepsLateral: 12.5,
 
-	training.Biceps:  9,
-	training.Forearm: 6,
+	training.Biceps:  6,
+	training.Forearm: 5,
 
-	training.Quad:      16,
-	training.Hamstring: 14,
-	training.Glute:     18,
-	training.Adductor:  6,
-	training.Calf:      6,
+	training.Quad:      12.5,
+	training.Hamstring: 10.5,
+	training.Glute:     14,
+	training.Adductor:  5,
+	training.Calf:      4,
 
-	training.Abs:     7,
-	training.Oblique: 6,
+	training.Abs:     5.5,
+	training.Oblique: 4.5,
 }
 
 // baseFrequency は baseProfile の基準となる週あたりの回数。
