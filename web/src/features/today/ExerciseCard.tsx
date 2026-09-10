@@ -23,13 +23,13 @@ export function ExerciseCard({ plan, name, last, recorded, onOpen }: Props) {
     <div className="card grid gap-3">
       <div className="flex items-center gap-2.5">
         <span className="text-[17px] font-bold">{name}</span>
-        {plan.role && (
+        {plan.intent && (
           <span
             className={`num rounded-md border px-2 py-[3px] text-[10px] tracking-[0.1em] ${
-              plan.role === 'HEAVY' ? 'border-amber/45 text-amber' : 'border-line text-muted'
+              plan.intent === 'HEAVY' ? 'border-amber/45 text-amber' : 'border-line text-muted'
             }`}
           >
-            {plan.role}
+            {plan.intent}
           </span>
         )}
       </div>

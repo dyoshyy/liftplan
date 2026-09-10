@@ -176,7 +176,7 @@ func planRequestAt(t *testing.T, days int, done ...int) planning.PlanRequest {
 //
 // 宣言が1つのテストでは、通算本数と種目ごとの本数が一致してしまうので
 // この差は出ない。3つ宣言した状態で確かめる。
-func TestSessionPlanner_SlotRoleIgnoresOtherLifts(t *testing.T) {
+func TestSessionPlanner_IntentIgnoresOtherLifts(t *testing.T) {
 	logs := planHistory(t)
 
 	// 2日通い、その日のヘビー枠をこなす。3日目は週の通算3本目になるが、
@@ -196,11 +196,11 @@ func TestSessionPlanner_SlotRoleIgnoresOtherLifts(t *testing.T) {
 	req.Date = planMonday.AddDays(2)
 
 	main := mustPlan(t, req).Main()[0]
-	role, ok := main.Role()
+	role, ok := main.Intent()
 	if !ok {
 		t.Fatalf("%s に役割が付いていない", main.ExerciseID())
 	}
-	if role != planning.RoleStandard {
+	if role != planning.IntentStandard {
 		t.Errorf("%s の役割が %v。今週まだやっていないので STANDARD のはず",
 			main.ExerciseID(), role)
 	}
@@ -320,26 +320,26 @@ func TestSessionPlanner_HeavySlotGoesToTheStalestDeclared(t *testing.T) {
 // 並び順は「重要な役割ほど先」で、強度の昇順ではない（slot.go）。設定した
 // 頻度より実際に通う回数が少ないと先頭のスロットしか使われないので、標準を
 // 先頭に置くことで、週に一度でも通えば通常の強度で実施することが保証される。
-func TestSessionPlanner_SlotRoleFollowsTheLiftIndex(t *testing.T) {
+func TestSessionPlanner_IntentFollowsTheLiftIndex(t *testing.T) {
 	cases := []struct {
 		name string
 		done []int // 週内で既に通った日（月曜からの日数）
 		date int   // 対象日（月曜からの日数）
-		want planning.SlotRole
+		want planning.Intent
 	}{
 		{
 			// 1本目を軽い日にすると、通常フォームの高い強度がいつまでも
 			// 記録されず、推定1RMが実力より低いまま固定される。
 			name: "週1本目は標準スロット",
-			done: nil, date: 0, want: planning.RoleStandard,
+			done: nil, date: 0, want: planning.IntentStandard,
 		},
 		{
 			name: "週2本目は高強度スロット",
-			done: []int{0}, date: 2, want: planning.RoleHeavy,
+			done: []int{0}, date: 2, want: planning.IntentHeavy,
 		},
 		{
 			name: "週3本目は軽い日",
-			done: []int{0, 2}, date: 4, want: planning.RoleLight,
+			done: []int{0, 2}, date: 4, want: planning.IntentLight,
 		},
 	}
 
@@ -350,7 +350,7 @@ func TestSessionPlanner_SlotRoleFollowsTheLiftIndex(t *testing.T) {
 				t.Fatal("メイン種目が1つも出ていない")
 			}
 			for _, set := range main {
-				role, ok := set.Role()
+				role, ok := set.Intent()
 				if !ok || role != c.want {
 					t.Errorf("%s の役割が %v。%v のはず", set.ExerciseID(), role, c.want)
 				}
@@ -367,7 +367,7 @@ func TestSessionPlanner_SlotRoleFollowsTheLiftIndex(t *testing.T) {
 //
 // larsen はかつてベンチのバリエーションだった種目で、いまは補助のひとつ。
 // メインの枠に現れたら、差し替えが復活している。
-func TestSessionPlanner_LightSlotKeepsTheSameExercise(t *testing.T) {
+func TestSessionPlanner_LightIntentKeepsTheSameExercise(t *testing.T) {
 	s := mustPlan(t, planRequestAt(t, 4, 0, 2)) // 週3本目 = 軽い日
 
 	found := false
@@ -405,7 +405,7 @@ func TestSessionPlanner_FillsResidualWithAccessories(t *testing.T) {
 	for _, set := range s.Accessories() {
 		// 役割はメインのスロットにだけ付く。補助に付くと、強度帯が
 		// 二重に適用される。
-		if _, ok := set.Role(); ok {
+		if _, ok := set.Intent(); ok {
 			t.Errorf("補助種目に役割が付いている: %v", set.ExerciseID())
 		}
 		if set.Sets().Int() <= 0 {
@@ -510,7 +510,7 @@ func TestSessionPlanner_ZeroValueIsSafe(t *testing.T) {
 }
 
 func TestNewSessionPlanner_RejectsZeroDependencies(t *testing.T) {
-	slots := planning.NewSlotCatalog()
+	slots := planning.NewPrescriptionCatalog()
 	est := planning.DefaultOneRepMaxEstimator()
 	acc := planning.DefaultAccessorySelector()
 	analyzer := planning.DefaultConditionAnalyzer()
@@ -1027,7 +1027,7 @@ func TestSessionPlanner_UsesInjectedConditionAnalyzer(t *testing.T) {
 	if err != nil {
 		t.Fatalf("分析器の生成に失敗: %v", err)
 	}
-	planner, err := planning.NewSessionPlanner(planning.NewSlotCatalog(),
+	planner, err := planning.NewSessionPlanner(planning.NewPrescriptionCatalog(),
 		planning.DefaultOneRepMaxEstimator(),
 		planning.DefaultAccessorySelector(), analyzer)
 	if err != nil {
@@ -1062,14 +1062,14 @@ func TestSessionPlanner_UsesInjectedConditionAnalyzer(t *testing.T) {
 
 // スロットの役割ごとに強度が変わる。ここが効かないと
 // HEAVY もバリエーション日も標準日と同じ重量になる。
-func TestSessionPlanner_SlotRoleChangesIntensity(t *testing.T) {
+func TestSessionPlanner_IntentChangesIntensity(t *testing.T) {
 	standard := mustPlan(t, planRequestAt(t, 0))
 
 	// ベンチを今週1本こなした状態の翌日。ベンチにとって2本目＝高強度。
 	req := planRequestAt(t, 1, 0)
 
 	heavy := mustPlan(t, req)
-	if role, _ := mainSet(t, heavy, "bench").Role(); role != planning.RoleHeavy {
+	if role, _ := mainSet(t, heavy, "bench").Intent(); role != planning.IntentHeavy {
 		t.Fatalf("前提: 2本目が高強度スロットであること: %v", role)
 	}
 	if mainWeight(t, heavy, "bench") <= mainWeight(t, standard, "bench") {

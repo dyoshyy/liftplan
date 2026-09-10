@@ -27,7 +27,7 @@
 // 「提示セットは計画器から出たものだけ」が言語レベルで保証されている。
 // 別パッケージに置くと公開コンストラクタが要り、誰でも任意の値で
 // 組み立てられるようになる。PlannedSession・StimulusCoverage・
-// SlotTemplate も同じ。
+// Prescription も同じ。
 //
 // ドメインサービスを役割ごとにさらに割ると、この保証が消える。
 // 見通しはファイル名で足りる。サービスのファイル名は役割を表す名詞で
@@ -37,7 +37,7 @@
 //	accessory_selector.go     残差から補助種目を選ぶ
 //	condition_analyzer.go     体重と睡眠から補正を導く
 //	one_rep_max_estimator.go  記録から推定1RMを求める
-//	slot_catalog.go           週の何本目かに強度帯を割り当てる
+//	prescription_catalog.go   その種目の週何本目かに強度帯を割り当てる
 //
 // # 依存の向き
 //

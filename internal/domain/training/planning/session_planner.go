@@ -29,14 +29,14 @@ type PlanRequest struct {
 
 // SessionPlanner はドメインの入口となるドメインサービス。無状態。
 type SessionPlanner struct {
-	slots     SlotCatalog
-	estimator OneRepMaxEstimator
-	accessory AccessorySelector
-	analyzer  ConditionAnalyzer
+	prescriptions PrescriptionCatalog
+	estimator     OneRepMaxEstimator
+	accessory     AccessorySelector
+	analyzer      ConditionAnalyzer
 }
 
 func NewSessionPlanner(
-	slots SlotCatalog,
+	prescriptions PrescriptionCatalog,
 	estimator OneRepMaxEstimator,
 	accessory AccessorySelector,
 	analyzer ConditionAnalyzer,
@@ -51,17 +51,17 @@ func NewSessionPlanner(
 		return SessionPlanner{}, errors.New("コンディション分析器が未設定である")
 	}
 	return SessionPlanner{
-		slots: slots, estimator: estimator,
+		prescriptions: prescriptions, estimator: estimator,
 		accessory: accessory, analyzer: analyzer,
 	}, nil
 }
 
 func DefaultSessionPlanner() SessionPlanner {
 	return SessionPlanner{
-		slots:     NewSlotCatalog(),
-		estimator: DefaultOneRepMaxEstimator(),
-		accessory: DefaultAccessorySelector(),
-		analyzer:  DefaultConditionAnalyzer(),
+		prescriptions: NewPrescriptionCatalog(),
+		estimator:     DefaultOneRepMaxEstimator(),
+		accessory:     DefaultAccessorySelector(),
+		analyzer:      DefaultConditionAnalyzer(),
 	}
 }
 
@@ -92,7 +92,7 @@ func (p SessionPlanner) Plan(req PlanRequest) (PlannedSession, error) {
 		return PlannedSession{}, errors.New("伸ばしたい種目が1つも選ばれていない")
 	}
 
-	template, ok := p.slots.Select(req.Program.Frequency(), liftIndexInWeek(historyBefore(req), heavy.ID(), req.Date))
+	template, ok := p.prescriptions.Select(req.Program.Frequency(), liftIndexInWeek(historyBefore(req), heavy.ID(), req.Date))
 	if !ok {
 		return PlannedSession{}, fmt.Errorf(
 			"週%d回に対応するスロット構成が無い", req.Program.Frequency().PerWeek())
@@ -178,7 +178,7 @@ func (p SessionPlanner) planMain(
 	pool []*exercise.Exercise,
 	historyBefore setlog.History,
 	main *exercise.Exercise,
-	template SlotTemplate,
+	template Prescription,
 	rirBump int,
 ) (PlannedSet, *exercise.Exercise) {
 	target := main
@@ -189,8 +189,8 @@ func (p SessionPlanner) planMain(
 		exerciseID: target.ID(),
 		sets:       template.Sets(),
 		targetRIR:  template.TargetRIR().Plus(rirBump),
-		role:       template.Role(),
-		hasRole:    true,
+		intent:     template.Intent(),
+		hasIntent:  true,
 	}
 
 	// 当日の記録は使わない（D-086）。含めると、1セット目を記録した瞬間に
