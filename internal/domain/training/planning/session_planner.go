@@ -25,17 +25,6 @@ type PlanRequest struct {
 	History    setlog.History
 	Conditions condition.ConditionLog
 	Date       training.Date
-
-	// DeloadAccepted はユーザーがデロードを承認した種目。
-	//
-	// bool ではなく種目の一覧なのは、承認の粒度を提案の粒度に合わせるため。
-	// 単一の bool だと、ベンチの提案を承認した状態のまま後からスクワットが
-	// 停滞判定に入ったとき、新しい承認を経ずにスクワットまで下がる。
-	//
-	// 提案の有無とは独立に効く。提案は毎回計算し直されるので、体重の記録が
-	// 数日途切れただけで消えることがある。提案が消えたら承認も無効、では
-	// 「承認したのに重量が下がらない」という説明のつかない挙動になる。
-	DeloadAccepted []exercise.ExerciseID
 }
 
 // SessionPlanner はドメインの入口となるドメインサービス。無状態。
@@ -43,21 +32,14 @@ type SessionPlanner struct {
 	slots     SlotCatalog
 	estimator OneRepMaxEstimator
 	accessory AccessorySelector
-	deload    DeloadPolicy
+	analyzer  ConditionAnalyzer
 }
-
-// analyzer は RIR 補正に使うコンディション分析器。
-//
-// デロード判定と同じものを使う。別々にすると、同じセッションの中で
-// 「デロードは減量中と判定、RIR補正は減量中でないと判定」のような
-// 一貫性の破れが起きる。
-func (p SessionPlanner) analyzer() ConditionAnalyzer { return p.deload.Analyzer() }
 
 func NewSessionPlanner(
 	slots SlotCatalog,
 	estimator OneRepMaxEstimator,
 	accessory AccessorySelector,
-	deload DeloadPolicy,
+	analyzer ConditionAnalyzer,
 ) (SessionPlanner, error) {
 	if estimator.IsZero() {
 		return SessionPlanner{}, errors.New("推定器が未設定である")
@@ -65,12 +47,12 @@ func NewSessionPlanner(
 	if accessory.IsZero() {
 		return SessionPlanner{}, errors.New("補助種目の選択器が未設定である")
 	}
-	if deload.IsZero() {
-		return SessionPlanner{}, errors.New("デロードのポリシーが未設定である")
+	if analyzer.IsZero() {
+		return SessionPlanner{}, errors.New("コンディション分析器が未設定である")
 	}
 	return SessionPlanner{
 		slots: slots, estimator: estimator,
-		accessory: accessory, deload: deload,
+		accessory: accessory, analyzer: analyzer,
 	}, nil
 }
 
@@ -79,7 +61,7 @@ func DefaultSessionPlanner() SessionPlanner {
 		slots:     NewSlotCatalog(),
 		estimator: DefaultOneRepMaxEstimator(),
 		accessory: DefaultAccessorySelector(),
-		deload:    DefaultDeloadPolicy(),
+		analyzer:  DefaultConditionAnalyzer(),
 	}
 }
 
@@ -116,20 +98,7 @@ func (p SessionPlanner) Plan(req PlanRequest) (PlannedSession, error) {
 			"週%d回に対応するスロット構成が無い", req.Program.Frequency().PerWeek())
 	}
 
-	// 停滞の判定は宣言した種目すべてに対して行う。ヘビー枠1つに絞らないのは、
-	// 今日出ない種目の停滞も知りたいため。提案が出るのと、それを適用するのは
-	// 別の話で、適用されるのは承認された種目だけ。
-	proposal, hasProposal := p.deload.Propose(
-		req.History, req.Program.DeclaredExercises(), req.Conditions, req.Date)
-
-	// デロードは承認された種目にだけ適用する。伸びている種目まで一律に下げると、
-	// 本人の実感と噛み合わない。
-	deloadTargets := make(map[exercise.ExerciseID]bool, len(req.DeloadAccepted))
-	for _, id := range req.DeloadAccepted {
-		deloadTargets[id] = true
-	}
-
-	rirBump := p.analyzer().RIRAdjustment(req.Conditions, req.Date)
+	rirBump := p.analyzer.RIRAdjustment(req.Conditions, req.Date)
 
 	// 週内カバレッジは前日まで。当日の記録は見ない。
 	//
@@ -142,7 +111,7 @@ func (p SessionPlanner) Plan(req PlanRequest) (PlannedSession, error) {
 	// 意味が違うため、基準が違ってよい。
 	coverage := CoverageBetween(req.History, pool, req.Date.WeekStart(), req.Date.AddDays(-1))
 
-	set, performed := p.planMain(req, pool, estHistory, heavy, template, deloadTargets[heavy.ID()], rirBump)
+	set, performed := p.planMain(req, pool, estHistory, heavy, template, rirBump)
 	coverage = coverage.Plus(performed.Stimulus(), set.Sets())
 
 	// 設定より多く通った場合でも、残り1セッション分は狙えるようにする。
@@ -170,8 +139,6 @@ func (p SessionPlanner) Plan(req PlanRequest) (PlannedSession, error) {
 		date:        req.Date,
 		main:        []PlannedSet{set},
 		accessories: accessories,
-		proposal:    proposal,
-		hasProposal: hasProposal,
 	}, nil
 }
 
@@ -212,15 +179,11 @@ func (p SessionPlanner) planMain(
 	historyBefore setlog.History,
 	main *exercise.Exercise,
 	template SlotTemplate,
-	deloaded bool,
 	rirBump int,
 ) (PlannedSet, *exercise.Exercise) {
 	target := main
 
 	intensity := template.Intensity()
-	if deloaded {
-		intensity = intensity.Reduce(p.deload.IntensityDropPct())
-	}
 
 	set := PlannedSet{
 		exerciseID: target.ID(),

@@ -18,8 +18,7 @@ import (
 )
 
 type GetSessionInput struct {
-	Date           training.Date
-	DeloadAccepted []exercise.ExerciseID
+	Date training.Date
 }
 
 // GetSession は指定日のセッションを導出するユースケース。
@@ -82,30 +81,11 @@ func (u *GetSession) Execute(ctx context.Context, in GetSessionInput) (planning.
 		return planning.PlannedSession{}, fmt.Errorf("コンディションの取得に失敗: %w", err)
 	}
 
-	// 承認された種目が実在しないと、デロードは黙って効かない。
-	// ユーザーは承認したつもりでいるのに重量が下がらない。
-	if len(in.DeloadAccepted) > 0 {
-		known := make(map[exercise.ExerciseID]bool, len(pool))
-		for _, e := range pool {
-			if e == nil {
-				continue
-			}
-			known[e.ID()] = true
-		}
-		for _, id := range in.DeloadAccepted {
-			if !known[id] {
-				return planning.PlannedSession{}, fmt.Errorf("%w: %w: %s",
-					ErrInvalidInput, exercise.ErrExerciseNotFound, id)
-			}
-		}
-	}
-
 	return u.planner.Plan(planning.PlanRequest{
-		Program:        prog,
-		Pool:           pool,
-		History:        history,
-		Conditions:     conditions,
-		Date:           in.Date,
-		DeloadAccepted: in.DeloadAccepted,
+		Program:    prog,
+		Pool:       pool,
+		History:    history,
+		Conditions: conditions,
+		Date:       in.Date,
 	})
 }

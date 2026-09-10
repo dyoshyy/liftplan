@@ -27,7 +27,7 @@
 // 「提示セットは計画器から出たものだけ」が言語レベルで保証されている。
 // 別パッケージに置くと公開コンストラクタが要り、誰でも任意の値で
 // 組み立てられるようになる。PlannedSession・StimulusCoverage・
-// DeloadProposal・SlotTemplate も同じ。
+// SlotTemplate も同じ。
 //
 // ドメインサービスを役割ごとにさらに割ると、この保証が消える。
 // 見通しはファイル名で足りる。サービスのファイル名は役割を表す名詞で
@@ -35,7 +35,6 @@
 //
 //	session_planner.go        その日のセッションを導出する
 //	accessory_selector.go     残差から補助種目を選ぶ
-//	deload_policy.go          停滞を判定してデロードを提案する
 //	condition_analyzer.go     体重と睡眠から補正を導く
 //	one_rep_max_estimator.go  記録から推定1RMを求める
 //	slot_catalog.go           週の何本目かに強度帯を割り当てる

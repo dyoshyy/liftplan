@@ -8,13 +8,11 @@ import (
 	"log/slog"
 	"mime"
 	"net/http"
-	"strings"
 
 	"github.com/dyoshyy/liftplan/internal/application/query"
 	"github.com/dyoshyy/liftplan/internal/application/usecase"
 	"github.com/dyoshyy/liftplan/internal/domain/training"
 	"github.com/dyoshyy/liftplan/internal/domain/training/condition"
-	"github.com/dyoshyy/liftplan/internal/domain/training/exercise"
 	"github.com/dyoshyy/liftplan/internal/domain/training/program"
 	"github.com/dyoshyy/liftplan/internal/domain/training/setlog"
 )
@@ -100,25 +98,6 @@ func invalidInput(message string) error {
 	return fmt.Errorf("%w: %s", usecase.ErrInvalidInput, message)
 }
 
-// parseExerciseIDs はカンマ区切りの種目IDを分解する。
-//
-// 空要素は落とす。"a,,b" や末尾のカンマはクライアントの組み立てで
-// 普通に生まれるので、そのたびに 400 を返す理由がない。
-func parseExerciseIDs(raw string) []exercise.ExerciseID {
-	if raw == "" {
-		return nil
-	}
-	out := make([]exercise.ExerciseID, 0, strings.Count(raw, ",")+1)
-	for _, part := range strings.Split(raw, ",") {
-		part = strings.TrimSpace(part)
-		if part == "" {
-			continue
-		}
-		out = append(out, exercise.ExerciseID(part))
-	}
-	return out
-}
-
 func (h *Handler) handleGetSession(w http.ResponseWriter, r *http.Request) {
 	raw := r.URL.Query().Get("date")
 	if raw == "" {
@@ -131,10 +110,7 @@ func (h *Handler) handleGetSession(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	session, err := h.getSession.Execute(r.Context(), usecase.GetSessionInput{
-		Date:           date,
-		DeloadAccepted: parseExerciseIDs(r.URL.Query().Get("deload_accepted")),
-	})
+	session, err := h.getSession.Execute(r.Context(), usecase.GetSessionInput{Date: date})
 	if err != nil {
 		respondError(w, err)
 		return

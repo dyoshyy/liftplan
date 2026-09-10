@@ -447,149 +447,6 @@ func TestSessionPlanner_SleepDeprivationRaisesTargetRIR(t *testing.T) {
 	}
 }
 
-// stalledBenchRequest はベンチだけが停滞し、スクワットとデッドリフトは
-// 伸びている履歴のリクエストを返す。
-//
-// 停滞の判定には体重の記録が要る（減量中かどうかで扱いが変わる）ので、
-// 4週ぶんの体重も入れる。
-func stalledBenchRequest(t *testing.T) planning.PlanRequest {
-	t.Helper()
-
-	logs := make([]*setlog.SetLog, 0, 30)
-	for i := range 9 {
-		day := planMonday.AddDays(-7 * (9 - i))
-		logs = append(logs,
-			mkLogOn(t, fmt.Sprintf("b%02d", i), day, "bench", 85, 8, 2),
-			mkLogOn(t, fmt.Sprintf("s%02d", i), day, "squat", 110+float64(i)*2.5, 8, 2),
-			mkLogOn(t, fmt.Sprintf("d%02d", i), day, "deadlift", 140+float64(i)*2.5, 8, 2))
-	}
-
-	conditions := make([]condition.DailyCondition, 0, 28)
-	for i := range 28 {
-		conditions = append(conditions, condition.NewDailyCondition(planMonday.AddDays(-i)).
-			WithBodyWeight(75))
-	}
-
-	req := planRequest(t)
-	req.History = setlog.NewHistory(logs)
-	req.Conditions = condition.NewConditionLog(conditions)
-	return req
-}
-
-// デロードは、承認された種目にだけ効く。
-//
-// 提案と承認を別々に扱うのは、提案が毎回計算し直されるため。体重の記録が
-// 数日途切れただけで提案は消えるので、承認を提案に紐づけると「承認したのに
-// 重量が下がらない」という説明のつかない挙動になる。
-//
-// 承認の粒度を種目にしているのも同じ理由。単一の bool だと、ベンチの提案を
-// 承認した状態のまま後からスクワットが停滞判定に入ったとき、新しい承認を
-// 経ずにスクワットまで下がる。
-func TestSessionPlanner_DeloadAppliesOnlyToAcceptedLifts(t *testing.T) {
-	cases := []struct {
-		name string
-		// ベンチだけが停滞した履歴を使うか。false なら伸びている履歴。
-		stalled  bool
-		accepted []exercise.ExerciseID
-		// 提案に載るべき種目。nil なら提案そのものが出ない。
-		wantProposal []exercise.ExerciseID
-		// 承認の結果、重量が下がる種目と、変わらない種目。
-		wantLowered   []exercise.ExerciseID
-		wantUnchanged []exercise.ExerciseID
-	}{
-		{
-			name:          "停滞していなければ提案は出ない",
-			stalled:       false,
-			wantProposal:  nil,
-			wantUnchanged: []exercise.ExerciseID{"bench", "squat", "deadlift"},
-		},
-		{
-			// 伸びている種目まで一律に下げると、本人の実感と噛み合わない。
-			name:         "停滞した種目だけが提案に載り、承認するとそれだけ下がる",
-			stalled:      true,
-			accepted:     []exercise.ExerciseID{"bench"},
-			wantProposal: []exercise.ExerciseID{"bench"},
-			wantLowered:  []exercise.ExerciseID{"bench"},
-			// deadlift は週目標にハムも脊柱起立筋も無いので、ヘビー枠を
-			// 外れると今日のメニューに出ない。比べようがないので入れない。
-			wantUnchanged: []exercise.ExerciseID{"squat"},
-		},
-		{
-			// 提案の有無と承認は独立に効く。ここが紐づいていると、体重の
-			// 記録が途切れた日に「承認したのに下がらない」が起きる。
-			name:         "提案が出ていなくても、承認された種目は下がる",
-			stalled:      false,
-			accepted:     []exercise.ExerciseID{"bench"},
-			wantProposal: nil,
-			wantLowered:  []exercise.ExerciseID{"bench"},
-			// deadlift は週目標にハムも脊柱起立筋も無いので、ヘビー枠を
-			// 外れると今日のメニューに出ない。比べようがないので入れない。
-			wantUnchanged: []exercise.ExerciseID{"squat"},
-		},
-	}
-
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
-			req := planRequest(t)
-			if c.stalled {
-				req = stalledBenchRequest(t)
-			}
-
-			normal := mustPlan(t, req)
-
-			proposal, ok := normal.DeloadProposal()
-			if len(c.wantProposal) == 0 {
-				if ok {
-					t.Errorf("提案が出ている: %v", proposal.StalledExercises())
-				}
-			} else {
-				if !ok {
-					t.Fatal("停滞しているのに提案が無い")
-				}
-				if !slices.Equal(proposal.StalledExercises(), c.wantProposal) {
-					t.Errorf("停滞種目が %v。%v のはず",
-						proposal.StalledExercises(), c.wantProposal)
-				}
-			}
-
-			if len(c.accepted) == 0 {
-				return
-			}
-
-			req.DeloadAccepted = c.accepted
-			deloaded := mustPlan(t, req)
-
-			for _, id := range c.wantLowered {
-				if mainWeight(t, deloaded, id) >= mainWeight(t, normal, id) {
-					t.Errorf("承認した %s の重量が下がっていない: %v → %v",
-						id, mainWeight(t, normal, id), mainWeight(t, deloaded, id))
-				}
-			}
-			// 承認していない宣言はヘビー枠に選ばれず、補助として出る。
-			// メインだけを見ると「見つからない」で落ちるので、今日の
-			// メニュー全体から引く。
-			for _, id := range c.wantUnchanged {
-				before, ok := plannedWeight(t, normal, id)
-				if !ok {
-					continue // 重量が確定していないものは比べようがない
-				}
-				after, _ := plannedWeight(t, deloaded, id)
-				if after != before {
-					t.Errorf("承認していない %s の重量が変わった: %v → %v",
-						id, before, after)
-				}
-			}
-
-			// デロードで落とすのは強度であって量ではない。セット数まで
-			// 減らすと、週目標の消化が止まって残差が埋まらなくなる。
-			if got, want := mainSet(t, deloaded, "bench").Sets().Int(),
-				mainSet(t, normal, "bench").Sets().Int(); got != want {
-				t.Errorf("デロードでセット数が %d に変わった。%d のはず", got, want)
-			}
-		})
-	}
-}
-
 func TestSessionPlanner_RejectsInvalidRequests(t *testing.T) {
 	cases := []struct {
 		name   string
@@ -656,22 +513,22 @@ func TestNewSessionPlanner_RejectsZeroDependencies(t *testing.T) {
 	slots := planning.NewSlotCatalog()
 	est := planning.DefaultOneRepMaxEstimator()
 	acc := planning.DefaultAccessorySelector()
-	deload := planning.DefaultDeloadPolicy()
+	analyzer := planning.DefaultConditionAnalyzer()
 
 	cases := []struct {
 		name string
 		call func() error
 	}{
 		{"推定器", func() error {
-			_, err := planning.NewSessionPlanner(slots, planning.OneRepMaxEstimator{}, acc, deload)
+			_, err := planning.NewSessionPlanner(slots, planning.OneRepMaxEstimator{}, acc, analyzer)
 			return err
 		}},
 		{"補助の選択器", func() error {
-			_, err := planning.NewSessionPlanner(slots, est, planning.AccessorySelector{}, deload)
+			_, err := planning.NewSessionPlanner(slots, est, planning.AccessorySelector{}, analyzer)
 			return err
 		}},
-		{"デロードのポリシー", func() error {
-			_, err := planning.NewSessionPlanner(slots, est, acc, planning.DeloadPolicy{})
+		{"コンディション分析器", func() error {
+			_, err := planning.NewSessionPlanner(slots, est, acc, planning.ConditionAnalyzer{})
 			return err
 		}},
 	}
@@ -683,7 +540,7 @@ func TestNewSessionPlanner_RejectsZeroDependencies(t *testing.T) {
 		})
 	}
 
-	if _, err := planning.NewSessionPlanner(slots, est, acc, deload); err != nil {
+	if _, err := planning.NewSessionPlanner(slots, est, acc, analyzer); err != nil {
 		t.Errorf("正常な依存が弾かれた: %v", err)
 	}
 }
@@ -1164,20 +1021,15 @@ func TestSessionPlanner_ExtraSessionsStillGetAccessories(t *testing.T) {
 }
 
 // RIR 補正は注入したコンディション分析器を使う。
-// 既定値を直接呼ぶと、同じセッションでデロード判定と RIR 補正の
-// 前提が食い違う。
+// 既定値を直接呼ぶと、注入した設定（睡眠不足のしきい値など）が無視される。
 func TestSessionPlanner_UsesInjectedConditionAnalyzer(t *testing.T) {
 	analyzer, err := planning.NewConditionAnalyzer(14, 0.05, 21)
 	if err != nil {
 		t.Fatalf("分析器の生成に失敗: %v", err)
 	}
-	policy, err := planning.NewDeloadPolicy(analyzer, 8, 0.10)
-	if err != nil {
-		t.Fatalf("ポリシーの生成に失敗: %v", err)
-	}
 	planner, err := planning.NewSessionPlanner(planning.NewSlotCatalog(),
 		planning.DefaultOneRepMaxEstimator(),
-		planning.DefaultAccessorySelector(), policy)
+		planning.DefaultAccessorySelector(), analyzer)
 	if err != nil {
 		t.Fatalf("生成器の生成に失敗: %v", err)
 	}
