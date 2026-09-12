@@ -34,10 +34,12 @@ func (r *ProgramRepository) Get(ctx context.Context) (*program.Program, error) {
 	var (
 		perWeek                             int
 		rawTarget, rawSelected, rawDeclared []byte
+		// 重点種目は指定なしが正当な既定値なので NULL を許す。
+		rawFocus *string
 	)
 	err := r.pool.QueryRow(ctx, `
-		SELECT per_week, weekly_target, selected, declared FROM program WHERE id`).
-		Scan(&perWeek, &rawTarget, &rawSelected, &rawDeclared)
+		SELECT per_week, weekly_target, selected, declared, focus FROM program WHERE id`).
+		Scan(&perWeek, &rawTarget, &rawSelected, &rawDeclared, &rawFocus)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, program.ErrProgramNotConfigured
 	}
@@ -72,7 +74,11 @@ func (r *ProgramRepository) Get(ctx context.Context) (*program.Program, error) {
 	if err != nil {
 		return nil, fmt.Errorf("保存された週目標が不正: %w", err)
 	}
-	program, err := program.NewProgram(frequency, weeklyTarget, selected, declared)
+	var focus exercise.ExerciseID
+	if rawFocus != nil {
+		focus = exercise.ExerciseID(*rawFocus)
+	}
+	program, err := program.NewProgram(frequency, weeklyTarget, selected, declared, focus)
 	if err != nil {
 		return nil, fmt.Errorf("保存されたプログラムが不正: %w", err)
 	}
@@ -103,15 +109,24 @@ func (r *ProgramRepository) Save(ctx context.Context, p *program.Program) error 
 		return fmt.Errorf("宣言種目を書き出せない: %w", err)
 	}
 
+	// 指定が無ければ NULL で保存する。空文字を入れると、読み出しで
+	// NewExerciseID が弾いて「保存されたプログラムが不正」になる。
+	var rawFocus *string
+	if id, ok := p.FocusExercise(); ok {
+		s := string(id)
+		rawFocus = &s
+	}
+
 	if _, err := r.pool.Exec(ctx, `
-		INSERT INTO program (id, per_week, weekly_target, selected, declared)
-		VALUES (true, $1, $2, $3, $4)
+		INSERT INTO program (id, per_week, weekly_target, selected, declared, focus)
+		VALUES (true, $1, $2, $3, $4, $5)
 		ON CONFLICT (id) DO UPDATE SET
 			per_week      = EXCLUDED.per_week,
 			weekly_target = EXCLUDED.weekly_target,
 			selected      = EXCLUDED.selected,
-			declared      = EXCLUDED.declared`,
-		p.Frequency().PerWeek(), rawTarget, rawSelected, rawDeclared); err != nil {
+			declared      = EXCLUDED.declared,
+			focus         = EXCLUDED.focus`,
+		p.Frequency().PerWeek(), rawTarget, rawSelected, rawDeclared, rawFocus); err != nil {
 		return fmt.Errorf("プログラムを保存できない: %w", err)
 	}
 	return nil

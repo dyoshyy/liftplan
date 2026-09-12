@@ -106,6 +106,7 @@ type programDTO struct {
 	Target   map[string]float64 `json:"weekly_target"`
 	Selected []string           `json:"selected_exercises"`
 	Declared []string           `json:"declared_exercises"`
+	Focus    *string            `json:"focus_exercise"`
 }
 
 func toProgramDTO(p *program.Program) programDTO {
@@ -124,11 +125,20 @@ func toProgramDTO(p *program.Program) programDTO {
 		declared = append(declared, string(id))
 	}
 
+	// ポインタなのは weight_kg と同じ理由。非ポインタだと「指定なし」と
+	// フィールドの欠落がどちらも空文字になり、区別できない。
+	var focus *string
+	if id, ok := p.FocusExercise(); ok {
+		s := string(id)
+		focus = &s
+	}
+
 	return programDTO{
 		PerWeek:  p.Frequency().PerWeek(),
 		Target:   target,
 		Selected: selected,
 		Declared: declared,
+		Focus:    focus,
 	}
 }
 
@@ -145,8 +155,13 @@ func (d programDTO) toInput() usecase.ConfigureProgramInput {
 	for _, id := range d.Declared {
 		declared = append(declared, exercise.ExerciseID(id))
 	}
+	var focus exercise.ExerciseID
+	if d.Focus != nil {
+		focus = exercise.ExerciseID(*d.Focus)
+	}
 	return usecase.ConfigureProgramInput{
 		PerWeek: d.PerWeek, Target: target, Selected: selected, Declared: declared,
+		Focus: focus,
 	}
 }
 

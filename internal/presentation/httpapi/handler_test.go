@@ -46,7 +46,7 @@ func newServer(t *testing.T, configured bool) http.Handler {
 		for _, e := range pool {
 			selected = append(selected, e.ID())
 		}
-		program, err := program.NewProgram(freq, target, selected, []exercise.ExerciseID{"bench", "squat", "deadlift"})
+		program, err := program.NewProgram(freq, target, selected, []exercise.ExerciseID{"bench", "squat", "deadlift"}, "")
 		if err != nil {
 			t.Fatalf("プログラムが不正: %v", err)
 		}
@@ -258,6 +258,7 @@ func TestPutProgram_ClassifiesFailures(t *testing.T) {
 		"実在しない種目":    {`{"per_week":3,"weekly_target":{"QUAD":12},"selected_exercises":["無い種目"],"declared_exercises":["無い種目"]}`, http.StatusBadRequest},
 		"宣言ゼロ":       {`{"per_week":3,"weekly_target":{"BICEPS":9},"selected_exercises":["barbell_curl"],"declared_exercises":[]}`, http.StatusBadRequest},
 		"宣言が選択にない":   {`{"per_week":3,"weekly_target":{"QUAD":12},"selected_exercises":["squat"],"declared_exercises":["bench"]}`, http.StatusBadRequest},
+		"重点種目が宣言にない": {`{"per_week":3,"weekly_target":{"QUAD":12},"selected_exercises":["squat","bench"],"declared_exercises":["squat"],"focus_exercise":"bench"}`, http.StatusBadRequest},
 		"選択が空":       {`{"per_week":3,"weekly_target":{"QUAD":12},"selected_exercises":[],"declared_exercises":[]}`, http.StatusBadRequest},
 		"JSONが壊れている": {`{`, http.StatusBadRequest},
 		"未知のフィールド":   {`{"per_week":3,"weekly_target":{"QUAD":12},"selected_exercises":["squat"],"declared_exercises":["squat"],"謎":1}`, http.StatusBadRequest},
@@ -297,7 +298,8 @@ func TestProgram_RoundTrips(t *testing.T) {
 
 	body := `{"per_week":2,"weekly_target":{"CHEST_MID":12,"QUAD":12},` +
 		`"selected_exercises":["bench","squat","deadlift","incline_db_press"],` +
-		`"declared_exercises":["bench","squat","deadlift"]}`
+		`"declared_exercises":["bench","squat","deadlift"],` +
+		`"focus_exercise":"bench"}`
 	if rec := do(t, mux, http.MethodPut, "/api/program", body); rec.Code != http.StatusNoContent {
 		t.Fatalf("設定に失敗: %d body=%s", rec.Code, rec.Body.String())
 	}
@@ -311,6 +313,7 @@ func TestProgram_RoundTrips(t *testing.T) {
 		Target   map[string]float64 `json:"weekly_target"`
 		Selected []string           `json:"selected_exercises"`
 		Declared []string           `json:"declared_exercises"`
+		Focus    *string            `json:"focus_exercise"`
 	}
 	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
 		t.Fatalf("応答を解釈できない: %v", err)
@@ -326,6 +329,9 @@ func TestProgram_RoundTrips(t *testing.T) {
 	}
 	if len(got.Declared) != 3 {
 		t.Errorf("宣言が往復していない: %v", got.Declared)
+	}
+	if got.Focus == nil || *got.Focus != "bench" {
+		t.Errorf("重点種目が往復していない: %v", got.Focus)
 	}
 
 	// 設定した直後にセッションが導出できること。
@@ -422,7 +428,7 @@ func TestGetSession_InternalErrorDoesNotLeak(t *testing.T) {
 	for _, e := range pool {
 		selected = append(selected, e.ID())
 	}
-	program, err := program.NewProgram(freq, target, selected, []exercise.ExerciseID{"bench", "squat", "deadlift"})
+	program, err := program.NewProgram(freq, target, selected, []exercise.ExerciseID{"bench", "squat", "deadlift"}, "")
 	if err != nil {
 		t.Fatalf("プログラムが不正: %v", err)
 	}

@@ -70,9 +70,10 @@ type Program struct {
 	target    WeeklyVolumeTarget
 	selected  []exercise.ExerciseID // 実施可能な種目
 	declared  []exercise.ExerciseID // 重量を伸ばしたい種目
+	focus     exercise.ExerciseID   // 重点的に伸ばしたい種目。空なら指定なし
 }
 
-func NewProgram(freq Frequency, target WeeklyVolumeTarget, selected, declared []exercise.ExerciseID) (*Program, error) {
+func NewProgram(freq Frequency, target WeeklyVolumeTarget, selected, declared []exercise.ExerciseID, focus exercise.ExerciseID) (*Program, error) {
 	if freq.IsZero() {
 		return nil, errors.New("週の頻度が設定されていない")
 	}
@@ -101,7 +102,26 @@ func NewProgram(freq Frequency, target WeeklyVolumeTarget, selected, declared []
 			return nil, fmt.Errorf("伸ばしたい種目 %q が選択種目に含まれていない", id)
 		}
 	}
-	return &Program{frequency: freq, target: target, selected: selected, declared: declared}, nil
+	// 重点種目が伸ばしたい種目に含まれていることを確認する。
+	//
+	// declared ⊂ selected なので、これが通れば選択にも含まれる。宣言して
+	// いない種目を重点にできると、「伸ばしたい種目の中でさらに重点」という
+	// 意味が崩れる。
+	//
+	// 空は素通しする。指定なしが正当な既定値で、ここで NewExerciseID に
+	// 渡すと全プログラムが「種目IDが空である」で落ちる。
+	if focus != "" {
+		id, err := exercise.NewExerciseID(string(focus))
+		if err != nil {
+			return nil, fmt.Errorf("重点種目が不正: %w", err)
+		}
+		if !slices.Contains(declared, id) {
+			return nil, fmt.Errorf("重点種目 %q が伸ばしたい種目に含まれていない", id)
+		}
+		focus = id
+	}
+
+	return &Program{frequency: freq, target: target, selected: selected, declared: declared, focus: focus}, nil
 }
 
 func (p *Program) Frequency() Frequency             { return p.frequency }
@@ -137,6 +157,15 @@ func (p *Program) DeclaredExercises() []exercise.ExerciseID {
 	out := make([]exercise.ExerciseID, len(p.declared))
 	copy(out, p.declared)
 	return out
+}
+
+// FocusExercise は重点種目。指定が無ければ false。
+//
+// ポインタではなく (値, bool) を返すのは、Weight() や Intent() と同じ
+// 「任意項目」の規約に揃えるため。ポインタだと呼び出し側が nil 判定と
+// 逆参照の2手を踏むうえ、集約の内部フィールドのアドレスが外へ出る。
+func (p *Program) FocusExercise() (exercise.ExerciseID, bool) {
+	return p.focus, p.focus != ""
 }
 
 func (p *Program) Includes(id exercise.ExerciseID) bool {
