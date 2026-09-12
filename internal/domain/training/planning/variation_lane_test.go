@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/dyoshyy/liftplan/internal/domain/training"
+	"github.com/dyoshyy/liftplan/internal/domain/training/condition"
 	"github.com/dyoshyy/liftplan/internal/domain/training/exercise"
 	"github.com/dyoshyy/liftplan/internal/domain/training/planning"
 	"github.com/dyoshyy/liftplan/internal/domain/training/program"
@@ -230,6 +231,124 @@ func TestSessionPlanner_VariationWeightComesFromItsOwnRecord(t *testing.T) {
 	if w.Kg() <= 0 {
 		t.Errorf("バリエーションの重量が0以下: %v", w.Kg())
 	}
+}
+
+// バリエーションの処方は、軸より軽く補助より重い。
+//
+// 3レーンの強度とセット数をそれぞれ定数で持つので、値そのものを固定する。
+// ここが緩いと、定数を書き換えても誰も気づかない。
+//
+// 種目をまたいで kg を比べても意味が無い（推定1RMが別物）ので、
+// 出てきた種目自身の推定1RMに対する比で見る。期待する 0.81 は
+// 実装とは独立にここへ書く。
+func TestSessionPlanner_VariationPrescriptionIsPinned(t *testing.T) {
+	const (
+		wantIntensity = 0.80
+		wantSets      = 3
+		wantRIR       = 2
+	)
+
+	logs := planHistory(t)
+	for i, daysAgo := range []int{21, 14, 7} {
+		for _, id := range []string{"larsen", "tempo"} {
+			logs = append(logs, mkLogOn(t, fmt.Sprintf("%s-%d", id, i),
+				planMonday.AddDays(-daysAgo), id, 85, 8, 2))
+		}
+	}
+	// ベンチを3日前にやって軸を他へ移すと、派生がバリエーションに出る。
+	logs = append(logs, mkLogOn(t, "b-recent", planMonday.AddDays(-3), "bench", 85, 8, 2))
+
+	req := planRequest(t)
+	req.Program = focusedProgram(t, "bench")
+	req.History = setlog.NewHistory(logs)
+
+	s := mustPlan(t, req)
+	if len(s.Variation()) != 1 {
+		t.Fatalf("前提: バリエーションが出ること: %v", s.Variation())
+	}
+	got := s.Variation()[0]
+
+	if n := got.Sets().Int(); n != wantSets {
+		t.Errorf("セット数が %d。%d のはず", n, wantSets)
+	}
+	if r := got.TargetRIR(); r.Int() != wantRIR {
+		t.Errorf("目標RIRが %v。%d のはず", r, wantRIR)
+	}
+
+	// 同じ推定器・同じ増加単位で 0.81 を当て直す。
+	orm, ok := planning.DefaultOneRepMaxEstimator().
+		Estimate(req.History, got.ExerciseID(), req.Date)
+	if !ok {
+		t.Fatalf("前提: 推定1RMが出ること: %v", got.ExerciseID())
+	}
+	target := exerciseByID(t, req.Pool, got.ExerciseID())
+	pct, err := training.NewIntensityPct(wantIntensity)
+	if err != nil {
+		t.Fatalf("強度: %v", err)
+	}
+	want, err := orm.WorkWeight(pct, target.Increment())
+	if err != nil {
+		t.Fatalf("実施重量: %v", err)
+	}
+
+	w, ok := got.Weight()
+	if !ok {
+		t.Fatal("重量が確定していない")
+	}
+	if w.Kg() != want.Kg() {
+		t.Errorf("重量が %vkg。推定1RM %vkg の %v = %vkg のはず",
+			w.Kg(), orm.Kg(), wantIntensity, want.Kg())
+	}
+}
+
+// 体調の補正はバリエーションにも乗る。
+//
+// 3レーンとも同じ rirBump を受け取るが、受け取ったあと使っているかは
+// レーンごとに別の話。軸だけ見ていると、バリエーションで落とし忘れても
+// 気づかない。
+func TestSessionPlanner_VariationTakesTheConditionRIRBump(t *testing.T) {
+	logs := planHistory(t)
+	for i, daysAgo := range []int{21, 14, 7} {
+		for _, id := range []string{"larsen", "tempo"} {
+			logs = append(logs, mkLogOn(t, fmt.Sprintf("%s-%d", id, i),
+				planMonday.AddDays(-daysAgo), id, 85, 8, 2))
+		}
+	}
+	logs = append(logs, mkLogOn(t, "b-recent", planMonday.AddDays(-3), "bench", 85, 8, 2))
+
+	req := planRequest(t)
+	req.Program = focusedProgram(t, "bench")
+	req.History = setlog.NewHistory(logs)
+
+	// 2週間 7h で寝ていた人が当日 5.4h。既定の閾値 1.5h を割る。
+	conds := []condition.DailyCondition{
+		condition.NewDailyCondition(planMonday).WithSleepHours(5.4),
+	}
+	for i := 1; i <= 14; i++ {
+		conds = append(conds,
+			condition.NewDailyCondition(planMonday.AddDays(-i)).WithSleepHours(7))
+	}
+	req.Conditions = condition.NewConditionLog(conds)
+
+	s := mustPlan(t, req)
+	if len(s.Variation()) != 1 {
+		t.Fatalf("前提: バリエーションが出ること: %v", s.Variation())
+	}
+	if got := s.Variation()[0].TargetRIR().Int(); got != 3 {
+		t.Errorf("寝不足なのに目標RIRが %d。素の2に補正+1で3のはず", got)
+	}
+}
+
+// exerciseByID はプールから種目を引く。見つからなければ失敗。
+func exerciseByID(t *testing.T, pool []*exercise.Exercise, id exercise.ExerciseID) *exercise.Exercise {
+	t.Helper()
+	for _, e := range pool {
+		if e.ID() == id {
+			return e
+		}
+	}
+	t.Fatalf("プールに %v が無い", id)
+	return nil
 }
 
 // 記録が無ければ重量は未確定。初回は本人が決める。

@@ -18,6 +18,21 @@ const (
 	accessoryIntensityPct = 0.71
 	accessoryTargetRIR    = 2
 
+	// バリエーションの処方。軸より軽く、補助より重い。
+	//
+	// 表を引かず定数にしているのは、派生が週に何回出ようと強度を変える
+	// 理由が無いため。同じ種目の中で強度を回すのは「同じ種目を週に何回も
+	// やる」ことが前提で、派生は別種目として自分の推定1RMを持つ（D-113）。
+	// 種目が違えば重量は自然に違う。
+	//
+	// 表から持ってきた値は 0.81 / 4セットだったが、0.81 は表の中で
+	// 0.88 や 0.76 と並んで初めて意味を持つ刻みで、単独では半端。
+	// 軸 0.88 と補助 0.71 の間に置く一つの値としては 0.80 でいい。
+	// 4セットは軸と合わせて胸の実測が週目標の134%まで出ていたので3に落とす。
+	variationIntensityPct = 0.80
+	variationSets         = 3
+	variationTargetRIR    = 2
+
 	// variationRecoveryDays は同じ系統を再び出すまでに空ける日数。
 	//
 	// 2 は「中1日」で、月曜にやったら火曜は出さず水曜から出す。判定は
@@ -122,13 +137,7 @@ func (p SessionPlanner) Plan(req PlanRequest) (PlannedSession, error) {
 	variation := make([]PlannedSet, 0, 1)
 	exclude := req.Program.DeclaredExercises()
 	if v := p.variationLift(req, pool, heavy); v != nil {
-		vt, ok := p.prescriptions.Select(req.Program.Frequency(), liftIndexInWeek(historyBefore(req), v.ID(), req.Date))
-		if !ok {
-			return PlannedSession{}, fmt.Errorf(
-				"週%d回に対応するスロット構成が無い", req.Program.Frequency().PerWeek(),
-			)
-		}
-		vs := p.planLift(req, estHistory, v, vt, rirBump)
+		vs := p.planVariation(req, estHistory, v, rirBump)
 		variation = append(variation, vs)
 		coverage = coverage.Plus(v.Stimulus(), vs.Sets())
 		exclude = append(exclude, v.ID())
@@ -218,6 +227,50 @@ func (p SessionPlanner) planLift(
 	if orm, ok := p.estimator.Estimate(historyBefore, target.ID(), req.Date); ok {
 		if w, err := orm.WorkWeight(intensity, target.Increment()); err == nil {
 			// 推定も処方も実効負荷（体重込み）で通し、出口で加重に戻す。
+			set.weight, set.hasWeight = AddedWeight(w, target, req.Conditions, req.Date), true
+		}
+	}
+	return set
+}
+
+// planVariation はバリエーションレーンの処方を組み立てる。
+//
+// 強度・セット数・RIR は定数。軸のように週の何本目かで変えない。派生は
+// それぞれ自分の推定1RMを持つので、種目が違えば重量は自然に違う。
+//
+// 組み立ての形は planAccessory と同じ。定数を値オブジェクトへ通すのは
+// 実行時で、失敗しても重量なし（本人が決める）に落とす。newPrescription の
+// ように panic しないのは、こちらが prescription.go の外だから
+// （TestDomain_PanickingFunctionsStayWhereTheyBelong）。
+func (p SessionPlanner) planVariation(
+	req PlanRequest,
+	historyBefore setlog.History,
+	target *exercise.Exercise,
+	rirBump int,
+) PlannedSet {
+	baseRIR, err := training.NewRIR(variationTargetRIR)
+	if err != nil {
+		return PlannedSet{}
+	}
+	sets, err := training.NewSetCount(variationSets)
+	if err != nil {
+		return PlannedSet{}
+	}
+
+	set := PlannedSet{
+		exerciseID: target.ID(),
+		sets:       sets,
+		targetRIR:  baseRIR.Plus(rirBump),
+		intent:     IntentStandard,
+		hasIntent:  true,
+	}
+
+	intensity, err := training.NewIntensityPct(variationIntensityPct)
+	if err != nil {
+		return set
+	}
+	if orm, ok := p.estimator.Estimate(historyBefore, target.ID(), req.Date); ok {
+		if w, err := orm.WorkWeight(intensity, target.Increment()); err == nil {
 			set.weight, set.hasWeight = AddedWeight(w, target, req.Conditions, req.Date), true
 		}
 	}
