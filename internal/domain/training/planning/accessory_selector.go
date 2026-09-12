@@ -83,19 +83,32 @@ func (s AccessorySelector) IsZero() bool { return s == AccessorySelector{} }
 // （僧帽筋上部6セット）にスロットが一度も回らない。上限に張り付く低頻度では、
 // その区分が永久に0セットのままになる。
 //
-// exclude には今日メインで処方した種目を渡す。同じ種目をメインと補助で
-// 二重に出さないため。それ以外は、宣言されていてもいなくても候補になる。
-// 宣言は「伸ばしたい」という目標であって「ヘビーでしかやらない」ではない
-// ので、除きすぎると脚の日にスクワットがどこにも出なくなる（D-117）。
+// exclude には伸ばしたい種目をすべて渡す。補助レーンが軸レーンの仕事を
+// 兼務しないため。
+//
+// 以前は今日のヘビー枠だけを除いていた（D-117）。「宣言は伸ばしたいという
+// 目標であって、ヘビーでしかやらないではない。除きすぎると脚の日に
+// スクワットがどこにも出なくなる」という理由だったが、これは的外れだった。
+// スクワットが軸でない日に脚のボリュームを埋めるのはレッグプレスや
+// レッグカールであって、スクワットである必要が無い。
+//
+// 宣言は軸レーンで扱うものと割り切ると、レーンの境界がはっきりする。
+// 「今日その種目が出るかどうか」を決める場所が1つになるので、補助の
+// 残差計算を変えても軸の頻度が動かない。
 func (s AccessorySelector) Select(
 	residual map[training.MuscleRegion]float64,
 	pool []*exercise.Exercise,
 	h setlog.History,
 	date training.Date,
-	exclude exercise.ExerciseID,
+	exclude []exercise.ExerciseID,
 ) []exercise.ExerciseID {
 	if s.IsZero() || len(residual) == 0 || date.IsZero() {
 		return nil
+	}
+
+	excluded := make(map[exercise.ExerciseID]bool, len(exclude))
+	for _, id := range exclude {
+		excluded[id] = true
 	}
 
 	byID := make(map[exercise.ExerciseID]*exercise.Exercise, len(pool))
@@ -109,7 +122,7 @@ func (s AccessorySelector) Select(
 		// regionStaleness がその種目の過去の記録を読めなくなり、
 		// 「昨日その区分を刺激した」が見えなくなる。
 		byID[e.ID()] = e
-		if e.ID() == exclude {
+		if excluded[e.ID()] {
 			continue
 		}
 		accessories = append(accessories, e)

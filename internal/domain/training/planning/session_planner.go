@@ -128,7 +128,8 @@ func (p SessionPlanner) Plan(req PlanRequest) (PlannedSession, error) {
 	//
 	// Select が返す順序は「最も放置している区分から」という優先度で、
 	// 一日中変わらないので、そのまま画面の並びになる。
-	chosen := p.accessory.Select(gaps, pool, historyBefore(req), req.Date, heavy.ID())
+	chosen := p.accessory.Select(gaps, pool, historyBefore(req), req.Date,
+		req.Program.DeclaredExercises())
 
 	accessories := make([]PlannedSet, 0, len(chosen))
 	for _, id := range chosen {
