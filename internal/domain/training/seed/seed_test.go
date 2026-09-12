@@ -244,3 +244,59 @@ func TestExercises_BodyweightExercisesHaveAFactor(t *testing.T) {
 		}
 	}
 }
+
+// 派生の親はマスタに実在し、その親自身は派生でないこと。
+//
+// Exercise はマスタを知らないので、親が実在するかを自分では検証できない。
+// タイプミスで存在しないIDを指すと、バリエーションレーンがその種目を
+// 見つけられず、黙って何も出なくなる。
+//
+// 親が派生でないことも見る。連鎖を許すと「系統」の定義が根まで辿る処理に
+// なり、重点種目に RDL を指定したとき床引きが系統に入る（仕様 §4）。
+func TestExercises_DerivedFromResolvesToARootLift(t *testing.T) {
+	want := map[exercise.ExerciseID]exercise.ExerciseID{
+		"larsen_press":      "bench",
+		"tempo_bench":       "bench",
+		"close_grip_bench":  "bench",
+		"pause_squat":       "squat",
+		"front_squat":       "squat",
+		"deficit_deadlift":  "deadlift",
+		"romanian_deadlift": "deadlift",
+	}
+
+	all, _ := seed.Exercises()
+	byID := map[exercise.ExerciseID]*exercise.Exercise{}
+	for _, e := range all {
+		byID[e.ID()] = e
+	}
+
+	for _, e := range all {
+		from, ok := e.DerivedFrom()
+		w, wanted := want[e.ID()]
+
+		// 表に無い種目は派生でないこと。ここが緩いと、派生を1つ足したときに
+		// 表を更新し忘れても通る。
+		if !wanted {
+			if ok {
+				t.Errorf("%s に親 %s が入っている。派生ではないはず", e.ID(), from)
+			}
+			continue
+		}
+		if !ok {
+			t.Errorf("%s に親が入っていない。%s のはず", e.ID(), w)
+			continue
+		}
+		if from != w {
+			t.Errorf("%s の親が %s。%s のはず", e.ID(), from, w)
+		}
+
+		parent, exists := byID[from]
+		if !exists {
+			t.Errorf("%s の親 %s がマスタに無い", e.ID(), from)
+			continue
+		}
+		if _, isDerived := parent.DerivedFrom(); isDerived {
+			t.Errorf("%s の親 %s 自身が派生になっている。連鎖は許さない", e.ID(), from)
+		}
+	}
+}

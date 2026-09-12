@@ -44,36 +44,55 @@ func TestNewExercise_Main(t *testing.T) {
 	}
 }
 
-func TestNewExercise_RejectsInvalidFields(t *testing.T) {
+// 不正な入力は弾き、nil を返し、エラーで種目を特定できること。
+//
+// 36種目のシードを読み込むとき、どの種目が不正なのか分からないと直せない。
+// 通常はIDで特定するが、そのIDが壊れているケースでは名前で補う。
+//
+// 以前は「弾くこと」「nil を返すこと」「エラーが種目を特定できること」を
+// 別々のテストに分けていた。後者2つは前者のケースを部分的に再掲していただけで、
+// 片方に足してもう片方を忘れる形になっていた。1つの表に畳み、wantHint を
+// 列にすることで、全ケースで手がかりを検査する。
+func TestNewExercise_RejectsInvalidParams(t *testing.T) {
 	cases := []struct {
 		name   string
 		mutate func(*exercise.ExerciseParams)
+		// エラーに含まれるべき手がかり。IDが壊れているケースでは名前で特定する。
+		wantHint string
 	}{
-		{"IDが空", func(p *exercise.ExerciseParams) { p.ID = "" }},
-		{"IDが空白のみ", func(p *exercise.ExerciseParams) { p.ID = "   " }},
-		{"IDの前後に空白", func(p *exercise.ExerciseParams) { p.ID = " bench " }},
-		{"名前が空", func(p *exercise.ExerciseParams) { p.Name = "" }},
-		{"名前が空白のみ", func(p *exercise.ExerciseParams) { p.Name = "  " }},
-		{"刺激が空", func(p *exercise.ExerciseParams) { p.Stimulus = nil }},
-		{"増加単位が0", func(p *exercise.ExerciseParams) { p.IncrementKg = 0 }},
-		{"増加単位が負", func(p *exercise.ExerciseParams) { p.IncrementKg = -2.5 }},
+		{"IDが空", func(p *exercise.ExerciseParams) { p.ID = "" }, "ベンチプレス"},
+		{"IDが空白のみ", func(p *exercise.ExerciseParams) { p.ID = "   " }, "ベンチプレス"},
+		{"IDの前後に空白", func(p *exercise.ExerciseParams) { p.ID = " bench " }, "ベンチプレス"},
+		{"名前が空", func(p *exercise.ExerciseParams) { p.Name = "" }, "bench"},
+		{"名前が空白のみ", func(p *exercise.ExerciseParams) { p.Name = "  " }, "bench"},
+		{"増加単位が0", func(p *exercise.ExerciseParams) { p.IncrementKg = 0 }, "bench"},
+		{"増加単位が負", func(p *exercise.ExerciseParams) { p.IncrementKg = -2.5 }, "bench"},
+		{"刺激が空", func(p *exercise.ExerciseParams) { p.Stimulus = nil }, "bench"},
 		{
-			"未知の筋区分",
-			func(p *exercise.ExerciseParams) {
+			name: "未知の筋区分",
+			mutate: func(p *exercise.ExerciseParams) {
 				p.Stimulus = map[training.MuscleRegion]float64{"NOPE": 1.0}
 			},
+			wantHint: "bench",
 		},
 		{
-			"寄与度が範囲外",
-			func(p *exercise.ExerciseParams) {
+			name: "寄与度が範囲外",
+			mutate: func(p *exercise.ExerciseParams) {
 				p.Stimulus = map[training.MuscleRegion]float64{training.ChestMid: 1.5}
 			},
+			wantHint: "bench",
 		},
 		{
-			"寄与度が0",
-			func(p *exercise.ExerciseParams) {
+			// 0は「刺激しない」であって「寄与度0で刺激する」ではない。
+			// 通すと、狙っていない区分が残差の計算に現れる。
+			name: "寄与度が0",
+			mutate: func(p *exercise.ExerciseParams) {
 				p.Stimulus = map[training.MuscleRegion]float64{training.ChestMid: 0}
 			},
+			wantHint: "bench",
+		},
+		{
+			name: "自分自身を親にしている", mutate: func(p *exercise.ExerciseParams) { p.DerivedFrom = "bench" }, wantHint: "bench",
 		},
 	}
 
@@ -81,34 +100,18 @@ func TestNewExercise_RejectsInvalidFields(t *testing.T) {
 		t.Run(c.name, func(t *testing.T) {
 			p := benchParams()
 			c.mutate(&p)
-			if got, err := exercise.NewExercise(p); err == nil {
-				t.Errorf("不正な種目が通ってしまう: %+v", got)
+
+			got, err := exercise.NewExercise(p)
+			if err == nil {
+				t.Fatalf("不正な種目が通ってしまう: %+v", got)
+			}
+			if got != nil {
+				t.Errorf("失敗時に nil でない値が返る: %+v", got)
+			}
+			if !strings.Contains(err.Error(), c.wantHint) {
+				t.Errorf("エラーが種目を特定できない（%q が無い）: %v", c.wantHint, err)
 			}
 		})
-	}
-}
-
-func TestNewExercise_RejectsTooManyRegions(t *testing.T) {
-	// 全身に寄与する種目は寄与度の設定ミス。残差計算が意味を失う。
-	p := benchParams()
-	p.Stimulus = map[training.MuscleRegion]float64{}
-	for _, r := range training.AllMuscleRegions() {
-		p.Stimulus[r] = 0.5
-	}
-	if _, err := exercise.NewExercise(p); err == nil {
-		t.Error("全筋区分に寄与する種目が通ってしまう")
-	}
-}
-
-func TestNewExercise_FailureReturnsNil(t *testing.T) {
-	p := benchParams()
-	p.ID = ""
-	got, err := exercise.NewExercise(p)
-	if err == nil {
-		t.Fatal("エラーにならない")
-	}
-	if got != nil {
-		t.Errorf("失敗時に nil でない値が返る: %+v", got)
 	}
 }
 
@@ -117,19 +120,6 @@ func TestNewExercise_TrimsName(t *testing.T) {
 	p.Name = "  ベンチプレス  "
 	if got := mustExercise(t, p).Name(); got != "ベンチプレス" {
 		t.Errorf("名前が整形されていない: %q", got)
-	}
-}
-
-func TestNewExercise_ErrorMessagesIdentifyTheExercise(t *testing.T) {
-	// 36種目のシードを読み込むとき、どの種目が不正なのか分からないと直せない。
-	p := benchParams()
-	p.IncrementKg = 0
-	_, err := exercise.NewExercise(p)
-	if err == nil {
-		t.Fatal("エラーにならない")
-	}
-	if !strings.Contains(err.Error(), "bench") {
-		t.Errorf("エラーメッセージに種目IDが含まれない: %v", err)
 	}
 }
 
@@ -278,57 +268,5 @@ func TestNewExercise_StimulusRegionLimitBoundary(t *testing.T) {
 		t.Errorf("上限を超える %d 区分が通ってしまう: %+v", max+1, got)
 	} else if !strings.Contains(err.Error(), "筋区分") {
 		t.Errorf("区分数以外の理由でエラーになっている: %v", err)
-	}
-}
-
-// IDが不正なとき、種目名で特定できること。
-// 36種目のシードで1つのIDをタイプミスで消したとき、
-// 「種目IDが空である」だけではどれか分からない。
-func TestNewExercise_IdentifiesExerciseWhenIDIsInvalid(t *testing.T) {
-	p := benchParams()
-	p.ID = ""
-	_, err := exercise.NewExercise(p)
-	if err == nil {
-		t.Fatal("エラーにならない")
-	}
-	if !strings.Contains(err.Error(), "ベンチプレス") {
-		t.Errorf("エラーメッセージに種目名が含まれない: %v", err)
-	}
-}
-
-// 各検証経路のエラーが種目を特定できること。
-func TestNewExercise_AllErrorsIdentifyTheExercise(t *testing.T) {
-	cases := []struct {
-		name   string
-		mutate func(*exercise.ExerciseParams)
-	}{
-		{"増加単位", func(p *exercise.ExerciseParams) { p.IncrementKg = 0 }},
-		{"刺激が空", func(p *exercise.ExerciseParams) { p.Stimulus = nil }},
-		{
-			"未知の筋区分",
-			func(p *exercise.ExerciseParams) {
-				p.Stimulus = map[training.MuscleRegion]float64{"NOPE": 1.0}
-			},
-		},
-		{
-			"寄与度",
-			func(p *exercise.ExerciseParams) {
-				p.Stimulus = map[training.MuscleRegion]float64{training.ChestMid: 5}
-			},
-		},
-		{"名前が空", func(p *exercise.ExerciseParams) { p.Name = "" }},
-	}
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
-			p := benchParams()
-			c.mutate(&p)
-			_, err := exercise.NewExercise(p)
-			if err == nil {
-				t.Fatal("エラーにならない")
-			}
-			if !strings.Contains(err.Error(), "bench") {
-				t.Errorf("エラーメッセージに種目IDが含まれない: %v", err)
-			}
-		})
 	}
 }
