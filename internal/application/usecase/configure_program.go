@@ -29,6 +29,7 @@ type ConfigureProgramInput struct {
 	Target   map[training.MuscleRegion]float64
 	Selected []exercise.ExerciseID
 	Declared []exercise.ExerciseID
+	Focus    exercise.ExerciseID // 空なら指定なし
 }
 
 // ConfigureProgram はユーザーのプログラム設定を保存するユースケース。
@@ -63,7 +64,7 @@ func (u *ConfigureProgram) Execute(ctx context.Context, in ConfigureProgramInput
 	if err != nil {
 		return fmt.Errorf("%w: 週目標: %w", ErrInvalidInput, err)
 	}
-	prog, err := program.NewProgram(frequency, target, in.Selected, in.Declared)
+	prog, err := program.NewProgram(frequency, target, in.Selected, in.Declared, in.Focus)
 	if err != nil {
 		return fmt.Errorf("%w: プログラム: %w", ErrInvalidInput, err)
 	}

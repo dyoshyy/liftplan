@@ -108,7 +108,7 @@ func simulateWithout(t *testing.T, frequency, weeks int, excluded ...exercise.Ex
 			declared = append(declared, id)
 		}
 	}
-	program, err := program.NewProgram(freq, target, ids, declared)
+	program, err := program.NewProgram(freq, target, ids, declared, "")
 	if err != nil {
 		t.Fatalf("プログラムの生成に失敗: %v", err)
 	}
@@ -282,7 +282,7 @@ func TestSimulation_WeightsResolveQuickly(t *testing.T) {
 		ids = append(ids, e.ID())
 	}
 	program, _ := program.NewProgram(freq, target, ids,
-		[]exercise.ExerciseID{"bench", "squat", "deadlift"})
+		[]exercise.ExerciseID{"bench", "squat", "deadlift"}, "")
 	planner := planning.DefaultSessionPlanner()
 
 	// 体重を一度は測っている人を想定する。自重種目の負荷は体重×係数＋加重なので、

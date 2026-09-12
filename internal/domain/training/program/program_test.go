@@ -153,7 +153,7 @@ func TestWeeklyVolumeTarget_ZeroValueIsEmpty(t *testing.T) {
 
 func TestNewProgram(t *testing.T) {
 	p, err := program.NewProgram(mustFrequency(t, 3), simpleTarget(t),
-		[]exercise.ExerciseID{"bench", "squat"}, []exercise.ExerciseID{"bench"})
+		[]exercise.ExerciseID{"bench", "squat"}, []exercise.ExerciseID{"bench"}, "")
 	if err != nil {
 		t.Fatalf("生成に失敗: %v", err)
 	}
@@ -166,6 +166,25 @@ func TestNewProgram(t *testing.T) {
 	if p.Frequency().PerWeek() != 3 {
 		t.Errorf("頻度が誤り: %d", p.Frequency().PerWeek())
 	}
+	if _, ok := p.FocusExercise(); ok {
+		t.Error("指定していない重点種目が入っている")
+	}
+}
+
+// 重点種目を指定すると往復すること。指定なしと区別できること。
+func TestNewProgram_Focus(t *testing.T) {
+	p, err := program.NewProgram(mustFrequency(t, 3), simpleTarget(t),
+		[]exercise.ExerciseID{"bench", "squat"}, []exercise.ExerciseID{"bench"}, "bench")
+	if err != nil {
+		t.Fatalf("生成に失敗: %v", err)
+	}
+	got, ok := p.FocusExercise()
+	if !ok {
+		t.Fatal("重点種目が指定なしとして返る")
+	}
+	if got != exercise.ExerciseID("bench") {
+		t.Errorf("重点種目が誤り: %v", got)
+	}
 }
 
 func TestNewProgram_RejectsInvalid(t *testing.T) {
@@ -175,18 +194,31 @@ func TestNewProgram_RejectsInvalid(t *testing.T) {
 		target   program.WeeklyVolumeTarget
 		selected []exercise.ExerciseID
 		declared []exercise.ExerciseID
+		focus    exercise.ExerciseID
 	}{
-		{"頻度が未設定", program.Frequency{}, simpleTarget(t), []exercise.ExerciseID{"bench"}, []exercise.ExerciseID{"bench"}},
-		{"週目標が未設定", mustFrequency(t, 3), program.WeeklyVolumeTarget{}, []exercise.ExerciseID{"bench"}, []exercise.ExerciseID{"bench"}},
-		{"種目が空", mustFrequency(t, 3), simpleTarget(t), nil, nil},
-		{"空の種目ID", mustFrequency(t, 3), simpleTarget(t), []exercise.ExerciseID{"bench", ""}, []exercise.ExerciseID{"bench", ""}},
-		{"種目が重複", mustFrequency(t, 3), simpleTarget(t), []exercise.ExerciseID{"bench", "bench"}, []exercise.ExerciseID{"bench", "bench"}},
-		{"宣言が空", mustFrequency(t, 3), simpleTarget(t), []exercise.ExerciseID{"bench"}, nil},
-		{"宣言が選択に含まれていない", mustFrequency(t, 3), simpleTarget(t), []exercise.ExerciseID{"bench"}, []exercise.ExerciseID{"squat"}},
+		{"頻度が未設定", program.Frequency{}, simpleTarget(t), []exercise.ExerciseID{"bench"}, []exercise.ExerciseID{"bench"}, ""},
+		{"週目標が未設定", mustFrequency(t, 3), program.WeeklyVolumeTarget{}, []exercise.ExerciseID{"bench"}, []exercise.ExerciseID{"bench"}, ""},
+		{"種目が空", mustFrequency(t, 3), simpleTarget(t), nil, nil, ""},
+		{"空の種目ID", mustFrequency(t, 3), simpleTarget(t), []exercise.ExerciseID{"bench", ""}, []exercise.ExerciseID{"bench", ""}, ""},
+		{"種目が重複", mustFrequency(t, 3), simpleTarget(t), []exercise.ExerciseID{"bench", "bench"}, []exercise.ExerciseID{"bench", "bench"}, ""},
+		{"宣言が空", mustFrequency(t, 3), simpleTarget(t), []exercise.ExerciseID{"bench"}, nil, ""},
+		{"宣言が選択に含まれていない", mustFrequency(t, 3), simpleTarget(t), []exercise.ExerciseID{"bench"}, []exercise.ExerciseID{"squat"}, ""},
+		{
+			// 宣言していない種目を重点にできると、「伸ばしたい種目の中で
+			// さらに重点」という意味が崩れる。
+			"重点種目が伸ばしたい種目に含まれていない",
+			mustFrequency(t, 3), simpleTarget(t),
+			[]exercise.ExerciseID{"bench", "squat"}, []exercise.ExerciseID{"bench"}, "squat",
+		},
+		{
+			"重点種目の前後に空白",
+			mustFrequency(t, 3), simpleTarget(t),
+			[]exercise.ExerciseID{"bench"}, []exercise.ExerciseID{"bench"}, " bench ",
+		},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			got, err := program.NewProgram(c.freq, c.target, c.selected, c.declared)
+			got, err := program.NewProgram(c.freq, c.target, c.selected, c.declared, c.focus)
 			if err == nil {
 				t.Fatalf("不正なプログラムが通ってしまう: %+v", got)
 			}
@@ -198,7 +230,7 @@ func TestNewProgram_RejectsInvalid(t *testing.T) {
 }
 
 func TestProgram_SelectedExercisesIsACopy(t *testing.T) {
-	p, err := program.NewProgram(mustFrequency(t, 3), simpleTarget(t), []exercise.ExerciseID{"bench"}, []exercise.ExerciseID{"bench"})
+	p, err := program.NewProgram(mustFrequency(t, 3), simpleTarget(t), []exercise.ExerciseID{"bench"}, []exercise.ExerciseID{"bench"}, "")
 	if err != nil {
 		t.Fatalf("生成に失敗: %v", err)
 	}
@@ -212,7 +244,7 @@ func TestProgram_SelectedExercisesIsACopy(t *testing.T) {
 
 func TestProgram_IsImmutableAgainstInputMutation(t *testing.T) {
 	input := []exercise.ExerciseID{"bench", "squat"}
-	p, err := program.NewProgram(mustFrequency(t, 3), simpleTarget(t), input, []exercise.ExerciseID{"bench"})
+	p, err := program.NewProgram(mustFrequency(t, 3), simpleTarget(t), input, []exercise.ExerciseID{"bench"}, "")
 	if err != nil {
 		t.Fatalf("生成に失敗: %v", err)
 	}
@@ -227,7 +259,7 @@ func TestProgram_IsImmutableAgainstInputMutation(t *testing.T) {
 // 全セッションの補助種目が消える。
 func TestProgram_WeeklyTarget(t *testing.T) {
 	target := simpleTarget(t)
-	p, err := program.NewProgram(mustFrequency(t, 3), target, []exercise.ExerciseID{"bench"}, []exercise.ExerciseID{"bench"})
+	p, err := program.NewProgram(mustFrequency(t, 3), target, []exercise.ExerciseID{"bench"}, []exercise.ExerciseID{"bench"}, "")
 	if err != nil {
 		t.Fatalf("生成に失敗: %v", err)
 	}
@@ -252,7 +284,7 @@ func TestProgram_WeeklyTarget(t *testing.T) {
 func TestNewProgram_ValidatesExerciseIDs(t *testing.T) {
 	for _, id := range []exercise.ExerciseID{"   ", " bench", "bench ", "\tbench"} {
 		got, err := program.NewProgram(mustFrequency(t, 3), simpleTarget(t),
-			[]exercise.ExerciseID{id}, []exercise.ExerciseID{id})
+			[]exercise.ExerciseID{id}, []exercise.ExerciseID{id}, "")
 		if err == nil {
 			t.Errorf("不正な種目ID %q が通ってしまう: %+v", id, got)
 		}

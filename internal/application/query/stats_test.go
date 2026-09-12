@@ -30,7 +30,7 @@ func newProgram(t *testing.T, sets map[training.MuscleRegion]float64, selected [
 	if err != nil {
 		t.Fatalf("週目標が不正: %v", err)
 	}
-	p, err := program.NewProgram(freq, target, selected, selected)
+	p, err := program.NewProgram(freq, target, selected, selected, "")
 	if err != nil {
 		t.Fatalf("プログラムが不正: %v", err)
 	}

@@ -421,5 +421,6 @@ func defaultProgram(pool []*exercise.Exercise) (*program.Program, error) {
 	for _, e := range pool {
 		selected = append(selected, e.ID())
 	}
-	return program.NewProgram(freq, target, selected, seed.DefaultDeclared())
+	// 重点種目は既定では指定しない。バリエーションレーンは空のまま回る。
+	return program.NewProgram(freq, target, selected, seed.DefaultDeclared(), "")
 }
