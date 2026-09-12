@@ -1,0 +1,399 @@
+package planning_test
+
+import (
+	"fmt"
+	"strings"
+	"testing"
+
+	"github.com/dyoshyy/liftplan/internal/domain/training"
+	"github.com/dyoshyy/liftplan/internal/domain/training/exercise"
+	"github.com/dyoshyy/liftplan/internal/domain/training/planning"
+	"github.com/dyoshyy/liftplan/internal/domain/training/program"
+	"github.com/dyoshyy/liftplan/internal/domain/training/setlog"
+)
+
+// バリエーションレーンが出す種目と、出さない条件。
+//
+// 重点種目の派生を、軸とは別の枠で回す。補助レーンが兼務していた「重点種目を
+// 高頻度で回す」を独立させたもの（2026-09-10 の仕様）。
+//
+// 「たまたま胸の残差が大きいからベンチが週3回出ている」のではなく、
+// 「ベンチを重点的に伸ばすと決めたから出ている」にする。前者は週目標を
+// 変えると消える。
+func TestSessionPlanner_VariationLane(t *testing.T) {
+	// lastPerformed は種目を最後にやった日（月曜からの日数）。
+	// 挙げなければ未着手。
+	cases := []struct {
+		name          string
+		focus         exercise.ExerciseID
+		lastPerformed map[exercise.ExerciseID]int
+		// 期待するバリエーション。空なら「出ない」。
+		want exercise.ExerciseID
+	}{
+		{
+			name:  "重点種目を指定しなければ出ない",
+			focus: "",
+			// ベンチを3日前にやって軸を他へ移す。それでも出ない。
+			lastPerformed: map[exercise.ExerciseID]int{
+				"bench": -3, "squat": -7, "deadlift": -7,
+			},
+			want: "",
+		},
+		{
+			// 同じ系統を1日に2回やることになる。
+			name:  "軸が重点種目そのものの日は出ない",
+			focus: "bench",
+			lastPerformed: map[exercise.ExerciseID]int{
+				"bench": -7, "squat": -3, "deadlift": -3,
+			},
+			want: "",
+		},
+		{
+			// 「軸 != 重点種目」では塞げない。派生が軸に来る日がある。
+			// ここを見落とすと、同じ系統が軸とバリエーションの両方に出る。
+			name:  "軸が重点種目の派生の日も出ない",
+			focus: "bench",
+			lastPerformed: map[exercise.ExerciseID]int{
+				"larsen": -7, "bench": -3, "squat": -3, "deadlift": -3,
+			},
+			want: "",
+		},
+		{
+			name:  "前回の系統から1日しか空いていなければ出ない",
+			focus: "bench",
+			lastPerformed: map[exercise.ExerciseID]int{
+				"bench": -1, "squat": -7, "deadlift": -7,
+			},
+			want: "",
+		},
+		{
+			// 境界。中1日空いたら出る。月曜にやったら水曜から。
+			name:  "中1日空いていれば出る",
+			focus: "bench",
+			lastPerformed: map[exercise.ExerciseID]int{
+				"bench": -2, "squat": -7, "deadlift": -7,
+			},
+			want: "larsen",
+		},
+		{
+			// 記録が無い＝一度もやっていない。ここが逆だと、新しく足した
+			// 派生が永久に出ない。larsen < tempo なのでマスタ順で larsen。
+			name:  "派生を1つもやっていなければ未着手を優先する",
+			focus: "bench",
+			lastPerformed: map[exercise.ExerciseID]int{
+				"bench": -3, "squat": -7, "deadlift": -7,
+			},
+			want: "larsen",
+		},
+		{
+			name:  "派生のうち最終実施日が最も古いものが出る",
+			focus: "bench",
+			lastPerformed: map[exercise.ExerciseID]int{
+				"bench": -3, "squat": -7, "deadlift": -7,
+				"larsen": -4, "tempo": -6,
+			},
+			want: "tempo",
+		},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			req := planRequest(t)
+			req.Program = focusedProgram(t, c.focus)
+			req.History = setlog.NewHistory(historyWithLastPerformed(t, c.lastPerformed))
+
+			got := mustPlan(t, req).Variation()
+
+			if c.want == "" {
+				if len(got) != 0 {
+					t.Errorf("バリエーションが出ている: %v", got)
+				}
+				return
+			}
+			if len(got) != 1 {
+				t.Fatalf("バリエーションが %d 件。1件のはず: %v", len(got), got)
+			}
+			if got[0].ExerciseID() != c.want {
+				t.Errorf("バリエーションが %s。%s のはず", got[0].ExerciseID(), c.want)
+			}
+		})
+	}
+}
+
+// historyWithLastPerformed は、各種目を指定した日に1セットやった履歴を返す。
+//
+// 推定1RMが立つ量ではないので、重量を見るテストには使わない。どの種目が
+// 選ばれるかだけを見る。
+func historyWithLastPerformed(t *testing.T, last map[exercise.ExerciseID]int) []*setlog.SetLog {
+	t.Helper()
+
+	logs := make([]*setlog.SetLog, 0, len(last))
+	for id, daysAgo := range last {
+		logs = append(logs, mkLogOn(t, string(id)+"-last",
+			planMonday.AddDays(daysAgo), string(id), 80, 8, 2))
+	}
+	return logs
+}
+
+// 派生が選択に入っていなければ、バリエーションは出ない。
+//
+// usablePool が選択で絞るので、選ばれていない種目はどのレーンにも現れない。
+// D-114 で「選択されていなくてもバリエーションは回る」抜け道を塞いだ状態を
+// 崩さないこと。
+func TestSessionPlanner_VariationNeedsTheDerivedToBeSelected(t *testing.T) {
+	req := planRequest(t)
+	// 派生を選択から外したプログラム。重点種目はベンチのまま。
+	req.Program = mustProgramWithout(t, "bench", "larsen", "tempo")
+	req.History = setlog.NewHistory(historyWithLastPerformed(t,
+		map[exercise.ExerciseID]int{"bench": -3, "squat": -7, "deadlift": -7}))
+
+	if got := mustPlan(t, req).Variation(); len(got) != 0 {
+		t.Errorf("選択していない派生が出ている: %v", got)
+	}
+}
+
+// mustProgramWithout は派生を選択から外したプログラムを返す。
+func mustProgramWithout(t *testing.T, focus exercise.ExerciseID, drop ...exercise.ExerciseID) *program.Program {
+	t.Helper()
+
+	dropped := map[exercise.ExerciseID]bool{}
+	for _, id := range drop {
+		dropped[id] = true
+	}
+	selected := make([]exercise.ExerciseID, 0, 7)
+	for _, id := range []exercise.ExerciseID{
+		"bench", "squat", "deadlift", "incline", "curl", "larsen", "tempo",
+	} {
+		if !dropped[id] {
+			selected = append(selected, id)
+		}
+	}
+
+	p, err := program.NewProgram(mustFrequency(t, 3),
+		mustTarget(t, map[training.MuscleRegion]float64{
+			training.ChestMid: 12, training.ChestUpper: 9, training.Quad: 12, training.Biceps: 9,
+		}), selected, big3(), focus)
+	if err != nil {
+		t.Fatalf("プログラムの生成に失敗: %v", err)
+	}
+	return p
+}
+
+// バリエーションの重量は、その種目自身の記録から出る。
+//
+// 親から換算しない。D-113 で「推定1RMは種目ごとに持つ。係数換算をやめる」と
+// 決めた。ここが親の推定を使うと、ラーセンプレスをやったことがない人にも
+// ベンチの81%が出る。
+//
+// 以前ここにあった VariationWeightComesFromItsOwnRecord は、Main() から
+// larsen を探していた。larsen は宣言に入っていないのでループ本体が一度も
+// 走らず、緑だが何も守っていなかった。
+func TestSessionPlanner_VariationWeightComesFromItsOwnRecord(t *testing.T) {
+	// ベンチは重い、派生は軽い。推定が別々なら提示も別々になる。
+	//
+	// 派生2つとも記録する。片方だけ記録すると、未着手のもう片方が最優先で
+	// 選ばれて重量が出ない（「一度もやっていない種目を優先する」の帰結）。
+	logs := planHistory(t) // bench 85kg / squat 110 / deadlift 140 を3週
+	for i, daysAgo := range []int{21, 14, 7} {
+		for _, id := range []string{"larsen", "tempo"} {
+			logs = append(logs, mkLogOn(t, fmt.Sprintf("%s-%d", id, i),
+				planMonday.AddDays(-daysAgo), id, 60, 8, 2))
+		}
+	}
+	// ベンチを3日前にやって軸を他へ移す。系統の中1日もここで満たす。
+	// tempo はその前日にして、ラーセンより新しくしておく。
+	logs = append(logs,
+		mkLogOn(t, "b-recent", planMonday.AddDays(-3), "bench", 85, 8, 2),
+		mkLogOn(t, "tempo-recent", planMonday.AddDays(-4), "tempo", 60, 8, 2))
+
+	req := planRequest(t)
+	req.Program = focusedProgram(t, "bench")
+	req.History = setlog.NewHistory(logs)
+
+	s := mustPlan(t, req)
+	got := s.Variation()
+	if len(got) != 1 || got[0].ExerciseID() != "larsen" {
+		t.Fatalf("前提: ラーセンプレスがバリエーションに出ること: %v", got)
+	}
+
+	w, ok := got[0].Weight()
+	if !ok {
+		t.Fatal("バリエーションの重量が確定していない")
+	}
+	// 60kg の記録から出るので、85kg の記録から出るベンチより軽い。
+	// 同じなら親の推定を使っている。
+	benchWeight := mainWeight(t, s, s.Main()[0].ExerciseID())
+	if w.Kg() >= benchWeight {
+		t.Errorf("バリエーションの重量 %vkg が軸の %vkg 以上。親の推定を使っている",
+			w.Kg(), benchWeight)
+	}
+	if w.Kg() <= 0 {
+		t.Errorf("バリエーションの重量が0以下: %v", w.Kg())
+	}
+}
+
+// 記録が無ければ重量は未確定。初回は本人が決める。
+func TestSessionPlanner_VariationWithoutRecordHasNoWeight(t *testing.T) {
+	req := planRequest(t)
+	req.Program = focusedProgram(t, "bench")
+	req.History = setlog.NewHistory(historyWithLastPerformed(t,
+		map[exercise.ExerciseID]int{"bench": -3, "squat": -7, "deadlift": -7}))
+
+	got := mustPlan(t, req).Variation()
+	if len(got) != 1 {
+		t.Fatalf("バリエーションが出ていない: %v", got)
+	}
+	if w, ok := got[0].Weight(); ok {
+		t.Errorf("記録が無いのに重量が出ている: %v", w.Kg())
+	}
+}
+
+// 当日バリエーションを記録しても、今日のリストは変わらない。
+//
+// req.History をそのまま使うと、1セット記録した瞬間に系統が「最近やった」に
+// なってバリエーションが自分の下で消える。D-086 系の再発。
+func TestSessionPlanner_TodaysLogDoesNotRemoveTheVariation(t *testing.T) {
+	base := historyWithLastPerformed(t,
+		map[exercise.ExerciseID]int{"bench": -3, "squat": -7, "deadlift": -7})
+
+	req := planRequest(t)
+	req.Program = focusedProgram(t, "bench")
+	req.History = setlog.NewHistory(base)
+
+	before := mustPlan(t, req).Variation()
+	if len(before) != 1 {
+		t.Fatalf("前提: バリエーションが出ること: %v", before)
+	}
+
+	// 今日そのバリエーションを1セットこなす。
+	req.History = setlog.NewHistory(append(base,
+		mkLogOn(t, "today", planMonday, string(before[0].ExerciseID()), 60, 8, 2)))
+
+	after := mustPlan(t, req).Variation()
+	if len(after) != 1 || after[0].ExerciseID() != before[0].ExerciseID() {
+		t.Errorf("当日の記録でバリエーションが変わった: %v → %v", before, after)
+	}
+}
+
+// バリエーションの意図は、その種目にとって今週何本目かで決まる。
+//
+// 系統で数えると、ベンチ系が今週2回出ている日に初めてやる派生へ「3本目＝
+// 軽い日」が当たる。推定1RMが実力より低いまま固定されないための保護は
+// 種目ごとに要る（派生は自分の記録から推定するため）。
+func TestSessionPlanner_VariationIntentCountsPerLift(t *testing.T) {
+	logs := historyWithLastPerformed(t,
+		map[exercise.ExerciseID]int{"squat": -7, "deadlift": -7})
+	// 今週すでにベンチ系を2回やっている（月・火）。tempo は今週まだ。
+	logs = append(logs,
+		mkLogOn(t, "w1", planMonday, "bench", 85, 8, 2),
+		mkLogOn(t, "w2", planMonday.AddDays(1), "larsen", 60, 8, 2))
+
+	req := planRequest(t)
+	req.Program = focusedProgram(t, "bench")
+	req.History = setlog.NewHistory(logs)
+	req.Date = planMonday.AddDays(3)
+
+	got := mustPlan(t, req).Variation()
+	if len(got) != 1 {
+		t.Fatalf("バリエーションが出ていない: %v", got)
+	}
+	intent, ok := got[0].Intent()
+	if !ok {
+		t.Fatal("バリエーションに意図が付いていない")
+	}
+	if intent != planning.IntentStandard {
+		t.Errorf("%s の意図が %v。今週まだやっていないので STANDARD のはず",
+			got[0].ExerciseID(), intent)
+	}
+}
+
+// バリエーションが埋めた分は残差から引かれる。
+//
+// 引かないと、胸をラーセンで埋めたうえに補助でも埋める。台帳への加算は
+// 残差を出す前に済んでいる必要がある。
+//
+// 補助の「件数」で見ると、バリエーションが除外されたぶん1件減るだけでも
+// 通ってしまう。減ったのが残差のせいだと分かるよう、同じ区分を狙う補助を
+// 十分に用意して、その区分に割り当てられたセット数を見る。
+func TestSessionPlanner_SubtractsVariationCoverageFromResidual(t *testing.T) {
+	// 大胸筋中部を狙う補助を5つ足す。1つだと、残差が減っても「候補が
+	// 尽きた」のか「残差が尽きた」のか区別できない。
+	pool := planPool(t)
+	ids := []exercise.ExerciseID{
+		"bench", "squat", "deadlift", "incline", "curl", "larsen", "tempo",
+	}
+	for i := range 5 {
+		id := fmt.Sprintf("chest_%d", i)
+		pool = append(pool, mkAccessory(t, id,
+			map[training.MuscleRegion]float64{training.ChestMid: 1.0}))
+		ids = append(ids, exercise.ExerciseID(id))
+	}
+
+	// 大胸筋中部だけを週目標に置く。ここの消化だけを見る。
+	//
+	// 12セットにしているのは、補助が3セット刻みで割り当てられるため。
+	// 24だと残差が 8 → 6.7 に減っても同じ3種目（9セット）が出て、差が
+	// 出力に現れない。
+	build := func(focus exercise.ExerciseID) *program.Program {
+		t.Helper()
+		p, err := program.NewProgram(mustFrequency(t, 3),
+			mustTarget(t, map[training.MuscleRegion]float64{training.ChestMid: 12}),
+			ids, big3(), focus)
+		if err != nil {
+			t.Fatalf("プログラムの生成に失敗: %v", err)
+		}
+		return p
+	}
+
+	logs := historyWithLastPerformed(t,
+		map[exercise.ExerciseID]int{"bench": -3, "squat": -7, "deadlift": -7})
+
+	chestSets := func(s planning.PlannedSession) int {
+		total := 0
+		for _, a := range s.Accessories() {
+			if strings.HasPrefix(string(a.ExerciseID()), "chest_") {
+				total += a.Sets().Int()
+			}
+		}
+		return total
+	}
+
+	req := planRequest(t)
+	req.Pool = pool
+	req.History = setlog.NewHistory(logs)
+
+	req.Program = build("")
+	without := mustPlan(t, req)
+
+	req.Program = build("bench")
+	with := mustPlan(t, req)
+
+	if len(with.Variation()) != 1 {
+		t.Fatalf("前提: バリエーションが出ること: %v", with.Variation())
+	}
+	if got, base := chestSets(with), chestSets(without); got >= base {
+		t.Errorf("バリエーションが残差から引かれていない: 胸の補助が %d → %d セット",
+			base, got)
+	}
+}
+
+// 今日のバリエーションは、補助にも出さない。
+//
+// 出すと同じ種目が今日のリストに2回並ぶ。
+func TestSessionPlanner_VariationIsNotAlsoAnAccessory(t *testing.T) {
+	req := planRequest(t)
+	req.Program = focusedProgram(t, "bench")
+	req.History = setlog.NewHistory(historyWithLastPerformed(t,
+		map[exercise.ExerciseID]int{"bench": -3, "squat": -7, "deadlift": -7}))
+
+	s := mustPlan(t, req)
+	got := s.Variation()
+	if len(got) != 1 {
+		t.Fatalf("前提: バリエーションが出ること: %v", got)
+	}
+	for _, a := range s.Accessories() {
+		if a.ExerciseID() == got[0].ExerciseID() {
+			t.Errorf("バリエーションが補助にも出ている: %v", accessoryIDs(s))
+		}
+	}
+}

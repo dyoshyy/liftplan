@@ -23,9 +23,12 @@ type plannedSetDTO struct {
 	Intent     string   `json:"intent,omitempty"`
 }
 
+// 3レーンとも配列にする。バリエーションは高々1件だが、クライアントが
+// 同じコードで描けるほうがよい。出ない日は null ではなく空配列。
 type sessionDTO struct {
 	Date        string          `json:"date"`
 	Main        []plannedSetDTO `json:"main"`
+	Variation   []plannedSetDTO `json:"variation"`
 	Accessories []plannedSetDTO `json:"accessories"`
 }
 
@@ -50,6 +53,10 @@ func toSessionDTO(s planning.PlannedSession) sessionDTO {
 	for _, v := range s.Main() {
 		main = append(main, toPlannedSetDTO(v))
 	}
+	variation := make([]plannedSetDTO, 0, len(s.Variation()))
+	for _, v := range s.Variation() {
+		variation = append(variation, toPlannedSetDTO(v))
+	}
 	accessories := make([]plannedSetDTO, 0, len(s.Accessories()))
 	for _, v := range s.Accessories() {
 		accessories = append(accessories, toPlannedSetDTO(v))
@@ -58,6 +65,7 @@ func toSessionDTO(s planning.PlannedSession) sessionDTO {
 	out := sessionDTO{
 		Date:        s.Date().String(),
 		Main:        main,
+		Variation:   variation,
 		Accessories: accessories,
 	}
 	return out
