@@ -48,6 +48,20 @@ func bodyweightExercise(id, name string, inc, factor float64, s stimulus) exerci
 	return p
 }
 
+// derived は別の種目から派生した種目を組み立てる。
+//
+// 派生は重点種目のバリエーションとして回る。親そのものではなく、同じ動作の
+// 変種（ポーズを入れる、握りを変える、可動域を変える）を指す。
+//
+// 重量は親から換算しない。派生は自分の記録から自分の推定1RMを持つ（D-113）。
+// ここが表しているのは「どの種目の変種か」という関係だけで、強度の比では
+// ない。
+func derived(from, id, name string, inc float64, s stimulus) exercise.ExerciseParams {
+	p := spec(id, name, inc, s)
+	p.DerivedFrom = from
+	return p
+}
+
 func specs() []exercise.ExerciseParams {
 	r := struct {
 		ChestUpper, ChestMid, ChestLower                     training.MuscleRegion
@@ -73,20 +87,25 @@ func specs() []exercise.ExerciseParams {
 		spec("deadlift", "デッドリフト", 5.0,
 			stimulus{r.Hamstring: 1.0, r.Glute: 0.8, r.Erector: 1.0, r.TrapMid: 0.4, r.Forearm: 0.4}),
 
-		// --- メインの派生（補助として残差を埋める） ---
-		spec("larsen_press", "ラーセンプレス", 2.5,
+		// --- 派生（重点種目のバリエーションとして回る） ---
+		//
+		// 補助としても残差を埋める。派生であることと、補助に選ばれることは
+		// 別の話で、どの種目の変種かを表しているだけ。
+		derived("bench", "larsen_press", "ラーセンプレス", 2.5,
 			stimulus{r.ChestMid: 1.0, r.TricepsLateral: 0.5, r.FrontDelt: 0.4}),
-		spec("tempo_bench", "テンポベンチ", 2.5,
+		derived("bench", "tempo_bench", "テンポベンチ", 2.5,
 			stimulus{r.ChestMid: 1.0, r.TricepsLateral: 0.5, r.FrontDelt: 0.4}),
-		spec("close_grip_bench", "ナローベンチ", 2.5,
+		derived("bench", "close_grip_bench", "ナローベンチ", 2.5,
 			stimulus{r.ChestMid: 0.7, r.TricepsLateral: 1.0, r.TricepsLong: 0.6}),
-		spec("pause_squat", "ポーズスクワット", 2.5,
+		derived("squat", "pause_squat", "ポーズスクワット", 2.5,
 			stimulus{r.Quad: 1.0, r.Glute: 0.7, r.Adductor: 0.4, r.Erector: 0.4}),
-		spec("front_squat", "フロントスクワット", 2.5,
+		derived("squat", "front_squat", "フロントスクワット", 2.5,
 			stimulus{r.Quad: 1.0, r.Glute: 0.4, r.Erector: 0.5, r.Abs: 0.4}),
-		spec("deficit_deadlift", "デフィシットデッドリフト", 5.0,
+		derived("deadlift", "deficit_deadlift", "デフィシットデッドリフト", 5.0,
 			stimulus{r.Hamstring: 1.0, r.Glute: 0.8, r.Erector: 1.0, r.Quad: 0.4}),
-		spec("romanian_deadlift", "ルーマニアンデッドリフト", 2.5,
+		// RDL は宣言（軸レーン）にも入りうる。系統に属することと、伸ばしたい
+		// 種目として宣言することは別の軸（2026-09-10 の仕様）。
+		derived("deadlift", "romanian_deadlift", "ルーマニアンデッドリフト", 2.5,
 			stimulus{r.Hamstring: 1.0, r.Glute: 0.7, r.Erector: 0.7}),
 
 		// --- 胸 ---

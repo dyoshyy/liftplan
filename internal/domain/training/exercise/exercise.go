@@ -98,6 +98,7 @@ type ExerciseParams struct {
 	Stimulus         map[training.MuscleRegion]float64
 	IncrementKg      float64
 	BodyweightFactor float64
+	DerivedFrom      string
 }
 
 // Exercise は種目エンティティ。同一性は ID で決まる。
@@ -109,6 +110,8 @@ type Exercise struct {
 	stimulus         StimulusProfile
 	increment        training.Increment
 	bodyweightFactor training.BodyweightFactor
+	derivedFrom      ExerciseID
+	hasDerivedFrom   bool
 }
 
 func NewExercise(p ExerciseParams) (*Exercise, error) {
@@ -138,6 +141,18 @@ func NewExercise(p ExerciseParams) (*Exercise, error) {
 	if err != nil {
 		return nil, fmt.Errorf("種目 %s: %w", id, err)
 	}
+	var derivedFrom ExerciseID
+	hasDerivedFrom := p.DerivedFrom != ""
+	if hasDerivedFrom {
+		derivedFrom, err = NewExerciseID(p.DerivedFrom)
+		if err != nil {
+			return nil, fmt.Errorf("種目 %s: 派生元の種目IDが不正: %w", id, err)
+		}
+
+		if derivedFrom == id {
+			return nil, fmt.Errorf("種目 %s: 派生元の種目IDが自分自身である", id)
+		}
+	}
 
 	e := &Exercise{
 		id:               id,
@@ -145,6 +160,8 @@ func NewExercise(p ExerciseParams) (*Exercise, error) {
 		stimulus:         stimulus,
 		increment:        increment,
 		bodyweightFactor: bodyweightFactor,
+		derivedFrom:      derivedFrom,
+		hasDerivedFrom:   hasDerivedFrom,
 	}
 
 	return e, nil
@@ -155,6 +172,7 @@ func (e *Exercise) Name() string                                { return e.name 
 func (e *Exercise) Stimulus() StimulusProfile                   { return e.stimulus }
 func (e *Exercise) Increment() training.Increment               { return e.increment }
 func (e *Exercise) BodyweightFactor() training.BodyweightFactor { return e.bodyweightFactor }
+func (e *Exercise) DerivedFrom() (ExerciseID, bool)             { return e.derivedFrom, e.hasDerivedFrom }
 
 // SameIdentity はエンティティの同一性判定。値ではなく ID で比べる。
 func (e *Exercise) SameIdentity(o *Exercise) bool {
