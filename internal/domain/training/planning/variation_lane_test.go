@@ -394,38 +394,6 @@ func TestSessionPlanner_TodaysLogDoesNotRemoveTheVariation(t *testing.T) {
 	}
 }
 
-// バリエーションの意図は、その種目にとって今週何本目かで決まる。
-//
-// 系統で数えると、ベンチ系が今週2回出ている日に初めてやる派生へ「3本目＝
-// 軽い日」が当たる。推定1RMが実力より低いまま固定されないための保護は
-// 種目ごとに要る（派生は自分の記録から推定するため）。
-func TestSessionPlanner_VariationIntentCountsPerLift(t *testing.T) {
-	logs := historyWithLastPerformed(t,
-		map[exercise.ExerciseID]int{"squat": -7, "deadlift": -7})
-	// 今週すでにベンチ系を2回やっている（月・火）。tempo は今週まだ。
-	logs = append(logs,
-		mkLogOn(t, "w1", planMonday, "bench", 85, 8, 2),
-		mkLogOn(t, "w2", planMonday.AddDays(1), "larsen", 60, 8, 2))
-
-	req := planRequest(t)
-	req.Program = focusedProgram(t, "bench")
-	req.History = setlog.NewHistory(logs)
-	req.Date = planMonday.AddDays(3)
-
-	got := mustPlan(t, req).Variation()
-	if len(got) != 1 {
-		t.Fatalf("バリエーションが出ていない: %v", got)
-	}
-	intent, ok := got[0].Intent()
-	if !ok {
-		t.Fatal("バリエーションに意図が付いていない")
-	}
-	if intent != planning.IntentStandard {
-		t.Errorf("%s の意図が %v。今週まだやっていないので STANDARD のはず",
-			got[0].ExerciseID(), intent)
-	}
-}
-
 // バリエーションが埋めた分は残差から引かれる。
 //
 // 引かないと、胸をラーセンで埋めたうえに補助でも埋める。台帳への加算は

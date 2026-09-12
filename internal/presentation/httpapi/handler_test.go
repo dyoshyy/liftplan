@@ -697,13 +697,13 @@ func TestPostConditions_SleepReachesThePlan(t *testing.T) {
 	if len(got.Main) == 0 {
 		t.Fatal("メイン種目が無い")
 	}
-	if got.Main[0].TargetRIR != 3 {
-		t.Errorf("睡眠不足の補正が届いていない: target_rir=%d（期待 3）", got.Main[0].TargetRIR)
+	if got.Main[0].TargetRIR != 2 {
+		t.Errorf("睡眠不足の補正が届いていない: target_rir=%d（期待 2）", got.Main[0].TargetRIR)
 	}
-	if got.Main[0].Sets != 4 {
-		t.Errorf("セット数が誤り: %d（期待 4）", got.Main[0].Sets)
+	if got.Main[0].Sets != 3 {
+		t.Errorf("セット数が誤り: %d（期待 3）", got.Main[0].Sets)
 	}
-	if got.Main[0].Intent != "STANDARD" {
+	if got.Main[0].Intent != "HEAVY" {
 		t.Errorf("狙いが載っていない: %q", got.Main[0].Intent)
 	}
 }

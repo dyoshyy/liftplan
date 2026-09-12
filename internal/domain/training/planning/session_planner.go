@@ -2,7 +2,6 @@ package planning
 
 import (
 	"errors"
-	"fmt"
 	"slices"
 	"sort"
 
@@ -14,6 +13,20 @@ import (
 )
 
 const (
+	// 軸レーンの処方。3レーンで最も重い。
+	//
+	// 表を引かず定数にしているのは、週の何本目かで強度を変える必要が
+	// 無くなったため。表は「同じ種目を週に何度もやるなら強度を散らす」
+	// ための仕組みだったが、宣言種目は「最後にやったのが最も古いもの」で
+	// 回るので、宣言が3つあれば各種目は週1回しか軸に来ない（D-117）。
+	// 散らす相手がいない。
+	//
+	// 派生を重ねたいときはバリエーションレーンが受け持つ。そちらは
+	// 0.80 で、軸とは別の種目・別の推定1RMを使う。
+	heavyIntensityPct = 0.88
+	heavySets         = 3
+	heavyTargetRIR    = 1
+
 	// accessoryIntensityPct は補助種目の強度。RIR2 で10レップ前後を狙う位置。
 	accessoryIntensityPct = 0.71
 	accessoryTargetRIR    = 2
@@ -118,12 +131,6 @@ func (p SessionPlanner) Plan(req PlanRequest) (PlannedSession, error) {
 		return PlannedSession{}, errors.New("伸ばしたい種目が1つも選ばれていない")
 	}
 
-	template, ok := p.prescriptions.Select(req.Program.Frequency(), liftIndexInWeek(historyBefore(req), heavy.ID(), req.Date))
-	if !ok {
-		return PlannedSession{}, fmt.Errorf(
-			"週%d回に対応するスロット構成が無い", req.Program.Frequency().PerWeek())
-	}
-
 	rirBump := p.analyzer.RIRAdjustment(req.Conditions, req.Date)
 
 	// 週内カバレッジは前日まで。当日の記録は見ない。
@@ -131,7 +138,7 @@ func (p SessionPlanner) Plan(req PlanRequest) (PlannedSession, error) {
 	// 変わり、ジムで消化している最中にリストが自分の下で入れ替わる。
 	coverage := CoverageBetween(req.History, pool, req.Date.WeekStart(), req.Date.AddDays(-1))
 
-	set := p.planLift(req, estHistory, heavy, template, rirBump)
+	set := p.planHeavy(req, estHistory, heavy, rirBump)
 	coverage = coverage.Plus(heavy.Stimulus(), set.Sets())
 
 	variation := make([]PlannedSet, 0, 1)
@@ -196,28 +203,69 @@ func declaredExercises(pool []*exercise.Exercise, prog *program.Program) []*exer
 	return out
 }
 
-// planLift は1種目ぶんの処方を組み立てる。
+// planHeavy は軸レーンの処方を組み立てる。
 //
-// 種目に依存しない。軸にも、これから足すバリエーションにも同じものを使う。
-//
-// 以前は planMain という名前で、2つ目の返り値に「実際に行う種目」を返して
-// いた。軽い日にベンチをラーセンプレスへ差し替えていた頃の名残で、差し替えを
-// やめた時点（D-114）から target は引数そのものに固定されていた。
-func (p SessionPlanner) planLift(
+// 以前は planMain という名前で Prescription を受け取っていた。軽い日に
+// ベンチをラーセンプレスへ差し替えていた頃の名残で、差し替えをやめた
+// 時点（D-114）から target は引数そのものに固定されていた。表を引くのも
+// D-117 で宣言種目が順に回るようになった時点で意味を失っている。
+func (p SessionPlanner) planHeavy(
 	req PlanRequest,
 	historyBefore setlog.History,
 	target *exercise.Exercise,
-	template Prescription,
 	rirBump int,
 ) PlannedSet {
-	intensity := template.Intensity()
+	set := p.prescribe(req, historyBefore, target,
+		heavyIntensityPct, heavySets, heavyTargetRIR, rirBump)
+	set.intent, set.hasIntent = IntentHeavy, true
+	return set
+}
 
-	set := PlannedSet{
-		exerciseID: target.ID(),
-		sets:       template.Sets(),
-		targetRIR:  template.TargetRIR().Plus(rirBump),
-		intent:     template.Intent(),
-		hasIntent:  true,
+// planVariation はバリエーションレーンの処方を組み立てる。
+//
+// 強度・セット数・RIR は定数。軸と同じく、週の何本目かでは変えない。派生は
+// それぞれ自分の推定1RMを持つので、種目が違えば重量は自然に違う。
+func (p SessionPlanner) planVariation(
+	req PlanRequest,
+	historyBefore setlog.History,
+	target *exercise.Exercise,
+	rirBump int,
+) PlannedSet {
+	set := p.prescribe(req, historyBefore, target,
+		variationIntensityPct, variationSets, variationTargetRIR, rirBump)
+	set.intent, set.hasIntent = IntentStandard, true
+	return set
+}
+
+// prescribe は「この種目をこの強度で何セット」を1件ぶん組み立てる。
+// レーンごとの違いは渡す定数だけ。
+//
+// 定数を値オブジェクトへ通すのは実行時で、失敗しても種目だけの set に
+// 落とす。重量が付かなければ本人が決める。newPrescription のように
+// panic しないのは、ここが prescription.go の外だから
+// （TestDomain_PanickingFunctionsStayWhereTheyBelong）。
+func (p SessionPlanner) prescribe(
+	req PlanRequest,
+	historyBefore setlog.History,
+	target *exercise.Exercise,
+	intensityPct float64, sets, rir, rirBump int,
+) PlannedSet {
+	set := PlannedSet{exerciseID: target.ID()}
+
+	baseRIR, err := training.NewRIR(rir)
+	if err != nil {
+		return set
+	}
+	set.targetRIR = baseRIR.Plus(rirBump)
+
+	set.sets, err = training.NewSetCount(sets)
+	if err != nil {
+		return set
+	}
+
+	intensity, err := training.NewIntensityPct(intensityPct)
+	if err != nil {
+		return set
 	}
 
 	// 当日の記録は使わない（D-086）。含めると、1セット目を記録した瞬間に
@@ -227,50 +275,6 @@ func (p SessionPlanner) planLift(
 	if orm, ok := p.estimator.Estimate(historyBefore, target.ID(), req.Date); ok {
 		if w, err := orm.WorkWeight(intensity, target.Increment()); err == nil {
 			// 推定も処方も実効負荷（体重込み）で通し、出口で加重に戻す。
-			set.weight, set.hasWeight = AddedWeight(w, target, req.Conditions, req.Date), true
-		}
-	}
-	return set
-}
-
-// planVariation はバリエーションレーンの処方を組み立てる。
-//
-// 強度・セット数・RIR は定数。軸のように週の何本目かで変えない。派生は
-// それぞれ自分の推定1RMを持つので、種目が違えば重量は自然に違う。
-//
-// 組み立ての形は planAccessory と同じ。定数を値オブジェクトへ通すのは
-// 実行時で、失敗しても重量なし（本人が決める）に落とす。newPrescription の
-// ように panic しないのは、こちらが prescription.go の外だから
-// （TestDomain_PanickingFunctionsStayWhereTheyBelong）。
-func (p SessionPlanner) planVariation(
-	req PlanRequest,
-	historyBefore setlog.History,
-	target *exercise.Exercise,
-	rirBump int,
-) PlannedSet {
-	baseRIR, err := training.NewRIR(variationTargetRIR)
-	if err != nil {
-		return PlannedSet{}
-	}
-	sets, err := training.NewSetCount(variationSets)
-	if err != nil {
-		return PlannedSet{}
-	}
-
-	set := PlannedSet{
-		exerciseID: target.ID(),
-		sets:       sets,
-		targetRIR:  baseRIR.Plus(rirBump),
-		intent:     IntentStandard,
-		hasIntent:  true,
-	}
-
-	intensity, err := training.NewIntensityPct(variationIntensityPct)
-	if err != nil {
-		return set
-	}
-	if orm, ok := p.estimator.Estimate(historyBefore, target.ID(), req.Date); ok {
-		if w, err := orm.WorkWeight(intensity, target.Increment()); err == nil {
 			set.weight, set.hasWeight = AddedWeight(w, target, req.Conditions, req.Date), true
 		}
 	}
