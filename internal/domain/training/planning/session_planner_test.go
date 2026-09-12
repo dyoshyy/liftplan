@@ -103,6 +103,50 @@ func mustPlan(t *testing.T, req planning.PlanRequest) planning.PlannedSession {
 	return s
 }
 
+// 伸ばしたい種目は、軸でない日に補助として出てこない。
+//
+// 以前は「宣言した種目も、ヘビー枠でなければ補助として残差を埋める」と
+// していた。除きすぎると脚の日にスクワットがどこにも出なくなる、という
+// 理由だったが、それは的外れだった。スクワットが軸でない日に脚を埋めるのは
+// レッグプレスやレッグカールであって、スクワットである必要が無い。
+//
+// 宣言は軸レーンで扱うものと割り切ると、レーンの境界がはっきりする。
+//
+// 差が出る状況は狭い。軸として毎回出ている種目はその区分が常に「最近
+// 刺激した」状態なので、放置日数で選ぶ補助の候補に上がらない。3日前に
+// ベンチをやって軸を他へ移し、回復期間（2日）を抜け、胸の残差を大きく
+// した日に初めて候補へ上がる。だからシミュレーションでは数字が動かない。
+func TestSessionPlanner_DeclaredExercisesNeverAppearAsAccessories(t *testing.T) {
+	p, err := program.NewProgram(mustFrequency(t, 3),
+		mustTarget(t, map[training.MuscleRegion]float64{training.ChestMid: 30}),
+		[]exercise.ExerciseID{"bench", "squat", "deadlift", "incline", "curl", "larsen"},
+		big3(), "")
+	if err != nil {
+		t.Fatalf("プログラムの生成に失敗: %v", err)
+	}
+
+	req := planRequest(t)
+	req.Program = p
+	req.History = setlog.NewHistory(append(planHistory(t),
+		mkLogOn(t, "b-recent", planMonday.AddDays(-3), "bench", 85, 8, 2)))
+
+	s := mustPlan(t, req)
+	if got := s.Main()[0].ExerciseID(); got == "bench" {
+		t.Fatalf("前提: 軸がベンチ以外であること（いま %s）", got)
+	}
+
+	ids := accessoryIDs(s)
+	for _, id := range big3() {
+		if slices.Contains(ids, id) {
+			t.Errorf("伸ばしたい種目 %s が補助に出ている: %v", id, ids)
+		}
+	}
+	// 除外が広がりすぎていないこと。ベンチの派生は補助として残る。
+	if !slices.Contains(ids, exercise.ExerciseID("larsen")) {
+		t.Errorf("宣言していない種目まで補助から消えている: %v", ids)
+	}
+}
+
 // ヘビー枠は1セッションに1つ。
 //
 // 以前は宣言した種目すべてにスロットを割り当てていた。週5回にすると

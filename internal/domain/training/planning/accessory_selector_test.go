@@ -39,7 +39,7 @@ func TestAccessorySelector_PicksLargestResidualFirst(t *testing.T) {
 	s := planning.DefaultAccessorySelector()
 	got := s.Select(
 		map[training.MuscleRegion]float64{training.ChestUpper: 3, training.Biceps: 1},
-		accessoryPool(t), setlog.NewHistory(nil), today(), "",
+		accessoryPool(t), setlog.NewHistory(nil), today(), nil,
 	)
 	if len(got) == 0 || got[0] != exercise.ExerciseID("incline") {
 		t.Errorf("残差最大の区分が先に選ばれていない: %v", got)
@@ -70,7 +70,7 @@ func TestAccessorySelector_StopsWhenResidualIsGone(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			if got := s.Select(c.residual, pool, h, today(), ""); len(got) != c.want {
+			if got := s.Select(c.residual, pool, h, today(), nil); len(got) != c.want {
 				t.Errorf("選ばれた種目数が誤り: got %d (%v), want %d", len(got), got, c.want)
 			}
 		})
@@ -88,7 +88,7 @@ func TestAccessorySelector_UsesSlotsForCoverableRegions(t *testing.T) {
 	// 二頭は curl 1種目だけなので、埋められるのは1種目。
 	got := s.Select(
 		map[training.MuscleRegion]float64{training.Quad: 10, training.Biceps: 3},
-		accessoryPool(t), setlog.NewHistory(nil), today(), "",
+		accessoryPool(t), setlog.NewHistory(nil), today(), nil,
 	)
 	if len(got) != 1 || got[0] != exercise.ExerciseID("curl") {
 		t.Errorf("埋められる区分が使われていない: %v", got)
@@ -105,7 +105,7 @@ func TestAccessorySelector_SlotCountIsCapped(t *testing.T) {
 	residual := map[training.MuscleRegion]float64{
 		training.ChestUpper: 20, training.Biceps: 20, training.Calf: 20,
 	}
-	if got := s.Select(residual, accessoryPool(t), setlog.NewHistory(nil), today(), ""); len(got) > 2 {
+	if got := s.Select(residual, accessoryPool(t), setlog.NewHistory(nil), today(), nil); len(got) > 2 {
 		t.Errorf("スロット数の上限が効いていない: %d (%v)", len(got), got)
 	}
 }
@@ -118,7 +118,7 @@ func TestAccessorySelector_SkipsRecentlyStimulatedRegion(t *testing.T) {
 
 	got := s.Select(
 		map[training.MuscleRegion]float64{training.ChestUpper: 6, training.Biceps: 3},
-		accessoryPool(t), h, today(), "",
+		accessoryPool(t), h, today(), nil,
 	)
 	for _, id := range got {
 		if id == exercise.ExerciseID("incline") || id == exercise.ExerciseID("incline_db") {
@@ -140,7 +140,7 @@ func TestAccessorySelector_IgnoresTodaysOwnLogs(t *testing.T) {
 
 	got := s.Select(
 		map[training.MuscleRegion]float64{training.ChestUpper: 6},
-		accessoryPool(t), h, today(), "",
+		accessoryPool(t), h, today(), nil,
 	)
 	if len(got) == 0 {
 		t.Error("当日のログで自分自身の枠が消えている")
@@ -170,7 +170,7 @@ func TestAccessorySelector_RecoveryBoundary(t *testing.T) {
 			h := setlog.NewHistory([]*setlog.SetLog{
 				mkLog(t, "past", c.day, "incline", 30, 10, 2),
 			})
-			got := s.Select(residual, accessoryPool(t), h, today(), "")
+			got := s.Select(residual, accessoryPool(t), h, today(), nil)
 
 			blocked := len(got) == 0
 			if blocked != c.wantBlocked {
@@ -189,7 +189,7 @@ func TestAccessorySelector_PrefersLeastRecentlyUsed(t *testing.T) {
 
 	got := s.Select(
 		map[training.MuscleRegion]float64{training.ChestUpper: 3},
-		accessoryPool(t), h, today(), "",
+		accessoryPool(t), h, today(), nil,
 	)
 	if len(got) != 1 || got[0] != exercise.ExerciseID("incline_db") {
 		t.Errorf("間隔が空いている種目が選ばれていない: %v", got)
@@ -202,7 +202,7 @@ func TestAccessorySelector_NoDuplicatesInOneSession(t *testing.T) {
 		map[training.MuscleRegion]float64{
 			training.ChestUpper: 20, training.Biceps: 20, training.Calf: 20,
 		},
-		accessoryPool(t), setlog.NewHistory(nil), today(), "",
+		accessoryPool(t), setlog.NewHistory(nil), today(), nil,
 	)
 
 	seen := map[exercise.ExerciseID]bool{}
@@ -220,18 +220,18 @@ func TestAccessorySelector_EmptyInputs(t *testing.T) {
 	h := setlog.NewHistory(nil)
 	residual := map[training.MuscleRegion]float64{training.ChestUpper: 6}
 
-	if got := s.Select(nil, pool, h, today(), ""); len(got) != 0 {
+	if got := s.Select(nil, pool, h, today(), nil); len(got) != 0 {
 		t.Errorf("残差が無いのに選ばれた: %v", got)
 	}
-	if got := s.Select(residual, nil, h, today(), ""); len(got) != 0 {
+	if got := s.Select(residual, nil, h, today(), nil); len(got) != 0 {
 		t.Errorf("種目プールが空なのに選ばれた: %v", got)
 	}
-	if got := s.Select(residual, pool, h, training.Date{}, ""); len(got) != 0 {
+	if got := s.Select(residual, pool, h, training.Date{}, nil); len(got) != 0 {
 		t.Errorf("基準日が無いのに選ばれた: %v", got)
 	}
 
 	var zero planning.AccessorySelector
-	if got := zero.Select(residual, pool, h, today(), ""); len(got) != 0 {
+	if got := zero.Select(residual, pool, h, today(), nil); len(got) != 0 {
 		t.Errorf("ゼロ値のセレクタが選んだ: %v", got)
 	}
 }
@@ -256,7 +256,7 @@ func TestAccessorySelector_PicksFromEveryExerciseNotExcluded(t *testing.T) {
 	pool := append(accessoryPool(t), bench, squat)
 	got := s.Select(
 		map[training.MuscleRegion]float64{training.ChestMid: 10, training.TricepsLateral: 5},
-		pool, setlog.NewHistory(nil), today(), "",
+		pool, setlog.NewHistory(nil), today(), nil,
 	)
 
 	if !slices.Contains(got, exercise.ExerciseID("bench")) &&
@@ -272,7 +272,7 @@ func TestAccessorySelector_SkipsNilExercises(t *testing.T) {
 
 	got := s.Select(
 		map[training.MuscleRegion]float64{training.ChestUpper: 3},
-		pool, setlog.NewHistory(nil), today(), "",
+		pool, setlog.NewHistory(nil), today(), nil,
 	)
 	if len(got) != 1 {
 		t.Errorf("nil が混ざると選べない: %v", got)
@@ -287,9 +287,9 @@ func TestAccessorySelector_IsDeterministic(t *testing.T) {
 	pool := accessoryPool(t)
 	h := setlog.NewHistory(nil)
 
-	first := s.Select(residual, pool, h, today(), "")
+	first := s.Select(residual, pool, h, today(), nil)
 	for range 50 {
-		got := s.Select(residual, pool, h, today(), "")
+		got := s.Select(residual, pool, h, today(), nil)
 		if len(got) != len(first) {
 			t.Fatalf("実行のたびに件数が変わる: %v vs %v", first, got)
 		}
@@ -310,7 +310,7 @@ func TestAccessorySelector_DoesNotMutateResidual(t *testing.T) {
 	before := len(residual)
 	beforeChest := residual[training.ChestUpper]
 
-	s.Select(residual, accessoryPool(t), setlog.NewHistory(nil), today(), "")
+	s.Select(residual, accessoryPool(t), setlog.NewHistory(nil), today(), nil)
 
 	if len(residual) != before || residual[training.ChestUpper] != beforeChest {
 		t.Errorf("残差マップが書き換わっている: %v", residual)
@@ -356,7 +356,7 @@ func TestAccessorySelector_ConsumesResidualPartially(t *testing.T) {
 	// 大胸筋上部に6セット必要。補助は3セットずつなので2種目要る。
 	got := s.Select(
 		map[training.MuscleRegion]float64{training.ChestUpper: 6},
-		accessoryPool(t), setlog.NewHistory(nil), today(), "",
+		accessoryPool(t), setlog.NewHistory(nil), today(), nil,
 	)
 
 	if len(got) != 2 {
@@ -377,7 +377,7 @@ func TestAccessorySelector_LeavesRemainderForOtherRegions(t *testing.T) {
 	// 上部→二頭→上部 の順に3種目選ばれるはず。
 	got := s.Select(
 		map[training.MuscleRegion]float64{training.ChestUpper: 4, training.Biceps: 3},
-		accessoryPool(t), setlog.NewHistory(nil), today(), "",
+		accessoryPool(t), setlog.NewHistory(nil), today(), nil,
 	)
 
 	chest, biceps := 0, 0
@@ -407,13 +407,13 @@ func TestAccessorySelector_IsIndependentOfPoolOrder(t *testing.T) {
 	h := setlog.NewHistory(nil)
 
 	forward := accessoryPool(t)
-	first := s.Select(residual, forward, h, today(), "")
+	first := s.Select(residual, forward, h, today(), nil)
 
 	reversed := make([]*exercise.Exercise, 0, len(forward))
 	for i := len(forward) - 1; i >= 0; i-- {
 		reversed = append(reversed, forward[i])
 	}
-	got := s.Select(residual, reversed, h, today(), "")
+	got := s.Select(residual, reversed, h, today(), nil)
 
 	if len(got) != len(first) {
 		t.Fatalf("プール順で件数が変わる: %v vs %v", first, got)
@@ -450,7 +450,7 @@ func TestAccessorySelector_DoesNotStarveSmallRegions(t *testing.T) {
 		training.Quad: 16, training.TrapUpper: 3,
 	}
 
-	got := s.Select(residual, pool, h, today(), "")
+	got := s.Select(residual, pool, h, today(), nil)
 
 	found := false
 	for _, id := range got {
@@ -491,7 +491,7 @@ func TestAccessorySelector_AvoidsRecoveringPrimaryMovers(t *testing.T) {
 
 	got := s.Select(
 		map[training.MuscleRegion]float64{training.FrontDelt: 3},
-		[]*exercise.Exercise{sideRaise, ohp, frontRaise}, h, today(), "",
+		[]*exercise.Exercise{sideRaise, ohp, frontRaise}, h, today(), nil,
 	)
 
 	for _, id := range got {
@@ -520,7 +520,7 @@ func TestAccessorySelector_AllowsSecondaryInvolvementOfRecoveringRegions(t *test
 
 	got := s.Select(
 		map[training.MuscleRegion]float64{training.TrapMid: 3},
-		[]*exercise.Exercise{curl, row}, h, today(), "",
+		[]*exercise.Exercise{curl, row}, h, today(), nil,
 	)
 	if len(got) != 1 || got[0] != exercise.ExerciseID("row") {
 		t.Errorf("補助的な関与まで避けている: %v", got)
@@ -539,7 +539,7 @@ func TestAccessorySelector_SurvivesAbnormalResidual(t *testing.T) {
 	for _, v := range []float64{math.Inf(1), math.Inf(-1), math.NaN(), -5} {
 		got := s.Select(
 			map[training.MuscleRegion]float64{training.ChestUpper: v},
-			pool, h, today(), "",
+			pool, h, today(), nil,
 		)
 		if len(got) != 0 {
 			t.Errorf("異常な残差 %v が処理された: %v", v, got)
@@ -550,7 +550,7 @@ func TestAccessorySelector_SurvivesAbnormalResidual(t *testing.T) {
 	// スロット数の上限は必ず守ること。
 	got := s.Select(
 		map[training.MuscleRegion]float64{training.ChestUpper: 1e30},
-		pool, h, today(), "",
+		pool, h, today(), nil,
 	)
 	if len(got) > s.MaxSlots() {
 		t.Errorf("巨大な残差でスロット上限を超えた: %d", len(got))
@@ -561,7 +561,7 @@ func TestAccessorySelector_SurvivesAbnormalResidual(t *testing.T) {
 		map[training.MuscleRegion]float64{
 			training.ChestUpper: math.Inf(1), training.Biceps: 3,
 		},
-		pool, h, today(), "",
+		pool, h, today(), nil,
 	)
 	if len(got) != 1 || got[0] != exercise.ExerciseID("curl") {
 		t.Errorf("正常な区分が処理されていない: %v", got)
@@ -578,7 +578,7 @@ func TestAccessorySelector_HandlesFutureLogs(t *testing.T) {
 
 	got := s.Select(
 		map[training.MuscleRegion]float64{training.Calf: 3},
-		accessoryPool(t), h, today(), "",
+		accessoryPool(t), h, today(), nil,
 	)
 	if len(got) != 1 || got[0] != exercise.ExerciseID("calf_raise") {
 		t.Errorf("未来日のログで種目が消えている: %v", got)
@@ -603,7 +603,7 @@ func TestAccessorySelector_TieBreaksRegionsByName(t *testing.T) {
 
 	got := s2.Select(
 		map[training.MuscleRegion]float64{training.Biceps: 3, training.Calf: 3},
-		pool, setlog.NewHistory(nil), today(), "",
+		pool, setlog.NewHistory(nil), today(), nil,
 	)
 	// BICEPS < CALF なので、BICEPS を埋める種目が選ばれる。
 	if len(got) != 1 || got[0] != exercise.ExerciseID("for_biceps") {
@@ -618,7 +618,7 @@ func TestAccessorySelector_IgnoresZeroResidual(t *testing.T) {
 
 	got := s.Select(
 		map[training.MuscleRegion]float64{training.ChestUpper: 0, training.Biceps: 3},
-		accessoryPool(t), setlog.NewHistory(nil), today(), "",
+		accessoryPool(t), setlog.NewHistory(nil), today(), nil,
 	)
 	if len(got) != 1 || got[0] != exercise.ExerciseID("curl") {
 		t.Errorf("残差0の区分にスロットを使っている: %v", got)
@@ -647,45 +647,79 @@ func TestAccessorySelector_PrefersLeastRecentlyStimulatedRegion(t *testing.T) {
 
 	got := s.Select(
 		map[training.MuscleRegion]float64{training.Biceps: 9, training.Calf: 3},
-		pool, h, today(), "",
+		pool, h, today(), nil,
 	)
 	if len(got) != 1 || got[0] != exercise.ExerciseID("for_calf") {
 		t.Errorf("最も長く放置している区分が選ばれていない: %v", got)
 	}
 }
 
-// 宣言した種目も、ヘビー枠でなければ補助として残差を埋める。
+// 渡された種目は1つ残らず候補から外れること。
 //
-// 宣言は「伸ばしたい」という目標であって、「ヘビーでしかやらない」では
-// ない。除くのは今日のヘビー枠だけ。除きすぎると、脚の日にスクワットが
-// どこにも出なくなる。
-func TestAccessorySelector_DeclaredExercisesCanStillFillResidual(t *testing.T) {
-	s := planning.DefaultAccessorySelector()
-	bench := mustExercise(t, benchParams())
-	pool := append(accessoryPool(t), bench)
-
-	got := s.Select(
-		map[training.MuscleRegion]float64{training.ChestMid: 3},
-		pool, setlog.NewHistory(nil), today(), "",
-	)
-	if len(got) != 1 || got[0] != exercise.ExerciseID("bench") {
-		t.Errorf("宣言した種目が補助として残差を埋めていない: %v", got)
-	}
-}
-
-// 今日メインで処方した種目は、補助にも出さない。
+// 元は「宣言した種目も、ヘビー枠でなければ補助として残差を埋める」を
+// 検査していた。除くのは今日のヘビー枠だけで、根拠は「除きすぎると脚の日に
+// スクワットがどこにも出なくなる」だった。
 //
-// 出すと同じ種目が今日のリストに2回並び、セット数も二重に積まれる。
-func TestAccessorySelector_ExcludesTodaysMainLifts(t *testing.T) {
-	s := planning.DefaultAccessorySelector()
+// これは的外れだった。スクワットが軸でない日に脚のボリュームを埋めるのは
+// レッグプレスやレッグカールであって、スクワットである必要が無い。宣言は
+// 軸レーンで扱うものと割り切ると、レーンの境界がはっきりする。
+//
+// 除外が1つだけだった頃の ExcludesTodaysMainLifts も、ここに畳んだ。
+// 単数のままだと、ヘビー枠以外の宣言がメインと補助の両方に出る。
+func TestAccessorySelector_ExcludesEveryListedExercise(t *testing.T) {
 	pool := append(accessoryPool(t), mustExercise(t, benchParams()))
-	residual := map[training.MuscleRegion]float64{training.ChestMid: 3}
+	residual := map[training.MuscleRegion]float64{
+		training.ChestMid: 3, training.ChestUpper: 3, training.Biceps: 3,
+	}
 
-	got := s.Select(residual, pool, setlog.NewHistory(nil), today(),
-		"bench")
+	cases := []struct {
+		name    string
+		exclude []exercise.ExerciseID
+		// 候補に出てはいけない種目。
+		absent []exercise.ExerciseID
+		// 候補に出るべき種目。除外が広がりすぎていないことを見る。
+		present []exercise.ExerciseID
+	}{
+		{
+			name:    "除外が空なら全種目が候補になる",
+			exclude: nil,
+			present: []exercise.ExerciseID{"bench", "incline"},
+		},
+		{
+			name:    "1つ渡せばそれだけ外れる",
+			exclude: []exercise.ExerciseID{"bench"},
+			absent:  []exercise.ExerciseID{"bench"},
+			present: []exercise.ExerciseID{"incline"},
+		},
+		{
+			name:    "複数渡せばすべて外れる",
+			exclude: []exercise.ExerciseID{"bench", "incline"},
+			absent:  []exercise.ExerciseID{"bench", "incline"},
+			present: []exercise.ExerciseID{"curl"},
+		},
+		{
+			name:    "候補に無い種目を渡しても壊れない",
+			exclude: []exercise.ExerciseID{"nonexistent"},
+			present: []exercise.ExerciseID{"bench"},
+		},
+	}
 
-	if slices.Contains(got, exercise.ExerciseID("bench")) {
-		t.Errorf("メインで処方した種目が補助にも出ている: %v", got)
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			s := planning.DefaultAccessorySelector()
+			got := s.Select(residual, pool, setlog.NewHistory(nil), today(), c.exclude)
+
+			for _, id := range c.absent {
+				if slices.Contains(got, id) {
+					t.Errorf("除外した %s が候補に出ている: %v", id, got)
+				}
+			}
+			for _, id := range c.present {
+				if !slices.Contains(got, id) {
+					t.Errorf("除外していない %s が候補から消えている: %v", id, got)
+				}
+			}
+		})
 	}
 }
 
@@ -711,7 +745,7 @@ func TestAccessorySelector_ExcludedExerciseStillCountsAsStimulus(t *testing.T) {
 		training.ChestMid: 3, training.Biceps: 3,
 	}
 
-	got := s.Select(residual, pool, h, today(), "bench")
+	got := s.Select(residual, pool, h, today(), []exercise.ExerciseID{"bench"})
 
 	// 大胸筋中部は昨日刺激したばかりなので回復中。狙う補助は出ない。
 	// byID からベンチを抜くと、この記録が見えなくなって pec_fly が出る。
