@@ -111,8 +111,8 @@ func (p SessionPlanner) Plan(req PlanRequest) (PlannedSession, error) {
 	// 意味が違うため、基準が違ってよい。
 	coverage := CoverageBetween(req.History, pool, req.Date.WeekStart(), req.Date.AddDays(-1))
 
-	set, performed := p.planMain(req, pool, estHistory, heavy, template, rirBump)
-	coverage = coverage.Plus(performed.Stimulus(), set.Sets())
+	set := p.planLift(req, estHistory, heavy, template, rirBump)
+	coverage = coverage.Plus(heavy.Stimulus(), set.Sets())
 
 	// 設定より多く通った場合でも、残り1セッション分は狙えるようにする。
 	// 0 以下にすると残差が空になり、補助が1つも出ないまま
@@ -142,10 +142,14 @@ func (p SessionPlanner) Plan(req PlanRequest) (PlannedSession, error) {
 	}, nil
 }
 
-// usablePool はプログラムで選択された種目と、その派生バリエーションを返す。
+// usablePool はプログラムで選択された種目を ID 昇順で返す。
 //
-// バリエーションはユーザーが個別に選ぶものではなく、メインに付随して
-// 自動で回るため、選択に含まれていなくても候補にする。
+// 選択されていない種目は出てこない。以前は「バリエーションはメインに付随して
+// 自動で回るため、選択に含まれていなくても候補にする」という抜け道があったが、
+// D-114 で塞いだ。7種目は移行で選択に追加してある。
+//
+// 並びを固定するのは、同じ入力から同じ計画が出るようにするため。軸の選定が
+// 同点のときにここの順序で決まる。
 func (p SessionPlanner) usablePool(req PlanRequest) []*exercise.Exercise {
 	out := make([]*exercise.Exercise, 0, len(req.Pool))
 	for _, e := range req.Pool {
@@ -171,18 +175,20 @@ func declaredExercises(pool []*exercise.Exercise, prog *program.Program) []*exer
 	return out
 }
 
-// planMain は1つのメインリフトのスロットを埋める。
-// 2つ目の返り値は実際に行う種目（バリエーションに差し替わることがある）。
-func (p SessionPlanner) planMain(
+// planLift は1種目ぶんの処方を組み立てる。
+//
+// 種目に依存しない。軸にも、これから足すバリエーションにも同じものを使う。
+//
+// 以前は planMain という名前で、2つ目の返り値に「実際に行う種目」を返して
+// いた。軽い日にベンチをラーセンプレスへ差し替えていた頃の名残で、差し替えを
+// やめた時点（D-114）から target は引数そのものに固定されていた。
+func (p SessionPlanner) planLift(
 	req PlanRequest,
-	pool []*exercise.Exercise,
 	historyBefore setlog.History,
-	main *exercise.Exercise,
+	target *exercise.Exercise,
 	template Prescription,
 	rirBump int,
-) (PlannedSet, *exercise.Exercise) {
-	target := main
-
+) PlannedSet {
 	intensity := template.Intensity()
 
 	set := PlannedSet{
@@ -203,7 +209,7 @@ func (p SessionPlanner) planMain(
 			set.weight, set.hasWeight = AddedWeight(w, target, req.Conditions, req.Date), true
 		}
 	}
-	return set, target
+	return set
 }
 
 func (p SessionPlanner) planAccessory(
@@ -308,21 +314,32 @@ func liftIndexInWeek(h setlog.History, id exercise.ExerciseID, date training.Dat
 //
 // 宣言のうち、最後に実施したのが最も古い種目を返す。未着手の種目があればそれを優先する。
 func (p SessionPlanner) heavyLift(req PlanRequest, pool []*exercise.Exercise) *exercise.Exercise {
-	h := historyBefore(req)
+	return stalest(historyBefore(req), declaredExercises(pool, req.Program))
+}
 
-	var stalest *exercise.Exercise
-	var stalestDate training.Date
+// stalest は候補のうち、最後に実施したのが最も古い種目を返す。候補が空なら nil。
+//
+// 未着手の種目があればそれを優先する。記録が無いのを「最も古い」と解釈する
+// ため、ゼロ値の日付と比べるのではなく LastPerformed の第2返り値で分ける。
+// 日付のゼロ値が何を表すかを知らなくても読める。
+//
+// 同点は先に見たものを残す。候補は usablePool が ID 昇順に並べているので、
+// 同じ入力から同じ種目が返る。
+//
+// 渡す履歴は前日まで（historyBefore）。当日を含めると、ジムで1セット記録した
+// 瞬間に「最も古い」が入れ替わり、今日のメニューが自分の下で変わる（D-086）。
+func stalest(h setlog.History, candidates []*exercise.Exercise) *exercise.Exercise {
+	var best *exercise.Exercise
+	var bestDate training.Date
 
-	for _, c := range declaredExercises(pool, req.Program) {
+	for _, c := range candidates {
 		last, ok := h.LastPerformed(c.ID())
 		if !ok {
-			return c // 未着手の種目があればそれを優先する
+			return c
 		}
-		if stalest == nil || last.Before(stalestDate) {
-			stalest = c
-			stalestDate = last
+		if best == nil || last.Before(bestDate) {
+			best, bestDate = c, last
 		}
 	}
-	return stalest
-
+	return best
 }
