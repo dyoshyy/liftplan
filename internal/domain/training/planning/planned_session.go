@@ -31,6 +31,7 @@ func (s PlannedSet) IsZero() bool { return s == PlannedSet{} }
 type PlannedSession struct {
 	date        training.Date
 	main        []PlannedSet
+	variation   []PlannedSet // バリエーションレーンの種目。nilなら出ない
 	accessories []PlannedSet
 }
 
@@ -39,6 +40,12 @@ func (s PlannedSession) Date() training.Date { return s.date }
 func (s PlannedSession) Main() []PlannedSet {
 	out := make([]PlannedSet, len(s.main))
 	copy(out, s.main)
+	return out
+}
+
+func (s PlannedSession) Variation() []PlannedSet {
+	out := make([]PlannedSet, len(s.variation))
+	copy(out, s.variation)
 	return out
 }
 

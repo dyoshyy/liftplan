@@ -70,8 +70,20 @@ func simulate(t *testing.T, frequency, weeks int) simResult {
 	return simulateWithout(t, frequency, weeks)
 }
 
+// simulateFocused は重点種目を指定して回す。
+func simulateFocused(t *testing.T, frequency, weeks int, focus exercise.ExerciseID) simResult {
+	t.Helper()
+	return simulateWith(t, frequency, weeks, focus)
+}
+
 // simulateWithout は指定した種目をプログラムから外して回す。
 func simulateWithout(t *testing.T, frequency, weeks int, excluded ...exercise.ExerciseID) simResult {
+	t.Helper()
+	return simulateWith(t, frequency, weeks, "", excluded...)
+}
+
+// simulateWith は重点種目と除外種目を指定して回す。
+func simulateWith(t *testing.T, frequency, weeks int, focus exercise.ExerciseID, excluded ...exercise.ExerciseID) simResult {
 	t.Helper()
 
 	skip := make(map[exercise.ExerciseID]bool, len(excluded))
@@ -108,7 +120,7 @@ func simulateWithout(t *testing.T, frequency, weeks int, excluded ...exercise.Ex
 			declared = append(declared, id)
 		}
 	}
-	program, err := program.NewProgram(freq, target, ids, declared, "")
+	program, err := program.NewProgram(freq, target, ids, declared, focus)
 	if err != nil {
 		t.Fatalf("プログラムの生成に失敗: %v", err)
 	}
@@ -137,7 +149,10 @@ func simulateWithout(t *testing.T, frequency, weeks int, excluded ...exercise.Ex
 			}
 
 			total := 0
-			for _, set := range append(s.Main(), s.Accessories()...) {
+			// 3レーンすべてを消化する。Variation を落とすと、重点種目を
+			// 指定したときの実測が本番と食い違う。
+			done := append(s.Main(), s.Variation()...)
+			for _, set := range append(done, s.Accessories()...) {
 				res.picked[set.ExerciseID()]++
 
 				kg := 0.0
@@ -209,6 +224,51 @@ func TestSimulation_WeeklyTargetIsAttainableAtEveryFrequency(t *testing.T) {
 			}
 		})
 	}
+}
+
+// 重点種目を指定すると、その系統が週3回前後で回ること。
+//
+// 軸として週1回、バリエーションとして週2回。本人の実際の運用
+// （ベンチだけ週3回、他は週1回）がこの形だった。
+//
+// 実シードで回すのは、テストが自前のデータだけで完結している罠を避けるため。
+// planPool の派生だけ付けてシードに入れ忘れると、単体テストは緑のまま
+// 本番で機能が丸ごと無効になる。自重係数で一度踏んだ（D-100）。
+func TestSimulation_FocusLineageRunsAboutThreeTimesAWeek(t *testing.T) {
+	const weeks = 8
+	res := simulateFocused(t, 3, weeks, "bench")
+
+	lineage := []exercise.ExerciseID{
+		"bench", "larsen_press", "tempo_bench", "close_grip_bench",
+	}
+	total := 0
+	for _, id := range lineage {
+		total += res.picked[id]
+	}
+
+	perWeek := float64(total) / weeks
+	if perWeek < 2.5 || perWeek > 3.5 {
+		t.Errorf("ベンチ系が週%.1f回。3回前後のはず: %v", perWeek, pickedOf(res, lineage))
+	}
+
+	// 派生が1つも回っていなければ、レーンが動いていない。
+	derived := 0
+	for _, id := range lineage[1:] {
+		derived += res.picked[id]
+	}
+	if derived == 0 {
+		t.Errorf("派生が一度も出ていない。バリエーションレーンが動いていない: %v",
+			pickedOf(res, lineage))
+	}
+}
+
+// pickedOf は指定した種目の選出回数を、エラーメッセージ用に取り出す。
+func pickedOf(res simResult, ids []exercise.ExerciseID) map[exercise.ExerciseID]int {
+	out := map[exercise.ExerciseID]int{}
+	for _, id := range ids {
+		out[id] = res.picked[id]
+	}
+	return out
 }
 
 // どの補助種目も、選ぶ限りは出番があること。

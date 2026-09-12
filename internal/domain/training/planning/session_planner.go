@@ -3,6 +3,7 @@ package planning
 import (
 	"errors"
 	"fmt"
+	"slices"
 	"sort"
 
 	"github.com/dyoshyy/liftplan/internal/domain/training"
@@ -16,6 +17,16 @@ const (
 	// accessoryIntensityPct は補助種目の強度。RIR2 で10レップ前後を狙う位置。
 	accessoryIntensityPct = 0.71
 	accessoryTargetRIR    = 2
+
+	// variationRecoveryDays は同じ系統を再び出すまでに空ける日数。
+	//
+	// 2 は「中1日」で、月曜にやったら火曜は出さず水曜から出す。判定は
+	// AccessorySelector.recovering と同じ開区間 (date - N, date)。
+	//
+	// recoveryDays と値が同じだが共有しない。あちらは筋区分の回復で
+	// コンストラクタの引数、こちらは系統の間隔で設定にしない。共有すると
+	// 片方を動かしたときにもう片方が黙って動く。
+	variationRecoveryDays = 2
 )
 
 // PlanRequest は導出の入力すべて。ドメインは自分でデータを取りに行かない。
@@ -101,18 +112,27 @@ func (p SessionPlanner) Plan(req PlanRequest) (PlannedSession, error) {
 	rirBump := p.analyzer.RIRAdjustment(req.Conditions, req.Date)
 
 	// 週内カバレッジは前日まで。当日の記録は見ない。
-	//
-	// 今日のリストは、その日が始まった時点で確定していてほしい。当日を
-	// 含めると、1セット記録するたびに残差が動いて選ばれる種目と並びが
+	// 当日を含めると、1セット記録するたびに残差が動いて選ばれる種目と並びが
 	// 変わり、ジムで消化している最中にリストが自分の下で入れ替わる。
-	//
-	// 画面に出る「今週の充足」は当日を含む（query.Stats.WeeklyVolume）。
-	// 表示は「今週どれだけやったか」、計画は「今日やると決めたこと」で
-	// 意味が違うため、基準が違ってよい。
 	coverage := CoverageBetween(req.History, pool, req.Date.WeekStart(), req.Date.AddDays(-1))
 
 	set := p.planLift(req, estHistory, heavy, template, rirBump)
 	coverage = coverage.Plus(heavy.Stimulus(), set.Sets())
+
+	variation := make([]PlannedSet, 0, 1)
+	exclude := req.Program.DeclaredExercises()
+	if v := p.variationLift(req, pool, heavy); v != nil {
+		vt, ok := p.prescriptions.Select(req.Program.Frequency(), liftIndexInWeek(historyBefore(req), v.ID(), req.Date))
+		if !ok {
+			return PlannedSession{}, fmt.Errorf(
+				"週%d回に対応するスロット構成が無い", req.Program.Frequency().PerWeek(),
+			)
+		}
+		vs := p.planLift(req, estHistory, v, vt, rirBump)
+		variation = append(variation, vs)
+		coverage = coverage.Plus(v.Stimulus(), vs.Sets())
+		exclude = append(exclude, v.ID())
+	}
 
 	// 設定より多く通った場合でも、残り1セッション分は狙えるようにする。
 	// 0 以下にすると残差が空になり、補助が1つも出ないまま
@@ -120,17 +140,7 @@ func (p SessionPlanner) Plan(req PlanRequest) (PlannedSession, error) {
 	sessionsRemaining := max(1, req.Program.Frequency().PerWeek()-sessionIndexInWeek(req.History, req.Date))
 	gaps := SessionResidual(req.Program.WeeklyTarget(), coverage, sessionsRemaining)
 
-	// 補助の候補も並びも、その日の始まりに分かっていたことだけで決める。
-	//
-	// 以前はここで「今日ぶんを終えた種目を外す」「着手中は残す」「終えた
-	// ぶん枠を減らす」「並びをIDの昇順で固定する」という手当てをしていた。
-	// どれも当日を見ていたことの帰結で、見なくなれば要らない（D-116）。
-	//
-	// Select が返す順序は「最も放置している区分から」という優先度で、
-	// 一日中変わらないので、そのまま画面の並びになる。
-	chosen := p.accessory.Select(gaps, pool, historyBefore(req), req.Date,
-		req.Program.DeclaredExercises())
-
+	chosen := p.accessory.Select(gaps, pool, historyBefore(req), req.Date, exclude)
 	accessories := make([]PlannedSet, 0, len(chosen))
 	for _, id := range chosen {
 		accessories = append(accessories, p.planAccessory(req, pool, estHistory, id, rirBump))
@@ -139,6 +149,7 @@ func (p SessionPlanner) Plan(req PlanRequest) (PlannedSession, error) {
 	return PlannedSession{
 		date:        req.Date,
 		main:        []PlannedSet{set},
+		variation:   variation,
 		accessories: accessories,
 	}, nil
 }
@@ -343,4 +354,92 @@ func stalest(h setlog.History, candidates []*exercise.Exercise) *exercise.Exerci
 		}
 	}
 	return best
+}
+
+// variationLift は今日バリエーションとしてやる種目を返す。出さない日は nil
+//
+// 出さないのは、重点種目が未指定・軸が系統に含まれる・前回やってから十分に日数がアイていない・派生が選択されていない
+// のいずれか。
+func (p SessionPlanner) variationLift(req PlanRequest, pool []*exercise.Exercise, heavy *exercise.Exercise) *exercise.Exercise {
+	focus, ok := req.Program.FocusExercise()
+	if !ok {
+		return nil
+	}
+
+	// 今日の軸が重点種目の系統に含まれる場合、バリエーションは出さない。
+	family := lineage(pool, focus)
+	if containsExercise(family, heavy.ID()) {
+		return nil
+	}
+
+	// 前回やってから十分に日数が空いていない場合、バリエーションは出さない。
+	h := historyBefore(req)
+	if recentlyPerformed(h, family, req.Date) {
+		return nil
+	}
+
+	return stalest(h, variationsOf(pool, focus))
+}
+
+// lineage は重点種目とその派生のうち、pool にあるものを返す。
+//
+// 重点種目自身を含める。含めないと、軸でベンチをやった翌日にラーセンが出る。
+//
+// 根まで辿らない。辿ると、重点種目に RDL を指定したとき「RDL の系統」に
+// 床引きデッドリフトが入り、バリエーションとして出てしまう。床引きは
+// 宣言しなければ出ない（D-117）。
+func lineage(pool []*exercise.Exercise, focus exercise.ExerciseID) []*exercise.Exercise {
+	out := make([]*exercise.Exercise, 0, 4)
+	for _, e := range pool {
+		if e.ID() == focus {
+			out = append(out, e)
+			continue
+		}
+		if from, ok := e.DerivedFrom(); ok && from == focus {
+			out = append(out, e)
+		}
+	}
+	return out
+}
+
+// variationsOf は重点種目の派生のうち pool にあるものを返す。重点種目自身は含まない。
+func variationsOf(pool []*exercise.Exercise, focus exercise.ExerciseID) []*exercise.Exercise {
+	out := make([]*exercise.Exercise, 0, 3)
+	for _, e := range pool {
+		if from, ok := e.DerivedFrom(); ok && from == focus {
+			out = append(out, e)
+		}
+	}
+	return out
+}
+
+// recentlyPerformed は系統のどれかを直近 variationRecoveryDays 日にやったか。
+//
+// AccessorySelector.recovering と同じ開区間 (date - N, date)。区分ではなく
+// 系統で見る点だけが違う。
+//
+// 渡す履歴は前日まで。当日を含めると、今日ラーセンを1セット記録して
+// 開き直した瞬間に系統が「最近やった」になり、バリエーションが自分の下で
+// 消える（D-086 系）。
+func recentlyPerformed(h setlog.History, family []*exercise.Exercise, date training.Date) bool {
+	inFamily := make(map[exercise.ExerciseID]bool, len(family))
+	for _, e := range family {
+		inFamily[e.ID()] = true
+	}
+
+	cutoff := date.AddDays(-variationRecoveryDays)
+	for _, l := range h.After(cutoff).Before(date).Logs() {
+		if inFamily[l.ExerciseID()] {
+			return true
+		}
+	}
+	return false
+}
+
+// containsExercise は候補のどれかが id か。
+//
+// ポインタではなく ID で比べる。エンティティの同一性は ID で決まるので
+// （Exercise.SameIdentity）、スライスの作り方が変わっても壊れない。
+func containsExercise(candidates []*exercise.Exercise, id exercise.ExerciseID) bool {
+	return slices.ContainsFunc(candidates, func(e *exercise.Exercise) bool { return e.ID() == id })
 }

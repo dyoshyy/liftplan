@@ -2,6 +2,7 @@ package planning_test
 
 import (
 	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/dyoshyy/liftplan/internal/domain/training"
@@ -188,14 +189,22 @@ func mustProgramWithout(t *testing.T, focus exercise.ExerciseID, drop ...exercis
 // larsen を探していた。larsen は宣言に入っていないのでループ本体が一度も
 // 走らず、緑だが何も守っていなかった。
 func TestSessionPlanner_VariationWeightComesFromItsOwnRecord(t *testing.T) {
-	// ベンチは重い、ラーセンは軽い。推定が別々なら提示も別々になる。
+	// ベンチは重い、派生は軽い。推定が別々なら提示も別々になる。
+	//
+	// 派生2つとも記録する。片方だけ記録すると、未着手のもう片方が最優先で
+	// 選ばれて重量が出ない（「一度もやっていない種目を優先する」の帰結）。
 	logs := planHistory(t) // bench 85kg / squat 110 / deadlift 140 を3週
 	for i, daysAgo := range []int{21, 14, 7} {
-		logs = append(logs, mkLogOn(t, fmt.Sprintf("lar-%d", i),
-			planMonday.AddDays(-daysAgo), "larsen", 60, 8, 2))
+		for _, id := range []string{"larsen", "tempo"} {
+			logs = append(logs, mkLogOn(t, fmt.Sprintf("%s-%d", id, i),
+				planMonday.AddDays(-daysAgo), id, 60, 8, 2))
+		}
 	}
-	// ベンチを3日前にやって軸を他へ移し、中1日を満たす。
-	logs = append(logs, mkLogOn(t, "b-recent", planMonday.AddDays(-3), "bench", 85, 8, 2))
+	// ベンチを3日前にやって軸を他へ移す。系統の中1日もここで満たす。
+	// tempo はその前日にして、ラーセンより新しくしておく。
+	logs = append(logs,
+		mkLogOn(t, "b-recent", planMonday.AddDays(-3), "bench", 85, 8, 2),
+		mkLogOn(t, "tempo-recent", planMonday.AddDays(-4), "tempo", 60, 8, 2))
 
 	req := planRequest(t)
 	req.Program = focusedProgram(t, "bench")
@@ -302,27 +311,69 @@ func TestSessionPlanner_VariationIntentCountsPerLift(t *testing.T) {
 //
 // 引かないと、胸をラーセンで埋めたうえに補助でも埋める。台帳への加算は
 // 残差を出す前に済んでいる必要がある。
+//
+// 補助の「件数」で見ると、バリエーションが除外されたぶん1件減るだけでも
+// 通ってしまう。減ったのが残差のせいだと分かるよう、同じ区分を狙う補助を
+// 十分に用意して、その区分に割り当てられたセット数を見る。
 func TestSessionPlanner_SubtractsVariationCoverageFromResidual(t *testing.T) {
+	// 大胸筋中部を狙う補助を5つ足す。1つだと、残差が減っても「候補が
+	// 尽きた」のか「残差が尽きた」のか区別できない。
+	pool := planPool(t)
+	ids := []exercise.ExerciseID{
+		"bench", "squat", "deadlift", "incline", "curl", "larsen", "tempo",
+	}
+	for i := range 5 {
+		id := fmt.Sprintf("chest_%d", i)
+		pool = append(pool, mkAccessory(t, id,
+			map[training.MuscleRegion]float64{training.ChestMid: 1.0}))
+		ids = append(ids, exercise.ExerciseID(id))
+	}
+
+	// 大胸筋中部だけを週目標に置く。ここの消化だけを見る。
+	//
+	// 12セットにしているのは、補助が3セット刻みで割り当てられるため。
+	// 24だと残差が 8 → 6.7 に減っても同じ3種目（9セット）が出て、差が
+	// 出力に現れない。
+	build := func(focus exercise.ExerciseID) *program.Program {
+		t.Helper()
+		p, err := program.NewProgram(mustFrequency(t, 3),
+			mustTarget(t, map[training.MuscleRegion]float64{training.ChestMid: 12}),
+			ids, big3(), focus)
+		if err != nil {
+			t.Fatalf("プログラムの生成に失敗: %v", err)
+		}
+		return p
+	}
+
 	logs := historyWithLastPerformed(t,
 		map[exercise.ExerciseID]int{"bench": -3, "squat": -7, "deadlift": -7})
 
+	chestSets := func(s planning.PlannedSession) int {
+		total := 0
+		for _, a := range s.Accessories() {
+			if strings.HasPrefix(string(a.ExerciseID()), "chest_") {
+				total += a.Sets().Int()
+			}
+		}
+		return total
+	}
+
 	req := planRequest(t)
+	req.Pool = pool
 	req.History = setlog.NewHistory(logs)
 
-	// 重点種目なし → バリエーションが出ない
-	req.Program = focusedProgram(t, "")
+	req.Program = build("")
 	without := mustPlan(t, req)
 
-	// 重点種目あり → バリエーションが出て、胸の残差が減る
-	req.Program = focusedProgram(t, "bench")
+	req.Program = build("bench")
 	with := mustPlan(t, req)
 
 	if len(with.Variation()) != 1 {
 		t.Fatalf("前提: バリエーションが出ること: %v", with.Variation())
 	}
-	if len(with.Accessories()) >= len(without.Accessories()) {
-		t.Errorf("バリエーションが残差から引かれていない: 補助が %d → %d",
-			len(without.Accessories()), len(with.Accessories()))
+	if got, base := chestSets(with), chestSets(without); got >= base {
+		t.Errorf("バリエーションが残差から引かれていない: 胸の補助が %d → %d セット",
+			base, got)
 	}
 }
 
