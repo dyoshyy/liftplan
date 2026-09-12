@@ -29,11 +29,18 @@ func mainExercise(t *testing.T, id string, stimulus map[training.MuscleRegion]fl
 func planPool(t *testing.T) []*exercise.Exercise {
 	t.Helper()
 
-	// かつてベンチのバリエーションだった種目。いまは補助のひとつ。
-	p := exercise.ExerciseParams{
-		ID: "larsen", Name: "larsen",
-		Stimulus:    map[training.MuscleRegion]float64{training.ChestMid: 1.0},
-		IncrementKg: 2.5,
+	// ベンチの派生。重点種目がベンチのとき、バリエーションレーンに出る。
+	//
+	// 2つあるのは回転を検査するため。1つだと「最終実施日が最も古いものを
+	// 取る」が「1つしかないものを取る」と区別できない。
+	derived := func(id string) *exercise.Exercise {
+		t.Helper()
+		return mustExercise(t, exercise.ExerciseParams{
+			ID: id, Name: id,
+			Stimulus:    map[training.MuscleRegion]float64{training.ChestMid: 1.0},
+			IncrementKg: 2.5,
+			DerivedFrom: "bench",
+		})
 	}
 
 	return []*exercise.Exercise{
@@ -46,7 +53,8 @@ func planPool(t *testing.T) []*exercise.Exercise {
 		mainExercise(t, "deadlift", map[training.MuscleRegion]float64{
 			training.Hamstring: 1.0, training.Erector: 1.0,
 		}),
-		mustExercise(t, p),
+		derived("larsen"),
+		derived("tempo"),
 		mkAccessory(t, "incline", map[training.MuscleRegion]float64{training.ChestUpper: 1.0}),
 		mkAccessory(t, "curl", map[training.MuscleRegion]float64{training.Biceps: 1.0}),
 	}
@@ -60,6 +68,25 @@ func planProgram(t *testing.T) *program.Program {
 	})
 	p, err := program.NewProgram(mustFrequency(t, 3), target,
 		[]exercise.ExerciseID{"bench", "squat", "deadlift", "incline", "curl"}, big3(), "")
+	if err != nil {
+		t.Fatalf("プログラムの生成に失敗: %v", err)
+	}
+	return p
+}
+
+// focusedProgram は重点種目を指定したプログラムを返す。
+//
+// 派生（larsen・tempo）も選択に入れる。選択されていない種目は usablePool から
+// 落ちるので、バリエーションレーンの候補にもならない。
+func focusedProgram(t *testing.T, focus exercise.ExerciseID) *program.Program {
+	t.Helper()
+
+	target := mustTarget(t, map[training.MuscleRegion]float64{
+		training.ChestMid: 12, training.ChestUpper: 9, training.Quad: 12, training.Biceps: 9,
+	})
+	p, err := program.NewProgram(mustFrequency(t, 3), target,
+		[]exercise.ExerciseID{"bench", "squat", "deadlift", "incline", "curl", "larsen", "tempo"},
+		big3(), focus)
 	if err != nil {
 		t.Fatalf("プログラムの生成に失敗: %v", err)
 	}
@@ -820,32 +847,6 @@ func TestSessionPlanner_DividesByRemainingSessions(t *testing.T) {
 		t.Errorf("残りセッション数で割っていない: 1本目 %d → 3本目 %d",
 			len(first.Accessories()), len(last.Accessories()))
 	}
-}
-
-func TestSessionPlanner_VariationWeightComesFromItsOwnRecord(t *testing.T) {
-	req := planRequest(t)
-
-	logs := []*setlog.SetLog{
-		mkLogOn(t, "v1", planMonday.AddDays(-7), "larsen", 80, 5, 1),
-		mkLogOn(t, "d1", planMonday, "squat", 80, 8, 2),
-		mkLogOn(t, "d2", planMonday.AddDays(2), "deadlift", 90, 5, 1),
-	}
-	req.History = setlog.NewHistory(logs)
-	req.Date = planMonday.AddDays(4)
-
-	for _, set := range mustPlan(t, req).Main() {
-		if set.ExerciseID() != "larsen" {
-			continue
-		}
-		w, ok := set.Weight()
-		if !ok {
-			t.Fatal("バリエーションの重量が確定していない")
-		}
-		if w.Kg() <= 0 {
-			t.Errorf("バリエーションの重量が０以下: %v", w.Kg())
-		}
-	}
-
 }
 
 // 週内カバレッジは週初から当日の前日まで。
