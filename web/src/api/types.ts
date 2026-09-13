@@ -12,9 +12,14 @@ export type PlannedSet = {
   target_rir: number;
 };
 
+/**
+ * 3レーン。軸は必ず1件、バリエーションは高々1件、補助は0件以上。
+ * 出ない日は null ではなく空配列で来る（dto.go）。
+ */
 export type Session = {
   date: string;
   main: PlannedSet[];
+  variation: PlannedSet[];
   accessories: PlannedSet[];
 };
 

@@ -114,6 +114,90 @@ func TestGetSession_Success(t *testing.T) {
 	}
 }
 
+// 3レーンが応答の3つのキーに対応すること。
+//
+// PWA は session.variation を読む（Today.tsx）。ここが落ちるとバリエーション
+// レーンが画面から消えるが、Go 側は何も壊れないので気づけない。
+//
+// 出ない日も null ではなく空配列であることを一緒に見る。null だと
+// TypeScript 側の `?? []` を通っても .map で落ちる形になりやすい。
+func TestGetSession_HasThreeLanes(t *testing.T) {
+	mux := newServer(t, true)
+
+	// 重点種目をベンチにする。指定しないとバリエーションレーンは出ない。
+	body := `{"per_week":3,"weekly_target":{"CHEST_MID":10,"QUAD":12},` +
+		`"selected_exercises":["bench","squat","deadlift","larsen_press","tempo_bench"],` +
+		`"declared_exercises":["bench","squat","deadlift"],"focus_exercise":"bench"}`
+	if rec := do(t, mux, http.MethodPut, "/api/program", body); rec.Code != http.StatusNoContent {
+		t.Fatalf("プログラムの保存に失敗: %d body=%s", rec.Code, rec.Body.String())
+	}
+
+	// ベンチを3日前にやって軸を他へ移す。当日と前日は「中1日」の門に
+	// 掛かるので、3日前にする。
+	logs := `{"logs":[{"id":"b1","date":"2026-08-14","exercise_id":"bench",` +
+		`"weight_kg":85,"reps":8,"rir":2}]}`
+	if rec := do(t, mux, http.MethodPost, "/api/set-logs", logs); rec.Code != http.StatusNoContent {
+		t.Fatalf("記録の保存に失敗: %d body=%s", rec.Code, rec.Body.String())
+	}
+
+	rec := do(t, mux, http.MethodGet, "/api/sessions?date=2026-08-17", "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("ステータスが誤り: %d body=%s", rec.Code, rec.Body.String())
+	}
+
+	// ポインタで受けて、キーの欠落と空配列を区別する。
+	var got struct {
+		Main *[]struct {
+			ExerciseID string `json:"exercise_id"`
+		} `json:"main"`
+		Variation *[]struct {
+			ExerciseID string `json:"exercise_id"`
+		} `json:"variation"`
+		Accessory *[]struct {
+			ExerciseID string `json:"exercise_id"`
+		} `json:"accessories"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatalf("JSONが壊れている: %v", err)
+	}
+
+	for name, lane := range map[string]*[]struct {
+		ExerciseID string `json:"exercise_id"`
+	}{"main": got.Main, "variation": got.Variation, "accessories": got.Accessory} {
+		if lane == nil {
+			t.Errorf("%s のキーが無いか null。空でも配列で返すこと", name)
+		}
+	}
+	if got.Variation == nil {
+		t.FailNow()
+	}
+	if len(*got.Variation) != 1 {
+		t.Fatalf("バリエーションが1件でない: %v（軸 %v）", *got.Variation, *got.Main)
+	}
+	if id := (*got.Variation)[0].ExerciseID; id != "larsen_press" && id != "tempo_bench" {
+		t.Errorf("バリエーションがベンチの派生でない: %s", id)
+	}
+
+	// 重点種目を指定しなければバリエーションは出ない。そのときも
+	// null ではなく空配列で返すこと。ここが null だと、Today.tsx の
+	// `?? []` は通るが、キーを消したときと区別が付かなくなる。
+	empty := do(t, newServer(t, true), http.MethodGet, "/api/sessions?date=2026-08-17", "")
+	if empty.Code != http.StatusOK {
+		t.Fatalf("ステータスが誤り: %d", empty.Code)
+	}
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(empty.Body.Bytes(), &raw); err != nil {
+		t.Fatalf("JSONが壊れている: %v", err)
+	}
+	v, ok := raw["variation"]
+	if !ok {
+		t.Fatal("重点種目なしで variation のキーが消えている")
+	}
+	if string(v) != "[]" {
+		t.Errorf("重点種目なしの variation が %s。空配列のはず", v)
+	}
+}
+
 func TestGetSession_MissingDate(t *testing.T) {
 	rec := httptest.NewRecorder()
 	newServer(t, true).ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/sessions", nil))
