@@ -216,12 +216,8 @@ func benchOnlyProgram(t *testing.T) *program.Program {
 // planRequestAt は、ベンチを今週すでに done 回やった状態で days 日目の
 // リクエストを返す。宣言はベンチ1つに絞る。
 //
-// スロットの役割は「その種目にとって今週何本目か」で決まる（liftIndexInWeek）。
-// 週の通算本数ではないので、他の種目で日数を進めても役割は動かない。
-//
-// 以前は curl で週を進めていた。ヘビー枠が1つになる前は、週の通算本数が
-// 役割を決めていたため。宣言が3つあれば週3回通ってもベンチは週1回しか
-// 出ないので、通算で引くとその1回に「週3本目＝軽い日」が当たる（D-117）。
+// done を受け取るのは、週内の実施回数で処方が変わっていた頃の名残。
+// いまは3レーンとも定数なので（D-126）、効くのは推定1RMと残差だけ。
 func planRequestAt(t *testing.T, days int, done ...int) planning.PlanRequest {
 	t.Helper()
 
@@ -351,13 +347,13 @@ func TestSessionPlanner_HeavySlotGoesToTheStalestDeclared(t *testing.T) {
 //
 // larsen はかつてベンチのバリエーションだった種目で、いまは補助のひとつ。
 // メインの枠に現れたら、差し替えが復活している。
-func TestSessionPlanner_LightIntentKeepsTheSameExercise(t *testing.T) {
-	s := mustPlan(t, planRequestAt(t, 4, 0, 2)) // 週3本目 = 軽い日
+func TestSessionPlanner_HeavySlotKeepsTheDeclaredExercise(t *testing.T) {
+	s := mustPlan(t, planRequestAt(t, 4, 0, 2))
 
 	found := false
 	for _, set := range s.Main() {
 		if set.ExerciseID() == exercise.ExerciseID("larsen") {
-			t.Error("軽い日で種目が差し替わっている")
+			t.Error("軸の種目が派生に差し替わっている")
 		}
 		if set.ExerciseID() == exercise.ExerciseID("bench") {
 			found = true
@@ -387,11 +383,6 @@ func TestSessionPlanner_FillsResidualWithAccessories(t *testing.T) {
 	}
 
 	for _, set := range s.Accessories() {
-		// 役割はメインのスロットにだけ付く。補助に付くと、強度帯が
-		// 二重に適用される。
-		if _, ok := set.Intent(); ok {
-			t.Errorf("補助種目に役割が付いている: %v", set.ExerciseID())
-		}
 		if set.Sets().Int() <= 0 {
 			t.Errorf("補助種目のセット数が0以下: %v", set.ExerciseID())
 		}
@@ -494,7 +485,6 @@ func TestSessionPlanner_ZeroValueIsSafe(t *testing.T) {
 }
 
 func TestNewSessionPlanner_RejectsZeroDependencies(t *testing.T) {
-	slots := planning.NewPrescriptionCatalog()
 	est := planning.DefaultOneRepMaxEstimator()
 	acc := planning.DefaultAccessorySelector()
 	analyzer := planning.DefaultConditionAnalyzer()
@@ -504,15 +494,15 @@ func TestNewSessionPlanner_RejectsZeroDependencies(t *testing.T) {
 		call func() error
 	}{
 		{"推定器", func() error {
-			_, err := planning.NewSessionPlanner(slots, planning.OneRepMaxEstimator{}, acc, analyzer)
+			_, err := planning.NewSessionPlanner(planning.OneRepMaxEstimator{}, acc, analyzer)
 			return err
 		}},
 		{"補助の選択器", func() error {
-			_, err := planning.NewSessionPlanner(slots, est, planning.AccessorySelector{}, analyzer)
+			_, err := planning.NewSessionPlanner(est, planning.AccessorySelector{}, analyzer)
 			return err
 		}},
 		{"コンディション分析器", func() error {
-			_, err := planning.NewSessionPlanner(slots, est, acc, planning.ConditionAnalyzer{})
+			_, err := planning.NewSessionPlanner(est, acc, planning.ConditionAnalyzer{})
 			return err
 		}},
 	}
@@ -524,7 +514,7 @@ func TestNewSessionPlanner_RejectsZeroDependencies(t *testing.T) {
 		})
 	}
 
-	if _, err := planning.NewSessionPlanner(slots, est, acc, analyzer); err != nil {
+	if _, err := planning.NewSessionPlanner(est, acc, analyzer); err != nil {
 		t.Errorf("正常な依存が弾かれた: %v", err)
 	}
 }
@@ -677,6 +667,75 @@ func TestSessionPlanner_DoesNotDoubleCountTodaysLogs(t *testing.T) {
 	if len(reopened.Accessories()) != len(base.Accessories()) {
 		t.Errorf("当日の記録で補助の数が変わった: %d → %d",
 			len(base.Accessories()), len(reopened.Accessories()))
+	}
+}
+
+// 補助レーンの処方を固定する。
+//
+// 3レーンとも定数になった（D-126）ので、軸・バリエーションと同じ形で
+// 補助も見ておく。セット数だけは定数ではなく AccessorySelector が持つ。
+func TestSessionPlanner_AccessoryPrescriptionIsPinned(t *testing.T) {
+	const (
+		wantIntensity = 0.71
+		wantRIR       = 2
+	)
+
+	// 既定の履歴は宣言種目だけなので、補助には重量が付かない。
+	// 強度を見るために補助にも記録を積む。
+	logs := planHistory(t)
+	for i, daysAgo := range []int{21, 14, 7} {
+		for _, id := range []string{"incline", "curl"} {
+			logs = append(logs, mkLogOn(t, fmt.Sprintf("%s-%d", id, i),
+				planMonday.AddDays(-daysAgo), id, 40, 10, 2))
+		}
+	}
+
+	req := planRequest(t)
+	req.History = setlog.NewHistory(logs)
+
+	s := mustPlan(t, req)
+	if len(s.Accessories()) == 0 {
+		t.Fatal("補助種目が1つも出ていない")
+	}
+
+	wantSets := planning.DefaultAccessorySelector().SetsPerAccessory().Int()
+	pct, err := training.NewIntensityPct(wantIntensity)
+	if err != nil {
+		t.Fatalf("強度: %v", err)
+	}
+
+	// 重量が確定した補助が1つでもあること。全部未確定だと強度を見ていない
+	// のと変わらない。
+	checked := 0
+	for _, got := range s.Accessories() {
+		if n := got.Sets().Int(); n != wantSets {
+			t.Errorf("%v のセット数が %d。%d のはず", got.ExerciseID(), n, wantSets)
+		}
+		if r := got.TargetRIR().Int(); r != wantRIR {
+			t.Errorf("%v の目標RIRが %d。%d のはず", got.ExerciseID(), r, wantRIR)
+		}
+
+		w, ok := got.Weight()
+		if !ok {
+			continue
+		}
+		orm, ok := planning.DefaultOneRepMaxEstimator().
+			Estimate(req.History, got.ExerciseID(), req.Date)
+		if !ok {
+			t.Fatalf("重量が付いているのに推定1RMが出ない: %v", got.ExerciseID())
+		}
+		want, err := orm.WorkWeight(pct, findInPool(t, req.Pool, got.ExerciseID()).Increment())
+		if err != nil {
+			t.Fatalf("実施重量: %v", err)
+		}
+		if w.Kg() != want.Kg() {
+			t.Errorf("%v の重量が %vkg。推定1RM %vkg の %v = %vkg のはず",
+				got.ExerciseID(), w.Kg(), orm.Kg(), wantIntensity, want.Kg())
+		}
+		checked++
+	}
+	if checked == 0 {
+		t.Error("重量が確定した補助が1つも無い。強度を見られていない")
 	}
 }
 
@@ -1044,7 +1103,7 @@ func TestSessionPlanner_UsesInjectedConditionAnalyzer(t *testing.T) {
 	if err != nil {
 		t.Fatalf("分析器の生成に失敗: %v", err)
 	}
-	planner, err := planning.NewSessionPlanner(planning.NewPrescriptionCatalog(),
+	planner, err := planning.NewSessionPlanner(
 		planning.DefaultOneRepMaxEstimator(),
 		planning.DefaultAccessorySelector(), analyzer)
 	if err != nil {

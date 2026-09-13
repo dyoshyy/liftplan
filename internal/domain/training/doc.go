@@ -26,8 +26,7 @@
 // パッケージに置くため。PlannedSet は SessionPlanner からしか作れず、
 // 「提示セットは計画器から出たものだけ」が言語レベルで保証されている。
 // 別パッケージに置くと公開コンストラクタが要り、誰でも任意の値で
-// 組み立てられるようになる。PlannedSession・StimulusCoverage・
-// Prescription も同じ。
+// 組み立てられるようになる。PlannedSession と StimulusCoverage も同じ。
 //
 // ドメインサービスを役割ごとにさらに割ると、この保証が消える。
 // 見通しはファイル名で足りる。サービスのファイル名は役割を表す名詞で

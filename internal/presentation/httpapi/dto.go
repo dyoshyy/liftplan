@@ -20,7 +20,6 @@ type plannedSetDTO struct {
 	WeightKg   *float64 `json:"weight_kg"`
 	Sets       int      `json:"sets"`
 	TargetRIR  int      `json:"target_rir"`
-	Intent     string   `json:"intent,omitempty"`
 }
 
 // 3レーンとも配列にする。バリエーションは高々1件だが、クライアントが
@@ -41,9 +40,6 @@ func toPlannedSetDTO(s planning.PlannedSet) plannedSetDTO {
 	if w, ok := s.Weight(); ok {
 		kg := w.Kg()
 		dto.WeightKg = &kg
-	}
-	if intent, ok := s.Intent(); ok {
-		dto.Intent = string(intent)
 	}
 	return dto
 }

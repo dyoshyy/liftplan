@@ -85,7 +85,6 @@ func TestGetSession_Success(t *testing.T) {
 			WeightKg   *float64 `json:"weight_kg"`
 			Sets       int      `json:"sets"`
 			TargetRIR  int      `json:"target_rir"`
-			Intent     string   `json:"intent"`
 		} `json:"main"`
 		Accessories []struct {
 			ExerciseID string `json:"exercise_id"`
@@ -686,9 +685,8 @@ func TestPostConditions_SleepReachesThePlan(t *testing.T) {
 	rec := do(t, mux, http.MethodGet, "/api/sessions?date=2026-08-17", "")
 	var got struct {
 		Main []struct {
-			Sets      int    `json:"sets"`
-			TargetRIR int    `json:"target_rir"`
-			Intent    string `json:"intent"`
+			Sets      int `json:"sets"`
+			TargetRIR int `json:"target_rir"`
 		} `json:"main"`
 	}
 	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
@@ -702,9 +700,6 @@ func TestPostConditions_SleepReachesThePlan(t *testing.T) {
 	}
 	if got.Main[0].Sets != 3 {
 		t.Errorf("セット数が誤り: %d（期待 3）", got.Main[0].Sets)
-	}
-	if got.Main[0].Intent != "HEAVY" {
-		t.Errorf("狙いが載っていない: %q", got.Main[0].Intent)
 	}
 }
 

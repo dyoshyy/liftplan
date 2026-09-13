@@ -83,11 +83,6 @@ var panickingFunctions = []struct {
 		allowedFiles: []string{"date.go", ""},
 		reason:       "コンパイル時に確定するリテラル専用。外部入力は ParseDate か FromTime を通すこと",
 	},
-	{
-		name:         "newPrescription",
-		allowedFiles: []string{"prescription.go"},
-		reason:       "カタログ定義専用。実行時の値を渡すとパッケージのロード自体が失敗する",
-	},
 }
 
 func TestDomain_PanickingFunctionsStayWhereTheyBelong(t *testing.T) {

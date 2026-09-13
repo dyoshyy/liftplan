@@ -10,7 +10,6 @@ export type PlannedSet = {
   weight_kg: number | null;
   sets: number;
   target_rir: number;
-  intent?: string;
 };
 
 export type Session = {

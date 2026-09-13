@@ -68,14 +68,12 @@ type PlanRequest struct {
 
 // SessionPlanner はドメインの入口となるドメインサービス。無状態。
 type SessionPlanner struct {
-	prescriptions PrescriptionCatalog
-	estimator     OneRepMaxEstimator
-	accessory     AccessorySelector
-	analyzer      ConditionAnalyzer
+	estimator OneRepMaxEstimator
+	accessory AccessorySelector
+	analyzer  ConditionAnalyzer
 }
 
 func NewSessionPlanner(
-	prescriptions PrescriptionCatalog,
 	estimator OneRepMaxEstimator,
 	accessory AccessorySelector,
 	analyzer ConditionAnalyzer,
@@ -90,17 +88,15 @@ func NewSessionPlanner(
 		return SessionPlanner{}, errors.New("コンディション分析器が未設定である")
 	}
 	return SessionPlanner{
-		prescriptions: prescriptions, estimator: estimator,
-		accessory: accessory, analyzer: analyzer,
+		estimator: estimator, accessory: accessory, analyzer: analyzer,
 	}, nil
 }
 
 func DefaultSessionPlanner() SessionPlanner {
 	return SessionPlanner{
-		prescriptions: NewPrescriptionCatalog(),
-		estimator:     DefaultOneRepMaxEstimator(),
-		accessory:     DefaultAccessorySelector(),
-		analyzer:      DefaultConditionAnalyzer(),
+		estimator: DefaultOneRepMaxEstimator(),
+		accessory: DefaultAccessorySelector(),
+		analyzer:  DefaultConditionAnalyzer(),
 	}
 }
 
@@ -205,20 +201,18 @@ func declaredExercises(pool []*exercise.Exercise, prog *program.Program) []*exer
 
 // planHeavy は軸レーンの処方を組み立てる。
 //
-// 以前は planMain という名前で Prescription を受け取っていた。軽い日に
-// ベンチをラーセンプレスへ差し替えていた頃の名残で、差し替えをやめた
-// 時点（D-114）から target は引数そのものに固定されていた。表を引くのも
-// D-117 で宣言種目が順に回るようになった時点で意味を失っている。
+// 以前は planMain という名前で、頻度と週の何本目かで引いた表を受け取って
+// いた。軽い日にベンチをラーセンプレスへ差し替えていた頃の名残で、差し替えを
+// やめた時点（D-114）から target は引数そのものに固定されている。表のほうも
+// D-117 で宣言種目が順に回るようになった時点で意味を失っていた（D-126）。
 func (p SessionPlanner) planHeavy(
 	req PlanRequest,
 	historyBefore setlog.History,
 	target *exercise.Exercise,
 	rirBump int,
 ) PlannedSet {
-	set := p.prescribe(req, historyBefore, target,
+	return p.prescribe(req, historyBefore, target,
 		heavyIntensityPct, heavySets, heavyTargetRIR, rirBump)
-	set.intent, set.hasIntent = IntentHeavy, true
-	return set
 }
 
 // planVariation はバリエーションレーンの処方を組み立てる。
@@ -231,19 +225,16 @@ func (p SessionPlanner) planVariation(
 	target *exercise.Exercise,
 	rirBump int,
 ) PlannedSet {
-	set := p.prescribe(req, historyBefore, target,
+	return p.prescribe(req, historyBefore, target,
 		variationIntensityPct, variationSets, variationTargetRIR, rirBump)
-	set.intent, set.hasIntent = IntentStandard, true
-	return set
 }
 
 // prescribe は「この種目をこの強度で何セット」を1件ぶん組み立てる。
 // レーンごとの違いは渡す定数だけ。
 //
 // 定数を値オブジェクトへ通すのは実行時で、失敗しても種目だけの set に
-// 落とす。重量が付かなければ本人が決める。newPrescription のように
-// panic しないのは、ここが prescription.go の外だから
-// （TestDomain_PanickingFunctionsStayWhereTheyBelong）。
+// 落とす。重量が付かなければ本人が決める。定数が正しい限り発火しないが、
+// panic は使わない（TestDomain_PanickingFunctionsStayWhereTheyBelong）。
 func (p SessionPlanner) prescribe(
 	req PlanRequest,
 	historyBefore setlog.History,
@@ -368,15 +359,6 @@ func CoverageBetween(h setlog.History, pool []*exercise.Exercise, from, to train
 // 曜日の割り当てはドメインの責務ではないため、実績から導出する。
 func sessionIndexInWeek(h setlog.History, date training.Date) int {
 	return h.OnOrAfter(date.WeekStart()).Before(date).SessionCount()
-}
-
-// liftIndexInWeek はその種目を、今週すでに何回やったかを返す。
-//
-// 週の何本目かではなく種目ごとに数えるのは、ヘビー枠が1セッションに
-// 1つになったため。宣言が3つあれば、週3回通ってもベンチは週1回しか
-// 出ない。週の本数で引くと、その1回に「週3本目＝軽い日」が当たる。
-func liftIndexInWeek(h setlog.History, id exercise.ExerciseID, date training.Date) int {
-	return h.ForExercise(id).OnOrAfter(date.WeekStart()).Before(date).SessionCount()
 }
 
 // heavyLift は今日メインでやる＝高重量を扱う種目を返す。
