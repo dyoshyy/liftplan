@@ -6,29 +6,26 @@ import type { Data } from '../../app/useLiftplan';
 import { ExerciseCard, type CardPlan } from './ExerciseCard';
 import { leftovers } from './leftovers';
 import { RecordSheet, type SheetTarget } from './RecordSheet';
-import { BodyWeight } from './BodyWeight';
-import { ProgramSettings } from './ProgramSettings';
+import { BodyWeightRow } from './BodyWeightRow';
 import type { QueueItem } from '../../outbox/db';
 import { Button } from '../../ui/Button';
-import { Card, Note, SectionTitle } from '../../ui/Card';
+import { SectionTitle } from '../../ui/Card';
 
 type Props = {
   data: Data;
-  offline: boolean;
-  rejected: string[];
   enqueue: (item: QueueItem) => Promise<void>;
-  onClearRejected: () => void;
-  onRetry: () => void;
   onRecordLocally: (exerciseId: string, set: RecordedSet, replacing?: string) => void;
   onForgetLocally: (exerciseId: string, id: string) => void;
   /** 重点種目を変えたあとにメニューを取り直す。 */
   onReload: () => Promise<void>;
   /** onRecorded は記録が1件積まれたあとに呼ぶ。休憩タイマーを始めるのに使う。 */
   onRecorded: () => void;
+  /** canStartRest は休憩がまだ動いていないか。手動の入口を出すかの判断に使う。 */
+  canStartRest: boolean;
 };
 
 export function Today(props: Props) {
-  const { data, offline, rejected, enqueue, onClearRejected, onRetry, onRecorded } = props;
+  const { data, enqueue, onRecorded } = props;
   const [sheet, setSheet] = useState<SheetTarget | null>(null);
 
   const nameOf = (id: string) => data.names.get(id) ?? id;
@@ -108,35 +105,15 @@ export function Today(props: Props) {
 
   return (
     <div className="grid gap-3.5">
-      {offline && (
-        <Card title="つながりません">
-          <Note>
-            今日のメニューはサーバーが組むので、圏外では出せません。古いメニューを
-            キャッシュして出すことはしていません。前回の重量が今日の重量として
-            表示されると、記録そのものが壊れるためです。
-          </Note>
-          <Button variant="quiet" className="mt-3" onClick={onRetry}>
-            もう一度つなぐ
+      <div className="flex items-center gap-3">
+        <BodyWeightRow enqueue={enqueue} />
+        {/* 自動で始まるのが通常の経路なので、手動の入口は控えめに置く。 */}
+        {props.canStartRest && (
+          <Button variant="quiet" size="chip" className="ml-auto shrink-0" onClick={onRecorded}>
+            休憩を始める
           </Button>
-        </Card>
-      )}
-
-      {rejected.length > 0 && (
-        <Card title="送れなかった記録">
-          <Note>
-            サーバーが受け付けなかったので、送るのをやめました。同じものを送り続けると、
-            あとの記録がすべて詰まるためです。必要なら入れ直してください。
-          </Note>
-          <ul className="mt-2.5 list-disc pl-[1.2em] text-xs leading-[1.7] text-faint">
-            {rejected.map((r, i) => (
-              <li key={i}>{r}</li>
-            ))}
-          </ul>
-          <Button variant="quiet" className="mt-3" onClick={onClearRejected}>
-            消す
-          </Button>
-        </Card>
-      )}
+        )}
+      </div>
 
       {/* レーンの見出し。強度が3段階あることは、見出しでしか分からない。
           以前は HEAVY バッジがカードに付いていたが、狙いがレーンごとの定数に
@@ -153,13 +130,7 @@ export function Today(props: Props) {
       {done.length > 0 && <SectionTitle>今日やったもの</SectionTitle>}
       {done.map(card)}
 
-      <BodyWeight enqueue={enqueue} />
 
-      <ProgramSettings
-        nameOf={nameOf}
-        allExerciseIds={[...data.names.keys()].sort()}
-        onChanged={props.onReload}
-      />
 
       {sheet && (
         <RecordSheet

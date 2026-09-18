@@ -1,8 +1,8 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { getJSON, send } from '../../api/client';
 import type { Program } from '../../api/types';
-import { focusBody, focusOptions, NO_FOCUS } from './focus';
-import { lockedDeclared, lockedSelected, toggleDeclared } from './declared';
+import { focusBody, focusOptions, NO_FOCUS } from '../today/focus';
+import { lockedDeclared, lockedSelected, toggleDeclared } from '../today/declared';
 import { regionLabel } from '../../domain/regions';
 import { Button } from '../../ui/Button';
 import { Card, Note } from '../../ui/Card';
@@ -28,10 +28,13 @@ type Props = {
 };
 
 /**
- * 伸ばしたい種目と重点種目を変える。
+ * メニューの組み方を変える。
  *
- * 畳んであるのは、ジムで開く画面の面積を増やさないため（D-120）。
- * プログラムを取りに行くのも開いたときだけで、毎回の読み込みには混ぜない。
+ * 設定画面の中身。以前は「今日」の中で畳んでいたが、ジムで見る画面に
+ * 毎日は触らないものが同居していた。歯車から入る別画面へ移した。
+ *
+ * プログラムを取りに行くのはこの画面を開いたときだけで、毎回の読み込みには
+ * 混ぜない。ジムで開くたびに要るものではない。
  *
  * 2つを1つの部品にしているのは、どちらも同じプログラムを見ているため。
  * 別々に持つと、宣言を変えたあとに重点種目の選択肢が古いままになる。
@@ -42,7 +45,6 @@ type Props = {
  * 1件も失わないので、その場で成否を見せるほうが正直。
  */
 export function ProgramSettings({ nameOf, allExerciseIds, onChanged }: Props) {
-  const [open, setOpen] = useState(false);
   const [program, setProgram] = useState<Program | null>(null);
   const [note, setNote] = useState('');
   const [busy, setBusy] = useState(false);
@@ -53,8 +55,15 @@ export function ProgramSettings({ nameOf, allExerciseIds, onChanged }: Props) {
   const [pick, setPick] = useState<string[] | null>(null);
   const [target, setTarget] = useState<Record<string, string> | null>(null);
 
-  const expand = async () => {
-    setOpen(true);
+  // 画面を開いたら読む。以前は「開く」を押したときだけだったが、
+  // 設定画面そのものが「開いた」の意味を持つようになった。
+  useEffect(() => {
+    void load();
+    // load は program を見て二度読みを避けるだけなので、初回に1回でよい。
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const load = async () => {
     if (program) return;
     setNote('');
     try {
@@ -137,16 +146,8 @@ export function ProgramSettings({ nameOf, allExerciseIds, onChanged }: Props) {
     setPick(null);
     setTarget(null);
     await onChanged();
-    await expand();
+    await load();
   };
-
-  if (!open) {
-    return (
-      <Button variant="quiet" onClick={() => void expand()}>
-        メニューの設定を変える
-      </Button>
-    );
-  }
 
   const locked = program ? lockedDeclared(draft ?? [], program.focus_exercise) : new Map();
   const dirty =
@@ -163,7 +164,8 @@ export function ProgramSettings({ nameOf, allExerciseIds, onChanged }: Props) {
       : false;
 
   return (
-    <Card title="週に通う回数">
+    <>
+      <Card title="週に通う回数">
       <Note className="mb-3">
         変えると週目標も回数に合わせて置き直されます。1週間に積めるセット数は
         通う回数に比例するので、片方だけ動かすと目標が実態を説明しなくなります。
@@ -184,20 +186,23 @@ export function ProgramSettings({ nameOf, allExerciseIds, onChanged }: Props) {
         </div>
       )}
 
-      <p className="mb-3 mt-5 text-xs uppercase tracking-[0.12em] text-faint">伸ばしたい種目</p>
+      </Card>
+
+      <Card title="伸ばしたい種目">
       <Note className="mb-3">
         ここに入れた種目が、毎回1つずつ順に「軸」として出ます。最後にやったのが
         最も古いものが選ばれるので、数を増やすほど1種目あたりの頻度は下がります。
       </Note>
 
       {program && draft && (
-        <div className="grid gap-2">
+        <div className="flex flex-wrap gap-2">
           {program.selected_exercises.map((id) => {
             const on = draft.includes(id);
             const why = locked.get(id);
             return (
               <Button
                 key={id}
+                size="chip"
                 variant={on ? 'primary' : 'quiet'}
                 disabled={busy || (on && why !== undefined)}
                 title={why}
@@ -222,19 +227,22 @@ export function ProgramSettings({ nameOf, allExerciseIds, onChanged }: Props) {
         </Button>
       )}
 
-      <p className="mb-3 mt-5 text-xs uppercase tracking-[0.12em] text-faint">重点種目</p>
+      </Card>
+
+      <Card title="重点種目">
       <Note className="mb-3">
         選んだ種目の派生（ナローグリップ、テンポなど）が、軸とは別の枠で
         中1日以上あけて出ます。指定しなければバリエーションは出ません。
       </Note>
 
       {program && (
-        <div className="grid gap-2">
+        <div className="flex flex-wrap gap-2">
           {focusOptions(program.declared_exercises).map((id) => {
             const chosen = (program.focus_exercise ?? NO_FOCUS) === id;
             return (
               <Button
                 key={id || 'none'}
+                size="chip"
                 variant={chosen ? 'primary' : 'quiet'}
                 disabled={busy}
                 onClick={() => void chooseFocus(id)}
@@ -246,20 +254,23 @@ export function ProgramSettings({ nameOf, allExerciseIds, onChanged }: Props) {
         </div>
       )}
 
-      <p className="mb-3 mt-5 text-xs uppercase tracking-[0.12em] text-faint">使う種目</p>
+      </Card>
+
+      <Card title="使う種目">
       <Note className="mb-3">
         ここに入れた種目だけが補助レーンの候補になります。伸ばしたい種目は
         外せません（先にそちらから外してください）。
       </Note>
 
       {program && pick && (
-        <div className="grid gap-2">
+        <div className="flex flex-wrap gap-2">
           {allExerciseIds.map((id) => {
             const on = pick.includes(id);
             const why = lockedSelected(pick, program.declared_exercises).get(id);
             return (
               <Button
                 key={id}
+                size="chip"
                 variant={on ? 'primary' : 'quiet'}
                 disabled={busy || (on && why !== undefined)}
                 title={why}
@@ -284,7 +295,9 @@ export function ProgramSettings({ nameOf, allExerciseIds, onChanged }: Props) {
         </Button>
       )}
 
-      <p className="mb-3 mt-5 text-xs uppercase tracking-[0.12em] text-faint">週の目標セット数</p>
+      </Card>
+
+      <Card title="週の目標セット数">
       <Note className="mb-3">
         区分ごとの1週間の目安です。通う回数を変えると、ここも回数に合わせて
         置き直ります。届かない目標を置くと毎週すべてが赤字になるだけなので、
@@ -322,9 +335,7 @@ export function ProgramSettings({ nameOf, allExerciseIds, onChanged }: Props) {
       )}
 
       {note && <p className="mt-2.5 text-[13px] text-red">{note}</p>}
-      <Button variant="quiet" className="mt-3" onClick={() => setOpen(false)}>
-        閉じる
-      </Button>
-    </Card>
+      </Card>
+    </>
   );
 }
