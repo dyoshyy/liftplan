@@ -102,51 +102,11 @@
     font-variant-numeric: tabular-nums;
   }
 
-  .card {
-    background: var(--color-surface);
-    border: 1px solid var(--color-line);
-    border-radius: var(--radius-card);
-    padding: 16px;
-  }
 
-  .card-title {
-    font-size: 12px;
-    letter-spacing: 0.12em;
-    text-transform: uppercase;
-    color: var(--color-faint);
-    margin: 0 0 12px;
-  }
 
-  .note {
-    font-size: 12px;
-    color: var(--color-faint);
-    line-height: 1.7;
-  }
 
-  .btn {
-    display: block;
-    width: 100%;
-    padding: 15px;
-    border-radius: 12px;
-    font-weight: 700;
-    text-align: center;
-    background: var(--color-amber);
-    color: #1a1204;
-  }
 
-  .btn-quiet {
-    background: var(--color-surface-2);
-    border: 1px solid var(--color-line);
-    color: var(--color-text);
-    font-weight: 500;
-  }
 
-  .btn-danger {
-    background: transparent;
-    border: 1px solid color-mix(in srgb, var(--color-red) 55%, transparent);
-    color: var(--color-red);
-    font-weight: 500;
-  }
 
   .chip {
     padding: 8px 12px;
@@ -163,16 +123,7 @@
     color: var(--color-text);
   }
 
-  .field {
-    display: grid;
-    gap: 6px;
-  }
 
-  .field label {
-    font-size: 12px;
-    color: var(--color-muted);
-    letter-spacing: 0.04em;
-  }
 
   .set {
     min-height: 64px;
@@ -214,23 +165,6 @@
     background: rgb(0 0 0 / 0.66);
   }
 
-  .stepper {
-    display: grid;
-    grid-template-columns: 60px 1fr 60px;
-    gap: 8px;
-  }
 
-  .stepper button {
-    background: var(--color-surface-2);
-    border: 1px solid var(--color-line);
-    border-radius: 10px;
-    font-size: 24px;
-    line-height: 1;
-  }
 
-  .stepper input {
-    text-align: center;
-    font-family: var(--font-num);
-    font-size: 22px;
-  }
 }
