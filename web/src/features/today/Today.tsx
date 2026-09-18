@@ -7,6 +7,7 @@ import { ExerciseCard, type CardPlan } from './ExerciseCard';
 import { leftovers } from './leftovers';
 import { RecordSheet, type SheetTarget } from './RecordSheet';
 import { BodyWeight } from './BodyWeight';
+import { Device } from '../settings/Device';
 import { ProgramSettings } from './ProgramSettings';
 import type { QueueItem } from '../../outbox/db';
 import { Button } from '../../ui/Button';
@@ -23,6 +24,8 @@ type Props = {
   onForgetLocally: (exerciseId: string, id: string) => void;
   /** 重点種目を変えたあとにメニューを取り直す。 */
   onReload: () => Promise<void>;
+  /** トークンを消したあとに最初の設定へ戻す。 */
+  onForget: () => void;
   /** onRecorded は記録が1件積まれたあとに呼ぶ。休憩タイマーを始めるのに使う。 */
   onRecorded: () => void;
 };
@@ -160,6 +163,10 @@ export function Today(props: Props) {
         allExerciseIds={[...data.names.keys()].sort()}
         onChanged={props.onReload}
       />
+
+      {/* トークンを消す手段。設定と名の付くものを2箇所に散らさないので、
+          メニューの設定の隣に置く（D-127）。 */}
+      <Device onForget={props.onForget} />
 
       {sheet && (
         <RecordSheet
