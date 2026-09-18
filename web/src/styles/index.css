@@ -46,8 +46,11 @@
     font-family: var(--font-sans);
     font-size: 15px;
     line-height: 1.6;
-    /* 下端に固定した状態バーの分だけ空ける。 */
-    padding-bottom: 92px;
+    /* 下端に固定したバー2本（状態バー・休憩タイマー）の分だけ空ける。
+       状態バーだけの 92px のままだと、一番下の要素が休憩タイマーに
+       数px潜る。実機で測って気づいた（最後のボタンの下端 792px に対し
+       タイマーの上端 787px）。 */
+    padding-bottom: 150px;
   }
 
   button {
