@@ -36,7 +36,8 @@ pnpm build
 加えて、**記録が消える経路は実機で通す**。
 
 ```bash
-node scripts/adversarial-check.mjs   # 使い方はファイル冒頭
+node scripts/adversarial-check.mjs   # 記録が消える経路。使い方はファイル冒頭
+node scripts/ui-check.mjs           # 休憩タイマーと記録シートの初期値
 ```
 
 単体テストでは踏めない経路（Service Worker・IndexedDB の再読み込み・
@@ -55,6 +56,7 @@ node scripts/adversarial-check.mjs   # 使い方はファイル冒頭
 | `src/domain/` | 日付・セットの整形・区分の日本語 | React も fetch も知らない |
 | `src/storage/` | localStorage（トークン） | 画面を知らない |
 | `src/features/` | 今日・最初の設定 | — |
+| `src/ui/` | 画面をまたぐ部品（Button / Card / Field / Stepper） | 画面の事情を知らない |
 | `src/app/` | 画面の骨組みと状態表示 | — |
 
 **`outbox/` が React も fetch も知らないのが要点。**ジムで一番壊れてほしくない
