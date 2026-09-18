@@ -55,14 +55,16 @@ node scripts/ui-check.mjs           # 休憩タイマーと記録シートの初
 | `src/outbox/` | 送信の待ち行列（IndexedDB） | **React も fetch も知らない** |
 | `src/domain/` | 日付・セットの整形・区分の日本語 | React も fetch も知らない |
 | `src/storage/` | localStorage（トークン） | 画面を知らない |
-| `src/features/` | 今日・履歴・最初の設定・端末の設定 | — |
+| `src/features/` | 今日・履歴・最初の設定 | — |
 | `src/ui/` | 画面をまたぐ部品（Button / Card / Field / Stepper） | 画面の事情を知らない |
-| `src/app/` | 画面の骨組み・タブ・状態表示 | — |
+| `src/app/` | 画面の骨組みと状態表示 | — |
 
-画面は2つ（今日・履歴）。**プログラムの設定に画面は無い。**週に通う回数・
-伸ばしたい種目・重点種目・使う種目・週の目標セット数は
-`features/today/ProgramSettings.tsx` として「今日」の末尾に畳んである
-（D-127）。トークンを消すのはその隣（`features/settings/Device.tsx`）。
+**`features/history/` はまだどこからも呼ばれていない。**部品だけがある状態で、
+どこから行くかはナビゲーションの設計を待っている（D-127）。
+
+**プログラムの設定に画面は無い。**週に通う回数・伸ばしたい種目・重点種目・
+使う種目・週の目標セット数は `features/today/ProgramSettings.tsx` として
+「今日」の末尾に畳んである。
 
 **`outbox/` が React も fetch も知らないのが要点。**ジムで一番壊れてほしくない
 ロジック（再送・冪等ID・修正時の削除→再投入・4xx の破棄）を、DOM も
@@ -82,11 +84,13 @@ node scripts/ui-check.mjs           # 休憩タイマーと記録シートの初
   `DisallowUnknownFields` が弾くのは**余分な**フィールドだけで、欠落は
   素通りする——400 ではなく 204 が返り、設定が黙って初期値に戻る。
   `PUT /api/program/{frequency,declared,focus,selected,target}` を使うこと
-- **履歴の画面は読むだけ。**書き込みを足すと、そのぶん「契約ずれ → 400 →
-  待ち行列が破棄 → 記録が消える」経路が増える（D-119・D-127）
+- **履歴の画面は読むだけ。**`stats` と `days` を props で受け取り、自分では
+  取りに行かない（取るのは `useStats`）。書き込みを足すと、そのぶん
+  「契約ずれ → 400 → 待ち行列が破棄 → 記録が消える」経路が増える
+  （D-119・D-127）
 - **画面の一番下に何かを足したら、固定バー2本に潜っていないか実機で測る。**
-  `body` の `padding-bottom` は状態バーと休憩タイマーの合計。1本ぶんの
-  ままになっていて実際に潜っていた
+  `body` の `padding-bottom` は 92px で状態バー1本ぶん。休憩タイマーが
+  増えたときに広げられておらず、実際に数px潜る（D-127）
 - **`src/api/types.ts` は `../internal/presentation/httpapi/dto.go` と対。**
   サーバーは `DisallowUnknownFields` なので、余分なフィールドを送ると 400 で
   弾かれ、待ち行列がそれを捨てる。片方だけ変えない
