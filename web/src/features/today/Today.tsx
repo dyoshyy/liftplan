@@ -1,11 +1,9 @@
-import { useState } from 'react';
 import type { RecordedSet } from '../../api/types';
-import { today } from '../../domain/date';
-import { newId } from '../../domain/id';
 import type { Data } from '../../app/useLiftplan';
 import { ExerciseCard, type CardPlan } from './ExerciseCard';
 import { leftovers } from './leftovers';
-import { RecordSheet, type SheetTarget } from './RecordSheet';
+import { RecordSheet } from './RecordSheet';
+import { useRecordOrchestrator } from './useRecordOrchestrator';
 import { BodyWeightRow } from './BodyWeightRow';
 import type { QueueItem } from '../../outbox/db';
 import { Button } from '../../ui/Button';
@@ -26,7 +24,13 @@ type Props = {
 
 export function Today(props: Props) {
   const { data, enqueue, onRecorded } = props;
-  const [sheet, setSheet] = useState<SheetTarget | null>(null);
+  // 記録の手順はオーケストレーターが持つ。この部品は描画だけをする。
+  const sheet = useRecordOrchestrator({
+    enqueue,
+    onRecordLocally: props.onRecordLocally,
+    onForgetLocally: props.onForgetLocally,
+    onRestStart: onRecorded,
+  });
 
   const nameOf = (id: string) => data.names.get(id) ?? id;
   const doneOf = (id: string) => data.doneToday.get(id) ?? [];
@@ -37,61 +41,6 @@ export function Today(props: Props) {
 
   const done = leftovers([main, variation, accessories], data.doneToday);
 
-  const record = async (values: { weight: number; reps: number; rir: number }) => {
-    if (!sheet) return;
-    const { plan, recorded } = sheet;
-
-    // 直す場合は、古い記録を消してから新しく入れる。同じIDで内容を
-    // 変えるとサーバーが衝突として弾く（そういう契約にしてある）。
-    if (recorded) {
-      await enqueue({
-        path: `/api/set-logs/${encodeURIComponent(recorded.id)}`,
-        method: 'DELETE',
-      });
-    }
-
-    // 直すときは同じIDを使い回す。新しいIDにすると、並び順が id 順
-    // （＝作った時刻順）なので、直したセットだけが末尾に飛ぶ。
-    // 1セット目を直したら3セット目になって出てくる。
-    // 先に消してから入れ直すので、同一IDでも衝突にはならない。
-    const id = recorded ? recorded.id : newId();
-    await enqueue({
-      path: '/api/set-logs',
-      body: {
-        logs: [
-          {
-            id,
-            date: today(),
-            exercise_id: plan.exercise_id,
-            weight_kg: values.weight,
-            reps: values.reps,
-            rir: values.rir,
-          },
-        ],
-      },
-    });
-
-    props.onRecordLocally(
-      plan.exercise_id,
-      { id, weight_kg: values.weight, reps: values.reps, rir: values.rir },
-      recorded?.id,
-    );
-
-    // 新しく積んだときだけ休憩を始める。過去のセットを直しただけで
-    // タイマーが走ると、いま休んでいる時間が上書きされる。
-    if (!recorded) onRecorded();
-
-    setSheet(null);
-  };
-
-  const undo = async () => {
-    if (!sheet?.recorded) return;
-    const { plan, recorded } = sheet;
-    await enqueue({ path: `/api/set-logs/${encodeURIComponent(recorded.id)}`, method: 'DELETE' });
-    props.onForgetLocally(plan.exercise_id, recorded.id);
-    setSheet(null);
-  };
-
   const card = (plan: CardPlan) => (
     <ExerciseCard
       key={`${plan.exercise_id}-${plan.finished_only ? 'done' : 'plan'}`}
@@ -99,7 +48,7 @@ export function Today(props: Props) {
       name={nameOf(plan.exercise_id)}
       last={data.last[plan.exercise_id]}
       recorded={doneOf(plan.exercise_id)}
-      onOpen={(index, recorded) => setSheet({ plan, index, recorded })}
+      onOpen={(index, recorded) => sheet.open({ plan, index, recorded })}
     />
   );
 
@@ -132,15 +81,15 @@ export function Today(props: Props) {
 
 
 
-      {sheet && (
+      {sheet.sheet && (
         <RecordSheet
-          target={sheet}
-          name={nameOf(sheet.plan.exercise_id)}
-          last={data.last[sheet.plan.exercise_id]}
-          doneToday={doneOf(sheet.plan.exercise_id)}
-          onRecord={(v) => void record(v)}
-          onUndo={() => void undo()}
-          onClose={() => setSheet(null)}
+          target={sheet.sheet}
+          name={nameOf(sheet.sheet.plan.exercise_id)}
+          last={data.last[sheet.sheet.plan.exercise_id]}
+          doneToday={doneOf(sheet.sheet.plan.exercise_id)}
+          onRecord={(v) => void sheet.record(v)}
+          onUndo={() => void sheet.undo()}
+          onClose={sheet.close}
         />
       )}
     </div>

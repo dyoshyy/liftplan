@@ -56,11 +56,13 @@ await page.fill('input[type=password]', TOKEN);
 await page.click('text=保存する');
 await page.waitForTimeout(2500);
 
-const timerText = () => page.locator('.fixed.z-40').first().innerText();
-check('タイマーバーが出る', /\d:\d\d/.test(await timerText()), (await timerText()).replace(/\s+/g, ' '));
-check('既定は3分', (await timerText()).includes('3:00'));
+// 休憩バーは休憩中だけ出る（PR #78）。待機中は存在しないので、
+// 「出ていないこと」から確かめる。
+const bar = () => page.locator('div.fixed.z-40');
+const barText = async () => ((await bar().count()) ? bar().innerText() : '');
 
-// 1セット目を記録する
+check('待機中は休憩バーが出ていない', (await bar().count()) === 0);
+
 const record = async (i, w, r) => {
   await page.locator('button.set').nth(i).click();
   await page.waitForTimeout(400);
@@ -69,52 +71,64 @@ const record = async (i, w, r) => {
   await page.click('dialog >> text=記録する');
   await page.waitForTimeout(900);
 };
+
 await record(0, 102.5, 6);
 
-const afterRecord = await timerText();
-check('記録で自動スタートする', /休憩中/.test(afterRecord), afterRecord.replace(/\s+/g, ' '));
+check('記録で休憩が始まる', /休憩中/.test(await barText()), (await barText()).replace(/\s+/g, ' '));
+check('既定は3分', (await barText()).includes('3:00'), (await barText()).replace(/\s+/g, ' '));
 
 // 秒は切り上げるので、記録直後はまだ 3:00 のまま。1秒以上待って減ることを見る。
 await page.waitForTimeout(1500);
-const ticked = await timerText();
-check('カウントダウンしている', !ticked.includes('3:00'), `${afterRecord.match(/\d:\d\d/)[0]} → ${ticked.match(/\d:\d\d/)[0]}`);
+check('カウントダウンしている', !(await barText()).includes('3:00'), (await barText()).replace(/\s+/g, ' '));
 
-// 2セット目の初期値
+// 2セット目の初期値が、今日の直前のセットに揃うこと。
 await page.locator('button.set').nth(1).click();
 await page.waitForTimeout(500);
 const w2 = await page.inputValue('dialog input[inputmode=decimal]');
 const r2 = await page.inputValue('dialog input[inputmode=numeric] >> nth=0');
-check('2セット目の重量が1セット目に揃う', w2 === '102.5', `重量=${w2}`);
-check('2セット目のレップが1セット目に揃う', r2 === '6', `レップ=${r2}`);
+check('2セット目の重量が直前のセットに揃う', w2 === '102.5', `重量=${w2}`);
+check('2セット目のレップが直前のセットに揃う', r2 === '6', `レップ=${r2}`);
 await page.click('dialog >> text=閉じる');
 await page.waitForTimeout(400);
 
-// 一時停止とリセット
+// 一時停止しているあいだは減らない。
 await page.click('text=一時停止');
-await page.waitForTimeout(1500);
-const paused1 = await timerText();
+await page.waitForTimeout(1200);
+const p1 = (await barText()).match(/\d:\d\d/)[0];
 await page.waitForTimeout(2000);
-const paused2 = await timerText();
-check('止めているあいだは減らない', paused1.match(/\d:\d\d/)[0] === paused2.match(/\d:\d\d/)[0], `${paused1.match(/\d:\d\d/)[0]} → ${paused2.match(/\d:\d\d/)[0]}`);
+const p2 = (await barText()).match(/\d:\d\d/)[0];
+check('止めているあいだは減らない', p1 === p2, `${p1} → ${p2}`);
 
-await page.click('text=リセット');
+// やめると消える。
+await page.click('text=やめる');
 await page.waitForTimeout(500);
-check('リセットで既定に戻る', (await timerText()).includes('3:00'));
+check('やめると休憩バーが消える', (await bar().count()) === 0);
 
-// 長さを変えて永続化
-await page.locator('.fixed.z-40 button').first().click();
-await page.waitForTimeout(400);
-const minus = page.locator('.fixed.z-40 button[aria-label*="減らす"]');
-await minus.click(); await minus.click(); await minus.click(); await minus.click();
-await page.waitForTimeout(400);
-const shortened = await timerText();
-check('長さを変えられる', shortened.includes('2:00'), shortened.replace(/\s+/g, ' '));
+// 長さは設定画面で変え、再読み込みをまたいで残ること。
+await page.click('header button[aria-label="設定"]');
+await page.waitForTimeout(1500);
+// 休憩の長さのステッパーを指す。設定画面には週目標の数値入力も並ぶので、
+// input[type=number] の先頭を取ると別のものを掴む。
+const stepper = page.locator('div:has(> button[aria-label*="減らす"])').first();
+const minus = stepper.locator('button[aria-label*="減らす"]');
+await minus.click();
+await minus.click();
+await minus.click();
+await minus.click();
+await page.waitForTimeout(500);
 
 await page.reload();
 await page.waitForTimeout(2500);
-check('長さが再読み込みをまたいで残る', (await timerText()).includes('2:00'), (await timerText()).replace(/\s+/g, ' '));
+await page.click('header button[aria-label="設定"]');
+await page.waitForTimeout(1500);
+const kept = await page
+  .locator('div:has(> button[aria-label*="減らす"])')
+  .first()
+  .locator('input[type=number]')
+  .inputValue();
+check('休憩の長さが再読み込みをまたいで残る', kept === '2', `長さ=${kept}分`);
 
-await page.screenshot({ path: '/tmp/timer-ui.png' });
+await page.screenshot({ path: '/tmp/ui-check.png' });
 console.log('\nエラー:', errs.length ? errs.join('\n') : '(なし)');
 const failed = results.filter((r) => !r.ok);
 console.log(`\n${results.length - failed.length}/${results.length} 通過`);
