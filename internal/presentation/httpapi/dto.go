@@ -122,6 +122,26 @@ type focusDTO struct {
 	Focus *string `json:"focus_exercise"`
 }
 
+// declaredDTO は伸ばしたい種目だけの書き込み。
+//
+// focusDTO と違ってポインタにしないのは、宣言が空のプログラムは存在
+// しないため（NewProgram が弾く）。null と欠落を区別する必要が無い。
+type declaredDTO struct {
+	Declared []string `json:"declared_exercises"`
+}
+
+// frequencyDTO は週の頻度だけの書き込み。
+//
+// 0 は NewFrequency が弾くので、欠落と「0回」を区別する必要が無い。
+type frequencyDTO struct {
+	PerWeek int `json:"per_week"`
+}
+
+// selectedDTO は使う種目だけの書き込み。
+type selectedDTO struct {
+	Selected []string `json:"selected_exercises"`
+}
+
 func toProgramDTO(p *program.Program) programDTO {
 	target := map[string]float64{}
 	for _, r := range p.WeeklyTarget().Regions() {

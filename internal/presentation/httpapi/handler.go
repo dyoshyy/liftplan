@@ -24,6 +24,9 @@ type Handler struct {
 	recordConditions *usecase.RecordConditions
 	configureProgram *usecase.ConfigureProgram
 	setFocus         *usecase.SetFocusExercise
+	setDeclared      *usecase.SetDeclaredExercises
+	setFrequency     *usecase.SetFrequency
+	setSelected      *usecase.SetSelectedExercises
 	getProgram       *usecase.GetProgram
 	deleteSetLog     *usecase.DeleteSetLog
 	exercises        *query.Exercises
@@ -37,6 +40,9 @@ func NewHandler(
 	recordConditions *usecase.RecordConditions,
 	configureProgram *usecase.ConfigureProgram,
 	setFocus *usecase.SetFocusExercise,
+	setDeclared *usecase.SetDeclaredExercises,
+	setFrequency *usecase.SetFrequency,
+	setSelected *usecase.SetSelectedExercises,
 	getProgram *usecase.GetProgram,
 	deleteSetLog *usecase.DeleteSetLog,
 	exercises *query.Exercises,
@@ -49,6 +55,9 @@ func NewHandler(
 		recordConditions: recordConditions,
 		configureProgram: configureProgram,
 		setFocus:         setFocus,
+		setDeclared:      setDeclared,
+		setFrequency:     setFrequency,
+		setSelected:      setSelected,
 		getProgram:       getProgram,
 		deleteSetLog:     deleteSetLog,
 		exercises:        exercises,
@@ -264,6 +273,68 @@ func (h *Handler) handlePutProgramFocus(w http.ResponseWriter, r *http.Request) 
 	}
 
 	if err := h.setFocus.Execute(r.Context(), focus); err != nil {
+		respondError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// handlePutProgramDeclared は伸ばしたい種目だけを差し替える。
+//
+// 重点種目が新しい宣言から外れる場合は 400。黙って重点を解除すると、
+// 口を分けた意味（他のフィールドを触らない）が自分で崩れる。
+func (h *Handler) handlePutProgramDeclared(w http.ResponseWriter, r *http.Request) {
+	var req declaredDTO
+	if err := decodeJSON(r, &req); err != nil {
+		respondError(w, err)
+		return
+	}
+
+	ids := make([]exercise.ExerciseID, 0, len(req.Declared))
+	for _, id := range req.Declared {
+		ids = append(ids, exercise.ExerciseID(id))
+	}
+
+	if err := h.setDeclared.Execute(r.Context(), ids); err != nil {
+		respondError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// handlePutProgramFrequency は週の頻度を差し替える。週目標も道連れに
+// 置き直る。他の口と違って2フィールド動くので、名前を frequency のままに
+// せず応答でも隠さない（GET で両方見える）。
+func (h *Handler) handlePutProgramFrequency(w http.ResponseWriter, r *http.Request) {
+	var req frequencyDTO
+	if err := decodeJSON(r, &req); err != nil {
+		respondError(w, err)
+		return
+	}
+	if err := h.setFrequency.Execute(r.Context(), req.PerWeek); err != nil {
+		respondError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// handlePutProgramSelected は使う種目だけを差し替える。
+//
+// 伸ばしたい種目が外れる選択は 400。黙って宣言を削ると、軸の顔ぶれが
+// 変わったことに次のセッションまで気づけない。
+func (h *Handler) handlePutProgramSelected(w http.ResponseWriter, r *http.Request) {
+	var req selectedDTO
+	if err := decodeJSON(r, &req); err != nil {
+		respondError(w, err)
+		return
+	}
+
+	ids := make([]exercise.ExerciseID, 0, len(req.Selected))
+	for _, id := range req.Selected {
+		ids = append(ids, exercise.ExerciseID(id))
+	}
+
+	if err := h.setSelected.Execute(r.Context(), ids); err != nil {
 		respondError(w, err)
 		return
 	}
