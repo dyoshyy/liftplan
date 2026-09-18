@@ -2,10 +2,16 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { getToken } from '../storage/local';
 import { label, today } from '../domain/date';
 import { Setup } from '../features/setup/Setup';
+import { GearIcon } from '../ui/icons';
 import { Today } from '../features/today/Today';
+import { History } from '../features/history/History';
+import { useStats } from '../features/history/useStats';
+import { SettingsScreen } from '../features/settings/SettingsScreen';
 import { RestTimerBar } from '../features/timer/RestTimerBar';
 import { useRestTimer } from '../features/timer/useRestTimer';
-import { StatusBar } from './StatusBar';
+import { BottomNav } from './BottomNav';
+import { SyncBanner } from './SyncBanner';
+import { useRoute } from './useRoute';
 import { useLiftplan } from './useLiftplan';
 import { useOutbox } from './useOutbox';
 
@@ -16,12 +22,17 @@ import { useOutbox } from './useOutbox';
 export function App() {
   const { data, status, setStatus, loadAll, recordLocally, forgetLocally } = useLiftplan();
   const outbox = useOutbox(useCallback((id: string) => data.names.get(id) ?? id, [data.names]));
-  const { flush, refresh } = outbox;
+  const { flush } = outbox;
 
   const timer = useRestTimer();
+  const { route, go } = useRoute();
+
 
   const [online, setOnline] = useState(navigator.onLine);
   const [hasToken, setHasToken] = useState(() => getToken() !== '');
+  // 履歴は開いたときだけ読む。毎回の読み込みに混ぜると、ジムで開くたびに
+  // 見ないものを取りに行くことになる。
+  const stats = useStats(hasToken && route === 'history');
 
   // 溜まっているものを先に送りきってから読む。
   //
@@ -72,6 +83,8 @@ export function App() {
     };
   }, [flush, reload]);
 
+  const nameOf = (id: string) => data.names.get(id) ?? id;
+
   return (
     <>
       <header className="sticky top-0 z-30 border-b border-line-soft bg-ground/90 backdrop-blur-[10px]">
@@ -80,24 +93,22 @@ export function App() {
             lift<span className="text-amber">plan</span>
           </div>
           <div className="ml-auto text-[13px] text-muted">{label(today())}</div>
+          {hasToken && (
+            <button
+              type="button"
+              aria-label={route === 'settings' ? '設定を閉じる' : '設定'}
+              aria-pressed={route === 'settings'}
+              onClick={() => go(route === 'settings' ? 'today' : 'settings')}
+              className={`-mr-1 p-1 ${route === 'settings' ? 'text-amber' : 'text-muted'}`}
+            >
+              <GearIcon />
+            </button>
+          )}
         </div>
       </header>
 
       <main className="mx-auto grid max-w-[620px] gap-3.5 p-4">
-        {hasToken ? (
-          <Today
-            data={data}
-            offline={status === 'offline'}
-            rejected={outbox.rejected}
-            enqueue={outbox.enqueue}
-            onClearRejected={() => void outbox.clearRejected()}
-            onRetry={() => void reload()}
-            onRecordLocally={recordLocally}
-            onForgetLocally={forgetLocally}
-            onRecorded={timer.start}
-            onReload={reload}
-          />
-        ) : (
+        {!hasToken ? (
           <Setup
             pending={outbox.pending}
             onSaved={() => {
@@ -105,17 +116,66 @@ export function App() {
               setStatus('loading');
             }}
           />
+        ) : (
+          <>
+            {/* 同期の異常はどの画面にいても出す。記録が送れていないことは、
+                いま何を見ているかと関係なく知らせる必要がある。 */}
+            <SyncBanner
+              offline={status === 'offline'}
+              rejected={outbox.rejected}
+              onRetry={() => void reload()}
+              onClearRejected={() => void outbox.clearRejected()}
+            />
+
+            {route === 'today' && (
+              <Today
+                data={data}
+                enqueue={outbox.enqueue}
+                onRecordLocally={recordLocally}
+                onForgetLocally={forgetLocally}
+                onRecorded={timer.start}
+                canStartRest={timer.state.kind === 'idle'}
+                onReload={reload}
+              />
+            )}
+
+            {route === 'history' && (
+              <History
+                stats={stats.stats}
+                days={data.days}
+                error={stats.error}
+                onReload={() => void stats.reload()}
+              />
+            )}
+
+            {route === 'settings' && (
+              <SettingsScreen
+                nameOf={nameOf}
+                allExerciseIds={[...data.names.keys()]}
+                onChanged={reload}
+                timer={timer}
+                onForget={() => {
+                  setHasToken(false);
+                  go('today');
+                }}
+              />
+            )}
+          </>
         )}
       </main>
 
       {hasToken && <RestTimerBar timer={timer} />}
 
-      <StatusBar
-        pending={outbox.pending}
-        rejected={outbox.rejected.length}
-        online={online}
-        onReload={() => void (hasToken ? reload() : refresh())}
-      />
+      {hasToken && (
+        <BottomNav
+          route={route}
+          onGo={go}
+          pending={outbox.pending}
+          rejected={outbox.rejected.length}
+          online={online}
+          onSync={() => void reload()}
+        />
+      )}
     </>
   );
 }

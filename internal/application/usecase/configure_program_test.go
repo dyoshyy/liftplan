@@ -5,6 +5,7 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/dyoshyy/liftplan/internal/application/apperror"
 	"github.com/dyoshyy/liftplan/internal/application/usecase"
 	"github.com/dyoshyy/liftplan/internal/domain/training"
 	"github.com/dyoshyy/liftplan/internal/domain/training/seed"
@@ -140,7 +141,7 @@ func TestConfigureProgram_RejectsSelectionWithoutDeclared(t *testing.T) {
 	if !errors.Is(err, program.ErrNoDeclaredExercise) {
 		t.Errorf("宣言ゼロが弾かれていない: %v", err)
 	}
-	if !errors.Is(err, usecase.ErrInvalidInput) {
+	if !errors.Is(err, apperror.ErrInvalidInput) {
 		t.Errorf("入力の不正として分類されていない: %v", err)
 	}
 	if programs.savedProgram() != nil {
@@ -196,7 +197,7 @@ func TestConfigureProgram_ClassifiesInvalidInput(t *testing.T) {
 			in := configureInput(t)
 			mutate(&in)
 			err := newConfigure(t, &fakeProgram{}).Execute(context.Background(), in)
-			if !errors.Is(err, usecase.ErrInvalidInput) {
+			if !errors.Is(err, apperror.ErrInvalidInput) {
 				t.Errorf("入力の不正として分類されていない: %v", err)
 			}
 		})
@@ -210,7 +211,7 @@ func TestConfigureProgram_ClassifiesInvalidInput(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			err := uc.Execute(context.Background(), configureInput(t))
-			if errors.Is(err, usecase.ErrInvalidInput) {
+			if errors.Is(err, apperror.ErrInvalidInput) {
 				t.Errorf("I/O 障害が入力の不正として分類された: %v", err)
 			}
 			if !errors.Is(err, boom) {
@@ -228,7 +229,7 @@ func TestConfigureProgram_ValidatesInputBeforeTouchingIO(t *testing.T) {
 	in := configureInput(t)
 	in.PerWeek = 99
 	err := uc.Execute(context.Background(), in)
-	if !errors.Is(err, usecase.ErrInvalidInput) {
+	if !errors.Is(err, apperror.ErrInvalidInput) {
 		t.Errorf("I/O 障害に隠れて入力の不正が診断できない: %v", err)
 	}
 	if exercises.callCount() != 0 {
@@ -245,7 +246,7 @@ func TestConfigureProgram_RejectsSelectionDisjointFromTarget(t *testing.T) {
 
 	programs := &fakeProgram{}
 	err := newConfigure(t, programs).Execute(context.Background(), in)
-	if !errors.Is(err, usecase.ErrInvalidInput) {
+	if !errors.Is(err, apperror.ErrInvalidInput) {
 		t.Errorf("週目標と噛み合わない選択が通った: %v", err)
 	}
 	if programs.savedProgram() != nil {

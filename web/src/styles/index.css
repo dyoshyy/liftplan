@@ -46,8 +46,9 @@
     font-family: var(--font-sans);
     font-size: 15px;
     line-height: 1.6;
-    /* 下端に固定した状態バーの分だけ空ける。 */
-    padding-bottom: 92px;
+    /* ナビ（常時）と休憩タイマー（休憩中だけ）の2本ぶん。
+       足りないと最後のカードが隠れて押せない。 */
+    padding-bottom: 116px;
   }
 
   button {

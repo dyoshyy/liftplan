@@ -38,6 +38,7 @@ pnpm build
 ```bash
 node scripts/adversarial-check.mjs   # 記録が消える経路。使い方はファイル冒頭
 node scripts/ui-check.mjs           # 休憩タイマーと記録シートの初期値
+node scripts/nav-check.mjs          # 画面の行き来と戻るジェスチャー
 ```
 
 単体テストでは踏めない経路（Service Worker・IndexedDB の再読み込み・

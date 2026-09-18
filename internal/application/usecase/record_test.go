@@ -5,6 +5,7 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/dyoshyy/liftplan/internal/application/apperror"
 	"github.com/dyoshyy/liftplan/internal/application/usecase"
 	"github.com/dyoshyy/liftplan/internal/domain/training/seed"
 
@@ -107,7 +108,7 @@ func TestRecordSets_RejectsNilEntries(t *testing.T) {
 
 	err = newRecordSets(t, repo).Execute(
 		context.Background(), []*setlog.SetLog{log, nil})
-	if !errors.Is(err, usecase.ErrInvalidInput) {
+	if !errors.Is(err, apperror.ErrInvalidInput) {
 		t.Errorf("nil が弾かれていない: %v", err)
 	}
 	if repo.callCount() != 0 {
@@ -142,7 +143,7 @@ func TestRecordSets_RejectsUnknownExercise(t *testing.T) {
 	if !errors.Is(err, exercise.ErrExerciseNotFound) {
 		t.Errorf("未知の種目が弾かれていない: %v", err)
 	}
-	if !errors.Is(err, usecase.ErrInvalidInput) {
+	if !errors.Is(err, apperror.ErrInvalidInput) {
 		t.Errorf("入力の不正として分類されていない: %v", err)
 	}
 	if repo.callCount() != 0 {
