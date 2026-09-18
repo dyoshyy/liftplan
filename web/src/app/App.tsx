@@ -3,6 +3,8 @@ import { getToken } from '../storage/local';
 import { label, today } from '../domain/date';
 import { Setup } from '../features/setup/Setup';
 import { Today } from '../features/today/Today';
+import { RestTimerBar } from '../features/timer/RestTimerBar';
+import { useRestTimer } from '../features/timer/useRestTimer';
 import { StatusBar } from './StatusBar';
 import { useLiftplan } from './useLiftplan';
 import { useOutbox } from './useOutbox';
@@ -15,6 +17,8 @@ export function App() {
   const { data, status, setStatus, loadAll, recordLocally, forgetLocally } = useLiftplan();
   const outbox = useOutbox(useCallback((id: string) => data.names.get(id) ?? id, [data.names]));
   const { flush, refresh } = outbox;
+
+  const timer = useRestTimer();
 
   const [online, setOnline] = useState(navigator.onLine);
   const [hasToken, setHasToken] = useState(() => getToken() !== '');
@@ -90,6 +94,7 @@ export function App() {
             onRetry={() => void reload()}
             onRecordLocally={recordLocally}
             onForgetLocally={forgetLocally}
+            onRecorded={timer.start}
             onReload={reload}
           />
         ) : (
@@ -102,6 +107,8 @@ export function App() {
           />
         )}
       </main>
+
+      {hasToken && <RestTimerBar timer={timer} />}
 
       <StatusBar
         pending={outbox.pending}

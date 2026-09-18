@@ -1,5 +1,6 @@
 import type { PlannedSet, RecordedSet } from '../../api/types';
 import { formatLast, type LastPerformance } from '../../domain/sets';
+import { Card, Note } from '../../ui/Card';
 
 export type CardPlan = PlannedSet & {
   /** finished_only は今日やったが今の予定には入っていないもの。 */
@@ -20,7 +21,7 @@ export function ExerciseCard({ plan, name, last, recorded, onOpen }: Props) {
   const slots = plan.finished_only ? recorded.length : Math.max(plan.sets, recorded.length);
 
   return (
-    <div className="card grid gap-3">
+    <Card className="grid gap-3">
       <div className="flex items-center gap-2.5">
         <span className="text-[17px] font-bold">{name}</span>
       </div>
@@ -40,7 +41,7 @@ export function ExerciseCard({ plan, name, last, recorded, onOpen }: Props) {
           <span className="ml-auto text-xs text-faint">{last.days_ago}日前</span>
         </div>
       ) : (
-        <div className="note">前回の記録がありません</div>
+        <Note>前回の記録がありません</Note>
       )}
 
       <div className="grid auto-cols-fr grid-flow-col gap-2">
@@ -64,7 +65,7 @@ export function ExerciseCard({ plan, name, last, recorded, onOpen }: Props) {
           );
         })}
       </div>
-    </div>
+    </Card>
   );
 }
 

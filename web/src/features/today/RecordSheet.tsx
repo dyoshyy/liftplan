@@ -1,6 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
 import type { RecordedSet } from '../../api/types';
 import type { LastPerformance } from '../../domain/sets';
+import { Button } from '../../ui/Button';
+import { Stepper } from '../../ui/Stepper';
+import { defaultsForSet } from './defaults';
 import type { CardPlan } from './ExerciseCard';
 
 export type SheetTarget = {
@@ -13,20 +16,22 @@ type Props = {
   target: SheetTarget;
   name: string;
   last: LastPerformance | undefined;
+  /** doneToday は今日その種目で記録済みのセット。初期値を決めるのに使う。 */
+  doneToday: readonly RecordedSet[];
   onRecord: (values: { weight: number; reps: number; rir: number }) => void;
   onUndo: () => void;
   onClose: () => void;
 };
 
-export function RecordSheet({ target, name, last, onRecord, onUndo, onClose }: Props) {
+export function RecordSheet({ target, name, last, doneToday, onRecord, onUndo, onClose }: Props) {
   const { plan, index, recorded } = target;
   const ref = useRef<HTMLDialogElement>(null);
 
-  const [weight, setWeight] = useState(
-    String(recorded?.weight_kg ?? plan.weight_kg ?? last?.weight_kg ?? ''),
-  );
-  const [reps, setReps] = useState(String(recorded?.reps ?? last?.reps[index] ?? 8));
-  const [rir, setRir] = useState(String(recorded?.rir ?? plan.target_rir));
+  // 2セット目以降は今日の直前のセットに合わせる（defaults.ts に理由がある）。
+  const initial = defaultsForSet({ plan, last, index, doneToday, recorded });
+  const [weight, setWeight] = useState(initial.weight);
+  const [reps, setReps] = useState(initial.reps);
+  const [rir, setRir] = useState(initial.rir);
   const [warning, setWarning] = useState('');
 
   useEffect(() => {
@@ -73,63 +78,16 @@ export function RecordSheet({ target, name, last, onRecord, onUndo, onClose }: P
             直したいのはシートの中の値なので、シートを開いたまま伝える。 */}
         {warning && <p className="m-0 text-[13px] text-red">{warning}</p>}
 
-        <button type="button" className="btn" onClick={submit}>
-          記録する
-        </button>
+        <Button onClick={submit}>記録する</Button>
         {recorded && (
-          <button type="button" className="btn btn-danger" onClick={onUndo}>
+          <Button variant="danger" onClick={onUndo}>
             この記録を取り消す
-          </button>
+          </Button>
         )}
-        <button type="button" className="btn btn-quiet" onClick={() => ref.current?.close()}>
+        <Button variant="quiet" onClick={() => ref.current?.close()}>
           閉じる
-        </button>
+        </Button>
       </div>
     </dialog>
-  );
-}
-
-// Stepper は数値入力にボタンを添える。
-//
-// ブラウザ既定のスピナーは指で押せる大きさにならない。汗ばんだ手でも
-// 押せる大きさが要る。
-function Stepper({
-  label,
-  value,
-  onChange,
-  step,
-  decimal,
-}: {
-  label: string;
-  value: string;
-  onChange: (v: string) => void;
-  step: number;
-  decimal?: boolean;
-}) {
-  const bump = (by: number) => {
-    const now = Number.parseFloat(value);
-    const next = (Number.isFinite(now) ? now : 0) + by;
-    onChange(String(Math.max(0, Math.round(next * 100) / 100)));
-  };
-
-  return (
-    <div className="field">
-      <label>{label}</label>
-      <div className="stepper">
-        <button type="button" onClick={() => bump(-step)}>
-          −
-        </button>
-        <input
-          type="number"
-          inputMode={decimal ? 'decimal' : 'numeric'}
-          step={decimal ? 0.5 : 1}
-          value={value}
-          onChange={(e) => onChange(e.target.value)}
-        />
-        <button type="button" onClick={() => bump(step)}>
-          ＋
-        </button>
-      </div>
-    </div>
   );
 }
