@@ -39,7 +39,7 @@ export type LoadState = 'loading' | 'ready' | 'offline' | 'unauthorized';
 // ここで読むのは2つだけ。
 //
 // /api/stats（履歴）と /api/program（設定）はここでは叩かない。それぞれの
-// 画面が開かれたときに自分で取りに行く（D-128）。ジムで毎回開く「今日」の
+// 画面が開かれたときに自分で取りに行く（D-127）。ジムで毎回開く「今日」の
 // 読み込みに、見ていない画面の往復を混ぜない。
 export function useLiftplan() {
   const [data, setData] = useState<Data>(empty);

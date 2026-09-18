@@ -1,51 +1,44 @@
-import { useCallback, useEffect, useState } from 'react';
-import { getJSON } from '../../api/client';
+import { useState } from 'react';
 import type { Day, StatsResponse, Trend, Volume } from '../../api/types';
-import { addDays, today } from '../../domain/date';
 import { label } from '../../domain/date';
 import { regionLabel } from '../../domain/regions';
 import { formatSets } from '../../domain/sets';
 import { Button } from '../../ui/Button';
 import { Card, Note } from '../../ui/Card';
 import { Sparkline } from './Sparkline';
+import { fillPercent } from './volume';
 
 const TOP_REGIONS = 6;
 
-const WINDOW_DAYS = 56;
+type Props = {
+  /** 週の充足と推移。まだ読めていなければ null。 */
+  stats: StatsResponse | null;
+  /** 日ごとの記録。`/api/set-logs` の応答をそのまま渡す（新しい順）。 */
+  days: Day[];
+  /** 読めなかったときの一言。空なら出さない。 */
+  error?: string;
+  /** 読み直し。省略すると再読み込みのボタンを出さない。 */
+  onReload?: () => void;
+};
 
 // History は溜まった記録を見る画面。書き込みは1つも無い。
 //
-// 読むだけなので待ち行列も契約ずれの心配も無い。増えるのは GET が
-// 1本だけで、記録が消える経路は1本も増えない（D-128）。
+// 読むだけなので待ち行列も契約ずれの心配も無い。増える経路は
+// GET /api/stats 1本だけで、記録が消える経路は1本も増えない（D-127）。
 //
-// 日ごとの記録は `loadAll` が既に取っている `/api/set-logs` を使い回す。
-// 充足と推移だけをこの画面が開かれたときに取りに行く。ジムで開く
-// 「今日」の読み込みに、見ていない画面の往復を足さない（D-127 と同じ形）。
-export function History({ days }: { days: Day[] }) {
-  const [stats, setStats] = useState<StatsResponse | null>(null);
-  const [error, setError] = useState('');
-
-  const load = useCallback(async () => {
-    setError('');
-    const to = today();
-    try {
-      setStats(await getJSON<StatsResponse>(`/api/stats?from=${addDays(to, -WINDOW_DAYS)}&to=${to}`));
-    } catch {
-      setError('履歴を読めませんでした');
-    }
-  }, []);
-
-  useEffect(() => {
-    void load();
-  }, [load]);
-
+// **fetch はここに持たない。**props だけで描けるようにしてあるので、
+// 呼び出し側が「いつ取るか」を決められる。取りに行くのは useStats。
+// 日ごとの記録は `/api/set-logs` を使い回すので、往復は1本しか増えない。
+export function History({ stats, days, error = '', onReload }: Props) {
   if (error) {
     return (
       <Card title="履歴">
         <Note className="mb-3">{error}</Note>
-        <Button variant="quiet" onClick={() => void load()}>
-          もう一度読む
-        </Button>
+        {onReload && (
+          <Button variant="quiet" onClick={onReload}>
+            もう一度読む
+          </Button>
+        )}
       </Card>
     );
   }
@@ -104,7 +97,7 @@ function WeeklyVolume({ volume }: { volume: Volume[] }) {
   return (
     <div className="grid gap-[9px]">
       {shown.map((v) => {
-        const pct = Math.min(100, Math.round((v.done_sets / Math.max(v.target_sets, 0.001)) * 100));
+        const pct = fillPercent(v.done_sets, v.target_sets);
         return (
           <div key={v.region} className="grid grid-cols-[1fr_auto] items-center gap-2 text-[13px]">
             <span className="text-muted">{regionLabel(v.region)}</span>
