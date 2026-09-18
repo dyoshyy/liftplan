@@ -98,6 +98,9 @@ type conditionsRequest struct {
 }
 
 type errorResponse struct {
+	// Code は分類の識別子。文言を変えてもクライアントの分岐が壊れない
+	// ようにするため、メッセージとは別に載せる。
+	Code  string `json:"code"`
 	Error string `json:"error"`
 }
 

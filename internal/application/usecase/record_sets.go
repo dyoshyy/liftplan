@@ -3,6 +3,7 @@ package usecase
 import (
 	"context"
 	"fmt"
+	"github.com/dyoshyy/liftplan/internal/application/apperror"
 
 	"github.com/dyoshyy/liftplan/internal/domain/training/exercise"
 	"github.com/dyoshyy/liftplan/internal/domain/training/setlog"
@@ -27,7 +28,11 @@ func NewRecordSets(
 	return &RecordSets{repo: repo, exercises: exercises}
 }
 
-func (u *RecordSets) Execute(ctx context.Context, logs []*setlog.SetLog) error {
+func (u *RecordSets) Execute(ctx context.Context, logs []*setlog.SetLog) (err error) {
+	// 出口で1度だけ翻訳する。return ごとに書くと、経路が増えたときに
+	// 包み忘れた1本だけが 500 で返る。
+	defer func() { err = classify(err) }()
+
 	// 空は成功として扱う。クライアントは同期のたびに送ってくるので、
 	// 送るものが無い回に I/O を起こす理由がない。「空を送ってきた」ことを
 	// エラーにすると、正常な同期がエラーログを埋める。
@@ -38,7 +43,7 @@ func (u *RecordSets) Execute(ctx context.Context, logs []*setlog.SetLog) error {
 	// 黙って飛ばされるかが実装依存になる。境界で弾く。
 	for i, l := range logs {
 		if l == nil {
-			return fmt.Errorf("%w: %d番目のセットログが nil である", ErrInvalidInput, i)
+			return fmt.Errorf("%w: %d番目のセットログが nil である", apperror.ErrInvalidInput, i)
 		}
 	}
 
@@ -61,7 +66,7 @@ func (u *RecordSets) Execute(ctx context.Context, logs []*setlog.SetLog) error {
 	for i, l := range logs {
 		if !known[l.ExerciseID()] {
 			return fmt.Errorf("%w: %w: logs[%d] %s",
-				ErrInvalidInput, exercise.ErrExerciseNotFound, i, l.ExerciseID())
+				apperror.ErrInvalidInput, exercise.ErrExerciseNotFound, i, l.ExerciseID())
 		}
 	}
 

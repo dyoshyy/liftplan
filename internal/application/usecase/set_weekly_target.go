@@ -3,6 +3,7 @@ package usecase
 import (
 	"context"
 	"fmt"
+	"github.com/dyoshyy/liftplan/internal/application/apperror"
 
 	"github.com/dyoshyy/liftplan/internal/domain/training"
 	"github.com/dyoshyy/liftplan/internal/domain/training/exercise"
@@ -28,10 +29,14 @@ func NewSetWeeklyTarget(
 	return &SetWeeklyTarget{exercises: exercises, reader: reader, writer: writer}
 }
 
-func (u *SetWeeklyTarget) Execute(ctx context.Context, sets map[training.MuscleRegion]float64) error {
+func (u *SetWeeklyTarget) Execute(ctx context.Context, sets map[training.MuscleRegion]float64) (err error) {
+	// 出口で1度だけ翻訳する。return ごとに書くと、経路が増えたときに
+	// 包み忘れた1本だけが 500 で返る。
+	defer func() { err = classify(err) }()
+
 	target, err := program.NewWeeklyVolumeTarget(sets)
 	if err != nil {
-		return fmt.Errorf("%w: 週目標: %w", ErrInvalidInput, err)
+		return fmt.Errorf("%w: 週目標: %w", apperror.ErrInvalidInput, err)
 	}
 
 	prog, err := u.reader.Get(ctx)
@@ -41,7 +46,7 @@ func (u *SetWeeklyTarget) Execute(ctx context.Context, sets map[training.MuscleR
 
 	next, err := prog.WithTarget(target)
 	if err != nil {
-		return fmt.Errorf("%w: 週目標: %w", ErrInvalidInput, err)
+		return fmt.Errorf("%w: 週目標: %w", apperror.ErrInvalidInput, err)
 	}
 
 	if err := ctx.Err(); err != nil {

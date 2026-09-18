@@ -16,7 +16,11 @@ func NewRecordConditions(repo condition.Writer) *RecordConditions {
 	return &RecordConditions{repo: repo}
 }
 
-func (u *RecordConditions) Execute(ctx context.Context, items []condition.DailyCondition) error {
+func (u *RecordConditions) Execute(ctx context.Context, items []condition.DailyCondition) (err error) {
+	// 出口で1度だけ翻訳する。return ごとに書くと、経路が増えたときに
+	// 包み忘れた1本だけが 500 で返る。
+	defer func() { err = classify(err) }()
+
 	// 空は成功として扱う。クライアントは同期のたびに送ってくるので、
 	// 送るものが無い回に I/O を起こす理由がない。「空を送ってきた」ことを
 	// エラーにすると、正常な同期がエラーログを埋める。
