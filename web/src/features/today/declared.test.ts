@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { lockedDeclared, toggleDeclared } from './declared';
+import { lockedDeclared, lockedSelected, toggleDeclared } from './declared';
 
 describe('toggleDeclared', () => {
   it('入っていなければ足す', () => {
@@ -40,5 +40,22 @@ describe('lockedDeclared', () => {
 
   it('重点種目が宣言に無ければ固定しない', () => {
     expect(lockedDeclared(['bench', 'squat'], 'deadlift').size).toBe(0);
+  });
+});
+
+describe('lockedSelected', () => {
+  // 外すとサーバーが 400 を返す。
+  it('伸ばしたい種目は外せない', () => {
+    const locked = lockedSelected(['bench', 'squat', 'curl'], ['bench', 'squat']);
+    expect([...locked.keys()].sort()).toEqual(['bench', 'squat']);
+  });
+
+  it('選択に入っていない宣言は固定しない', () => {
+    expect(lockedSelected(['curl'], ['bench']).size).toBe(0);
+  });
+
+  // 宣言が空にできない以上、選択も空にはならない。
+  it('最後の1つという制約は持たない', () => {
+    expect(lockedSelected(['curl'], []).size).toBe(0);
   });
 });

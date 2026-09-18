@@ -148,7 +148,11 @@ export function Today(props: Props) {
 
       <BodyWeight enqueue={enqueue} />
 
-      <ProgramSettings nameOf={nameOf} onChanged={props.onReload} />
+      <ProgramSettings
+        nameOf={nameOf}
+        allExerciseIds={[...data.names.keys()].sort()}
+        onChanged={props.onReload}
+      />
 
       {sheet && (
         <RecordSheet

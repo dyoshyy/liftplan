@@ -35,3 +35,23 @@ export function lockedDeclared(
   }
   return out;
 }
+
+/**
+ * lockedSelected は使う種目から外せないものを返す。
+ *
+ * 伸ばしたい種目は selected の部分集合なので、外すとサーバーが 400 を
+ * 返す。画面側でそこへ到達させない。宣言と違って「最後の1つ」の制約は
+ * 要らない — 宣言が空にできない以上、選択も空にはならない。
+ */
+export function lockedSelected(
+  selected: readonly string[],
+  declared: readonly string[],
+): Map<string, string> {
+  const out = new Map<string, string>();
+  for (const id of declared) {
+    if (selected.includes(id)) {
+      out.set(id, '伸ばしたい種目です。先にそちらから外してください');
+    }
+  }
+  return out;
+}

@@ -2,11 +2,13 @@ import { useState } from 'react';
 import { getJSON, send } from '../../api/client';
 import type { Program } from '../../api/types';
 import { focusBody, focusOptions, NO_FOCUS } from './focus';
-import { lockedDeclared, toggleDeclared } from './declared';
+import { lockedDeclared, lockedSelected, toggleDeclared } from './declared';
 
 type Props = {
   /** 種目IDを表示名にする。 */
   nameOf: (id: string) => string;
+  /** 種目マスタ全件のID。使う種目の候補になる。 */
+  allExerciseIds: readonly string[];
   /** 変更後にメニューを取り直す。設定はその日の献立を変える。 */
   onChanged: () => Promise<void>;
 };
@@ -25,7 +27,7 @@ type Props = {
  * メニューは変わらないまま「変えたつもり」になる。失敗しても記録は
  * 1件も失わないので、その場で成否を見せるほうが正直。
  */
-export function ProgramSettings({ nameOf, onChanged }: Props) {
+export function ProgramSettings({ nameOf, allExerciseIds, onChanged }: Props) {
   const [open, setOpen] = useState(false);
   const [program, setProgram] = useState<Program | null>(null);
   const [note, setNote] = useState('');
@@ -34,6 +36,7 @@ export function ProgramSettings({ nameOf, onChanged }: Props) {
   // 保存前のチェック状態。宣言はチェックを何個か動かしてから保存する。
   // 1つ動かすたびに送ると、そのたびにメニューが組み替わる。
   const [draft, setDraft] = useState<string[] | null>(null);
+  const [pick, setPick] = useState<string[] | null>(null);
 
   const expand = async () => {
     setOpen(true);
@@ -43,6 +46,7 @@ export function ProgramSettings({ nameOf, onChanged }: Props) {
       const p = await getJSON<Program>('/api/program');
       setProgram(p);
       setDraft(p.declared_exercises);
+      setPick(p.selected_exercises);
     } catch {
       setNote('設定を読めませんでした');
     }
@@ -85,6 +89,24 @@ export function ProgramSettings({ nameOf, onChanged }: Props) {
     await onChanged();
   };
 
+  const saveSelected = async () => {
+    if (!program || !pick || busy) return;
+    if (!(await put('/api/program/selected', { selected_exercises: pick }))) return;
+    setProgram({ ...program, selected_exercises: pick });
+    await onChanged();
+  };
+
+  const saveFrequency = async (n: number) => {
+    if (!program || busy) return;
+    if (!(await put('/api/program/frequency', { per_week: n }))) return;
+    // 週目標も置き直るので、画面の手持ちは捨てて取り直す。
+    setProgram(null);
+    setDraft(null);
+    setPick(null);
+    await onChanged();
+    await expand();
+  };
+
   if (!open) {
     return (
       <button type="button" className="btn btn-quiet" onClick={() => void expand()}>
@@ -98,10 +120,36 @@ export function ProgramSettings({ nameOf, onChanged }: Props) {
     program && draft
       ? draft.join(',') !== [...program.declared_exercises].sort().join(',')
       : false;
+  const pickDirty =
+    program && pick
+      ? pick.join(',') !== [...program.selected_exercises].sort().join(',')
+      : false;
 
   return (
     <div className="card">
-      <p className="card-title">伸ばしたい種目</p>
+      <p className="card-title">週に通う回数</p>
+      <p className="note mb-3">
+        変えると週目標も回数に合わせて置き直されます。1週間に積めるセット数は
+        通う回数に比例するので、片方だけ動かすと目標が実態を説明しなくなります。
+      </p>
+
+      {program && (
+        <div className="grid grid-cols-4 gap-2">
+          {[1, 2, 3, 4].map((n) => (
+            <button
+              key={n}
+              type="button"
+              className={`btn ${program.per_week === n ? '' : 'btn-quiet'}`}
+              disabled={busy}
+              onClick={() => void saveFrequency(n)}
+            >
+              週{n}
+            </button>
+          ))}
+        </div>
+      )}
+
+      <p className="card-title mt-5">伸ばしたい種目</p>
       <p className="note mb-3">
         ここに入れた種目が、毎回1つずつ順に「軸」として出ます。最後にやったのが
         最も古いものが選ばれるので、数を増やすほど1種目あたりの頻度は下がります。
@@ -164,6 +212,46 @@ export function ProgramSettings({ nameOf, onChanged }: Props) {
             );
           })}
         </div>
+      )}
+
+      <p className="card-title mt-5">使う種目</p>
+      <p className="note mb-3">
+        ここに入れた種目だけが補助レーンの候補になります。伸ばしたい種目は
+        外せません（先にそちらから外してください）。
+      </p>
+
+      {program && pick && (
+        <div className="grid gap-2">
+          {allExerciseIds.map((id) => {
+            const on = pick.includes(id);
+            const why = lockedSelected(pick, program.declared_exercises).get(id);
+            return (
+              <button
+                key={id}
+                type="button"
+                className={`btn ${on ? '' : 'btn-quiet'}`}
+                disabled={busy || (on && why !== undefined)}
+                title={why}
+                onClick={() => setPick(toggleDeclared(pick, id))}
+              >
+                {on ? '✓ ' : ''}
+                {nameOf(id)}
+                {why && on ? ` — ${why}` : ''}
+              </button>
+            );
+          })}
+        </div>
+      )}
+
+      {pickDirty && (
+        <button
+          type="button"
+          className="btn mt-3"
+          disabled={busy}
+          onClick={() => void saveSelected()}
+        >
+          使う種目を保存する
+        </button>
       )}
 
       {note && <p className="mt-2.5 text-[13px] text-red">{note}</p>}

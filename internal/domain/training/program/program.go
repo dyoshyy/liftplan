@@ -144,6 +144,31 @@ func (p *Program) WithDeclared(ids []exercise.ExerciseID) (*Program, error) {
 	return NewProgram(p.frequency, p.target, p.SelectedExercises(), ids, p.focus)
 }
 
+// WithFrequency は週の頻度と週目標を差し替えた新しいプログラムを返す。
+//
+// 頻度と週目標を一緒に受け取るのは、片方だけ動かすと数字の意味が壊れる
+// ため。1週間に供給できるセット数は頻度に比例するので、週目標をそのままに
+// 頻度だけ下げると全区分が永久に赤字になり、上げると狙っていない区分まで
+// 膨らむ。どちらも「目標が実際の挙動を説明しない」状態になる。
+//
+// 対になる週目標をここで計算しないのは、既定値が seed の持ち物だから。
+// 集約が初期データを知ると、プリセットを変えるだけでドメインが動く。
+func (p *Program) WithFrequency(freq Frequency, target WeeklyVolumeTarget) (*Program, error) {
+	return NewProgram(freq, target, p.SelectedExercises(), p.DeclaredExercises(), p.focus)
+}
+
+// WithSelected は使う種目だけを差し替えた新しいプログラムを返す。
+//
+// 伸ばしたい種目が新しい選択から外れる場合はエラーになる（declared ⊂
+// selected）。黙って宣言を削らないのは WithDeclared と同じ理由で、
+// 選択を変えた副作用として軸の顔ぶれが変わると気づけない。
+//
+// 種目がマスタに実在するかはここでは見ない。集約は種目マスタを持たない。
+// 確認はユースケースの verifySelection が行う。
+func (p *Program) WithSelected(ids []exercise.ExerciseID) (*Program, error) {
+	return NewProgram(p.frequency, p.target, ids, p.DeclaredExercises(), p.focus)
+}
+
 func (p *Program) Frequency() Frequency             { return p.frequency }
 func (p *Program) WeeklyTarget() WeeklyVolumeTarget { return p.target }
 
