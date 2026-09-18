@@ -4,6 +4,9 @@ import type { Program } from '../../api/types';
 import { focusBody, focusOptions, NO_FOCUS } from './focus';
 import { lockedDeclared, lockedSelected, toggleDeclared } from './declared';
 import { regionLabel } from '../../domain/regions';
+import { Button } from '../../ui/Button';
+import { Card, Note } from '../../ui/Card';
+import { LabeledInput } from '../../ui/Field';
 
 /**
  * asText は週目標を入力欄の文字列にする。
@@ -139,9 +142,9 @@ export function ProgramSettings({ nameOf, allExerciseIds, onChanged }: Props) {
 
   if (!open) {
     return (
-      <button type="button" className="btn btn-quiet" onClick={() => void expand()}>
+      <Button variant="quiet" onClick={() => void expand()}>
         メニューの設定を変える
-      </button>
+      </Button>
     );
   }
 
@@ -160,34 +163,32 @@ export function ProgramSettings({ nameOf, allExerciseIds, onChanged }: Props) {
       : false;
 
   return (
-    <div className="card">
-      <p className="card-title">週に通う回数</p>
-      <p className="note mb-3">
+    <Card title="週に通う回数">
+      <Note className="mb-3">
         変えると週目標も回数に合わせて置き直されます。1週間に積めるセット数は
         通う回数に比例するので、片方だけ動かすと目標が実態を説明しなくなります。
-      </p>
+      </Note>
 
       {program && (
         <div className="grid grid-cols-4 gap-2">
           {[1, 2, 3, 4].map((n) => (
-            <button
+            <Button
               key={n}
-              type="button"
-              className={`btn ${program.per_week === n ? '' : 'btn-quiet'}`}
+              variant={program.per_week === n ? 'primary' : 'quiet'}
               disabled={busy}
               onClick={() => void saveFrequency(n)}
             >
               週{n}
-            </button>
+            </Button>
           ))}
         </div>
       )}
 
-      <p className="card-title mt-5">伸ばしたい種目</p>
-      <p className="note mb-3">
+      <p className="mb-3 mt-5 text-xs uppercase tracking-[0.12em] text-faint">伸ばしたい種目</p>
+      <Note className="mb-3">
         ここに入れた種目が、毎回1つずつ順に「軸」として出ます。最後にやったのが
         最も古いものが選ばれるので、数を増やすほど1種目あたりの頻度は下がります。
-      </p>
+      </Note>
 
       {program && draft && (
         <div className="grid gap-2">
@@ -195,10 +196,9 @@ export function ProgramSettings({ nameOf, allExerciseIds, onChanged }: Props) {
             const on = draft.includes(id);
             const why = locked.get(id);
             return (
-              <button
+              <Button
                 key={id}
-                type="button"
-                className={`btn ${on ? '' : 'btn-quiet'}`}
+                variant={on ? 'primary' : 'quiet'}
                 disabled={busy || (on && why !== undefined)}
                 title={why}
                 onClick={() => setDraft(toggleDeclared(draft, id))}
@@ -206,53 +206,51 @@ export function ProgramSettings({ nameOf, allExerciseIds, onChanged }: Props) {
                 {on ? '✓ ' : ''}
                 {nameOf(id)}
                 {why && on ? ` — ${why}` : ''}
-              </button>
+              </Button>
             );
           })}
         </div>
       )}
 
       {dirty && (
-        <button
-          type="button"
-          className="btn mt-3"
+        <Button
+          className="mt-3"
           disabled={busy}
           onClick={() => void saveDeclared()}
         >
           伸ばしたい種目を保存する
-        </button>
+        </Button>
       )}
 
-      <p className="card-title mt-5">重点種目</p>
-      <p className="note mb-3">
+      <p className="mb-3 mt-5 text-xs uppercase tracking-[0.12em] text-faint">重点種目</p>
+      <Note className="mb-3">
         選んだ種目の派生（ナローグリップ、テンポなど）が、軸とは別の枠で
         中1日以上あけて出ます。指定しなければバリエーションは出ません。
-      </p>
+      </Note>
 
       {program && (
         <div className="grid gap-2">
           {focusOptions(program.declared_exercises).map((id) => {
             const chosen = (program.focus_exercise ?? NO_FOCUS) === id;
             return (
-              <button
+              <Button
                 key={id || 'none'}
-                type="button"
-                className={`btn ${chosen ? '' : 'btn-quiet'}`}
+                variant={chosen ? 'primary' : 'quiet'}
                 disabled={busy}
                 onClick={() => void chooseFocus(id)}
               >
                 {id === NO_FOCUS ? '指定しない' : nameOf(id)}
-              </button>
+              </Button>
             );
           })}
         </div>
       )}
 
-      <p className="card-title mt-5">使う種目</p>
-      <p className="note mb-3">
+      <p className="mb-3 mt-5 text-xs uppercase tracking-[0.12em] text-faint">使う種目</p>
+      <Note className="mb-3">
         ここに入れた種目だけが補助レーンの候補になります。伸ばしたい種目は
         外せません（先にそちらから外してください）。
-      </p>
+      </Note>
 
       {program && pick && (
         <div className="grid gap-2">
@@ -260,10 +258,9 @@ export function ProgramSettings({ nameOf, allExerciseIds, onChanged }: Props) {
             const on = pick.includes(id);
             const why = lockedSelected(pick, program.declared_exercises).get(id);
             return (
-              <button
+              <Button
                 key={id}
-                type="button"
-                className={`btn ${on ? '' : 'btn-quiet'}`}
+                variant={on ? 'primary' : 'quiet'}
                 disabled={busy || (on && why !== undefined)}
                 title={why}
                 onClick={() => setPick(toggleDeclared(pick, id))}
@@ -271,67 +268,63 @@ export function ProgramSettings({ nameOf, allExerciseIds, onChanged }: Props) {
                 {on ? '✓ ' : ''}
                 {nameOf(id)}
                 {why && on ? ` — ${why}` : ''}
-              </button>
+              </Button>
             );
           })}
         </div>
       )}
 
       {pickDirty && (
-        <button
-          type="button"
-          className="btn mt-3"
+        <Button
+          className="mt-3"
           disabled={busy}
           onClick={() => void saveSelected()}
         >
           使う種目を保存する
-        </button>
+        </Button>
       )}
 
-      <p className="card-title mt-5">週の目標セット数</p>
-      <p className="note mb-3">
+      <p className="mb-3 mt-5 text-xs uppercase tracking-[0.12em] text-faint">週の目標セット数</p>
+      <Note className="mb-3">
         区分ごとの1週間の目安です。通う回数を変えると、ここも回数に合わせて
         置き直ります。届かない目標を置くと毎週すべてが赤字になるだけなので、
         不満が出た区分だけ動かすのが楽です。
-      </p>
+      </Note>
 
       {target && (
         <div className="grid gap-2">
           {Object.keys(target)
             .sort()
             .map((region) => (
-              <div key={region} className="field">
-                <label htmlFor={`t-${region}`}>{regionLabel(region)}</label>
-                <input
-                  id={`t-${region}`}
-                  type="number"
-                  inputMode="decimal"
-                  step="0.5"
-                  min="0"
-                  value={target[region]}
-                  disabled={busy}
-                  onChange={(e) => setTarget({ ...target, [region]: e.target.value })}
-                />
-              </div>
+              <LabeledInput
+                key={region}
+                label={regionLabel(region)}
+                type="number"
+                inputMode="decimal"
+                step="0.5"
+                min="0"
+                value={target[region]}
+                disabled={busy}
+                onChange={(e) => setTarget({ ...target, [region]: e.target.value })}
+              />
             ))}
         </div>
       )}
 
       {targetDirty && (
-        <button
-          type="button"
-          className="btn mt-3"
+        <Button
+          className="mt-3"
           disabled={busy}
           onClick={() => void saveTarget()}
         >
           週の目標を保存する
-        </button>
+        </Button>
       )}
 
       {note && <p className="mt-2.5 text-[13px] text-red">{note}</p>}
-      <button type="button" className="btn btn-quiet mt-3" onClick={() => setOpen(false)}>
+      <Button variant="quiet" className="mt-3" onClick={() => setOpen(false)}>
         閉じる
-      </button>
-    </div>
+      </Button>
+    </Card>
   );
 }
