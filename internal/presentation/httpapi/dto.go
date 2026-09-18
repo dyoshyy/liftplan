@@ -122,6 +122,14 @@ type focusDTO struct {
 	Focus *string `json:"focus_exercise"`
 }
 
+// declaredDTO は伸ばしたい種目だけの書き込み。
+//
+// focusDTO と違ってポインタにしないのは、宣言が空のプログラムは存在
+// しないため（NewProgram が弾く）。null と欠落を区別する必要が無い。
+type declaredDTO struct {
+	Declared []string `json:"declared_exercises"`
+}
+
 func toProgramDTO(p *program.Program) programDTO {
 	target := map[string]float64{}
 	for _, r := range p.WeeklyTarget().Regions() {

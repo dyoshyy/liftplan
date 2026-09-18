@@ -24,6 +24,7 @@ type Handler struct {
 	recordConditions *usecase.RecordConditions
 	configureProgram *usecase.ConfigureProgram
 	setFocus         *usecase.SetFocusExercise
+	setDeclared      *usecase.SetDeclaredExercises
 	getProgram       *usecase.GetProgram
 	deleteSetLog     *usecase.DeleteSetLog
 	exercises        *query.Exercises
@@ -37,6 +38,7 @@ func NewHandler(
 	recordConditions *usecase.RecordConditions,
 	configureProgram *usecase.ConfigureProgram,
 	setFocus *usecase.SetFocusExercise,
+	setDeclared *usecase.SetDeclaredExercises,
 	getProgram *usecase.GetProgram,
 	deleteSetLog *usecase.DeleteSetLog,
 	exercises *query.Exercises,
@@ -49,6 +51,7 @@ func NewHandler(
 		recordConditions: recordConditions,
 		configureProgram: configureProgram,
 		setFocus:         setFocus,
+		setDeclared:      setDeclared,
 		getProgram:       getProgram,
 		deleteSetLog:     deleteSetLog,
 		exercises:        exercises,
@@ -264,6 +267,29 @@ func (h *Handler) handlePutProgramFocus(w http.ResponseWriter, r *http.Request) 
 	}
 
 	if err := h.setFocus.Execute(r.Context(), focus); err != nil {
+		respondError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// handlePutProgramDeclared は伸ばしたい種目だけを差し替える。
+//
+// 重点種目が新しい宣言から外れる場合は 400。黙って重点を解除すると、
+// 口を分けた意味（他のフィールドを触らない）が自分で崩れる。
+func (h *Handler) handlePutProgramDeclared(w http.ResponseWriter, r *http.Request) {
+	var req declaredDTO
+	if err := decodeJSON(r, &req); err != nil {
+		respondError(w, err)
+		return
+	}
+
+	ids := make([]exercise.ExerciseID, 0, len(req.Declared))
+	for _, id := range req.Declared {
+		ids = append(ids, exercise.ExerciseID(id))
+	}
+
+	if err := h.setDeclared.Execute(r.Context(), ids); err != nil {
 		respondError(w, err)
 		return
 	}

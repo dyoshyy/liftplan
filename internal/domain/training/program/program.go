@@ -135,6 +135,15 @@ func (p *Program) WithFocus(id exercise.ExerciseID) (*Program, error) {
 	return NewProgram(p.frequency, p.target, p.SelectedExercises(), p.DeclaredExercises(), id)
 }
 
+// WithDeclared は伸ばしたい種目だけを差し替えた新しいプログラムを返す。
+//
+// 重点種目が新しい宣言に含まれなくなる場合はエラーになる。黙って解除は
+// しない。解除するかどうかは本人が決めることで、宣言を変えた副作用として
+// 重点が消えると、次に画面を開くまで気づけない。
+func (p *Program) WithDeclared(ids []exercise.ExerciseID) (*Program, error) {
+	return NewProgram(p.frequency, p.target, p.SelectedExercises(), ids, p.focus)
+}
+
 func (p *Program) Frequency() Frequency             { return p.frequency }
 func (p *Program) WeeklyTarget() WeeklyVolumeTarget { return p.target }
 

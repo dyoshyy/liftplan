@@ -7,7 +7,7 @@ import { ExerciseCard, type CardPlan } from './ExerciseCard';
 import { leftovers } from './leftovers';
 import { RecordSheet, type SheetTarget } from './RecordSheet';
 import { BodyWeight } from './BodyWeight';
-import { FocusPicker } from './FocusPicker';
+import { ProgramSettings } from './ProgramSettings';
 import type { QueueItem } from '../../outbox/db';
 
 type Props = {
@@ -148,7 +148,7 @@ export function Today(props: Props) {
 
       <BodyWeight enqueue={enqueue} />
 
-      <FocusPicker nameOf={nameOf} onChanged={props.onReload} />
+      <ProgramSettings nameOf={nameOf} onChanged={props.onReload} />
 
       {sheet && (
         <RecordSheet

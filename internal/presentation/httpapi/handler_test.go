@@ -61,6 +61,7 @@ func newServer(t *testing.T, configured bool) http.Handler {
 		usecase.NewRecordConditions(conditions),
 		usecase.NewConfigureProgram(exercises, programs),
 		usecase.NewSetFocusExercise(programs, programs),
+		usecase.NewSetDeclaredExercises(programs, programs),
 		usecase.NewGetProgram(programs),
 		usecase.NewDeleteSetLog(logs),
 		query.NewExercises(exercises),
@@ -307,6 +308,129 @@ func TestPutProgramFocus_Rejects(t *testing.T) {
 		t.Run(c.name, func(t *testing.T) {
 			rec := do(t, newServer(t, c.configured), http.MethodPut,
 				"/api/program/focus", c.body)
+			if rec.Code != c.want {
+				t.Errorf("ステータスが %d。%d のはず: %s", rec.Code, c.want, rec.Body.String())
+			}
+		})
+	}
+}
+
+// 伸ばしたい種目だけの口も、それだけを動かすこと。
+func TestPutProgramDeclared_TouchesNothingElse(t *testing.T) {
+	cases := []struct {
+		name string
+		// setFocus が空でなければ、先に重点種目を立てておく。
+		setFocus string
+		body     string
+		want     string
+	}{
+		{
+			name: "重点種目はそのまま残る",
+			// bench は宣言に残すので、重点種目を触らずに済む。
+			setFocus: "bench",
+			body:     `{"declared_exercises":["bench","squat"]}`,
+			want:     `["bench","squat"]`,
+		},
+		{
+			name: "重点種目なしでも通る",
+			body: `{"declared_exercises":["squat"]}`,
+			want: `["squat"]`,
+		},
+		{
+			// 順序は集約が昇順に正規化する。送った順は残らない。
+			name: "並び替えて送っても昇順に戻る",
+			body: `{"declared_exercises":["squat","bench","deadlift"]}`,
+			want: `["bench","deadlift","squat"]`,
+		},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			mux := newServer(t, true)
+			if c.setFocus != "" {
+				if rec := do(t, mux, http.MethodPut, "/api/program/focus",
+					`{"focus_exercise":"`+c.setFocus+`"}`); rec.Code != http.StatusNoContent {
+					t.Fatalf("重点種目の保存に失敗: %d", rec.Code)
+				}
+			}
+
+			before := do(t, mux, http.MethodGet, "/api/program", "")
+			if rec := do(t, mux, http.MethodPut, "/api/program/declared",
+				c.body); rec.Code != http.StatusNoContent {
+				t.Fatalf("保存に失敗: %d body=%s", rec.Code, rec.Body.String())
+			}
+			after := do(t, mux, http.MethodGet, "/api/program", "")
+
+			// 生の JSON で比べる。構造体に写すと、写し忘れたフィールドが
+			// 変わっていても気づけない。
+			var b, a map[string]json.RawMessage
+			if err := json.Unmarshal(before.Body.Bytes(), &b); err != nil {
+				t.Fatalf("JSONが壊れている: %v", err)
+			}
+			if err := json.Unmarshal(after.Body.Bytes(), &a); err != nil {
+				t.Fatalf("JSONが壊れている: %v", err)
+			}
+			if len(a) != len(b) {
+				t.Errorf("フィールドの数が変わった: %d → %d", len(b), len(a))
+			}
+			for k, want := range b {
+				if k == "declared_exercises" {
+					continue
+				}
+				if string(a[k]) != string(want) {
+					t.Errorf("%s が変わった: %s → %s", k, want, a[k])
+				}
+			}
+			if string(a["declared_exercises"]) != c.want {
+				t.Errorf("伸ばしたい種目が %s。%s のはず", a["declared_exercises"], c.want)
+			}
+		})
+	}
+}
+
+func TestPutProgramDeclared_Rejects(t *testing.T) {
+	cases := []struct {
+		name       string
+		configured bool
+		setFocus   string
+		body       string
+		want       int
+	}{
+		{
+			// 黙って重点を解除しない。宣言を変えた副作用で重点が消えると、
+			// 次に画面を開くまで気づけない。
+			name: "重点種目が宣言から外れる", configured: true, setFocus: "bench",
+			body: `{"declared_exercises":["squat"]}`, want: http.StatusBadRequest,
+		},
+		{
+			name: "宣言が空", configured: true,
+			body: `{"declared_exercises":[]}`, want: http.StatusBadRequest,
+		},
+		{
+			name: "選択に無い種目", configured: true,
+			body: `{"declared_exercises":["nonexistent"]}`, want: http.StatusBadRequest,
+		},
+		{
+			name: "重複", configured: true,
+			body: `{"declared_exercises":["bench","bench"]}`, want: http.StatusBadRequest,
+		},
+		{
+			name: "プログラムが未設定", configured: false,
+			body: `{"declared_exercises":["bench"]}`, want: http.StatusConflict,
+		},
+		{
+			name: "余計なフィールド", configured: true,
+			body: `{"declared_exercises":["bench"],"per_week":4}`, want: http.StatusBadRequest,
+		},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			mux := newServer(t, c.configured)
+			if c.setFocus != "" {
+				do(t, mux, http.MethodPut, "/api/program/focus",
+					`{"focus_exercise":"`+c.setFocus+`"}`)
+			}
+			rec := do(t, mux, http.MethodPut, "/api/program/declared", c.body)
 			if rec.Code != c.want {
 				t.Errorf("ステータスが %d。%d のはず: %s", rec.Code, c.want, rec.Body.String())
 			}
@@ -587,6 +711,7 @@ func TestRoutes_RejectWrongMethod(t *testing.T) {
 		{http.MethodGet, "/api/conditions"},
 		{http.MethodPost, "/api/program"},
 		{http.MethodPost, "/api/program/focus"},
+		{http.MethodPost, "/api/program/declared"},
 		{http.MethodPost, "/api/exercises"},
 		{http.MethodPost, "/api/stats"},
 	} {
@@ -642,6 +767,7 @@ func TestGetSession_InternalErrorDoesNotLeak(t *testing.T) {
 		usecase.NewRecordConditions(conditions),
 		usecase.NewConfigureProgram(brokenExercises{}, programs),
 		usecase.NewSetFocusExercise(programs, programs),
+		usecase.NewSetDeclaredExercises(programs, programs),
 		usecase.NewGetProgram(programs),
 		usecase.NewDeleteSetLog(logs),
 		query.NewExercises(brokenExercises{}),
@@ -935,6 +1061,7 @@ func TestWrites_StopOnClientDisconnect(t *testing.T) {
 		"conditions": {http.MethodPost, "/api/conditions", `{"conditions":[{"date":"2026-08-17","body_weight_kg":75}]}`},
 		"program":    {http.MethodPut, "/api/program", `{"per_week":3,"weekly_target":{"QUAD":12},"selected_exercises":["squat"],"declared_exercises":["squat"]}`},
 		"focus":      {http.MethodPut, "/api/program/focus", `{"focus_exercise":"bench"}`},
+		"declared":   {http.MethodPut, "/api/program/declared", `{"declared_exercises":["bench"]}`},
 	} {
 		t.Run(name, func(t *testing.T) {
 			ctx, cancel := context.WithCancel(context.Background())
@@ -1010,6 +1137,7 @@ func TestAPI_RequiresAuth(t *testing.T) {
 	h, reached := guarded(t)
 	for _, path := range []string{
 		"/api/sessions?date=2026-08-17", "/api/program", "/api/program/focus",
+		"/api/program/declared",
 		"/api/set-logs",
 	} {
 		rec := request(t, h, path, "")
