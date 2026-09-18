@@ -113,6 +113,15 @@ type programDTO struct {
 	Focus    *string            `json:"focus_exercise"`
 }
 
+// focusDTO は重点種目だけの書き込み。
+//
+// ポインタなのは programDTO.Focus と同じ理由で、null（指定なし）と
+// フィールドの欠落を区別するため。欠落は DisallowUnknownFields では
+// 弾かれないので、明示的に null を送ってもらう運用にする。
+type focusDTO struct {
+	Focus *string `json:"focus_exercise"`
+}
+
 func toProgramDTO(p *program.Program) programDTO {
 	target := map[string]float64{}
 	for _, r := range p.WeeklyTarget().Regions() {

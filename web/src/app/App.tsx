@@ -90,6 +90,7 @@ export function App() {
             onRetry={() => void reload()}
             onRecordLocally={recordLocally}
             onForgetLocally={forgetLocally}
+            onReload={reload}
           />
         ) : (
           <Setup

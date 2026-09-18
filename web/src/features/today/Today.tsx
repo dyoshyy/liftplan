@@ -7,6 +7,7 @@ import { ExerciseCard, type CardPlan } from './ExerciseCard';
 import { leftovers } from './leftovers';
 import { RecordSheet, type SheetTarget } from './RecordSheet';
 import { BodyWeight } from './BodyWeight';
+import { FocusPicker } from './FocusPicker';
 import type { QueueItem } from '../../outbox/db';
 
 type Props = {
@@ -18,6 +19,8 @@ type Props = {
   onRetry: () => void;
   onRecordLocally: (exerciseId: string, set: RecordedSet, replacing?: string) => void;
   onForgetLocally: (exerciseId: string, id: string) => void;
+  /** 重点種目を変えたあとにメニューを取り直す。 */
+  onReload: () => Promise<void>;
 };
 
 export function Today(props: Props) {
@@ -144,6 +147,8 @@ export function Today(props: Props) {
       {done.map(card)}
 
       <BodyWeight enqueue={enqueue} />
+
+      <FocusPicker nameOf={nameOf} onChanged={props.onReload} />
 
       {sheet && (
         <RecordSheet

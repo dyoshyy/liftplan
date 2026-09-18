@@ -60,6 +60,7 @@ func newServer(t *testing.T, configured bool) http.Handler {
 		usecase.NewRecordSets(logs, exercises),
 		usecase.NewRecordConditions(conditions),
 		usecase.NewConfigureProgram(exercises, programs),
+		usecase.NewSetFocusExercise(programs, programs),
 		usecase.NewGetProgram(programs),
 		usecase.NewDeleteSetLog(logs),
 		query.NewExercises(exercises),
@@ -195,6 +196,121 @@ func TestGetSession_HasThreeLanes(t *testing.T) {
 	}
 	if string(v) != "[]" {
 		t.Errorf("重点種目なしの variation が %s。空配列のはず", v)
+	}
+}
+
+// 重点種目だけの口は、本当に重点種目だけを動かすこと。
+//
+// この口を足した理由そのもの（D-127）。全置換の PUT /api/program を
+// クライアントに使わせないのは、週目標や選択種目が往復する経路を作らない
+// ためなので、ここが守られていないと分けた意味が消える。
+func TestPutProgramFocus_TouchesNothingElse(t *testing.T) {
+	mux := newServer(t, true)
+
+	before := do(t, mux, http.MethodGet, "/api/program", "")
+	if before.Code != http.StatusOK {
+		t.Fatalf("取得に失敗: %d", before.Code)
+	}
+
+	if rec := do(t, mux, http.MethodPut, "/api/program/focus",
+		`{"focus_exercise":"bench"}`); rec.Code != http.StatusNoContent {
+		t.Fatalf("保存に失敗: %d body=%s", rec.Code, rec.Body.String())
+	}
+
+	after := do(t, mux, http.MethodGet, "/api/program", "")
+	if after.Code != http.StatusOK {
+		t.Fatalf("取得に失敗: %d", after.Code)
+	}
+
+	// 生の JSON で比べる。構造体に写すと、写し忘れたフィールドが
+	// 変わっていても気づけない。
+	var b, a map[string]json.RawMessage
+	if err := json.Unmarshal(before.Body.Bytes(), &b); err != nil {
+		t.Fatalf("JSONが壊れている: %v", err)
+	}
+	if err := json.Unmarshal(after.Body.Bytes(), &a); err != nil {
+		t.Fatalf("JSONが壊れている: %v", err)
+	}
+
+	if len(a) != len(b) {
+		t.Errorf("フィールドの数が変わった: %d → %d", len(b), len(a))
+	}
+	for k, want := range b {
+		if k == "focus_exercise" {
+			continue
+		}
+		if string(a[k]) != string(want) {
+			t.Errorf("%s が変わった: %s → %s", k, want, a[k])
+		}
+	}
+	if string(a["focus_exercise"]) != `"bench"` {
+		t.Errorf("重点種目が %s。\"bench\" のはず", a["focus_exercise"])
+	}
+}
+
+// null で指定を解除できること。解除できないと、一度指定したら
+// バリエーションレーンを止める手段がアプリの中に無くなる。
+func TestPutProgramFocus_NullClearsIt(t *testing.T) {
+	mux := newServer(t, true)
+
+	if rec := do(t, mux, http.MethodPut, "/api/program/focus",
+		`{"focus_exercise":"bench"}`); rec.Code != http.StatusNoContent {
+		t.Fatalf("保存に失敗: %d", rec.Code)
+	}
+	if rec := do(t, mux, http.MethodPut, "/api/program/focus",
+		`{"focus_exercise":null}`); rec.Code != http.StatusNoContent {
+		t.Fatalf("解除に失敗: %d body=%s", rec.Code, rec.Body.String())
+	}
+
+	rec := do(t, mux, http.MethodGet, "/api/program", "")
+	var got struct {
+		Focus *string `json:"focus_exercise"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatalf("JSONが壊れている: %v", err)
+	}
+	if got.Focus != nil {
+		t.Errorf("解除できていない: %v", *got.Focus)
+	}
+}
+
+func TestPutProgramFocus_Rejects(t *testing.T) {
+	cases := []struct {
+		name       string
+		configured bool
+		body       string
+		want       int
+	}{
+		{
+			// 宣言していない種目を重点にできると、「伸ばしたい種目の中で
+			// さらに重点」という意味が崩れる。
+			name: "宣言していない種目", configured: true,
+			body: `{"focus_exercise":"leg_press"}`, want: http.StatusBadRequest,
+		},
+		{
+			name: "存在しない種目", configured: true,
+			body: `{"focus_exercise":"nonexistent"}`, want: http.StatusBadRequest,
+		},
+		{
+			// 未設定は「前提が満たされていない」なので 409。
+			// GET /api/program の 404 とは意味が違う（D-042）。
+			name: "プログラムが未設定", configured: false,
+			body: `{"focus_exercise":"bench"}`, want: http.StatusConflict,
+		},
+		{
+			// 全置換の口と取り違えて送ってきたものを黙って受けない。
+			name: "余計なフィールド", configured: true,
+			body: `{"focus_exercise":"bench","per_week":4}`, want: http.StatusBadRequest,
+		},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			rec := do(t, newServer(t, c.configured), http.MethodPut,
+				"/api/program/focus", c.body)
+			if rec.Code != c.want {
+				t.Errorf("ステータスが %d。%d のはず: %s", rec.Code, c.want, rec.Body.String())
+			}
+		})
 	}
 }
 
@@ -470,6 +586,7 @@ func TestRoutes_RejectWrongMethod(t *testing.T) {
 		{http.MethodPut, "/api/set-logs"},
 		{http.MethodGet, "/api/conditions"},
 		{http.MethodPost, "/api/program"},
+		{http.MethodPost, "/api/program/focus"},
 		{http.MethodPost, "/api/exercises"},
 		{http.MethodPost, "/api/stats"},
 	} {
@@ -524,6 +641,7 @@ func TestGetSession_InternalErrorDoesNotLeak(t *testing.T) {
 		usecase.NewRecordSets(logs, brokenExercises{}),
 		usecase.NewRecordConditions(conditions),
 		usecase.NewConfigureProgram(brokenExercises{}, programs),
+		usecase.NewSetFocusExercise(programs, programs),
 		usecase.NewGetProgram(programs),
 		usecase.NewDeleteSetLog(logs),
 		query.NewExercises(brokenExercises{}),
@@ -812,20 +930,17 @@ func TestGetSession_TimeoutIs504(t *testing.T) {
 
 // 書き込みも切断済みなら実行しないこと。
 func TestWrites_StopOnClientDisconnect(t *testing.T) {
-	for name, c := range map[string]struct{ path, body string }{
-		"set-logs":   {"/api/set-logs", `{"logs":[{"id":"d","date":"2026-08-17","exercise_id":"bench","weight_kg":85,"reps":8,"rir":2}]}`},
-		"conditions": {"/api/conditions", `{"conditions":[{"date":"2026-08-17","body_weight_kg":75}]}`},
-		"program":    {"/api/program", `{"per_week":3,"weekly_target":{"QUAD":12},"selected_exercises":["squat"],"declared_exercises":["squat"]}`},
+	for name, c := range map[string]struct{ method, path, body string }{
+		"set-logs":   {http.MethodPost, "/api/set-logs", `{"logs":[{"id":"d","date":"2026-08-17","exercise_id":"bench","weight_kg":85,"reps":8,"rir":2}]}`},
+		"conditions": {http.MethodPost, "/api/conditions", `{"conditions":[{"date":"2026-08-17","body_weight_kg":75}]}`},
+		"program":    {http.MethodPut, "/api/program", `{"per_week":3,"weekly_target":{"QUAD":12},"selected_exercises":["squat"],"declared_exercises":["squat"]}`},
+		"focus":      {http.MethodPut, "/api/program/focus", `{"focus_exercise":"bench"}`},
 	} {
 		t.Run(name, func(t *testing.T) {
 			ctx, cancel := context.WithCancel(context.Background())
 			cancel()
 
-			method := http.MethodPost
-			if name == "program" {
-				method = http.MethodPut
-			}
-			r := httptest.NewRequest(method, c.path, strings.NewReader(c.body)).WithContext(ctx)
+			r := httptest.NewRequest(c.method, c.path, strings.NewReader(c.body)).WithContext(ctx)
 			r.Header.Set("Content-Type", "application/json")
 			rec := httptest.NewRecorder()
 			newServer(t, true).ServeHTTP(rec, r)
@@ -894,7 +1009,8 @@ func TestStatic_ShellIsNoLongerServed(t *testing.T) {
 func TestAPI_RequiresAuth(t *testing.T) {
 	h, reached := guarded(t)
 	for _, path := range []string{
-		"/api/sessions?date=2026-08-17", "/api/program", "/api/set-logs",
+		"/api/sessions?date=2026-08-17", "/api/program", "/api/program/focus",
+		"/api/set-logs",
 	} {
 		rec := request(t, h, path, "")
 		if rec.Code != http.StatusUnauthorized {

@@ -13,6 +13,7 @@ import (
 	"github.com/dyoshyy/liftplan/internal/application/usecase"
 	"github.com/dyoshyy/liftplan/internal/domain/training"
 	"github.com/dyoshyy/liftplan/internal/domain/training/condition"
+	"github.com/dyoshyy/liftplan/internal/domain/training/exercise"
 	"github.com/dyoshyy/liftplan/internal/domain/training/program"
 	"github.com/dyoshyy/liftplan/internal/domain/training/setlog"
 )
@@ -22,6 +23,7 @@ type Handler struct {
 	recordSets       *usecase.RecordSets
 	recordConditions *usecase.RecordConditions
 	configureProgram *usecase.ConfigureProgram
+	setFocus         *usecase.SetFocusExercise
 	getProgram       *usecase.GetProgram
 	deleteSetLog     *usecase.DeleteSetLog
 	exercises        *query.Exercises
@@ -34,6 +36,7 @@ func NewHandler(
 	recordSets *usecase.RecordSets,
 	recordConditions *usecase.RecordConditions,
 	configureProgram *usecase.ConfigureProgram,
+	setFocus *usecase.SetFocusExercise,
 	getProgram *usecase.GetProgram,
 	deleteSetLog *usecase.DeleteSetLog,
 	exercises *query.Exercises,
@@ -45,6 +48,7 @@ func NewHandler(
 		recordSets:       recordSets,
 		recordConditions: recordConditions,
 		configureProgram: configureProgram,
+		setFocus:         setFocus,
 		getProgram:       getProgram,
 		deleteSetLog:     deleteSetLog,
 		exercises:        exercises,
@@ -232,6 +236,34 @@ func (h *Handler) handlePutProgram(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := h.configureProgram.Execute(r.Context(), req.toInput()); err != nil {
+		respondError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// handlePutProgramFocus は重点種目だけを差し替える。
+//
+// 全置換の PUT /api/program とは別の口にしてある。クライアントが週目標や
+// 選択種目を持ち回らずに済むので、契約がずれて 400 になる面も、正しく
+// 通ったまま他の設定を上書きする面も無い（D-127）。
+//
+// 未設定は 409。GET /api/program の 404 と違い、ここは「前提が満たされて
+// いない」という状態の衝突なので（D-042 の分類）。
+func (h *Handler) handlePutProgramFocus(w http.ResponseWriter, r *http.Request) {
+	var req focusDTO
+	if err := decodeJSON(r, &req); err != nil {
+		respondError(w, err)
+		return
+	}
+
+	// null と空文字はどちらも「指定なし」。NewProgram が空を素通しする。
+	var focus exercise.ExerciseID
+	if req.Focus != nil {
+		focus = exercise.ExerciseID(*req.Focus)
+	}
+
+	if err := h.setFocus.Execute(r.Context(), focus); err != nil {
 		respondError(w, err)
 		return
 	}
