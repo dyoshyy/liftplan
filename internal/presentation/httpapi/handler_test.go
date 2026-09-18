@@ -64,6 +64,7 @@ func newServer(t *testing.T, configured bool) http.Handler {
 		usecase.NewSetDeclaredExercises(programs, programs),
 		usecase.NewSetFrequency(programs, programs),
 		usecase.NewSetSelectedExercises(exercises, programs, programs),
+		usecase.NewSetWeeklyTarget(exercises, programs, programs),
 		usecase.NewGetProgram(programs),
 		usecase.NewDeleteSetLog(logs),
 		query.NewExercises(exercises),
@@ -611,6 +612,102 @@ func TestPutProgramSelected_Rejects(t *testing.T) {
 	}
 }
 
+// 週目標の口は、それだけを動かすこと。頻度は道連れにしない。
+//
+// WithFrequency が週目標を置き直すのと非対称だが、向きが違う。頻度を
+// 変えたら供給量が変わるので目標も動く一方、目標を手で動かすのは
+// 「供給量はそのままで狙いを変える」ことなので頻度は据え置く。
+func TestPutProgramTarget_TouchesNothingElse(t *testing.T) {
+	mux := newServer(t, true)
+
+	before := do(t, mux, http.MethodGet, "/api/program", "")
+	body := `{"weekly_target":{"CHEST_MID":12,"QUAD":14,"GLUTE":16}}`
+	if rec := do(t, mux, http.MethodPut, "/api/program/target",
+		body); rec.Code != http.StatusNoContent {
+		t.Fatalf("保存に失敗: %d body=%s", rec.Code, rec.Body.String())
+	}
+	after := do(t, mux, http.MethodGet, "/api/program", "")
+
+	var b, a map[string]json.RawMessage
+	if err := json.Unmarshal(before.Body.Bytes(), &b); err != nil {
+		t.Fatalf("JSONが壊れている: %v", err)
+	}
+	if err := json.Unmarshal(after.Body.Bytes(), &a); err != nil {
+		t.Fatalf("JSONが壊れている: %v", err)
+	}
+	if len(a) != len(b) {
+		t.Errorf("フィールドの数が変わった: %d → %d", len(b), len(a))
+	}
+	for k, want := range b {
+		if k == "weekly_target" {
+			continue
+		}
+		if string(a[k]) != string(want) {
+			t.Errorf("%s が変わった: %s → %s", k, want, a[k])
+		}
+	}
+
+	var got map[string]float64
+	if err := json.Unmarshal(a["weekly_target"], &got); err != nil {
+		t.Fatalf("週目標が壊れている: %v", err)
+	}
+	// 送った区分だけになる。差分更新ではなく置き換え。
+	want := map[string]float64{"CHEST_MID": 12, "QUAD": 14, "GLUTE": 16}
+	if len(got) != len(want) {
+		t.Errorf("区分の数が %d。%d のはず: %v", len(got), len(want), got)
+	}
+	for r, v := range want {
+		if got[r] != v {
+			t.Errorf("%s が %v。%v のはず", r, got[r], v)
+		}
+	}
+}
+
+// 選択種目がどの区分も刺激しない週目標を弾くこと。
+//
+// 弾かないと補助種目が毎回ゼロになり、エラーが立たないまま「設定した
+// 週目標が永久に埋まらない」状態になる。
+//
+// シードの29種目は全区分を刺激するので、まず選択を BIG3 に絞ってから
+// ふくらはぎを狙う。絞らないと到達できない経路。
+func TestPutProgramTarget_RejectsTargetNothingCanFill(t *testing.T) {
+	mux := newServer(t, true)
+
+	if rec := do(t, mux, http.MethodPut, "/api/program/selected",
+		`{"selected_exercises":["bench","squat","deadlift"]}`); rec.Code != http.StatusNoContent {
+		t.Fatalf("選択の保存に失敗: %d body=%s", rec.Code, rec.Body.String())
+	}
+
+	rec := do(t, mux, http.MethodPut, "/api/program/target", `{"weekly_target":{"CALF":10}}`)
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("ステータスが %d。400 のはず: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestPutProgramTarget_Rejects(t *testing.T) {
+	cases := []struct {
+		name       string
+		configured bool
+		body       string
+		want       int
+	}{
+		{"空", true, `{"weekly_target":{}}`, http.StatusBadRequest},
+		{"存在しない区分", true, `{"weekly_target":{"NOSUCH":10}}`, http.StatusBadRequest},
+		{"負のセット数", true, `{"weekly_target":{"QUAD":-1}}`, http.StatusBadRequest},
+		{"プログラムが未設定", false, `{"weekly_target":{"QUAD":12}}`, http.StatusConflict},
+		{"余計なフィールド", true, `{"weekly_target":{"QUAD":12},"per_week":4}`, http.StatusBadRequest},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			rec := do(t, newServer(t, c.configured), http.MethodPut,
+				"/api/program/target", c.body)
+			if rec.Code != c.want {
+				t.Errorf("ステータスが %d。%d のはず: %s", rec.Code, c.want, rec.Body.String())
+			}
+		})
+	}
+}
+
 func TestGetSession_MissingDate(t *testing.T) {
 	rec := httptest.NewRecorder()
 	newServer(t, true).ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/sessions", nil))
@@ -887,6 +984,7 @@ func TestRoutes_RejectWrongMethod(t *testing.T) {
 		{http.MethodPost, "/api/program/declared"},
 		{http.MethodPost, "/api/program/frequency"},
 		{http.MethodPost, "/api/program/selected"},
+		{http.MethodPost, "/api/program/target"},
 		{http.MethodPost, "/api/exercises"},
 		{http.MethodPost, "/api/stats"},
 	} {
@@ -945,6 +1043,7 @@ func TestGetSession_InternalErrorDoesNotLeak(t *testing.T) {
 		usecase.NewSetDeclaredExercises(programs, programs),
 		usecase.NewSetFrequency(programs, programs),
 		usecase.NewSetSelectedExercises(brokenExercises{}, programs, programs),
+		usecase.NewSetWeeklyTarget(brokenExercises{}, programs, programs),
 		usecase.NewGetProgram(programs),
 		usecase.NewDeleteSetLog(logs),
 		query.NewExercises(brokenExercises{}),
@@ -1241,6 +1340,7 @@ func TestWrites_StopOnClientDisconnect(t *testing.T) {
 		"declared":   {http.MethodPut, "/api/program/declared", `{"declared_exercises":["bench"]}`},
 		"frequency":  {http.MethodPut, "/api/program/frequency", `{"per_week":4}`},
 		"selected":   {http.MethodPut, "/api/program/selected", `{"selected_exercises":["bench","squat","deadlift"]}`},
+		"target":     {http.MethodPut, "/api/program/target", `{"weekly_target":{"CHEST_MID":10,"QUAD":12}}`},
 	} {
 		t.Run(name, func(t *testing.T) {
 			ctx, cancel := context.WithCancel(context.Background())

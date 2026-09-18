@@ -27,6 +27,7 @@ type Handler struct {
 	setDeclared      *usecase.SetDeclaredExercises
 	setFrequency     *usecase.SetFrequency
 	setSelected      *usecase.SetSelectedExercises
+	setTarget        *usecase.SetWeeklyTarget
 	getProgram       *usecase.GetProgram
 	deleteSetLog     *usecase.DeleteSetLog
 	exercises        *query.Exercises
@@ -43,6 +44,7 @@ func NewHandler(
 	setDeclared *usecase.SetDeclaredExercises,
 	setFrequency *usecase.SetFrequency,
 	setSelected *usecase.SetSelectedExercises,
+	setTarget *usecase.SetWeeklyTarget,
 	getProgram *usecase.GetProgram,
 	deleteSetLog *usecase.DeleteSetLog,
 	exercises *query.Exercises,
@@ -58,6 +60,7 @@ func NewHandler(
 		setDeclared:      setDeclared,
 		setFrequency:     setFrequency,
 		setSelected:      setSelected,
+		setTarget:        setTarget,
 		getProgram:       getProgram,
 		deleteSetLog:     deleteSetLog,
 		exercises:        exercises,
@@ -335,6 +338,26 @@ func (h *Handler) handlePutProgramSelected(w http.ResponseWriter, r *http.Reques
 	}
 
 	if err := h.setSelected.Execute(r.Context(), ids); err != nil {
+		respondError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// handlePutProgramTarget は週目標だけを差し替える。
+func (h *Handler) handlePutProgramTarget(w http.ResponseWriter, r *http.Request) {
+	var req targetDTO
+	if err := decodeJSON(r, &req); err != nil {
+		respondError(w, err)
+		return
+	}
+
+	sets := make(map[training.MuscleRegion]float64, len(req.Target))
+	for k, v := range req.Target {
+		sets[training.MuscleRegion(k)] = v
+	}
+
+	if err := h.setTarget.Execute(r.Context(), sets); err != nil {
 		respondError(w, err)
 		return
 	}
