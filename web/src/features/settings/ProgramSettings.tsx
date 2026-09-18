@@ -1,22 +1,10 @@
-import { useEffect, useState } from 'react';
-import { getJSON, send } from '../../api/client';
-import type { Program } from '../../api/types';
-import { focusBody, focusOptions, NO_FOCUS } from '../today/focus';
-import { lockedDeclared, lockedSelected, toggleDeclared } from '../today/declared';
+import { focusOptions, NO_FOCUS } from '../today/focus';
+import { lockedSelected, toggleDeclared } from '../today/declared';
 import { regionLabel } from '../../domain/regions';
+import { useProgramSettings } from './useProgramSettings';
 import { Button } from '../../ui/Button';
 import { Card, Note } from '../../ui/Card';
 import { LabeledInput } from '../../ui/Field';
-
-/**
- * asText は週目標を入力欄の文字列にする。
- *
- * 数値のまま持つと、入力中の「1.」や空欄が NaN になって値が飛ぶ。
- * 文字列で持ち、保存のときだけ数値にする。
- */
-function asText(target: Record<string, number>): Record<string, string> {
-  return Object.fromEntries(Object.entries(target).map(([k, v]) => [k, String(v)]));
-}
 
 type Props = {
   /** 種目IDを表示名にする。 */
@@ -45,123 +33,26 @@ type Props = {
  * 1件も失わないので、その場で成否を見せるほうが正直。
  */
 export function ProgramSettings({ nameOf, allExerciseIds, onChanged }: Props) {
-  const [program, setProgram] = useState<Program | null>(null);
-  const [note, setNote] = useState('');
-  const [busy, setBusy] = useState(false);
-
-  // 保存前のチェック状態。宣言はチェックを何個か動かしてから保存する。
-  // 1つ動かすたびに送ると、そのたびにメニューが組み替わる。
-  const [draft, setDraft] = useState<string[] | null>(null);
-  const [pick, setPick] = useState<string[] | null>(null);
-  const [target, setTarget] = useState<Record<string, string> | null>(null);
-
-  // 画面を開いたら読む。以前は「開く」を押したときだけだったが、
-  // 設定画面そのものが「開いた」の意味を持つようになった。
-  useEffect(() => {
-    void load();
-    // load は program を見て二度読みを避けるだけなので、初回に1回でよい。
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  const load = async () => {
-    if (program) return;
-    setNote('');
-    try {
-      const p = await getJSON<Program>('/api/program');
-      setProgram(p);
-      setDraft(p.declared_exercises);
-      setPick(p.selected_exercises);
-      setTarget(asText(p.weekly_target));
-    } catch {
-      setNote('設定を読めませんでした');
-    }
-  };
-
-  // put は1フィールドだけの口へ送る。成否をそのまま返す。
-  const put = async (path: string, body: unknown): Promise<boolean> => {
-    if (!navigator.onLine) {
-      setNote('つながらないので変えられません');
-      return false;
-    }
-    setBusy(true);
-    setNote('');
-    try {
-      const res = await send({ path, method: 'PUT', body });
-      if (!res.ok) {
-        setNote(`変えられませんでした（${res.status}）`);
-        return false;
-      }
-      return true;
-    } catch {
-      setNote('つながらないので変えられません');
-      return false;
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const chooseFocus = async (id: string) => {
-    if (!program || busy) return;
-    if (!(await put('/api/program/focus', focusBody(id)))) return;
-    setProgram({ ...program, focus_exercise: id === NO_FOCUS ? null : id });
-    await onChanged();
-  };
-
-  const saveDeclared = async () => {
-    if (!program || !draft || busy) return;
-    if (!(await put('/api/program/declared', { declared_exercises: draft }))) return;
-    setProgram({ ...program, declared_exercises: draft });
-    await onChanged();
-  };
-
-  const saveSelected = async () => {
-    if (!program || !pick || busy) return;
-    if (!(await put('/api/program/selected', { selected_exercises: pick }))) return;
-    setProgram({ ...program, selected_exercises: pick });
-    await onChanged();
-  };
-
-  const saveTarget = async () => {
-    if (!program || !target || busy) return;
-    const parsed: Record<string, number> = {};
-    for (const [region, text] of Object.entries(target)) {
-      const v = Number.parseFloat(text);
-      if (!Number.isFinite(v)) {
-        setNote(`${regionLabel(region)} の値が数字ではありません`);
-        return;
-      }
-      parsed[region] = v;
-    }
-    if (!(await put('/api/program/target', { weekly_target: parsed }))) return;
-    setProgram({ ...program, weekly_target: parsed });
-    await onChanged();
-  };
-
-  const saveFrequency = async (n: number) => {
-    if (!program || busy) return;
-    if (!(await put('/api/program/frequency', { per_week: n }))) return;
-    // 週目標も置き直るので、画面の手持ちは捨てて取り直す。
-    setProgram(null);
-    setDraft(null);
-    setPick(null);
-    setTarget(null);
-    await onChanged();
-    await load();
-  };
-
-  const locked = program ? lockedDeclared(draft ?? [], program.focus_exercise) : new Map();
-  const dirty =
-    program && draft
-      ? draft.join(',') !== [...program.declared_exercises].sort().join(',')
-      : false;
-  const targetDirty =
-    program && target
-      ? JSON.stringify(target) !== JSON.stringify(asText(program.weekly_target))
-      : false;
-  const pickDirty =
-    program && pick
-      ? pick.join(',') !== [...program.selected_exercises].sort().join(',')
-      : false;
+  const {
+    program,
+    draft,
+    setDraft,
+    pick,
+    setPick,
+    target,
+    setTarget,
+    note,
+    busy,
+    locked,
+    dirty,
+    pickDirty,
+    targetDirty,
+    chooseFocus,
+    saveDeclared,
+    saveSelected,
+    saveTarget,
+    saveFrequency,
+  } = useProgramSettings(onChanged);
 
   return (
     <>
