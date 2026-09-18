@@ -1,18 +1,20 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { getToken } from '../storage/local';
 import { label, today } from '../domain/date';
+import { History } from '../features/history/History';
 import { Setup } from '../features/setup/Setup';
 import { Today } from '../features/today/Today';
 import { RestTimerBar } from '../features/timer/RestTimerBar';
 import { useRestTimer } from '../features/timer/useRestTimer';
 import { StatusBar } from './StatusBar';
+import { Tabs, type View } from './Tabs';
 import { useLiftplan } from './useLiftplan';
 import { useOutbox } from './useOutbox';
 
-// 画面は1つ。履歴と設定は落とした（D-120）。
+// 画面は2つ。今日と履歴（D-127）。
 //
-// 目的はジムで1回のセッションを記録し終えること。記録は溜まり続けるので、
-// 見たくなったときに履歴を戻せばよい。
+// 既定は必ず「今日」。ジムで開く目的は記録することで、履歴はその場では
+// 要らない。設定はタブにせず「今日」の末尾に畳んだまま置いている。
 export function App() {
   const { data, status, setStatus, loadAll, recordLocally, forgetLocally } = useLiftplan();
   const outbox = useOutbox(useCallback((id: string) => data.names.get(id) ?? id, [data.names]));
@@ -22,6 +24,7 @@ export function App() {
 
   const [online, setOnline] = useState(navigator.onLine);
   const [hasToken, setHasToken] = useState(() => getToken() !== '');
+  const [view, setView] = useState<View>('today');
 
   // 溜まっているものを先に送りきってから読む。
   //
@@ -81,10 +84,21 @@ export function App() {
           </div>
           <div className="ml-auto text-[13px] text-muted">{label(today())}</div>
         </div>
+        {hasToken && <Tabs view={view} onChange={setView} />}
       </header>
 
       <main className="mx-auto grid max-w-[620px] gap-3.5 p-4">
-        {hasToken ? (
+        {!hasToken ? (
+          <Setup
+            pending={outbox.pending}
+            onSaved={() => {
+              setHasToken(true);
+              setStatus('loading');
+            }}
+          />
+        ) : view === 'history' ? (
+          <History days={data.days} />
+        ) : (
           <Today
             data={data}
             offline={status === 'offline'}
@@ -96,13 +110,11 @@ export function App() {
             onForgetLocally={forgetLocally}
             onRecorded={timer.start}
             onReload={reload}
-          />
-        ) : (
-          <Setup
-            pending={outbox.pending}
-            onSaved={() => {
-              setHasToken(true);
-              setStatus('loading');
+            onForget={() => {
+              setHasToken(false);
+              // 「今日」に戻す。戻さないと、トークンを入れ直した直後に
+              // 履歴が開いた状態になる。
+              setView('today');
             }}
           />
         )}
