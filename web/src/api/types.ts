@@ -36,7 +36,6 @@ export type Program = {
 export type Exercise = {
   id: string;
   name: string;
-  kind: string;
   increment_kg: number;
 };
 
@@ -80,4 +79,31 @@ export type ConditionInput = {
   date: string;
   body_weight_kg?: number;
   sleep_hours?: number;
+};
+
+/** 推定1RM の1点。dto.go の pointDTO と対。 */
+export type TrendPoint = { date: string; kg: number };
+
+/** 種目ごとの推定1RM の推移。dto.go の trendDTO と対。 */
+export type Trend = {
+  exercise_id: string;
+  name: string;
+  points: TrendPoint[];
+  current_kg: number;
+  change_kg: number;
+};
+
+/** 筋区分ごとの週の充足。dto.go の volumeDTO と対。 */
+export type Volume = {
+  region: string;
+  target_sets: number;
+  done_sets: number;
+};
+
+/** dto.go の statsResponse と対。 */
+export type StatsResponse = {
+  from: string;
+  to: string;
+  trends: Trend[];
+  weekly_volume: Volume[];
 };

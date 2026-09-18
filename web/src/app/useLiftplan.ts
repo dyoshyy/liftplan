@@ -1,6 +1,7 @@
 import { useCallback, useState } from 'react';
 import { getJSON, Unauthorized } from '../api/client';
 import type {
+  Day,
   Exercise,
   ExercisesResponse,
   HistoryResponse,
@@ -16,6 +17,13 @@ export type Data = {
   last: Record<string, LastPerformance>;
   /** doneToday は今日の実績。サーバーから復元し、記録のたびに手元でも進める。 */
   doneToday: Map<string, RecordedSet[]>;
+  /**
+   * days は日ごとの記録。履歴の画面が使う。
+   *
+   * `/api/set-logs` の応答は「今日どこまでやったか」の復元に必ず要るので、
+   * 既に取ってある。捨てずに持つだけで、往復は1本も増えない。
+   */
+  days: Day[];
 };
 
 const empty: Data = {
@@ -23,15 +31,16 @@ const empty: Data = {
   names: new Map(),
   last: {},
   doneToday: new Map(),
+  days: [],
 };
 
 export type LoadState = 'loading' | 'ready' | 'offline' | 'unauthorized';
 
-// 読むのは2つだけ。
+// ここで読むのは2つだけ。
 //
-// /api/stats（履歴）と /api/program（設定）は叩かない。画面を落としたので
-// 読む相手がいない。サーバー側は残してあるので、戻すときは呼び出しを
-// 足すだけで済む。
+// /api/stats（履歴）と /api/program（設定）はここでは叩かない。それぞれの
+// 画面が開かれたときに自分で取りに行く（D-128）。ジムで毎回開く「今日」の
+// 読み込みに、見ていない画面の往復を混ぜない。
 export function useLiftplan() {
   const [data, setData] = useState<Data>(empty);
   const [status, setStatus] = useState<LoadState>('loading');
@@ -64,6 +73,8 @@ export function useLiftplan() {
         names: new Map(exercises.exercises.map((e: Exercise) => [e.id, e.name])),
         last: history.last_performances,
         doneToday,
+        // サーバーが新しい日から順に返す（query.History.Days）。並べ替えない。
+        days: history.days,
       });
 
       await loadToday();
