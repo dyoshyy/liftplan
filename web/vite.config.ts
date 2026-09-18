@@ -42,6 +42,11 @@ export default defineConfig(({ command, mode }) => {
       sourcemap: true,
     },
     test: {
+      // テストがフックのモジュールを読み込むと、依存を辿って api/client に
+      // 着く。あちらは読み込みの時点で VITE_API_BASE を要求する（手元を
+      // 指したバンドルを配らないための番人）。値そのものは使われないが、
+      // 渡さないと reducer のような純粋なものまで import できない。
+      env: { VITE_API_BASE: 'http://test.invalid' },
       environment: 'node',
       include: ['src/**/*.test.ts'],
     },

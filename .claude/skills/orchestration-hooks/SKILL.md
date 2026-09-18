@@ -103,9 +103,20 @@ liftplan には `web/scripts/*-check.mjs` がある。割ったら必ず回す�
 | 状態機械（遷移に規則がある） | 認証・読み込み・電波 | **使う** |
 | 手順（上から順に実行するだけ） | 記録を積む | 使わない |
 
-**使う本当の理由はテストにある。** reducer は純粋関数なので、`*.test.ts` でそのまま検査できる。`useState` を並べると遷移が各所に散り、検査できない。
+**使う理由は、遷移を1枚の表にして検査できるようにすること。** `useState` を並べると遷移が各所に散り、どこを直せばよいのか分からなくなる。reducer は純粋関数なので、**フックと同居したままで検査できる**（ファイルを分ける必要はない）。
 
 liftplan では `hasToken` と `status` が別々の `useState` にあり、「認証に落ちたらトークンを手放す」が `useEffect` で `status` を見張る形だった。**遷移が2箇所に割れていて、どちらか一方だけ直すと画面が固まる。**
+
+## 純粋関数をどこに置くか
+
+**使う相手が1つなら、フックと同居させてよい。** reducer は純粋関数なので、同じファイルにあっても `*.test.ts` から import して検査できる。
+
+ただし**テストがフックのモジュールを読み込むと、依存を辿った先の副作用に巻き込まれる**。liftplan では `api/client` が読み込みの時点で `VITE_API_BASE` を要求するため、`vite.config.ts` の `test.env` で渡している。これを踏んだら、次のどちらかを選ぶ。
+
+- テスト環境に値を渡す（1行。同居のまま）
+- 純粋関数だけ別ファイルへ出す（依存グラフから切れる。ファイルが1つ増える）
+
+**複数の場所から使うものは、最初から別ファイルにする。** liftplan の `route.ts` は `useRoute` と `BottomNav` の両方が使うので分けてある。
 
 ## よくある詰まり
 
@@ -131,6 +142,6 @@ type LoadResult = { ok: true } | { ok: false; reason: 'offline' | 'unauthorized'
 | 判断 | 手順 | 描画 |
 |---|---|---|
 | `features/today/record.ts` | `useRecordOrchestrator.ts` | `Today.tsx` |
-| `app/session.ts` | `useSessionOrchestrator.ts` | `App.tsx` |
+| （`useSessionOrchestrator.ts` に同居） | `useSessionOrchestrator.ts` | `App.tsx` |
 | `features/settings/program.ts` | `useProgramSettings.ts` | `ProgramSettings.tsx` |
 | `app/sync.ts` / `app/route.ts` | `useRoute.ts` | `BottomNav.tsx` |

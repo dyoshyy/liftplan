@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { initialSession, sessionReducer, type SessionState } from './session';
+import { initialSession, sessionReducer, type SessionState } from './useSessionOrchestrator';
 
 const signedIn: SessionState = { hasToken: true, load: 'ready', online: true };
 
