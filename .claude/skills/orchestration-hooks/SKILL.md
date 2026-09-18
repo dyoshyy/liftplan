@@ -1,0 +1,136 @@
+---
+name: orchestration-hooks
+description: React/TypeScript の画面にロジックが埋まっているとき、それを「判断（純粋関数）／手順（フック）／描画（.tsx）」の3層に割り直す型。コンポーネントが長い、useEffect が絡んでいる、await が並んでいる、テストが書けない、新しい機能を足す前に整理したい、といったときに使う。新しく画面や機能を足すときも、最初からこの形で書くために読む。
+---
+
+# オーケストレーション・フック
+
+参考: [Mastering the Orchestration Pattern in React](https://dev.to/maximlogunov/mastering-the-orchestration-pattern-in-react-taming-complex-component-logic-5c9i)（Maxim Logunov）
+
+記事の骨子はそのまま使えるが、**このリポジトリでは「純粋関数を最大化する」方向に寄せている**。理由は次の節。
+
+## なぜやるか — テストできるかで決まる
+
+`vitest.config` は `*.test.ts` だけを拾う（`environment: 'node'`）。つまり **`.tsx` に書いた判断は、構造上テストできない**。
+
+liftplan では、記録の順序を1つ間違えると記録が消える。その判断が `Today.tsx` の中にあり、守っているものが1つも無かった。**層を割る目的は整理ではなく、検査できる場所へ判断を移すこと。**
+
+割ったあと `planRecord` に変異を3つ入れたら、3つとも赤くなった。割る前は1つも赤くならない。
+
+## 3つの層
+
+```
+features/<機能>/
+  Xxx.tsx                  描画だけ。await がゼロになるのが目安
+  useXxxOrchestrator.ts    手順。返ってきたものを順に実行するだけ
+  xxx.ts                   判断。純粋関数。テストはここに集める
+```
+
+**判断（`.ts`・純粋）** — 入力から出力が決まるもの。何をどの順で送るか、値が妥当か、変わったか、どう表示するか。
+
+**手順（`use*.ts`・フック）** — 状態を持ち、副作用を起こす。ただし**分岐を書かない**。分岐を書いた時点で、また DOM 無しでは検査できないものに戻る。
+
+**描画（`.tsx`）** — JSX と、開閉やフォーカスといった見た目だけの state。
+
+## 手順
+
+### 1. 絡んでいる箇所を1つ選ぶ
+
+全部を一度に割らない。`await` が並んでいる関数、`useEffect` が2つ以上ある部品、200行を超えた `.tsx` が候補。
+
+**間違えると被害が大きい順に選ぶ。** 行数順ではない。liftplan では記録 → セッション → 設定の順に割った。
+
+### 2. 判断を純粋関数として切り出す。テストを先に書く
+
+**関数の形を先に決める。** 手順の関数は「何をするか」ではなく「**何をどの順ですべきか**」を返す。
+
+```ts
+// 良い: 決めるだけ。実行しない
+planRecord(input): { queue: QueueItem[]; local: {...}; startRest: boolean }
+
+// 悪い: 中で送ってしまうと、送らずに検査できない
+async function record(input): Promise<void>
+```
+
+時刻・乱数・`Date.now()` は**引数で受け取る**。中で呼ぶと結果が毎回変わり、検査できない。
+
+```ts
+planRecord({ ...input, date: today(), newId })  // 呼び手が渡す
+```
+
+テストは**間違えたときに何が起きるか**をコメントに書く。
+
+```ts
+// 同じIDで内容を変えるとサーバーが衝突として弾く契約なので、
+// 先に消してから入れ直す。順序が逆になると、入れた直後に消える。
+it('修正は DELETE を先に積んでから POST する', () => { ... });
+```
+
+### 3. 変異を入れて、赤くなることを確かめる
+
+`CLAUDE.md` の手順そのもの。**ここを飛ばすと「緑だが何も守っていないテスト」が残る。**
+
+判断を切り出した直後は特に危ない。形を変えただけで、実は何も検査していないことがある。
+
+### 4. フックを書く。薄く保つ
+
+フックは**判断を呼び、返ってきた順に実行するだけ**。
+
+```ts
+const plan = planRecord({ ... });
+for (const item of plan.queue) await enqueue(item);
+if (plan.startRest) onRestStart();
+```
+
+`plan.queue` を並べ替えない。順序は判断側が決めている。
+
+### 5. `.tsx` から消す
+
+目安は `await` がゼロになること。残っていたら、まだ手順が描画に混ざっている。
+
+### 6. 実機で退行が無いことを確かめる
+
+**単体テストは「判断が正しいか」しか見ていない。配線が合っているかは見ていない。** 依存配列の漏れ、props の付け替えミス、二重実行は緑のまま通る。
+
+liftplan には `web/scripts/*-check.mjs` がある。割ったら必ず回す。
+
+## `useReducer` を使う基準
+
+記事は一律に勧めるが、**状態機械のときだけ**入れる。
+
+| 形 | 例 | 使うか |
+|---|---|---|
+| 状態機械（遷移に規則がある） | 認証・読み込み・電波 | **使う** |
+| 手順（上から順に実行するだけ） | 記録を積む | 使わない |
+
+**使う本当の理由はテストにある。** reducer は純粋関数なので、`*.test.ts` でそのまま検査できる。`useState` を並べると遷移が各所に散り、検査できない。
+
+liftplan では `hasToken` と `status` が別々の `useState` にあり、「認証に落ちたらトークンを手放す」が `useEffect` で `status` を見張る形だった。**遷移が2箇所に割れていて、どちらか一方だけ直すと画面が固まる。**
+
+## よくある詰まり
+
+**フックが呼び手に値を要求して循環する。** `useOutbox(nameOf)` の `nameOf` は `data.names` から作るが、`data` はフックの中にある。→ **オーケストレーターの中で解決して、外に出す。**
+
+**フックが古い値を掴む。** `setX(null)` の直後に、`X` を見て早期 return する関数を呼んでも、描画時の古い `X` を見る。liftplan ではこれで設定画面が空白になっていた。→ **「取りに行く」と「無ければ取りに行く」を分ける。**
+
+**下位のフックが状態を持ちたがる。** `useLiftplan` が `status` を持つと、セッションの遷移が2箇所に割れる。→ **結果を返すだけにして、どう扱うかは呼び手が決める。**
+
+```ts
+type LoadResult = { ok: true } | { ok: false; reason: 'offline' | 'unauthorized' };
+```
+
+## やらないこと
+
+- **使っていない層を先に作る。** 必要になってから足す（`CLAUDE.md`）
+- **手順に状態機械を作る。** 増えるのは定型文だけ
+- **フックのテストのために jsdom と testing-library を入れる。** 判断を純粋関数に出せば要らない。入れるのは、配線そのものを検査したくなったとき
+- **一度に全部割る。** 1箇所ずつ、実機で確認しながら
+
+## この形で書かれている場所
+
+| 判断 | 手順 | 描画 |
+|---|---|---|
+| `features/today/record.ts` | `useRecordOrchestrator.ts` | `Today.tsx` |
+| `app/session.ts` | `useSessionOrchestrator.ts` | `App.tsx` |
+| `features/settings/program.ts` | `useProgramSettings.ts` | `ProgramSettings.tsx` |
+| `app/sync.ts` / `app/route.ts` | `useRoute.ts` | `BottomNav.tsx` |
