@@ -150,3 +150,12 @@ func mustIncrement(t *testing.T, kg float64) training.Increment {
 	}
 	return i
 }
+
+func mustFrequency(t *testing.T, n int) program.Frequency {
+	t.Helper()
+	f, err := program.NewFrequency(n)
+	if err != nil {
+		t.Fatalf("NewFrequency(%d): %v", n, err)
+	}
+	return f
+}

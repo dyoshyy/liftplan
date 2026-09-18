@@ -161,7 +161,7 @@ func (p *Program) DeclaredExercises() []exercise.ExerciseID {
 
 // FocusExercise は重点種目。指定が無ければ false。
 //
-// ポインタではなく (値, bool) を返すのは、Weight() や Intent() と同じ
+// ポインタではなく (値, bool) を返すのは、Weight() と同じ
 // 「任意項目」の規約に揃えるため。ポインタだと呼び出し側が nil 判定と
 // 逆参照の2手を踏むうえ、集約の内部フィールドのアドレスが外へ出る。
 func (p *Program) FocusExercise() (exercise.ExerciseID, bool) {

@@ -4,6 +4,7 @@ import { today } from '../../domain/date';
 import { newId } from '../../domain/id';
 import type { Data } from '../../app/useLiftplan';
 import { ExerciseCard, type CardPlan } from './ExerciseCard';
+import { leftovers } from './leftovers';
 import { RecordSheet, type SheetTarget } from './RecordSheet';
 import { BodyWeight } from './BodyWeight';
 import type { QueueItem } from '../../outbox/db';
@@ -27,24 +28,10 @@ export function Today(props: Props) {
   const doneOf = (id: string) => data.doneToday.get(id) ?? [];
 
   const main = data.session?.main ?? [];
+  const variation = data.session?.variation ?? [];
   const accessories = data.session?.accessories ?? [];
 
-  // 今日やったのに、今の予定に入っていないものを出す。
-  //
-  // 補助種目は終わると枠から外れるので、セッションを終えて開き直すと
-  // カードが11枚から3枚に減る。やった24セットが今日の画面から消えて、
-  // 記録が飛んだように見える。
-  const planned = new Set([...main, ...accessories].map((p) => p.exercise_id));
-  const leftovers: CardPlan[] = [...data.doneToday.entries()]
-    .filter(([id, sets]) => !planned.has(id) && sets.length > 0)
-    .sort((a, b) => (a[0] < b[0] ? -1 : 1))
-    .map(([id, sets]) => ({
-      exercise_id: id,
-      weight_kg: null,
-      sets: sets.length,
-      target_rir: 0,
-      finished_only: true,
-    }));
+  const done = leftovers([main, variation, accessories], data.doneToday);
 
   const record = async (values: { weight: number; reps: number; rir: number }) => {
     if (!sheet) return;
@@ -141,13 +128,20 @@ export function Today(props: Props) {
         </div>
       )}
 
+      {/* レーンの見出し。強度が3段階あることは、見出しでしか分からない。
+          以前は HEAVY バッジがカードに付いていたが、狙いがレーンごとの定数に
+          なった時点で、種目ではなく枠の性質になった（D-126）。 */}
+      {main.length > 0 && <p className="card-title mb-0">軸</p>}
       {main.map(card)}
+
+      {variation.length > 0 && <p className="card-title mb-0">バリエーション</p>}
+      {variation.map(card)}
 
       {accessories.length > 0 && <p className="card-title mb-0">補助種目</p>}
       {accessories.map(card)}
 
-      {leftovers.length > 0 && <p className="card-title mb-0">今日やったもの</p>}
-      {leftovers.map(card)}
+      {done.length > 0 && <p className="card-title mb-0">今日やったもの</p>}
+      {done.map(card)}
 
       <BodyWeight enqueue={enqueue} />
 

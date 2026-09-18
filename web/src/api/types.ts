@@ -10,12 +10,16 @@ export type PlannedSet = {
   weight_kg: number | null;
   sets: number;
   target_rir: number;
-  intent?: string;
 };
 
+/**
+ * 3レーン。軸は必ず1件、バリエーションは高々1件、補助は0件以上。
+ * 出ない日は null ではなく空配列で来る（dto.go）。
+ */
 export type Session = {
   date: string;
   main: PlannedSet[];
+  variation: PlannedSet[];
   accessories: PlannedSet[];
 };
 
