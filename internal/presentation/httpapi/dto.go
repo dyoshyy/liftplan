@@ -142,6 +142,11 @@ type selectedDTO struct {
 	Selected []string `json:"selected_exercises"`
 }
 
+// targetDTO は週目標だけの書き込み。
+type targetDTO struct {
+	Target map[string]float64 `json:"weekly_target"`
+}
+
 func toProgramDTO(p *program.Program) programDTO {
 	target := map[string]float64{}
 	for _, r := range p.WeeklyTarget().Regions() {

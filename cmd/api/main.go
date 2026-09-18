@@ -227,6 +227,7 @@ func buildHandler(ctx context.Context) (http.Handler, func(), error) {
 		usecase.NewSetDeclaredExercises(programs, programs),
 		usecase.NewSetFrequency(programs, programs),
 		usecase.NewSetSelectedExercises(exercises, programs, programs),
+		usecase.NewSetWeeklyTarget(exercises, programs, programs),
 		usecase.NewGetProgram(programs),
 		usecase.NewDeleteSetLog(logs),
 		query.NewExercises(exercises),

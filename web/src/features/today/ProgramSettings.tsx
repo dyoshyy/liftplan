@@ -3,6 +3,17 @@ import { getJSON, send } from '../../api/client';
 import type { Program } from '../../api/types';
 import { focusBody, focusOptions, NO_FOCUS } from './focus';
 import { lockedDeclared, lockedSelected, toggleDeclared } from './declared';
+import { regionLabel } from '../../domain/regions';
+
+/**
+ * asText は週目標を入力欄の文字列にする。
+ *
+ * 数値のまま持つと、入力中の「1.」や空欄が NaN になって値が飛ぶ。
+ * 文字列で持ち、保存のときだけ数値にする。
+ */
+function asText(target: Record<string, number>): Record<string, string> {
+  return Object.fromEntries(Object.entries(target).map(([k, v]) => [k, String(v)]));
+}
 
 type Props = {
   /** 種目IDを表示名にする。 */
@@ -37,6 +48,7 @@ export function ProgramSettings({ nameOf, allExerciseIds, onChanged }: Props) {
   // 1つ動かすたびに送ると、そのたびにメニューが組み替わる。
   const [draft, setDraft] = useState<string[] | null>(null);
   const [pick, setPick] = useState<string[] | null>(null);
+  const [target, setTarget] = useState<Record<string, string> | null>(null);
 
   const expand = async () => {
     setOpen(true);
@@ -47,6 +59,7 @@ export function ProgramSettings({ nameOf, allExerciseIds, onChanged }: Props) {
       setProgram(p);
       setDraft(p.declared_exercises);
       setPick(p.selected_exercises);
+      setTarget(asText(p.weekly_target));
     } catch {
       setNote('設定を読めませんでした');
     }
@@ -96,6 +109,22 @@ export function ProgramSettings({ nameOf, allExerciseIds, onChanged }: Props) {
     await onChanged();
   };
 
+  const saveTarget = async () => {
+    if (!program || !target || busy) return;
+    const parsed: Record<string, number> = {};
+    for (const [region, text] of Object.entries(target)) {
+      const v = Number.parseFloat(text);
+      if (!Number.isFinite(v)) {
+        setNote(`${regionLabel(region)} の値が数字ではありません`);
+        return;
+      }
+      parsed[region] = v;
+    }
+    if (!(await put('/api/program/target', { weekly_target: parsed }))) return;
+    setProgram({ ...program, weekly_target: parsed });
+    await onChanged();
+  };
+
   const saveFrequency = async (n: number) => {
     if (!program || busy) return;
     if (!(await put('/api/program/frequency', { per_week: n }))) return;
@@ -103,6 +132,7 @@ export function ProgramSettings({ nameOf, allExerciseIds, onChanged }: Props) {
     setProgram(null);
     setDraft(null);
     setPick(null);
+    setTarget(null);
     await onChanged();
     await expand();
   };
@@ -119,6 +149,10 @@ export function ProgramSettings({ nameOf, allExerciseIds, onChanged }: Props) {
   const dirty =
     program && draft
       ? draft.join(',') !== [...program.declared_exercises].sort().join(',')
+      : false;
+  const targetDirty =
+    program && target
+      ? JSON.stringify(target) !== JSON.stringify(asText(program.weekly_target))
       : false;
   const pickDirty =
     program && pick
@@ -251,6 +285,46 @@ export function ProgramSettings({ nameOf, allExerciseIds, onChanged }: Props) {
           onClick={() => void saveSelected()}
         >
           使う種目を保存する
+        </button>
+      )}
+
+      <p className="card-title mt-5">週の目標セット数</p>
+      <p className="note mb-3">
+        区分ごとの1週間の目安です。通う回数を変えると、ここも回数に合わせて
+        置き直ります。届かない目標を置くと毎週すべてが赤字になるだけなので、
+        不満が出た区分だけ動かすのが楽です。
+      </p>
+
+      {target && (
+        <div className="grid gap-2">
+          {Object.keys(target)
+            .sort()
+            .map((region) => (
+              <div key={region} className="field">
+                <label htmlFor={`t-${region}`}>{regionLabel(region)}</label>
+                <input
+                  id={`t-${region}`}
+                  type="number"
+                  inputMode="decimal"
+                  step="0.5"
+                  min="0"
+                  value={target[region]}
+                  disabled={busy}
+                  onChange={(e) => setTarget({ ...target, [region]: e.target.value })}
+                />
+              </div>
+            ))}
+        </div>
+      )}
+
+      {targetDirty && (
+        <button
+          type="button"
+          className="btn mt-3"
+          disabled={busy}
+          onClick={() => void saveTarget()}
+        >
+          週の目標を保存する
         </button>
       )}
 
