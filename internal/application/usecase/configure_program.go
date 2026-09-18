@@ -2,23 +2,14 @@ package usecase
 
 import (
 	"context"
-	"errors"
 	"fmt"
+	"github.com/dyoshyy/liftplan/internal/application/apperror"
 	"sort"
 
 	"github.com/dyoshyy/liftplan/internal/domain/training"
 	"github.com/dyoshyy/liftplan/internal/domain/training/exercise"
 	"github.com/dyoshyy/liftplan/internal/domain/training/program"
 )
-
-// ErrInvalidInput は入力そのものが不正であることを表す。
-//
-// プレゼンテーション層が 400 と 500 を区別するための分類。ドメインの
-// コンストラクタが返すのは匿名のエラーなので、包み直さないと
-// 「ユーザーの入力が悪い」と「データベースが落ちている」が同じ形になる。
-// 区別できないと、入力ミスが全部 500 になるか I/O 障害が全部 400 になるかの
-// 二択になり、前者はクライアントに無駄なリトライをさせる。
-var ErrInvalidInput = errors.New("入力が不正である")
 
 // ConfigureProgramInput はプログラム設定の入力。
 //
@@ -52,21 +43,25 @@ func NewConfigureProgram(
 	return &ConfigureProgram{exercises: exercises, programs: programs}
 }
 
-func (u *ConfigureProgram) Execute(ctx context.Context, in ConfigureProgramInput) error {
+func (u *ConfigureProgram) Execute(ctx context.Context, in ConfigureProgramInput) (err error) {
+	// 出口で1度だけ翻訳する。return ごとに書くと、経路が増えたときに
+	// 包み忘れた1本だけが 500 で返る。
+	defer func() { err = classify(err) }()
+
 	// I/O を必要としない検証を先に済ませる。後回しにすると、頻度が範囲外
 	// という自明な入力ミスが、種目マスタの障害時に「種目の取得に失敗」として
 	// 返る。クライアントは自分の入力を直さずリトライを繰り返す。
 	frequency, err := program.NewFrequency(in.PerWeek)
 	if err != nil {
-		return fmt.Errorf("%w: 頻度: %w", ErrInvalidInput, err)
+		return fmt.Errorf("%w: 頻度: %w", apperror.ErrInvalidInput, err)
 	}
 	target, err := program.NewWeeklyVolumeTarget(in.Target)
 	if err != nil {
-		return fmt.Errorf("%w: 週目標: %w", ErrInvalidInput, err)
+		return fmt.Errorf("%w: 週目標: %w", apperror.ErrInvalidInput, err)
 	}
 	prog, err := program.NewProgram(frequency, target, in.Selected, in.Declared, in.Focus)
 	if err != nil {
-		return fmt.Errorf("%w: プログラム: %w", ErrInvalidInput, err)
+		return fmt.Errorf("%w: プログラム: %w", apperror.ErrInvalidInput, err)
 	}
 
 	if err := ctx.Err(); err != nil {
@@ -101,7 +96,7 @@ func verifySelection(pool []*exercise.Exercise, prog *program.Program) error {
 	for _, id := range prog.SelectedExercises() {
 		e, ok := known[id]
 		if !ok {
-			return fmt.Errorf("%w: %w: %s", ErrInvalidInput, exercise.ErrExerciseNotFound, id)
+			return fmt.Errorf("%w: %w: %s", apperror.ErrInvalidInput, exercise.ErrExerciseNotFound, id)
 		}
 		selected = append(selected, e)
 	}
@@ -115,7 +110,7 @@ func verifySelection(pool []*exercise.Exercise, prog *program.Program) error {
 	if !stimulatesAnyTarget(selected, prog) {
 		return fmt.Errorf(
 			"%w: 選択した種目が週目標のどの筋区分も刺激しない: %v",
-			ErrInvalidInput, sortedRegions(prog.WeeklyTarget()))
+			apperror.ErrInvalidInput, sortedRegions(prog.WeeklyTarget()))
 	}
 	return nil
 }

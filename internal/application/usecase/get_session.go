@@ -43,7 +43,11 @@ func NewGetSession(
 	}
 }
 
-func (u *GetSession) Execute(ctx context.Context, in GetSessionInput) (planning.PlannedSession, error) {
+func (u *GetSession) Execute(ctx context.Context, in GetSessionInput) (_ planning.PlannedSession, err error) {
+	// 出口で1度だけ翻訳する。return ごとに書くと、経路が増えたときに
+	// 包み忘れた1本だけが 500 で返る。
+	defer func() { err = classify(err) }()
+
 	if in.Date.IsZero() {
 		return planning.PlannedSession{}, errors.New("対象日が指定されていない")
 	}

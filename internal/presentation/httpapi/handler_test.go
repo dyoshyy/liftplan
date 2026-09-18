@@ -866,6 +866,67 @@ func TestPutProgram_ClassifiesFailures(t *testing.T) {
 	}
 }
 
+// 保存先に到達できないときは 503。500 と混ぜない。
+//
+// 後で送り直せば通るものを 500 で返すと、待ち行列が「送り直しても無駄」と
+// 読んで記録を捨てる。分類を消しても 500 で緑になるので、独立に見る。
+type unavailableExercises struct{}
+
+func (unavailableExercises) FindAll(context.Context) ([]*exercise.Exercise, error) {
+	return nil, fmt.Errorf("種目の取得: %w: dial tcp 10.0.0.1:5432: connect: refused",
+		training.ErrRepositoryUnavailable)
+}
+
+func TestGetSession_UnavailableIsNot500(t *testing.T) {
+	pool, err := seed.Exercises()
+	if err != nil {
+		t.Fatalf("シードが不正: %v", err)
+	}
+	freq, _ := program.NewFrequency(3)
+	target, _ := seed.DefaultWeeklyTarget(freq)
+	selected := make([]exercise.ExerciseID, 0, len(pool))
+	for _, e := range pool {
+		selected = append(selected, e.ID())
+	}
+	prog, err := program.NewProgram(freq, target, selected,
+		[]exercise.ExerciseID{"bench", "squat", "deadlift"}, "")
+	if err != nil {
+		t.Fatalf("プログラムが不正: %v", err)
+	}
+	programs := memory.NewProgramRepository(nil)
+	if err := programs.Save(context.Background(), prog); err != nil {
+		t.Fatalf("プログラムの保存に失敗: %v", err)
+	}
+
+	logs := memory.NewSetLogRepository()
+	conditions := memory.NewConditionRepository()
+	mux := httpapi.NewHandler(
+		usecase.NewGetSession(unavailableExercises{}, logs, conditions, programs, planning.DefaultSessionPlanner()),
+		usecase.NewRecordSets(logs, unavailableExercises{}),
+		usecase.NewRecordConditions(conditions),
+		usecase.NewConfigureProgram(unavailableExercises{}, programs),
+		usecase.NewSetFocusExercise(programs, programs),
+		usecase.NewSetDeclaredExercises(programs, programs),
+		usecase.NewSetFrequency(programs, programs),
+		usecase.NewSetSelectedExercises(unavailableExercises{}, programs, programs),
+		usecase.NewSetWeeklyTarget(unavailableExercises{}, programs, programs),
+		usecase.NewGetProgram(programs),
+		usecase.NewDeleteSetLog(logs),
+		query.NewExercises(unavailableExercises{}),
+		query.NewHistory(logs, unavailableExercises{}),
+		query.NewStats(logs, unavailableExercises{}, programs, planning.DefaultOneRepMaxEstimator()),
+	).Routes()
+
+	rec := do(t, mux, http.MethodGet, "/api/sessions?date=2026-08-17", "")
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Errorf("ステータスが %d。503 のはず: %s", rec.Code, rec.Body.String())
+	}
+	// 接続文字列は外に出さない。
+	if strings.Contains(rec.Body.String(), "10.0.0.1") {
+		t.Errorf("接続先が漏れている: %s", rec.Body.String())
+	}
+}
+
 // 500 のときに内部のエラー文を返さないこと。
 // ドメインのエラーには種目IDや閾値が載っており、外に出す理由がない。
 func TestErrors_DoNotLeakInternals(t *testing.T) {

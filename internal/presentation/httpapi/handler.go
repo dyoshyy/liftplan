@@ -9,12 +9,12 @@ import (
 	"mime"
 	"net/http"
 
+	"github.com/dyoshyy/liftplan/internal/application/apperror"
 	"github.com/dyoshyy/liftplan/internal/application/query"
 	"github.com/dyoshyy/liftplan/internal/application/usecase"
 	"github.com/dyoshyy/liftplan/internal/domain/training"
 	"github.com/dyoshyy/liftplan/internal/domain/training/condition"
 	"github.com/dyoshyy/liftplan/internal/domain/training/exercise"
-	"github.com/dyoshyy/liftplan/internal/domain/training/program"
 	"github.com/dyoshyy/liftplan/internal/domain/training/setlog"
 )
 
@@ -74,44 +74,67 @@ func NewHandler(
 // 500 と混ぜるとログと警報がクライアントの都合で汚れる。
 const clientClosedRequest = 499
 
-// respondError は失敗をステータスコードに翻訳する。
+// respondError は失敗を HTTP に翻訳する。
 //
-// 分類の根拠を1箇所に集める。ハンドラごとに errors.Is を並べると、
-// 新しいセンチネルを足したときに拾い漏らすハンドラが出る。
+// 見るのは apperror.Error 1つだけ。ドメインのセンチネルをここで並べると、
+// センチネルを足すたびに presentation が動き、拾い漏らした分類が黙って
+// 500 になる。翻訳はユースケース層の classify が持つ。
 //
-// 500 のときだけ内部のエラー文を返さない。ドメインのエラーには
-// 種目IDや閾値が載っており、外に出す理由がない。
+// context の2つだけは別扱い。ユースケースを通らずに決まる転送層の事情で、
+// 応答の形も違う（切断はボディを返さない）。
+//
+// 4xx は詳細を返し、5xx は隠す。前者は送り主が直せるもので、隠すと直せない。
+// 後者にはドメインの内部（種目IDや閾値）が載っており、外に出す理由がない。
 func respondError(w http.ResponseWriter, err error) {
 	switch {
 	case errors.Is(err, context.Canceled):
 		// ボディを返さないのは、読む相手がもう居ないから。
 		w.WriteHeader(clientClosedRequest)
+		return
 	case errors.Is(err, context.DeadlineExceeded):
-		writeError(w, http.StatusGatewayTimeout, "処理が時間内に終わらなかった")
-	case errors.Is(err, errBodyTooLarge):
-		writeError(w, http.StatusRequestEntityTooLarge, err.Error())
-	case errors.Is(err, usecase.ErrInvalidInput):
-		writeError(w, http.StatusBadRequest, err.Error())
-	case errors.Is(err, program.ErrProgramNotConfigured):
-		writeError(w, http.StatusConflict, "プログラムが未設定である")
-	case errors.Is(err, setlog.ErrConflictingSetLog):
-		writeError(w, http.StatusConflict, err.Error())
-	case errors.Is(err, training.ErrRepositoryUnavailable):
-		// 後で送り直せば通る。500 と混ぜるとクライアントが諦める。
-		slog.Error("保存先に到達できない", "error", err)
-		writeError(w, http.StatusServiceUnavailable, "一時的に利用できない")
-	default:
-		// クライアントから隠すことと、記録に残さないことは別。
-		// 記録しないと、障害時に運用者へ残るのは「内部エラーが発生した」だけで
-		// 原因が完全に消える。
-		slog.Error("リクエストの処理に失敗", "error", err)
-		writeError(w, http.StatusInternalServerError, "内部エラーが発生した")
+		respondCoded(w, apperror.ErrTimeout, err)
+		return
 	}
+
+	var coded *apperror.Error
+	if !errors.As(err, &coded) {
+		// 分類できないものは 500。クライアントから隠すことと、記録に
+		// 残さないことは別。記録しないと、障害時に運用者へ残るのは
+		// 「内部エラーが発生した」だけで原因が完全に消える。
+		slog.Error("分類できないエラー", "error", err, "type", fmt.Sprintf("%T", err))
+		respondCoded(w, apperror.ErrInternal, nil)
+		return
+	}
+	respondCoded(w, coded, err)
+}
+
+// respondCoded は分類済みのエラーを応答とログにする。
+//
+// ログの高さを分けるのは、鳴らす相手が違うから。4xx は送り主の問題で
+// サーバーは正しく動いているので Info。503 は一時障害なので Warn。
+// 500 だけが調べるべきもので Error。ここを揃えると、4xx が並ぶだけで
+// 警報が鳴り、本当の障害が埋もれる。
+func respondCoded(w http.ResponseWriter, coded *apperror.Error, cause error) {
+	message := coded.Error()
+	switch {
+	case coded.HTTPStatus() < 500:
+		if cause != nil {
+			message = cause.Error()
+		}
+		slog.Info("リクエストを拒否", "code", coded.Code(), "error", cause)
+	case coded.HTTPStatus() == http.StatusServiceUnavailable:
+		slog.Warn("一時的に利用できない", "code", coded.Code(), "error", cause)
+	default:
+		if cause != nil {
+			slog.Error("リクエストの処理に失敗", "code", coded.Code(), "error", cause)
+		}
+	}
+	writeJSON(w, coded.HTTPStatus(), errorResponse{Code: coded.Code(), Error: message})
 }
 
 // invalidInput は入力の不正を、分類できる形で作る。
 func invalidInput(message string) error {
-	return fmt.Errorf("%w: %s", usecase.ErrInvalidInput, message)
+	return fmt.Errorf("%w: %s", apperror.ErrInvalidInput, message)
 }
 
 func (h *Handler) handleGetSession(w http.ResponseWriter, r *http.Request) {
@@ -229,12 +252,6 @@ func (h *Handler) handlePostConditions(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) handleGetProgram(w http.ResponseWriter, r *http.Request) {
 	prog, err := h.getProgram.Execute(r.Context())
 	if err != nil {
-		// 取得の文脈では 404。まだ存在しないという意味であって、
-		// 状態の衝突ではない。
-		if errors.Is(err, program.ErrProgramNotConfigured) {
-			writeError(w, http.StatusNotFound, "プログラムが未設定である")
-			return
-		}
 		respondError(w, err)
 		return
 	}
@@ -371,8 +388,11 @@ func (h *Handler) handlePutProgramTarget(w http.ResponseWriter, r *http.Request)
 // エンドポイントに巨大なボディを投げるだけでメモリを食い潰せる。
 const maxBodyBytes = 1 << 20
 
-// errBodyTooLarge はボディが上限を超えたことを表す。413 に翻訳する。
-var errBodyTooLarge = errors.New("リクエストボディが大きすぎる")
+// errBodyTooLarge はボディが上限を超えたことを表す。
+//
+// 転送層の事情なのでユースケースを通らない。apperror を直接組んで、
+// respondError が他と同じ経路で扱えるようにする。
+var errBodyTooLarge = fmt.Errorf("%w", apperror.ErrTooLarge)
 
 // decodeJSON はボディを1つの JSON ドキュメントとして読む。
 //
@@ -395,10 +415,10 @@ func decodeJSON(r *http.Request, dst any) error {
 		}
 		// 標準ライブラリのエラーには Go の型名・フィールド名が載る。
 		// ユーザーが直せる情報ではないので外に出さない。
-		return fmt.Errorf("%w: リクエストボディを解釈できない", usecase.ErrInvalidInput)
+		return fmt.Errorf("%w: リクエストボディを解釈できない", apperror.ErrInvalidInput)
 	}
 	if dec.More() {
-		return fmt.Errorf("%w: リクエストボディに余分なデータがある", usecase.ErrInvalidInput)
+		return fmt.Errorf("%w: リクエストボディに余分なデータがある", apperror.ErrInvalidInput)
 	}
 	return nil
 }
@@ -411,11 +431,11 @@ func decodeJSON(r *http.Request, dst any) error {
 func requireJSONContentType(r *http.Request) error {
 	raw := r.Header.Get("Content-Type")
 	if raw == "" {
-		return fmt.Errorf("%w: Content-Type が無い", usecase.ErrInvalidInput)
+		return fmt.Errorf("%w: Content-Type が無い", apperror.ErrInvalidInput)
 	}
 	mediaType, _, err := mime.ParseMediaType(raw)
 	if err != nil || mediaType != "application/json" {
-		return fmt.Errorf("%w: Content-Type は application/json である必要がある", usecase.ErrInvalidInput)
+		return fmt.Errorf("%w: Content-Type は application/json である必要がある", apperror.ErrInvalidInput)
 	}
 	return nil
 }

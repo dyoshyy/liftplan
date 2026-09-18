@@ -3,6 +3,7 @@ package usecase
 import (
 	"context"
 	"fmt"
+	"github.com/dyoshyy/liftplan/internal/application/apperror"
 
 	"github.com/dyoshyy/liftplan/internal/domain/training/setlog"
 )
@@ -20,9 +21,13 @@ func NewDeleteSetLog(repo setlog.Writer) *DeleteSetLog {
 	return &DeleteSetLog{repo: repo}
 }
 
-func (u *DeleteSetLog) Execute(ctx context.Context, id setlog.SetLogID) error {
+func (u *DeleteSetLog) Execute(ctx context.Context, id setlog.SetLogID) (err error) {
+	// 出口で1度だけ翻訳する。return ごとに書くと、経路が増えたときに
+	// 包み忘れた1本だけが 500 で返る。
+	defer func() { err = classify(err) }()
+
 	if id == "" {
-		return fmt.Errorf("%w: 取り消す記録のIDが無い", ErrInvalidInput)
+		return fmt.Errorf("%w: 取り消す記録のIDが無い", apperror.ErrInvalidInput)
 	}
 	if err := ctx.Err(); err != nil {
 		return fmt.Errorf("取り消しが中断された: %w", err)

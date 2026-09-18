@@ -3,6 +3,7 @@ package usecase
 import (
 	"context"
 	"fmt"
+	"github.com/dyoshyy/liftplan/internal/application/apperror"
 
 	"github.com/dyoshyy/liftplan/internal/domain/training/exercise"
 	"github.com/dyoshyy/liftplan/internal/domain/training/program"
@@ -31,7 +32,11 @@ func NewSetFocusExercise(reader program.Reader, writer program.Writer) *SetFocus
 //
 // ConfigureProgram と違って I/O より先に検証できない。重点種目が妥当かは
 // 宣言種目を見ないと決まらず、宣言種目は保存済みのプログラムの中にある。
-func (u *SetFocusExercise) Execute(ctx context.Context, focus exercise.ExerciseID) error {
+func (u *SetFocusExercise) Execute(ctx context.Context, focus exercise.ExerciseID) (err error) {
+	// 出口で1度だけ翻訳する。return ごとに書くと、経路が増えたときに
+	// 包み忘れた1本だけが 500 で返る。
+	defer func() { err = classify(err) }()
+
 	prog, err := u.reader.Get(ctx)
 	if err != nil {
 		return err
@@ -39,7 +44,7 @@ func (u *SetFocusExercise) Execute(ctx context.Context, focus exercise.ExerciseI
 
 	next, err := prog.WithFocus(focus)
 	if err != nil {
-		return fmt.Errorf("%w: 重点種目: %w", ErrInvalidInput, err)
+		return fmt.Errorf("%w: 重点種目: %w", apperror.ErrInvalidInput, err)
 	}
 
 	if err := ctx.Err(); err != nil {

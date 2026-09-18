@@ -3,6 +3,7 @@ package usecase
 import (
 	"context"
 	"fmt"
+	"github.com/dyoshyy/liftplan/internal/application/apperror"
 
 	"github.com/dyoshyy/liftplan/internal/domain/training/exercise"
 	"github.com/dyoshyy/liftplan/internal/domain/training/program"
@@ -28,7 +29,11 @@ func NewSetSelectedExercises(
 	return &SetSelectedExercises{exercises: exercises, reader: reader, writer: writer}
 }
 
-func (u *SetSelectedExercises) Execute(ctx context.Context, ids []exercise.ExerciseID) error {
+func (u *SetSelectedExercises) Execute(ctx context.Context, ids []exercise.ExerciseID) (err error) {
+	// 出口で1度だけ翻訳する。return ごとに書くと、経路が増えたときに
+	// 包み忘れた1本だけが 500 で返る。
+	defer func() { err = classify(err) }()
+
 	prog, err := u.reader.Get(ctx)
 	if err != nil {
 		return err
@@ -36,7 +41,7 @@ func (u *SetSelectedExercises) Execute(ctx context.Context, ids []exercise.Exerc
 
 	next, err := prog.WithSelected(ids)
 	if err != nil {
-		return fmt.Errorf("%w: 使う種目: %w", ErrInvalidInput, err)
+		return fmt.Errorf("%w: 使う種目: %w", apperror.ErrInvalidInput, err)
 	}
 
 	if err := ctx.Err(); err != nil {
