@@ -117,7 +117,8 @@ func TestRequireBearerToken_LetsHealthChecksThrough(t *testing.T) {
 func TestRequireBearerToken_OnlyExemptsExactPaths(t *testing.T) {
 	for _, path := range []string{
 		"/health/../api/sessions", "/healthz", "/health-secret",
-		"/api/sessions", "/api/program", "/app.js.map", "/index.html",
+		"/api/sessions", "/api/program", "/api/program/focus",
+		"/app.js.map", "/index.html",
 	} {
 		h, reached := guarded(t)
 		rec := request(t, h, path, "")

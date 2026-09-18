@@ -124,6 +124,17 @@ func NewProgram(freq Frequency, target WeeklyVolumeTarget, selected, declared []
 	return &Program{frequency: freq, target: target, selected: selected, declared: declared, focus: focus}, nil
 }
 
+// WithFocus は重点種目だけを差し替えた新しいプログラムを返す。元は変えない。
+//
+// 空の ID を渡すと「指定なし」に戻る。NewProgram が空を素通しするので、
+// 解除のための分岐は要らない。
+//
+// NewProgram に委譲するのは、focus ⊂ declared の検証を2箇所に書かない
+// ため。ここで自前に検査すると、片方だけ直したときに黙ってずれる。
+func (p *Program) WithFocus(id exercise.ExerciseID) (*Program, error) {
+	return NewProgram(p.frequency, p.target, p.SelectedExercises(), p.DeclaredExercises(), id)
+}
+
 func (p *Program) Frequency() Frequency             { return p.frequency }
 func (p *Program) WeeklyTarget() WeeklyVolumeTarget { return p.target }
 

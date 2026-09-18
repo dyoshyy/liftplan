@@ -23,6 +23,16 @@ export type Session = {
   accessories: PlannedSet[];
 };
 
+/** プログラム。dto.go の programDTO と対。 */
+export type Program = {
+  per_week: number;
+  weekly_target: Record<string, number>;
+  selected_exercises: string[];
+  declared_exercises: string[];
+  /** null は指定なし。指定すると、その種目の派生がバリエーションレーンに出る。 */
+  focus_exercise: string | null;
+};
+
 export type Exercise = {
   id: string;
   name: string;
