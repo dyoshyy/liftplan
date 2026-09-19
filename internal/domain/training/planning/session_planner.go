@@ -138,7 +138,7 @@ func (p SessionPlanner) Plan(req PlanRequest) (PlannedSession, error) {
 	coverage = coverage.Plus(heavy.Stimulus(), set.Sets())
 
 	variation := make([]PlannedSet, 0, 1)
-	exclude := req.Program.DeclaredExercises()
+	exclude := accessoryExcluded(pool, req.Program)
 	if v := p.variationLift(req, pool, heavy); v != nil {
 		vs := p.planVariation(req, estHistory, v, rirBump)
 		variation = append(variation, vs)
@@ -427,6 +427,34 @@ func (p SessionPlanner) variationLift(req PlanRequest, pool []*exercise.Exercise
 // 根まで辿らない。辿ると、重点種目に RDL を指定したとき「RDL の系統」に
 // 床引きデッドリフトが入り、バリエーションとして出てしまう。床引きは
 // 宣言しなければ出ない（D-117）。
+// accessoryExcluded は補助の候補から外す種目を返す。
+//
+// 宣言種目そのものを外す理由は D-125 のとおり。これに重点種目の派生を
+// 足す。派生はバリエーションレーンで出るものなので、補助にも出ると
+// 同じ系統が1日に二度来る。
+//
+// 実害は週5で出た。脚の日に胸の残差が大きく残っていると、補助が
+// ベンチの派生（ラーセンプレス・テンポベンチ）を2つ選び、脚の日の
+// 上半身ボリュームが 17.1 まで膨らむ。胸を埋めるならインクラインや
+// フライで埋めるほうが、系統の回復日程と衝突しない。
+//
+// **重点種目の系統だけ**を外す。宣言していても重点でない種目の派生
+// （RDL・フロントスクワット・デフィシットデッドリフト）は、補助が
+// 唯一の出口なので外すと計画から消える。実際に全部外して測ったら、
+// 胸が週目標の163%まで超過し、使われない種目が出た。専用レーンを
+// 持っているのは重点種目の系統だけ、というのが線引き。
+func accessoryExcluded(pool []*exercise.Exercise, prog *program.Program) []exercise.ExerciseID {
+	out := prog.DeclaredExercises()
+
+	// 重点種目が未指定なら focus は空ID。lineage は空を返すので、
+	// ここで分けない。分けても到達しない分岐が増えるだけ。
+	focus, _ := prog.FocusExercise()
+	for _, e := range lineage(pool, focus) {
+		out = append(out, e.ID())
+	}
+	return out
+}
+
 func lineage(pool []*exercise.Exercise, focus exercise.ExerciseID) []*exercise.Exercise {
 	out := make([]*exercise.Exercise, 0, 4)
 	for _, e := range pool {

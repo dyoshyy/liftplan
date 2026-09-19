@@ -467,6 +467,75 @@ func TestSessionPlanner_SubtractsVariationCoverageFromResidual(t *testing.T) {
 // 今日のバリエーションは、補助にも出さない。
 //
 // 出すと同じ種目が今日のリストに2回並ぶ。
+// 重点種目の派生は、選ばれなかったものも補助に出ない。
+//
+// バリエーションに選ばれた1つを外すだけでは足りない。派生が2つ以上ある
+// と、選ばれなかったほうが補助として同じ日に出る。週5で回すと脚の日に
+// ベンチの派生が2つ乗り、上半身のボリュームが 17.1 まで膨らんでいた。
+//
+// 宣言していても重点でない種目の派生は外さない。そちらは補助が唯一の
+// 出口で、外すと計画から消える（実測で胸が週目標の163%まで超過した）。
+func TestSessionPlanner_FocusDerivativesNeverAppearAsAccessories(t *testing.T) {
+	req := planRequest(t)
+	req.Program = focusedProgram(t, "bench")
+	// 胸の残差を大きくして、補助が胸を狙いにいく状況を作る。
+	// 軸はスクワットに寄せ、ベンチ系は今週まだ。
+	req.History = setlog.NewHistory(historyWithLastPerformed(t,
+		map[exercise.ExerciseID]int{"bench": -3, "squat": -7, "deadlift": -7}))
+
+	s := mustPlan(t, req)
+	if len(s.Variation()) != 1 {
+		t.Fatalf("前提: バリエーションが出ること: %v", s.Variation())
+	}
+
+	// larsen と tempo は両方ともベンチの派生。片方がバリエーションに
+	// 出るので、もう片方が補助に出ていないことを見る。
+	derived := map[exercise.ExerciseID]bool{"larsen": true, "tempo": true, "bench": true}
+	for _, a := range s.Accessories() {
+		if derived[a.ExerciseID()] {
+			t.Errorf("重点種目の系統が補助に出ている: %v → %v",
+				a.ExerciseID(), accessoryIDs(s))
+		}
+	}
+}
+
+// 重点でない宣言種目の派生は、補助の候補に残ること。
+//
+// そちらは補助が唯一の出口。外すと RDL やフロントスクワットが計画から
+// 消える。線引きは「専用レーンを持っているか」で、持っているのは重点
+// 種目の系統だけ。
+func TestSessionPlanner_NonFocusDerivativesStayAsAccessories(t *testing.T) {
+	// スクワットの派生をプールに足す。重点はベンチなので、この派生は
+	// バリエーションレーンには乗らない。
+	pool := append(planPool(t), mustExercise(t, exercise.ExerciseParams{
+		ID: "front_squat", Name: "front_squat",
+		Stimulus:    map[training.MuscleRegion]float64{training.Quad: 1.0},
+		IncrementKg: 2.5, DerivedFrom: "squat",
+	}))
+
+	prog, err := program.NewProgram(mustFrequency(t, 3),
+		mustTarget(t, map[training.MuscleRegion]float64{training.Quad: 30}),
+		[]exercise.ExerciseID{"bench", "squat", "deadlift", "larsen", "tempo", "front_squat"},
+		big3(), "bench")
+	if err != nil {
+		t.Fatalf("プログラムの生成に失敗: %v", err)
+	}
+
+	req := planRequest(t)
+	req.Pool, req.Program = pool, prog
+	// 軸をベンチに寄せる。脚の残差が大きいので補助は大腿四頭筋を狙う。
+	req.History = setlog.NewHistory(historyWithLastPerformed(t,
+		map[exercise.ExerciseID]int{"bench": -7, "squat": -3, "deadlift": -3}))
+
+	s := mustPlan(t, req)
+	for _, a := range s.Accessories() {
+		if a.ExerciseID() == "front_squat" {
+			return
+		}
+	}
+	t.Errorf("重点でない宣言の派生が補助から消えている: %v", accessoryIDs(s))
+}
+
 func TestSessionPlanner_VariationIsNotAlsoAnAccessory(t *testing.T) {
 	req := planRequest(t)
 	req.Program = focusedProgram(t, "bench")
