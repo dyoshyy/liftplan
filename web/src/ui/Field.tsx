@@ -2,8 +2,10 @@ import type { InputHTMLAttributes, ReactNode, SelectHTMLAttributes } from 'react
 import { useId } from 'react';
 import { cn } from './cn';
 
+// min-h-11（44px）は指で押す的の下限。p-3 だけだと font-size 次第で
+// 42px になることがある。
 const control =
-  'w-full rounded-[10px] border border-line bg-surface-2 p-3 text-inherit ' +
+  'min-h-11 w-full rounded-[10px] border border-line bg-surface-2 p-3 text-inherit ' +
   'focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber';
 
 export function Field({ label, children }: { label?: ReactNode; children: ReactNode }) {

@@ -7,6 +7,7 @@ import { Button } from '../../ui/Button';
 import { Card, Note } from '../../ui/Card';
 import { Sparkline } from './Sparkline';
 import { fillPercent } from './volume';
+import { weeklyTotal } from './weekly';
 
 const TOP_REGIONS = 6;
 
@@ -54,9 +55,13 @@ export function History({ stats, days, error = '', onReload }: Props) {
   return (
     <>
       <Card title="今週の充足">
+        {/* 合計を先に出す。区分ごとの一覧は「埋まっていない順」なので、
+            そのまま出すと画面の頭に 0.0 が並び、記録していても動いて
+            いないように見える。 */}
+        <WeeklySummary volume={stats.weekly_volume} />
         <WeeklyVolume volume={stats.weekly_volume} />
         <Note className="mt-3">
-          補助種目は、埋まっていない区分から選ばれます。今日その種目が出た理由がここにあります。
+          補助種目は、足りていない区分から選ばれます。
         </Note>
       </Card>
 
@@ -87,6 +92,30 @@ export function History({ stats, days, error = '', onReload }: Props) {
 //
 // 埋まっていない順に並んでいるので、上から数件だけ見えれば
 // 「次に何を足すか」は分かる。
+// 週全体の充足。区分ごとの一覧より先に出す。
+function WeeklySummary({ volume }: { volume: Volume[] }) {
+  const total = weeklyTotal(volume);
+  if (total.target === 0) return null;
+
+  return (
+    <div className="mb-4">
+      <div className="flex items-baseline gap-2">
+        <span className="num text-[28px] font-semibold leading-none">
+          {total.done.toFixed(0)}
+        </span>
+        <span className="text-[13px] text-muted">/ {total.target.toFixed(0)} セット</span>
+        <span className="num ml-auto text-[13px] text-muted">{total.pct.toFixed(0)}%</span>
+      </div>
+      <div className="mt-2 h-2 overflow-hidden rounded-full bg-surface-2">
+        <div
+          className={total.pct >= 100 ? 'h-full bg-green' : 'h-full bg-amber'}
+          style={{ width: `${total.pct}%` }}
+        />
+      </div>
+    </div>
+  );
+}
+
 function WeeklyVolume({ volume }: { volume: Volume[] }) {
   const [expanded, setExpanded] = useState(false);
 

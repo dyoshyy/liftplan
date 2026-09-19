@@ -10,8 +10,13 @@
   --color-line: #2a343e;
   --color-line-soft: #212a33;
   --color-text: #e7edf3;
-  --color-muted: #83919f;
-  --color-faint: #5d6b78;
+  /* 3段とも WCAG AA（本文 4.5）を満たす明るさにしてある。最小の背景
+     （surface-2）の上で faint 4.8 / muted 7.2 / text 13.0。
+     以前は faint 2.8・muted 4.8 で、「1セット目」や日付が**一瞬見て
+     読めない**明るさだった。ジムでセットの合間に視線が落ちる前提の画面で、
+     そこが読めないのは暗さの設計以前の問題。 */
+  --color-muted: #a7b3bf;
+  --color-faint: #8592a0;
 
   /* IPF のプレート色から。15kg の黄が主アクセント、10kg の緑が完了、
      25kg の赤が取り消し。競技の色をそのまま持ち込んでいる。 */
