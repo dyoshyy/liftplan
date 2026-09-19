@@ -150,18 +150,6 @@ func (d Date) Weekday() time.Weekday {
 	return time.Weekday(w)
 }
 
-// WeekStart はその日が属する週の月曜日を返す。
-//
-// 週の開始を月曜に固定するのは、セッションが週内で何本目かを数えるため。
-// 日曜開始にすると土日のトレーニングが別の週に割れる。
-func (d Date) WeekStart() Date {
-	if d.IsZero() {
-		return Date{}
-	}
-	offset := (int(d.Weekday()) + 6) % 7 // 月曜を0にする
-	return d.AddDays(-offset)
-}
-
 // String は "YYYY-MM-DD"。辞書順が日付順に一致するため、ソートキーに使える。
 func (d Date) String() string {
 	return fmt.Sprintf("%04d-%02d-%02d", d.year, int(d.month), d.day)

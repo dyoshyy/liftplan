@@ -855,54 +855,65 @@ func chestUpperRequest(t *testing.T) planning.PlanRequest {
 	return req
 }
 
-// 残りセッション数で割ること。週の後半ほど1回あたりの量が増える。
-func TestSessionPlanner_DividesByRemainingSessions(t *testing.T) {
+// 直近1週で埋まったぶんだけ、補助が減ること。
+//
+// 暦週のころは「残りセッション数で割る」だったので、同じ不足でも週の
+// 後半ほど1回あたりの量が増えた。ローリング窓では窓から落ちた分が
+// 戻ってくるだけなので、週のどこにいるかでは変わらない。
+func TestSessionPlanner_AccessoriesFollowTheRollingGap(t *testing.T) {
 	req := chestUpperRequest(t)
 
-	// 週の1本目: 12 / 3 = 4セット → 2種目（3セットずつ）
-	first := mustPlan(t, req)
-	if len(first.Accessories()) != 2 {
-		t.Fatalf("1本目の補助数が誤り: %d (%v)", len(first.Accessories()), first.Accessories())
-	}
+	// 直近1週に何も無い。週目標12を埋めにいくので上限近くまで出る。
+	empty := mustPlan(t, req)
 
-	// 週の3本目に何もこなしていない状態: 12 / 1 = 12セット → 上限まで
+	// 直近1週で9セット埋まっている。残りは3で、1種目ぶん。
 	logs := planHistory(t)
-	logs = append(logs,
-		mkLogOn(t, "w1", planMonday, "squat", 110, 8, 2),
-		mkLogOn(t, "w2", planMonday.AddDays(2), "squat", 110, 8, 2))
+	for i := range 9 {
+		logs = append(logs, mkLogOn(t, fmt.Sprintf("c-%d", i),
+			planMonday.AddDays(-2), "incline", 30, 10, 2))
+	}
 	req.History = setlog.NewHistory(logs)
-	req.Date = planMonday.AddDays(4)
 
-	last := mustPlan(t, req)
-	if len(last.Accessories()) <= len(first.Accessories()) {
-		t.Errorf("残りセッション数で割っていない: 1本目 %d → 3本目 %d",
-			len(first.Accessories()), len(last.Accessories()))
+	partial := mustPlan(t, req)
+	if len(partial.Accessories()) >= len(empty.Accessories()) {
+		t.Errorf("埋まった分が残差から引かれていない: %d → %d (%v)",
+			len(empty.Accessories()), len(partial.Accessories()), accessoryIDs(partial))
+	}
+	if len(partial.Accessories()) == 0 {
+		t.Error("残り3セットあるのに補助が1件も出ていない")
 	}
 }
 
-// 週内カバレッジは週初から当日の前日まで。
-//
-// 前の週の記録まで数えると残差が過小になり、当日の記録まで数えると
-// 計画中のメインと二重に数える。
-func TestSessionPlanner_WeeklyCoverageWindow(t *testing.T) {
+// カバレッジの窓は直近1週。前日までの6日ぶんを数え、当日を足して7日。
+func TestSessionPlanner_RollingCoverageWindow(t *testing.T) {
 	base := chestUpperRequest(t)
 	want := len(mustPlan(t, base).Accessories())
 
 	cases := []struct {
 		name string
-		// 12セットぶんの記録を置く日（月曜からの日数）。窓に入っていれば
-		// 週目標12を使い切り、補助が減るはず。
+		// 12セットぶんの記録を置く日（月曜からの日数）。
 		daysFromMonday int
+		// 窓に入っていれば週目標12を使い切り、補助が減る。
+		inWindow bool
 	}{
 		{
-			// 前の週まで数えると残差が過小になり、週の頭から補助が減る。
-			name: "前の週の記録は数えない", daysFromMonday: -3,
+			// 境界。ここを -7 にすると、同じ曜日に通う人は先週の同じ
+			// セッションが常に窓に残り、定常状態で残差がほぼ 0 になって
+			// 補助が出なくなる。黙って壊れるので固定する。
+			name: "7日前は数えない", daysFromMonday: -7, inWindow: false,
 		},
 		{
-			// 以前は当日の記録も残差に含めていた。含めるとセッション中に
-			// 残差が動き、こなすたびにリストが入れ替わる。今日の計画は
-			// その日の始まりに確定させると決めた（D-116）。
-			name: "当日の記録は数えない", daysFromMonday: 0,
+			// 暦週のころは「先週」として捨てていた。ローリングでは入る。
+			name: "6日前は数える", daysFromMonday: -6, inWindow: true,
+		},
+		{
+			name: "3日前は数える", daysFromMonday: -3, inWindow: true,
+		},
+		{
+			// 当日の記録は数えない。含めるとセッション中に残差が動き、
+			// こなすたびにリストが入れ替わる。今日の計画はその日の
+			// 始まりに確定させると決めた（D-116）。
+			name: "当日は数えない", daysFromMonday: 0, inWindow: false,
 		},
 	}
 
@@ -916,9 +927,14 @@ func TestSessionPlanner_WeeklyCoverageWindow(t *testing.T) {
 
 			req := base
 			req.History = setlog.NewHistory(logs)
+			got := len(mustPlan(t, req).Accessories())
 
-			if got := len(mustPlan(t, req).Accessories()); got != want {
-				t.Errorf("窓の外の記録が残差に影響している: 補助が %d 件。%d 件のはず",
+			if c.inWindow && got >= want {
+				t.Errorf("窓の中の記録が残差に効いていない: 補助が %d 件。%d 件より少ないはず",
+					got, want)
+			}
+			if !c.inWindow && got != want {
+				t.Errorf("窓の外の記録が残差に効いている: 補助が %d 件。%d 件のはず",
 					got, want)
 			}
 		})

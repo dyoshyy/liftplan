@@ -250,45 +250,6 @@ func TestDate_DaysSinceDoesNotSaturate(t *testing.T) {
 	}
 }
 
-func TestDate_WeekStartIsMonday(t *testing.T) {
-	monday := training.MustDate(2026, time.August, 17)
-	if monday.Weekday() != time.Monday {
-		t.Fatalf("前提が誤り: 2026-08-17 は %v", monday.Weekday())
-	}
-
-	for i := range 7 {
-		d := monday.AddDays(i)
-		if got := d.WeekStart(); got != monday {
-			t.Errorf("%v(%v) の週初が誤り: got %v, want %v", d, d.Weekday(), got, monday)
-		}
-	}
-	if next := monday.AddDays(7); next.WeekStart() != next {
-		t.Errorf("翌週の週初が誤り: got %v, want %v", next.WeekStart(), next)
-	}
-}
-
-func TestDate_WeekStartInvariants(t *testing.T) {
-	// 200年ぶん総当たりで、週初が「月曜」「未来にならない」「6日以内」「冪等」を満たすこと。
-	d := training.MustDate(1900, time.January, 1)
-	for i := 0; i < 73000; i++ {
-		day := d.AddDays(i)
-		start := day.WeekStart()
-
-		if start.Weekday() != time.Monday {
-			t.Fatalf("%v の週初 %v が月曜でない: %v", day, start, start.Weekday())
-		}
-		if start.After(day) {
-			t.Fatalf("%v の週初 %v が未来になっている", day, start)
-		}
-		if diff := day.DaysSince(start); diff < 0 || diff > 6 {
-			t.Fatalf("%v の週初までの日数が範囲外: %d", day, diff)
-		}
-		if start.WeekStart() != start {
-			t.Fatalf("週初が冪等でない: %v", start)
-		}
-	}
-}
-
 func TestDate_WeekdayKnownValues(t *testing.T) {
 	cases := []struct {
 		date training.Date
@@ -465,9 +426,6 @@ func TestDate_ZeroValueIsInert(t *testing.T) {
 	// ゼロ値に対する演算はゼロ値に閉じる。混入しても別の日付に化けない。
 	if got := zero.AddDays(5); !got.IsZero() {
 		t.Errorf("ゼロ値の AddDays が有効な日付を返した: %v", got)
-	}
-	if got := zero.WeekStart(); !got.IsZero() {
-		t.Errorf("ゼロ値の WeekStart が有効な日付を返した: %v", got)
 	}
 	if got := zero.DaysSince(training.MustDate(2026, time.August, 16)); got != 0 {
 		t.Errorf("ゼロ値との日数差が0でない: %d", got)
