@@ -23,8 +23,9 @@ const PLAYWRIGHT = process.env.PLAYWRIGHT ?? 'playwright-core';
 const { chromium } = await import(PLAYWRIGHT);
 
 const TOKEN = 'dev-token-0123456789abcdef0123456789ab';
-const API = 'http://127.0.0.1:8080';
-const APP = 'http://localhost:4173'; // 本番ビルド。SW を効かせるため dev ではなく preview
+const API = process.env.API ?? 'http://127.0.0.1:8080';
+// 本番ビルド。SW を効かせるため dev ではなく preview。
+const APP = process.env.APP ?? 'http://localhost:4173';
 
 const results = [];
 const check = (name, ok, detail = '') => {
@@ -87,7 +88,10 @@ const record = async (setIndex, weight, reps) => {
   await page.waitForTimeout(900);
 };
 
-const statusText = () => page.locator('.fixed.bottom-0').innerText();
+// 同期の状態はナビの点に畳まれた（D-128 / PR #78）。見た目の文字ではなく
+// aria-label を読む。読み上げに出る文言そのものなので、表示を変えても
+// 意味が変わらない限り壊れない。
+const syncLabel = () => page.locator('nav button[aria-label]').first().getAttribute('aria-label');
 
 await page.goto(APP);
 // Service Worker が殻をキャッシュし終えるまで待つ。待たずに圏外にすると
@@ -106,22 +110,22 @@ await page.waitForTimeout(300);
 await record(0, 100, 8);
 await record(1, 100, 7);
 
-const offlineStatus = await statusText();
+const offlineStatus = await syncLabel();
 console.log('  待ち行列:', JSON.stringify(await queueDump()));
 check('圏外でも記録が手元に残る',
   (await page.locator('button.set').nth(0).innerText()).includes('100'),
-  offlineStatus.replace(/\s+/g, ' '));
+  offlineStatus);
 check('圏外で未送信件数が出る', /未送信\s*2/.test(offlineStatus.replace(/\s+/g,' ')) || /オフライン/.test(offlineStatus),
-  offlineStatus.replace(/\s+/g, ' '));
+  offlineStatus);
 check('圏外では実際にサーバーへ届いていない', (await serverSets(today())).length === before);
 
 // --- 2. 圏外のまま再読み込みしても消えないか（一番怖い経路）---
 await page.reload();
 await page.waitForTimeout(2500);
-const afterReload = await statusText();
+const afterReload = await syncLabel();
 check('圏外で再読み込みしても未送信が残っている',
-  /未送信\s*2/.test(afterReload.replace(/\s+/g, ' ')),
-  afterReload.replace(/\s+/g, ' '));
+  /未送信 2 件/.test(afterReload),
+  afterReload);
 
 // --- 3. 復帰したら送られるか ---
 await ctx.setOffline(false);
@@ -137,8 +141,8 @@ check('復帰後にメニューが自動で戻る', (await page.locator('button.
 const afterOnline = await serverSets(today());
 check('復帰後にサーバーへ届く', afterOnline.length === before + 2,
   `${before} → ${afterOnline.length}`);
-check('復帰後は同期済みになる', /同期済み/.test((await statusText()).replace(/\s+/g,' ')),
-  (await statusText()).replace(/\s+/g, ' '));
+check('復帰後は同期済みになる', /同期済み/.test(await syncLabel()),
+  await syncLabel());
 
 // --- 4. 二重送信していないか ---
 const ids = afterOnline.map((s) => s.id);
@@ -164,10 +168,10 @@ await page.evaluate(async () => {
 });
 await page.reload();
 await page.waitForTimeout(3000);
-const stuck = await statusText();
+const stuck = await syncLabel();
 check('通らない記録は待ち行列を詰まらせない',
-  !/未送信\s*[1-9]/.test(stuck.replace(/\s+/g, ' ')),
-  stuck.replace(/\s+/g, ' '));
+  !/未送信 [1-9]/.test(stuck),
+  stuck);
 check('捨てた記録が画面に出る', /送れなかった/.test(await page.locator('body').innerText()));
 
 // --- 7. 記録の途中でトークンが無効になっても、記録が消えないか ---

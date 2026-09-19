@@ -1,5 +1,3 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
-import { getToken } from '../storage/local';
 import { label, today } from '../domain/date';
 import { Setup } from '../features/setup/Setup';
 import { GearIcon } from '../ui/icons';
@@ -13,78 +11,27 @@ import { BottomNav } from './BottomNav';
 import { SyncBanner } from './SyncBanner';
 import { UpdateBanner } from './UpdateBanner';
 import { useRoute } from './useRoute';
-import { useLiftplan } from './useLiftplan';
-import { useOutbox } from './useOutbox';
+import { useSessionOrchestrator } from './useSessionOrchestrator';
 
-// 画面は1つ。履歴と設定は落とした（D-120）。
+// 画面の骨組みと、どの画面を出すかの選択だけを持つ。
 //
-// 目的はジムで1回のセッションを記録し終えること。記録は溜まり続けるので、
-// 見たくなったときに履歴を戻せばよい。
+// 調停（読み込みと待ち行列の順序、認証、電波）は useSessionOrchestrator、
+// 記録の手順は useRecordOrchestrator にある。ここに書くと、DOM を立てない
+// と検査できないものに戻る。
 export function App() {
-  const { data, status, setStatus, loadAll, recordLocally, forgetLocally } = useLiftplan();
-  const outbox = useOutbox(useCallback((id: string) => data.names.get(id) ?? id, [data.names]));
-  const { flush } = outbox;
-
-  const timer = useRestTimer();
   const { route, go } = useRoute();
+  const timer = useRestTimer();
 
+  // 調停は useSessionOrchestrator が持つ。この部品は描画と、
+  // どの画面を出すかの選択だけをする。
+  const session = useSessionOrchestrator();
+  const { hasToken, load, online, data, outbox, reload, nameOf } = session;
 
-  const [online, setOnline] = useState(navigator.onLine);
-  const [hasToken, setHasToken] = useState(() => getToken() !== '');
   // 履歴は開いたときだけ読む。毎回の読み込みに混ぜると、ジムで開くたびに
   // 見ないものを取りに行くことになる。
   const stats = useStats(hasToken && route === 'history');
 
-  // 溜まっているものを先に送りきってから読む。
-  //
-  // 逆にすると、送信前の状態で描画してから送ることになり、記録したのに
-  // 緑が消えて見える。オフラインで記録して復帰したときに必ず踏み、
-  // 「消えた」と思ってもう一度記録して重複する。
-  const reload = useCallback(async () => {
-    if (!hasToken) return;
-    await flush();
-    await loadAll();
-  }, [hasToken, flush, loadAll]);
 
-  useEffect(() => {
-    void reload();
-  }, [reload]);
-
-  // トークンが通らなくなったら設定に戻す。
-  useEffect(() => {
-    if (status === 'unauthorized') setHasToken(false);
-  }, [status]);
-
-  // 復帰したときの判断に使う。status を購読すると、状態が変わるたびに
-  // イベントの登録し直しが起きる。
-  const statusRef = useRef(status);
-  statusRef.current = status;
-
-  // 復帰したら送るだけでなく、メニューも取り直す。
-  //
-  // 圏外で開くと「つながりません」だけの画面になる。電波が戻っても
-  // 送信しかしないと、**メニューは空のまま**で、利用者が「更新」を
-  // 押すまで今日の内容が出ない。ジムに着いて開き、電波を掴んだところで
-  // 何も出ないのは、壊れているのと区別がつかない。
-  //
-  // 取り直すのはメニューが無いときだけ。毎回取り直すと、記録の最中に
-  // 一瞬電波が切れただけで画面が組み替わる。
-  useEffect(() => {
-    const onOnline = () => {
-      setOnline(true);
-      if (statusRef.current === 'offline') void reload();
-      else void flush();
-    };
-    const onOffline = () => setOnline(false);
-    window.addEventListener('online', onOnline);
-    window.addEventListener('offline', onOffline);
-    return () => {
-      window.removeEventListener('online', onOnline);
-      window.removeEventListener('offline', onOffline);
-    };
-  }, [flush, reload]);
-
-  const nameOf = (id: string) => data.names.get(id) ?? id;
 
   return (
     <>
@@ -117,17 +64,14 @@ export function App() {
         {!hasToken ? (
           <Setup
             pending={outbox.pending}
-            onSaved={() => {
-              setHasToken(true);
-              setStatus('loading');
-            }}
+            onSaved={session.signIn}
           />
         ) : (
           <>
             {/* 同期の異常はどの画面にいても出す。記録が送れていないことは、
                 いま何を見ているかと関係なく知らせる必要がある。 */}
             <SyncBanner
-              offline={status === 'offline'}
+              offline={load === 'offline'}
               rejected={outbox.rejected}
               onRetry={() => void reload()}
               onClearRejected={() => void outbox.clearRejected()}
@@ -137,8 +81,8 @@ export function App() {
               <Today
                 data={data}
                 enqueue={outbox.enqueue}
-                onRecordLocally={recordLocally}
-                onForgetLocally={forgetLocally}
+                onRecordLocally={session.recordLocally}
+                onForgetLocally={session.forgetLocally}
                 onRecorded={timer.start}
                 canStartRest={timer.state.kind === 'idle'}
                 onReload={reload}
@@ -161,7 +105,7 @@ export function App() {
                 onChanged={reload}
                 timer={timer}
                 onForget={() => {
-                  setHasToken(false);
+                  session.signOut();
                   go('today');
                 }}
               />

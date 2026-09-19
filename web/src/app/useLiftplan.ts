@@ -11,6 +11,9 @@ import type {
 } from '../api/types';
 import { addDays, today } from '../domain/date';
 
+/** LoadResult は読み込みの結果。状態にはしない（呼び手が決める）。 */
+export type LoadResult = { ok: true } | { ok: false; reason: 'offline' | 'unauthorized' };
+
 export type Data = {
   session: Session | null;
   names: Map<string, string>;
@@ -34,8 +37,6 @@ const empty: Data = {
   days: [],
 };
 
-export type LoadState = 'loading' | 'ready' | 'offline' | 'unauthorized';
-
 // ここで読むのは2つだけ。
 //
 // /api/stats（履歴）と /api/program（設定）はここでは叩かない。それぞれの
@@ -43,7 +44,6 @@ export type LoadState = 'loading' | 'ready' | 'offline' | 'unauthorized';
 // 読み込みに、見ていない画面の往復を混ぜない。
 export function useLiftplan() {
   const [data, setData] = useState<Data>(empty);
-  const [status, setStatus] = useState<LoadState>('loading');
 
   // loadToday は今日のメニューだけを取り直す。
   //
@@ -54,7 +54,7 @@ export function useLiftplan() {
     setData((d) => ({ ...d, session }));
   }, []);
 
-  const loadAll = useCallback(async () => {
+  const loadAll = useCallback(async (): Promise<LoadResult> => {
     const date = today();
     try {
       const [exercises, history] = await Promise.all([
@@ -78,9 +78,11 @@ export function useLiftplan() {
       });
 
       await loadToday();
-      setStatus('ready');
+      return { ok: true } as const;
     } catch (e) {
-      setStatus(e instanceof Unauthorized ? 'unauthorized' : 'offline');
+      // 結果を返すだけで、状態は持たない。**どう扱うかは呼び手が決める。**
+      // ここで状態を持つと、セッションの遷移が2箇所に割れる。
+      return { ok: false, reason: e instanceof Unauthorized ? 'unauthorized' : 'offline' } as const;
     }
   }, [loadToday]);
 
@@ -105,5 +107,5 @@ export function useLiftplan() {
     });
   }, []);
 
-  return { data, status, setStatus, loadAll, loadToday, recordLocally, forgetLocally };
+  return { data, loadAll, loadToday, recordLocally, forgetLocally };
 }
