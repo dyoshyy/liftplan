@@ -24,6 +24,28 @@ import (
 
 var simStart = training.MustDate(2026, time.August, 3) // 月曜
 
+// maxSimFrequency は通し検証で回す頻度の上限。program.NewFrequency の
+// 上限と揃える。揃っていないと、上限を上げたのに検証されない頻度が残る。
+const maxSimFrequency = 7
+
+// 通し検証の上限が実装の上限と一致すること。
+//
+// ずれていても他のテストは緑のまま通るので、上限を上げたのに検証されない
+// 頻度が残る。上げ忘れではなく「上げたことに気づかない」ほうが危ない。
+func TestSimulation_CoversEveryAllowedFrequency(t *testing.T) {
+	if _, err := program.NewFrequency(maxSimFrequency); err != nil {
+		t.Errorf("通し検証の上限 %d が実装で弾かれる: %v", maxSimFrequency, err)
+	}
+	if _, err := program.NewFrequency(maxSimFrequency + 1); err == nil {
+		t.Errorf("週%d回が通る。通し検証されない頻度が残っている", maxSimFrequency+1)
+	}
+	for f := 1; f <= maxSimFrequency; f++ {
+		if len(weekdays[f]) != f {
+			t.Errorf("週%d回の曜日が %d 個。%d 個のはず", f, len(weekdays[f]), f)
+		}
+	}
+}
+
 // weekdays は頻度ごとの曜日オフセット（月曜=0）。
 // 実在しうるスケジュールに合わせる。
 var weekdays = map[int][]int{
@@ -31,6 +53,9 @@ var weekdays = map[int][]int{
 	2: {0, 3},
 	3: {0, 2, 4},
 	4: {0, 2, 4, 6},
+	5: {0, 1, 2, 4, 5},
+	6: {0, 1, 2, 3, 4, 5},
+	7: {0, 1, 2, 3, 4, 5, 6},
 }
 
 // trueOneRepMax はシミュレーション上の本人の実力。期間中は一定とする。
@@ -207,7 +232,7 @@ func TestSimulation_WeeklyTargetIsAttainableAtEveryFrequency(t *testing.T) {
 		maxRate = 1.45
 	)
 
-	for f := 1; f <= 4; f++ {
+	for f := 1; f <= maxSimFrequency; f++ {
 		t.Run(fmt.Sprintf("週%d回", f), func(t *testing.T) {
 			res := simulate(t, f, 8)
 
@@ -286,7 +311,7 @@ func TestSimulation_EveryAccessoryGetsUsedInSomeSetup(t *testing.T) {
 	all, _ := seed.Exercises()
 
 	used := map[exercise.ExerciseID]bool{}
-	for f := 1; f <= 4; f++ {
+	for f := 1; f <= maxSimFrequency; f++ {
 		for id := range simulate(t, f, 8).picked {
 			used[id] = true
 		}
@@ -316,7 +341,7 @@ func TestSimulation_EveryAccessoryGetsUsedInSomeSetup(t *testing.T) {
 
 // セッションの長さが現実的な範囲に収まること。
 func TestSimulation_SessionLengthIsReasonable(t *testing.T) {
-	for f := 1; f <= 4; f++ {
+	for f := 1; f <= maxSimFrequency; f++ {
 		res := simulate(t, f, 8)
 		for i, n := range res.setsPer {
 			// 上限が36なのは、週1回の人が1週間ぶんを1回で消化するため。
@@ -407,7 +432,7 @@ func TestSimulation_Report(t *testing.T) {
 	if !testing.Verbose() {
 		t.Skip("-v のときだけ出力する")
 	}
-	for f := 1; f <= 4; f++ {
+	for f := 1; f <= maxSimFrequency; f++ {
 		res := simulate(t, f, 8)
 		regions := training.AllMuscleRegions()
 		sort.Slice(regions, func(i, j int) bool {

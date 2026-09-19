@@ -67,7 +67,7 @@ export function ProgramSettings({ nameOf, exercises, onChanged }: Props) {
 
       {program && (
         <div className="grid grid-cols-4 gap-2">
-          {[1, 2, 3, 4].map((n) => (
+          {[1, 2, 3, 4, 5, 6, 7].map((n) => (
             <Button
               key={n}
               variant={program.per_week === n ? 'primary' : 'quiet'}
