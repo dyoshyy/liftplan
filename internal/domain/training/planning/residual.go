@@ -57,9 +57,22 @@ func (c StimulusCoverage) Plus(p exercise.StimulusProfile, sets training.SetCoun
 //
 // thisSession は今日すでに積んだ分（軸とバリエーション）。引かないと、
 // 軸が胸を3セット埋めた日でも補助が同じだけ上乗せする。
+//
+// active はその区分がこれからの1週ぶんで何回狙われるか。nil なら天井なし。
+//
+// **分割があるときだけ天井を掛ける。**分割が無いときに掛けると、全区分の
+// 取り分が一律「週目標 ÷ 頻度」に揃い、補助が枯れた区分に集中せず散る
+// （軸がベンチの日の上体ボリュームが 33.6 → 18.0 まで落ちた）。分割が
+// 無いときの「その日らしさ」は残差の偏りだけが作っているので、均すと消える。
+//
+// 分割があるときは話が逆になる。その日らしさは分割が構造として決めるので、
+// 天井は「1週ぶんの量をその区分が出る日数で分ける」だけの働きをする。
+// 掛けないと、上下2分割の最初の下半身の日が週の下半身目標を丸ごと使い切り
+// （実測38.1）、次の下半身の日が6セットまで落ちる。
 func SessionResidual(
 	target program.WeeklyVolumeTarget,
 	window, thisSession StimulusCoverage,
+	active ActiveCount,
 ) map[training.MuscleRegion]float64 {
 	out := map[training.MuscleRegion]float64{}
 	if target.IsEmpty() {
@@ -71,9 +84,26 @@ func SessionResidual(
 		if gap <= 0 {
 			continue
 		}
-		if share := training.Quantize(gap); share > 0 {
-			out[region] = share
+
+		share := gap
+		if active != nil {
+			n := active(region)
+			if n <= 0 {
+				continue
+			}
+			// 今日すでに積んだ分は天井からも引く。引かないと、軸が
+			// 埋めた区分に補助が1回ぶんを上乗せする。
+			room := target.Sets(region)/float64(n) - thisSession.Sets(region)
+			share = min(share, room)
+		}
+
+		if q := training.Quantize(share); q > 0 {
+			out[region] = q
 		}
 	}
 	return out
 }
+
+// ActiveCount はその筋区分が、これからの1週ぶんのセッションのうち
+// 何回狙われるかを返す。
+type ActiveCount func(training.MuscleRegion) int

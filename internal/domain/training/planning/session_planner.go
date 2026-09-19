@@ -120,12 +120,26 @@ func (p SessionPlanner) Plan(req PlanRequest) (PlannedSession, error) {
 
 	pool := p.usablePool(req)
 	estHistory := effectiveHistory(historyBefore(req), pool, req.Conditions)
-	heavy := p.heavyLift(req, pool)
-	if heavy == nil {
+
+	// 今日の分割。周期は暦ではなく出席回数で進む。休んだ日に飛ぶと、
+	// 通っていないのに分割だけが回る。
+	today, hasSplit := req.Program.SplitOn(historyBefore(req).SessionCount())
+
+	// 宣言がプールに1つも残っていないのは設定の破れ。分割で絞られて
+	// ゼロになるのとは別物で、こちらは計画を出さずに止める。
+	declared := declaredExercises(pool, req.Program)
+	if len(declared) == 0 {
 		// 到達しない。NewProgram が宣言ゼロを弾き、declared ⊂ selected なので
 		// pool に必ず1つ以上残る。集約の不変条件が破れたときの最後の砦として残す。
 		return PlannedSession{}, errors.New("伸ばしたい種目が1つも選ばれていない")
 	}
+
+	// 軸は宣言のうち、今日の分割の区分を主働に含むもので最も古いもの。
+	//
+	// 該当が無ければ軸は空。5分割の肩・腕には BIG3 の中に主働を持つ
+	// 種目が無く、そういう日が実際にできる。0.88 のスクワットを肩の日に
+	// 出すより、軸の枠が無いほうが正直（2026-09-19 の仕様書）。
+	heavy := p.heavyLift(req, declared, today, hasSplit)
 
 	rirBump := p.analyzer.RIRAdjustment(req.Conditions, req.Date)
 
@@ -143,8 +157,13 @@ func (p SessionPlanner) Plan(req PlanRequest) (PlannedSession, error) {
 	// 変わり、ジムで消化している最中にリストが自分の下で入れ替わる。
 	coverage := CoverageBetween(req.History, pool, req.Date.AddDays(-6), req.Date.AddDays(-1))
 
-	set := p.planHeavy(req, estHistory, heavy, rirBump)
-	thisSession := StimulusCoverage{}.Plus(heavy.Stimulus(), set.Sets())
+	main := make([]PlannedSet, 0, 1)
+	thisSession := StimulusCoverage{}
+	if heavy != nil {
+		set := p.planHeavy(req, estHistory, heavy, rirBump)
+		main = append(main, set)
+		thisSession = thisSession.Plus(heavy.Stimulus(), set.Sets())
+	}
 
 	variation := make([]PlannedSet, 0, 1)
 	exclude := accessoryExcluded(pool, req.Program)
@@ -155,7 +174,23 @@ func (p SessionPlanner) Plan(req PlanRequest) (PlannedSession, error) {
 		exclude = append(exclude, v.ID())
 	}
 
-	gaps := SessionResidual(req.Program.WeeklyTarget(), coverage, thisSession)
+	// 分割があるときだけ天井を掛ける。理由は SessionResidual に書いた。
+	var active ActiveCount
+	if hasSplit {
+		active = p.activeCount(req)
+	}
+	gaps := SessionResidual(req.Program.WeeklyTarget(), coverage, thisSession, active)
+
+	// 今日の分割に属さない区分は狙わない。残差から落とすのは補助の
+	// 選択に効かせるためで、週目標そのものは変えない。窓が1週なので、
+	// 落とした分は次にその分割が来た日に残ったまま出てくる。
+	if hasSplit {
+		for region := range gaps {
+			if !today.Includes(region) {
+				delete(gaps, region)
+			}
+		}
+	}
 
 	chosen := p.accessory.Select(gaps, pool, historyBefore(req), req.Date, exclude)
 	accessories := make([]PlannedSet, 0, len(chosen))
@@ -165,7 +200,7 @@ func (p SessionPlanner) Plan(req PlanRequest) (PlannedSession, error) {
 
 	return PlannedSession{
 		date:        req.Date,
-		main:        []PlannedSet{set},
+		main:        main,
 		variation:   variation,
 		accessories: accessories,
 	}, nil
@@ -362,9 +397,62 @@ func CoverageBetween(h setlog.History, pool []*exercise.Exercise, from, to train
 
 // heavyLift は今日メインでやる＝高重量を扱う種目を返す。
 //
-// 宣言のうち、最後に実施したのが最も古い種目を返す。未着手の種目があればそれを優先する。
-func (p SessionPlanner) heavyLift(req PlanRequest, pool []*exercise.Exercise) *exercise.Exercise {
-	return stalest(historyBefore(req), declaredExercises(pool, req.Program))
+// 宣言のうち、最後に実施したのが最も古い種目を返す。未着手の種目が
+// あればそれを優先する。
+//
+// 分割があれば、その日の区分を主働に含む宣言だけが候補になる。該当が
+// 無ければ nil。フォールバックで別の日の種目を出すと、その日だけ分割が
+// 意味を失う。
+func (p SessionPlanner) heavyLift(
+	req PlanRequest, declared []*exercise.Exercise,
+	today program.Split, hasSplit bool,
+) *exercise.Exercise {
+	candidates := declared
+	if hasSplit {
+		candidates = primaryIn(candidates, today)
+	}
+	return stalest(historyBefore(req), candidates)
+}
+
+// activeCount は今日から数えて1週ぶんのセッションのうち、その区分が
+// 何回狙われるかを返す。
+//
+// 周期を今日の位置から頻度ぶん歩いて数える。式で出すと、周期の長さと
+// 頻度が割り切れないとき（周期2・週5）に 2.5 のような値になり、実際の
+// 週（上3日・下2日と上2日・下3日が交互）とずれる。
+func (p SessionPlanner) activeCount(req PlanRequest) ActiveCount {
+	cycle := req.Program.Cycle()
+	perWeek := req.Program.Frequency().PerWeek()
+	from := historyBefore(req).SessionCount()
+
+	return func(r training.MuscleRegion) int {
+		n := 0
+		for i := range perWeek {
+			if cycle[(from+i)%len(cycle)].Includes(r) {
+				n++
+			}
+		}
+		return n
+	}
+}
+
+// primaryIn はその分割の区分を主働に含む種目だけを返す。
+//
+// 「主働」は寄与 1.0 以上。最大値を取る方式にしないのは、デッドリフトが
+// ハムストリングと脊柱起立筋のどちらも 1.0 で、並びのアルファベット順に
+// 落ちてしまうため。閾値なら両方の日の候補になり、最終実施日が決める。
+func primaryIn(candidates []*exercise.Exercise, s program.Split) []*exercise.Exercise {
+	out := make([]*exercise.Exercise, 0, len(candidates))
+	for _, e := range candidates {
+		for _, r := range e.Stimulus().Regions() {
+			c, ok := e.Stimulus().Contribution(r)
+			if ok && c.Float() >= primaryContribution && s.Includes(r) {
+				out = append(out, e)
+				break
+			}
+		}
+	}
+	return out
 }
 
 // stalest は候補のうち、最後に実施したのが最も古い種目を返す。候補が空なら nil。
@@ -405,8 +493,11 @@ func (p SessionPlanner) variationLift(req PlanRequest, pool []*exercise.Exercise
 	}
 
 	// 今日の軸が重点種目の系統に含まれる場合、バリエーションは出さない。
+	//
+	// 軸が空の日がある（分割に該当する宣言が無い日）。そのときは
+	// 系統の重複が起きようがないので、この門は素通しする。
 	family := lineage(pool, focus)
-	if containsExercise(family, heavy.ID()) {
+	if heavy != nil && containsExercise(family, heavy.ID()) {
 		return nil
 	}
 
