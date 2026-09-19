@@ -2,7 +2,7 @@ import { execSync } from 'node:child_process';
 // 更新バナーを実機で確かめる。
 //
 // **古い Service Worker から抜け出せるか**を見る。skipWaiting を呼ばない
-// 設計なので、押せる場所が無いと、開いたままの端末は古い版を実行し続ける。
+// 設計なので、押せる場所が無いと、開いたままの端末は古いバージョンを実行し続ける。
 // 実際そうなって、super reload でしか復帰できなかったことがある。
 //
 // 踏んだ落とし穴が2つある。どちらも「実装が壊れている」と誤診しかけた。
@@ -45,7 +45,7 @@ await page.waitForTimeout(1500);
 console.log('制御下にあるか:', await page.evaluate(() => navigator.serviceWorker.controller !== null));
 console.log('SW 登録数（トークン未入力）:', await page.evaluate(async () => (await navigator.serviceWorker.getRegistrations()).length));
 console.log('v1 の状態:', JSON.stringify(await states(page)));
-console.log('バナー（まだ出ないはず）:', await page.locator('text=新しい版があります').count());
+console.log('バナー（まだ出ないはず）:', await page.locator('text=新しいバージョンがあります').count());
 
 console.log('\n--- v2 をビルド ---');
 // コメントを足しても minify で消えて sw.js が1バイトも変わらない。
@@ -62,7 +62,7 @@ await page.evaluate(async () => {
 let shown = 0;
 for (let i = 0; i < 25; i++) {
   await page.waitForTimeout(1000);
-  shown = await page.locator('text=新しい版があります').count();
+  shown = await page.locator('text=新しいバージョンがあります').count();
   if (i % 5 === 0 || shown) console.log(`  ${i}s 状態=${JSON.stringify(await states(page))} バナー=${shown}`);
   if (shown) break;
 }
@@ -70,10 +70,10 @@ for (let i = 0; i < 25; i++) {
 console.log('\nバナー（出るべき）:', shown);
 if (shown) {
   console.log('押す前のタイトル:', await page.title());
-  await page.click('text=新しい版にする');
+  await page.click('text=新しいバージョンにする');
   await page.waitForTimeout(8000);
-  console.log('押したあとのタイトル:', await page.title(), '（v2 になっていれば新版が有効）');
-  console.log('押したあと: バナー=', await page.locator('text=新しい版があります').count(), '状態=', JSON.stringify(await states(page)));
+  console.log('押したあとのタイトル:', await page.title(), '（v2 になっていれば新しいバージョンが有効）');
+  console.log('押したあと: バナー=', await page.locator('text=新しいバージョンがあります').count(), '状態=', JSON.stringify(await states(page)));
 }
 console.log('エラー:', errs.length ? errs.join('\n') : '(なし)');
 // 後片付け。index.html を戻し、dist も v1 に戻しておく。
