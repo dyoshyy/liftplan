@@ -11,6 +11,7 @@ import { RestTimerBar } from '../features/timer/RestTimerBar';
 import { useRestTimer } from '../features/timer/useRestTimer';
 import { BottomNav } from './BottomNav';
 import { SyncBanner } from './SyncBanner';
+import { UpdateBanner } from './UpdateBanner';
 import { useRoute } from './useRoute';
 import { useLiftplan } from './useLiftplan';
 import { useOutbox } from './useOutbox';
@@ -108,6 +109,11 @@ export function App() {
       </header>
 
       <main className="mx-auto grid max-w-[620px] gap-3.5 p-4">
+        {/* 更新の通知は認証の外に置く。トークンを入れる前でも出す必要がある。
+            古いバンドルのせいでログインできない状態になりうるので、そこで
+            脱出口が消えていると、画面から抜ける手段が無くなる。 */}
+        <UpdateBanner />
+
         {!hasToken ? (
           <Setup
             pending={outbox.pending}
