@@ -71,6 +71,7 @@ type Program struct {
 	selected  []exercise.ExerciseID // 実施可能な種目
 	declared  []exercise.ExerciseID // 重量を伸ばしたい種目
 	focus     exercise.ExerciseID   // 重点的に伸ばしたい種目。空なら指定なし
+	cycle     []Split               // 分割の周期。空なら分割なし（全身法）
 }
 
 func NewProgram(freq Frequency, target WeeklyVolumeTarget, selected, declared []exercise.ExerciseID, focus exercise.ExerciseID) (*Program, error) {
@@ -122,6 +123,50 @@ func NewProgram(freq Frequency, target WeeklyVolumeTarget, selected, declared []
 	}
 
 	return &Program{frequency: freq, target: target, selected: selected, declared: declared, focus: focus}, nil
+}
+
+// WithCycle は分割の周期だけを差し替えた新しいプログラムを返す。
+//
+// 空を渡すと分割なしに戻る。全身法はこれで表す。
+//
+// 周期のどの位置が今日かは持たない。履歴の出席回数から導くので、
+// 集約が「いま何日目か」を覚える必要がない。覚えると、記録を消した
+// ときに周期だけが進んだままになる。
+func (p *Program) WithCycle(cycle []Split) (*Program, error) {
+	normalized, err := normalizeCycle(cycle)
+	if err != nil {
+		return nil, err
+	}
+	next, err := NewProgram(p.frequency, p.target,
+		p.SelectedExercises(), p.DeclaredExercises(), p.focus)
+	if err != nil {
+		return nil, err
+	}
+	next.cycle = normalized
+	return next, nil
+}
+
+// Cycle は分割の周期。空なら分割なし。
+func (p *Program) Cycle() []Split {
+	out := make([]Split, len(p.cycle))
+	copy(out, p.cycle)
+	return out
+}
+
+// SplitOn はその日の分割を返す。分割なしなら false。
+//
+// 周期の位置は「これまでの出席回数」で決まる。暦では進めない。
+// 休んだ日に周期が飛ぶと、通っていないのに分割だけが回る。
+//
+// sessionsBefore はその日より前のセッション数。当日は数えない（D-086）。
+func (p *Program) SplitOn(sessionsBefore int) (Split, bool) {
+	if len(p.cycle) == 0 {
+		return Split{}, false
+	}
+	if sessionsBefore < 0 {
+		sessionsBefore = 0
+	}
+	return p.cycle[sessionsBefore%len(p.cycle)], true
 }
 
 // WithFocus は重点種目だけを差し替えた新しいプログラムを返す。元は変えない。

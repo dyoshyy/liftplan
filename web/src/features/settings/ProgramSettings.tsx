@@ -56,11 +56,51 @@ export function ProgramSettings({ nameOf, exercises, onChanged }: Props) {
     saveSelected,
     saveTarget,
     saveFrequency,
+    presets,
+    splitKey,
+    chooseSplit,
   } = useProgramSettings(onChanged);
 
   return (
     <>
-      <Section title="週に通う回数" summary={program ? `週${program.per_week}回` : ""} defaultOpen>
+      <Section
+        title="分割"
+        summary={program && program.splits.length > 0 ? program.splits.map((s) => s.name).join(' → ') : "指定なし"}
+        defaultOpen
+      >
+        <Note className="mb-3">
+          その日に補助種目が狙う筋部位を決めます。通った回数で順に回るので、
+          休んでも飛びません。指定しなければ、毎回すべての部位から選ばれます。
+        </Note>
+
+        <div className="grid gap-2">
+          <Button
+            variant={splitKey === null ? 'primary' : 'quiet'}
+            disabled={busy}
+            onClick={() => void chooseSplit(null)}
+          >
+            指定しない
+          </Button>
+          {presets.map((p) => (
+            <Button
+              key={p.key}
+              variant={splitKey === p.key ? 'primary' : 'quiet'}
+              disabled={busy}
+              onClick={() => void chooseSplit(p)}
+            >
+              {p.name}
+            </Button>
+          ))}
+        </div>
+
+        {program && program.splits.length > 0 && (
+          <Note className="mt-3">
+            {program.splits.map((s) => s.name).join(' → ')} の順に回ります。
+          </Note>
+        )}
+      </Section>
+
+      <Section title="週に通う回数" summary={program ? `週${program.per_week}回` : ""}>
       <Note className="mb-3">
         変えると週の目標セット数も一緒に変わります。
       </Note>

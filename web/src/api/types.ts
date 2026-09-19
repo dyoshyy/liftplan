@@ -24,6 +24,21 @@ export type Session = {
 };
 
 /** プログラム。dto.go の programDTO と対。 */
+/** 分割1件。区分が空なら全区分（全身法の日）。 */
+export type Split = {
+  name: string;
+  regions: string[];
+};
+
+/** 分割のプリセット。並びが周期そのもの。 */
+export type SplitPreset = {
+  key: string;
+  name: string;
+  splits: Split[];
+};
+
+export type SplitPresetsResponse = { presets: SplitPreset[] };
+
 export type Program = {
   per_week: number;
   weekly_target: Record<string, number>;
@@ -31,6 +46,8 @@ export type Program = {
   declared_exercises: string[];
   /** null は指定なし。指定すると、その種目の派生がバリエーションレーンに出る。 */
   focus_exercise: string | null;
+  /** 分割の周期。空なら分割なし。並びに意味がある。 */
+  splits: Split[];
 };
 
 export type Exercise = {

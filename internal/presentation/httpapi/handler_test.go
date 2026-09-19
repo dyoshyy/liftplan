@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -65,6 +66,7 @@ func newServer(t *testing.T, configured bool) http.Handler {
 		usecase.NewSetFrequency(programs, programs),
 		usecase.NewSetSelectedExercises(exercises, programs, programs),
 		usecase.NewSetWeeklyTarget(exercises, programs, programs),
+		usecase.NewSetSplitCycle(exercises, programs, programs),
 		usecase.NewGetProgram(programs),
 		usecase.NewDeleteSetLog(logs),
 		query.NewExercises(exercises),
@@ -708,6 +710,189 @@ func TestPutProgramTarget_Rejects(t *testing.T) {
 	}
 }
 
+// 分割の口は、分割だけを動かすこと。
+func TestPutProgramSplit_TouchesNothingElse(t *testing.T) {
+	mux := newServer(t, true)
+
+	before := do(t, mux, http.MethodGet, "/api/program", "")
+	body := `{"splits":[` +
+		`{"name":"上半身","regions":["CHEST_MID","LAT","FRONT_DELT","TRICEPS_LATERAL","BICEPS"]},` +
+		`{"name":"下半身","regions":["QUAD","HAMSTRING","GLUTE","ERECTOR"]}` +
+		`]}`
+	if rec := do(t, mux, http.MethodPut, "/api/program/split", body); rec.Code != http.StatusNoContent {
+		t.Fatalf("保存に失敗: %d body=%s", rec.Code, rec.Body.String())
+	}
+	after := do(t, mux, http.MethodGet, "/api/program", "")
+
+	var b, a map[string]json.RawMessage
+	if err := json.Unmarshal(before.Body.Bytes(), &b); err != nil {
+		t.Fatalf("JSONが壊れている: %v", err)
+	}
+	if err := json.Unmarshal(after.Body.Bytes(), &a); err != nil {
+		t.Fatalf("JSONが壊れている: %v", err)
+	}
+	if len(a) != len(b) {
+		t.Errorf("フィールドの数が変わった: %d → %d", len(b), len(a))
+	}
+	for k, want := range b {
+		if k == "splits" {
+			continue
+		}
+		if string(a[k]) != string(want) {
+			t.Errorf("%s が変わった: %s → %s", k, want, a[k])
+		}
+	}
+
+	var got []struct {
+		Name    string   `json:"name"`
+		Regions []string `json:"regions"`
+	}
+	if err := json.Unmarshal(a["splits"], &got); err != nil {
+		t.Fatalf("分割が壊れている: %v", err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("分割が %d 件。2件のはず: %v", len(got), got)
+	}
+	// 順序が周期そのもの。並びが保たれること。
+	if got[0].Name != "上半身" || got[1].Name != "下半身" {
+		t.Errorf("周期の並びが変わっている: %v", got)
+	}
+	// 区分は昇順に正規化される。
+	if want := []string{"BICEPS", "CHEST_MID", "FRONT_DELT", "LAT", "TRICEPS_LATERAL"}; !slices.Equal(got[0].Regions, want) {
+		t.Errorf("区分が %v。%v のはず", got[0].Regions, want)
+	}
+}
+
+// 空を送れば分割なしに戻せること。
+func TestPutProgramSplit_EmptyClearsIt(t *testing.T) {
+	mux := newServer(t, true)
+
+	full := `{"splits":[{"name":"上半身","regions":["CHEST_MID","LAT"]},` +
+		`{"name":"下半身","regions":["QUAD","HAMSTRING","GLUTE","ERECTOR"]}]}`
+	if rec := do(t, mux, http.MethodPut, "/api/program/split", full); rec.Code != http.StatusNoContent {
+		t.Fatalf("保存に失敗: %d body=%s", rec.Code, rec.Body.String())
+	}
+	if rec := do(t, mux, http.MethodPut, "/api/program/split", `{"splits":[]}`); rec.Code != http.StatusNoContent {
+		t.Fatalf("解除に失敗: %d body=%s", rec.Code, rec.Body.String())
+	}
+
+	rec := do(t, mux, http.MethodGet, "/api/program", "")
+	var got struct {
+		Splits []json.RawMessage `json:"splits"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatalf("JSONが壊れている: %v", err)
+	}
+	if len(got.Splits) != 0 {
+		t.Errorf("解除できていない: %v", got.Splits)
+	}
+}
+
+// 「主働」は寄与 1.0 以上。副次的にかすっているだけでは、その日に
+// 出られるとみなさない。
+//
+// デッドリフトは臀筋 0.8・ハムストリング 1.0・脊柱起立筋 1.0。臀筋だけの
+// 分割では出られない。閾値を下げると 0.8 が主働に化け、実際には軸に
+// 選ばれないのに設定だけ通る。
+func TestPutProgramSplit_PrimaryMeansFullContribution(t *testing.T) {
+	mux := newServer(t, true)
+
+	// 宣言をスクワットとデッドリフトに絞る。スクワットは大腿四頭筋 1.0
+	// なので、どちらの周期でも出られる。
+	if rec := do(t, mux, http.MethodPut, "/api/program/declared",
+		`{"declared_exercises":["squat","deadlift"]}`); rec.Code != http.StatusNoContent {
+		t.Fatalf("宣言の保存に失敗: %d body=%s", rec.Code, rec.Body.String())
+	}
+
+	// 臀筋と大腿四頭筋だけの周期。デッドリフトの主働（ハム・脊柱起立筋）は
+	// どちらにも入っていない。臀筋 0.8 は主働ではないので弾かれる。
+	rec := do(t, mux, http.MethodPut, "/api/program/split",
+		`{"splits":[{"name":"脚","regions":["QUAD","GLUTE"]}]}`)
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("ステータスが %d。400 のはず: %s", rec.Code, rec.Body.String())
+	}
+
+	// ハムストリングを足せば通る。
+	rec = do(t, mux, http.MethodPut, "/api/program/split",
+		`{"splits":[{"name":"脚","regions":["QUAD","GLUTE","HAMSTRING"]}]}`)
+	if rec.Code != http.StatusNoContent {
+		t.Errorf("主働を含めても通らない: %d %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestPutProgramSplit_Rejects(t *testing.T) {
+	// 宣言は bench/squat/deadlift。胸と脚しか無い周期を送ると、
+	// デッドリフト（ハム・脊柱起立筋）が出られる日を失う。
+	cases := []struct {
+		name string
+		body string
+		want int
+	}{
+		{
+			name: "宣言種目が出られる日が無い",
+			body: `{"splits":[{"name":"胸","regions":["CHEST_MID"]},` +
+				`{"name":"脚","regions":["QUAD"]}]}`,
+			want: http.StatusBadRequest,
+		},
+		{"名前が空", `{"splits":[{"name":"","regions":["QUAD"]}]}`, http.StatusBadRequest},
+		{"存在しない区分", `{"splits":[{"name":"謎","regions":["NOSUCH"]}]}`, http.StatusBadRequest},
+		{
+			name: "同じ区分が重複",
+			body: `{"splits":[{"name":"脚","regions":["QUAD","QUAD"]}]}`,
+			want: http.StatusBadRequest,
+		},
+		{"余計なフィールド", `{"splits":[],"per_week":4}`, http.StatusBadRequest},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			rec := do(t, newServer(t, true), http.MethodPut, "/api/program/split", c.body)
+			if rec.Code != c.want {
+				t.Errorf("ステータスが %d。%d のはず: %s", rec.Code, c.want, rec.Body.String())
+			}
+		})
+	}
+}
+
+// プリセットが一覧で取れること。
+func TestGetSplitPresets(t *testing.T) {
+	rec := do(t, newServer(t, true), http.MethodGet, "/api/split-presets", "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("ステータスが誤り: %d", rec.Code)
+	}
+
+	var got struct {
+		Presets []struct {
+			Key    string `json:"key"`
+			Name   string `json:"name"`
+			Splits []struct {
+				Name    string   `json:"name"`
+				Regions []string `json:"regions"`
+			} `json:"splits"`
+		} `json:"presets"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatalf("JSONが壊れている: %v", err)
+	}
+	if len(got.Presets) < 4 {
+		t.Fatalf("プリセットが %d 件。4件以上のはず", len(got.Presets))
+	}
+
+	keys := map[string]int{}
+	for _, p := range got.Presets {
+		if p.Key == "" || p.Name == "" {
+			t.Errorf("キーか名前が空: %+v", p)
+		}
+		keys[p.Key] = len(p.Splits)
+	}
+	for key, want := range map[string]int{
+		"full_body": 1, "upper_lower": 2, "ppl": 3, "five_way": 5,
+	} {
+		if got := keys[key]; got != want {
+			t.Errorf("%s の日数が %d。%d のはず", key, got, want)
+		}
+	}
+}
+
 func TestGetSession_MissingDate(t *testing.T) {
 	rec := httptest.NewRecorder()
 	newServer(t, true).ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/sessions", nil))
@@ -910,6 +1095,7 @@ func TestGetSession_UnavailableIsNot500(t *testing.T) {
 		usecase.NewSetFrequency(programs, programs),
 		usecase.NewSetSelectedExercises(unavailableExercises{}, programs, programs),
 		usecase.NewSetWeeklyTarget(unavailableExercises{}, programs, programs),
+		usecase.NewSetSplitCycle(unavailableExercises{}, programs, programs),
 		usecase.NewGetProgram(programs),
 		usecase.NewDeleteSetLog(logs),
 		query.NewExercises(unavailableExercises{}),
@@ -1046,6 +1232,8 @@ func TestRoutes_RejectWrongMethod(t *testing.T) {
 		{http.MethodPost, "/api/program/frequency"},
 		{http.MethodPost, "/api/program/selected"},
 		{http.MethodPost, "/api/program/target"},
+		{http.MethodPost, "/api/program/split"},
+		{http.MethodPost, "/api/split-presets"},
 		{http.MethodPost, "/api/exercises"},
 		{http.MethodPost, "/api/stats"},
 	} {
@@ -1105,6 +1293,7 @@ func TestGetSession_InternalErrorDoesNotLeak(t *testing.T) {
 		usecase.NewSetFrequency(programs, programs),
 		usecase.NewSetSelectedExercises(brokenExercises{}, programs, programs),
 		usecase.NewSetWeeklyTarget(brokenExercises{}, programs, programs),
+		usecase.NewSetSplitCycle(brokenExercises{}, programs, programs),
 		usecase.NewGetProgram(programs),
 		usecase.NewDeleteSetLog(logs),
 		query.NewExercises(brokenExercises{}),
@@ -1402,6 +1591,7 @@ func TestWrites_StopOnClientDisconnect(t *testing.T) {
 		"frequency":  {http.MethodPut, "/api/program/frequency", `{"per_week":4}`},
 		"selected":   {http.MethodPut, "/api/program/selected", `{"selected_exercises":["bench","squat","deadlift"]}`},
 		"target":     {http.MethodPut, "/api/program/target", `{"weekly_target":{"CHEST_MID":10,"QUAD":12}}`},
+		"split":      {http.MethodPut, "/api/program/split", `{"splits":[{"name":"全身","regions":[]}]}`},
 	} {
 		t.Run(name, func(t *testing.T) {
 			ctx, cancel := context.WithCancel(context.Background())

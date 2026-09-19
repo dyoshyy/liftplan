@@ -31,6 +31,8 @@ func (h *Handler) Routes() *http.ServeMux {
 	mux.HandleFunc("PUT /api/program/frequency", h.handlePutProgramFrequency)
 	mux.HandleFunc("PUT /api/program/selected", h.handlePutProgramSelected)
 	mux.HandleFunc("PUT /api/program/target", h.handlePutProgramTarget)
+	mux.HandleFunc("PUT /api/program/split", h.handlePutProgramSplit)
+	mux.HandleFunc("GET /api/split-presets", h.handleGetSplitPresets)
 	mux.HandleFunc("GET /api/exercises", h.handleGetExercises)
 	mux.HandleFunc("GET /api/set-logs", h.handleGetSetLogs)
 	mux.HandleFunc("DELETE /api/set-logs/{id}", h.handleDeleteSetLog)

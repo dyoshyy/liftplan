@@ -15,6 +15,8 @@ import (
 	"github.com/dyoshyy/liftplan/internal/domain/training"
 	"github.com/dyoshyy/liftplan/internal/domain/training/condition"
 	"github.com/dyoshyy/liftplan/internal/domain/training/exercise"
+	"github.com/dyoshyy/liftplan/internal/domain/training/program"
+	"github.com/dyoshyy/liftplan/internal/domain/training/seed"
 	"github.com/dyoshyy/liftplan/internal/domain/training/setlog"
 )
 
@@ -28,6 +30,7 @@ type Handler struct {
 	setFrequency     *usecase.SetFrequency
 	setSelected      *usecase.SetSelectedExercises
 	setTarget        *usecase.SetWeeklyTarget
+	setSplit         *usecase.SetSplitCycle
 	getProgram       *usecase.GetProgram
 	deleteSetLog     *usecase.DeleteSetLog
 	exercises        *query.Exercises
@@ -45,6 +48,7 @@ func NewHandler(
 	setFrequency *usecase.SetFrequency,
 	setSelected *usecase.SetSelectedExercises,
 	setTarget *usecase.SetWeeklyTarget,
+	setSplit *usecase.SetSplitCycle,
 	getProgram *usecase.GetProgram,
 	deleteSetLog *usecase.DeleteSetLog,
 	exercises *query.Exercises,
@@ -61,6 +65,7 @@ func NewHandler(
 		setFrequency:     setFrequency,
 		setSelected:      setSelected,
 		setTarget:        setTarget,
+		setSplit:         setSplit,
 		getProgram:       getProgram,
 		deleteSetLog:     deleteSetLog,
 		exercises:        exercises,
@@ -379,6 +384,55 @@ func (h *Handler) handlePutProgramTarget(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// handlePutProgramSplit は分割の周期を差し替える。空なら分割なし。
+func (h *Handler) handlePutProgramSplit(w http.ResponseWriter, r *http.Request) {
+	var req splitCycleDTO
+	if err := decodeJSON(r, &req); err != nil {
+		respondError(w, err)
+		return
+	}
+
+	cycle := make([]program.Split, 0, len(req.Splits))
+	for _, d := range req.Splits {
+		regions := make([]training.MuscleRegion, 0, len(d.Regions))
+		for _, x := range d.Regions {
+			regions = append(regions, training.MuscleRegion(x))
+		}
+		s, err := program.NewSplit(d.Name, regions)
+		if err != nil {
+			respondError(w, invalidInput(err.Error()))
+			return
+		}
+		cycle = append(cycle, s)
+	}
+
+	if err := h.setSplit.Execute(r.Context(), cycle); err != nil {
+		respondError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// handleGetSplitPresets は選べる分割の一覧を返す。
+//
+// 画面が自前で持たないのは、区分の割り当てがドメインの知識だから。
+// 画面に置くと、シードの区分が増えたときに黙ってずれる。
+func (h *Handler) handleGetSplitPresets(w http.ResponseWriter, r *http.Request) {
+	presets, err := seed.SplitPresets()
+	if err != nil {
+		respondError(w, err)
+		return
+	}
+
+	out := make([]splitPresetDTO, 0, len(presets))
+	for _, p := range presets {
+		out = append(out, splitPresetDTO{
+			Key: p.Key, Name: p.Name, Splits: toSplitDTOs(p.Cycle),
+		})
+	}
+	writeJSON(w, http.StatusOK, splitPresetsResponse{Presets: out})
 }
 
 // maxBodyBytes はリクエストボディの上限。

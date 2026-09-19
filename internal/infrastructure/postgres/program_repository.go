@@ -36,10 +36,13 @@ func (r *ProgramRepository) Get(ctx context.Context) (*program.Program, error) {
 		rawTarget, rawSelected, rawDeclared []byte
 		// 重点種目は指定なしが正当な既定値なので NULL を許す。
 		rawFocus *string
+		// 分割なしが正当な既定値なので NULL を許す。
+		rawCycle []byte
 	)
 	err := r.pool.QueryRow(ctx, `
-		SELECT per_week, weekly_target, selected, declared, focus FROM program WHERE id`).
-		Scan(&perWeek, &rawTarget, &rawSelected, &rawDeclared, &rawFocus)
+		SELECT per_week, weekly_target, selected, declared, focus, split_cycle
+		FROM program WHERE id`).
+		Scan(&perWeek, &rawTarget, &rawSelected, &rawDeclared, &rawFocus, &rawCycle)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, program.ErrProgramNotConfigured
 	}
@@ -78,11 +81,30 @@ func (r *ProgramRepository) Get(ctx context.Context) (*program.Program, error) {
 	if rawFocus != nil {
 		focus = exercise.ExerciseID(*rawFocus)
 	}
-	program, err := program.NewProgram(frequency, weeklyTarget, selected, declared, focus)
+	prog, err := program.NewProgram(frequency, weeklyTarget, selected, declared, focus)
 	if err != nil {
 		return nil, fmt.Errorf("保存されたプログラムが不正: %w", err)
 	}
-	return program, nil
+
+	if len(rawCycle) > 0 {
+		var rows []splitRow
+		if err := json.Unmarshal(rawCycle, &rows); err != nil {
+			return nil, fmt.Errorf("分割を解釈できない: %w", err)
+		}
+		cycle := make([]program.Split, 0, len(rows))
+		for _, row := range rows {
+			s, err := program.NewSplit(row.Name, row.Regions)
+			if err != nil {
+				return nil, fmt.Errorf("保存された分割が不正: %w", err)
+			}
+			cycle = append(cycle, s)
+		}
+		prog, err = prog.WithCycle(cycle)
+		if err != nil {
+			return nil, fmt.Errorf("保存された分割が不正: %w", err)
+		}
+	}
+	return prog, nil
 }
 
 // Save はプログラムを保存する。プログラムはユーザーごとに1つなので、
@@ -117,16 +139,30 @@ func (r *ProgramRepository) Save(ctx context.Context, p *program.Program) error 
 		rawFocus = &s
 	}
 
+	// 分割なしは NULL。空配列と区別する必要は無いが、既存行と形を揃える。
+	var rawCycle []byte
+	if cycle := p.Cycle(); len(cycle) > 0 {
+		rows := make([]splitRow, 0, len(cycle))
+		for _, s := range cycle {
+			rows = append(rows, splitRow{Name: s.Name(), Regions: s.Regions()})
+		}
+		rawCycle, err = json.Marshal(rows)
+		if err != nil {
+			return fmt.Errorf("分割を書き出せない: %w", err)
+		}
+	}
+
 	if _, err := r.pool.Exec(ctx, `
-		INSERT INTO program (id, per_week, weekly_target, selected, declared, focus)
-		VALUES (true, $1, $2, $3, $4, $5)
+		INSERT INTO program (id, per_week, weekly_target, selected, declared, focus, split_cycle)
+		VALUES (true, $1, $2, $3, $4, $5, $6)
 		ON CONFLICT (id) DO UPDATE SET
 			per_week      = EXCLUDED.per_week,
 			weekly_target = EXCLUDED.weekly_target,
 			selected      = EXCLUDED.selected,
 			declared      = EXCLUDED.declared,
-			focus         = EXCLUDED.focus`,
-		p.Frequency().PerWeek(), rawTarget, rawSelected, rawDeclared, rawFocus); err != nil {
+			focus         = EXCLUDED.focus,
+			split_cycle   = EXCLUDED.split_cycle`,
+		p.Frequency().PerWeek(), rawTarget, rawSelected, rawDeclared, rawFocus, rawCycle); err != nil {
 		return fmt.Errorf("プログラムを保存できない: %w", err)
 	}
 	return nil
@@ -136,3 +172,9 @@ var (
 	_ program.Reader = (*ProgramRepository)(nil)
 	_ program.Writer = (*ProgramRepository)(nil)
 )
+
+// splitRow は分割1件の保存形。順序が周期そのものなので、配列の並びを保つ。
+type splitRow struct {
+	Name    string                  `json:"name"`
+	Regions []training.MuscleRegion `json:"regions"`
+}
