@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { planRecord, planUndo } from './record';
+import { planRecord, planUndo } from './useRecordOrchestrator';
 
 const plan = { exercise_id: 'bench' };
 const values = { weight: 100, reps: 8, rir: 2 };

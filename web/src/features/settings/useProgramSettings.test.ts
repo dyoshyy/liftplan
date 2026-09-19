@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { asText, isDirty, parseTarget } from './program';
+import { asText, isDirty, parseTarget } from './useProgramSettings';
 
 describe('parseTarget', () => {
   it('数字なら数値にする', () => {
