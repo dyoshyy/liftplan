@@ -22,9 +22,13 @@ liftplan では、記録の順序を1つ間違えると記録が消える。そ�
 ```
 features/<機能>/
   Xxx.tsx                  描画だけ。await がゼロになるのが目安
-  useXxxOrchestrator.ts    手順。返ってきたものを順に実行するだけ
-  xxx.ts                   判断。純粋関数。テストはここに集める
+  useXxxOrchestrator.ts    判断（純粋関数）と手順（フック）。テストはここを読む
+  xxx.ts                   判断のうち、複数から使うものだけ切り出す
 ```
+
+**判断は既定でオーケストレーターと同じファイルに置く。** 純粋関数なので、
+フックと同居していても `*.test.ts` から検査できる。切り出すのは、使う相手が
+2つ以上になったとき。
 
 **判断（`.ts`・純粋）** — 入力から出力が決まるもの。何をどの順で送るか、値が妥当か、変わったか、どう表示するか。
 
@@ -139,9 +143,26 @@ type LoadResult = { ok: true } | { ok: false; reason: 'offline' | 'unauthorized'
 
 ## この形で書かれている場所
 
-| 判断 | 手順 | 描画 |
-|---|---|---|
-| `features/today/record.ts` | `useRecordOrchestrator.ts` | `Today.tsx` |
-| （`useSessionOrchestrator.ts` に同居） | `useSessionOrchestrator.ts` | `App.tsx` |
-| `features/settings/program.ts` | `useProgramSettings.ts` | `ProgramSettings.tsx` |
-| `app/sync.ts` / `app/route.ts` | `useRoute.ts` | `BottomNav.tsx` |
+| 判断 + 手順 | 描画 |
+|---|---|
+| `features/today/useRecordOrchestrator.ts` | `Today.tsx` |
+| `app/useSessionOrchestrator.ts` | `App.tsx` |
+| `features/settings/useProgramSettings.ts` | `ProgramSettings.tsx` |
+| `app/useRoute.ts` + `app/route.ts` / `app/sync.ts` | `BottomNav.tsx` |
+
+最後の1つだけ判断が別ファイルにある。`route.ts` の型と `sync.ts` は
+`BottomNav.tsx` も直接使うため。
+
+## 効果の見積もり
+
+liftplan で3箇所に当てた結果。ファイルが6つ増え、テストが78→103件になった。
+
+**一番効いたのは記録の手順**（`useRecordOrchestrator`）。「修正なら DELETE を
+先に積む」「同一IDを使い回す」「修正ではタイマーを走らせない」の3つに変異を
+入れると3つとも赤くなる。割る前は3つとも緑のまま通る。**間違えると記録が
+消える経路に、初めて番人が付いた。**
+
+**設定（`useProgramSettings`）は薄かった。** 増えたテストは入力の検証と差分
+判定で、壊れても記録は消えない。ファイルが1つ増える対価としては見合いが悪い。
+
+**当てる場所は行数ではなく、間違えたときの被害で選ぶ。**
