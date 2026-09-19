@@ -29,8 +29,10 @@ const button = cva(
       },
       size: {
         block: 'w-full px-4 py-[15px]',
-        md: 'px-4 py-2.5 text-sm',
-        chip: 'rounded-full px-3 py-2 text-[13px]',
+        md: 'min-h-11 px-4 py-2.5 text-sm',
+        // 高さ 44px は指で押す的の下限。以前は 39px で、設定画面の
+        // 77個すべてが基準未満だった。
+        chip: 'min-h-11 rounded-full px-3.5 py-2 text-[13px]',
         icon: 'size-11 rounded-xl text-2xl leading-none',
       },
     },

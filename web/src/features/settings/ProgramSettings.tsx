@@ -4,7 +4,8 @@ import { ExercisePicker } from './ExercisePicker';
 import { regionLabel } from '../../domain/regions';
 import { useProgramSettings } from './useProgramSettings';
 import { Button } from '../../ui/Button';
-import { Card, Note } from '../../ui/Card';
+import { Note } from '../../ui/Card';
+import { Section } from '../../ui/Section';
 import { LabeledInput } from '../../ui/Field';
 import type { Exercise } from '../../api/types';
 
@@ -59,10 +60,9 @@ export function ProgramSettings({ nameOf, exercises, onChanged }: Props) {
 
   return (
     <>
-      <Card title="週に通う回数">
+      <Section title="週に通う回数" summary={program ? `週${program.per_week}回` : ""} defaultOpen>
       <Note className="mb-3">
-        変えると週目標も回数に合わせて置き直されます。1週間に積めるセット数は
-        通う回数に比例するので、片方だけ動かすと目標が実態を説明しなくなります。
+        変えると週の目標セット数も一緒に変わります。
       </Note>
 
       {program && (
@@ -80,12 +80,12 @@ export function ProgramSettings({ nameOf, exercises, onChanged }: Props) {
         </div>
       )}
 
-      </Card>
+      </Section>
 
-      <Card title="伸ばしたい種目">
+      <Section title="伸ばしたい種目" summary={program ? `${program.declared_exercises.length}種目` : ""}>
       <Note className="mb-3">
-        ここに入れた種目が、毎回1つずつ順に「軸」として出ます。最後にやったのが
-        最も古いものが選ばれるので、数を増やすほど1種目あたりの頻度は下がります。
+        毎回1種目ずつ、しばらくやっていないものから出ます。
+        増やすほど1種目あたりの間隔があきます。
       </Note>
 
       {program && draft && (
@@ -108,9 +108,9 @@ export function ProgramSettings({ nameOf, exercises, onChanged }: Props) {
         </Button>
       )}
 
-      </Card>
+      </Section>
 
-      <Card title="重点種目">
+      <Section title="重点種目" summary={program?.focus_exercise ? nameOf(program.focus_exercise) : "指定なし"}>
       <Note className="mb-3">
         選んだ種目の派生（ナローグリップ、テンポなど）が、軸とは別の枠で
         中1日以上あけて出ます。指定しなければバリエーションは出ません。
@@ -135,12 +135,12 @@ export function ProgramSettings({ nameOf, exercises, onChanged }: Props) {
         </div>
       )}
 
-      </Card>
+      </Section>
 
-      <Card title="使う種目">
+      <Section title="使う種目" summary={program ? `${program.selected_exercises.length}種目` : ""}>
       <Note className="mb-3">
-        ここに入れた種目だけが補助レーンの候補になります。伸ばしたい種目は
-        外せません（先にそちらから外してください）。
+        ここで選んだ種目だけが補助として出ます。
+        伸ばしたい種目は外せません。
       </Note>
 
       {program && pick && (
@@ -163,9 +163,9 @@ export function ProgramSettings({ nameOf, exercises, onChanged }: Props) {
         </Button>
       )}
 
-      </Card>
+      </Section>
 
-      <Card title="週の目標セット数">
+      <Section title="週の目標セット数" summary={target ? `${Object.keys(target).length}区分` : ""}>
       <Note className="mb-3">
         区分ごとの1週間の目安です。通う回数を変えると、ここも回数に合わせて
         置き直ります。届かない目標を置くと毎週すべてが赤字になるだけなので、
@@ -203,7 +203,7 @@ export function ProgramSettings({ nameOf, exercises, onChanged }: Props) {
       )}
 
       {note && <p className="mt-2.5 text-[13px] text-red">{note}</p>}
-      </Card>
+      </Section>
     </>
   );
 }

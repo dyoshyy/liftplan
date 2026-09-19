@@ -30,7 +30,7 @@ export function BottomNav({ route, onGo, pending, rejected, online, onSync }: Pr
           onClick={onSync}
           aria-label={label}
           title={label}
-          className="flex items-center gap-2 px-3"
+          className="flex min-w-11 items-center justify-center gap-2 px-3"
         >
           <span
             className={cn(

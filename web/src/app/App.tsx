@@ -47,7 +47,11 @@ export function App() {
               aria-label={route === 'settings' ? '設定を閉じる' : '設定'}
               aria-pressed={route === 'settings'}
               onClick={() => go(route === 'settings' ? 'today' : 'settings')}
-              className={`-mr-1 p-1 ${route === 'settings' ? 'text-amber' : 'text-muted'}`}
+              // 44px は指で押す的の下限。アイコンは 20px のままで、
+              // 押せる範囲だけ広げる（見た目を大きくすると主張が強くなる）。
+              className={`-mr-2 grid size-11 place-content-center ${
+                route === 'settings' ? 'text-amber' : 'text-muted'
+              }`}
             >
               <GearIcon />
             </button>

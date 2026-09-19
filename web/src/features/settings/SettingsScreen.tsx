@@ -1,7 +1,8 @@
 import { useState } from 'react';
 import { clearToken } from '../../storage/local';
 import { Button } from '../../ui/Button';
-import { Card, Note } from '../../ui/Card';
+import { Note } from '../../ui/Card';
+import { Section } from '../../ui/Section';
 import { Stepper } from '../../ui/Stepper';
 import type { RestTimer } from '../timer/useRestTimer';
 import { ProgramSettings } from './ProgramSettings';
@@ -30,7 +31,7 @@ export function SettingsScreen({ nameOf, exercises, onChanged, timer, onForget }
     <>
       <ProgramSettings nameOf={nameOf} exercises={exercises} onChanged={onChanged} />
 
-      <Card title="休憩の長さ">
+      <Section title="休憩の長さ" summary={`${Math.round((timer.durationSec / 60) * 100) / 100}分`}>
         <Stepper
           label="セットを記録したあと、ここから数える"
           value={String(Math.round((timer.durationSec / 60) * 100) / 100)}
@@ -43,9 +44,9 @@ export function SettingsScreen({ nameOf, exercises, onChanged, timer, onForget }
         <Note className="mt-3">
           動いている最中に変えても、いま数えているぶんは伸び縮みしません。次に始めたときから効きます。
         </Note>
-      </Card>
+      </Section>
 
-      <Card title="この端末">
+      <Section title="この端末">
         {/* confirm() は使わない。ページ全体が止まるうえ、記録の途中なら
             入力中の値が消える。取り消せない操作はその場で二段階にする。 */}
         {confirming ? (
@@ -71,7 +72,7 @@ export function SettingsScreen({ nameOf, exercises, onChanged, timer, onForget }
             トークンを消す
           </Button>
         )}
-      </Card>
+      </Section>
     </>
   );
 }

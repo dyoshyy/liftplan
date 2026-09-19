@@ -107,6 +107,9 @@ check('やめると休憩バーが消える', (await bar().count()) === 0);
 // 長さは設定画面で変え、再読み込みをまたいで残ること。
 await page.click('header button[aria-label="設定"]');
 await page.waitForTimeout(1500);
+// 節は畳んである。開いてからステッパーを触る。
+await page.click('text=休憩の長さ');
+await page.waitForTimeout(500);
 // 休憩の長さのステッパーを指す。設定画面には週目標の数値入力も並ぶので、
 // input[type=number] の先頭を取ると別のものを掴む。
 const stepper = page.locator('div:has(> button[aria-label*="減らす"])').first();
@@ -121,6 +124,8 @@ await page.reload();
 await page.waitForTimeout(2500);
 await page.click('header button[aria-label="設定"]');
 await page.waitForTimeout(1500);
+await page.click('text=休憩の長さ');
+await page.waitForTimeout(500);
 const kept = await page
   .locator('div:has(> button[aria-label*="減らす"])')
   .first()

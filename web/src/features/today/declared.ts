@@ -50,7 +50,7 @@ export function lockedSelected(
   const out = new Map<string, string>();
   for (const id of declared) {
     if (selected.includes(id)) {
-      out.set(id, '伸ばしたい種目です。先にそちらから外してください');
+      out.set(id, '伸ばしたい種目なので外せません');
     }
   }
   return out;
