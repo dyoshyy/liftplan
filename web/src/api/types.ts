@@ -37,6 +37,9 @@ export type Exercise = {
   id: string;
   name: string;
   increment_kg: number;
+  /** stimulus は各筋区分への刺激。画面が種目を部位ごとにまとめるのに使う。
+   *  どれを代表に選ぶかは表示の判断なので、サーバーは分布のまま返す。 */
+  stimulus: Record<string, number>;
 };
 
 export type ExercisesResponse = { exercises: Exercise[] };

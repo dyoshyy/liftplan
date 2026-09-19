@@ -1,16 +1,19 @@
 import { focusOptions, NO_FOCUS } from '../today/focus';
 import { lockedSelected, toggleDeclared } from '../today/declared';
+import { ExercisePicker } from './ExercisePicker';
 import { regionLabel } from '../../domain/regions';
 import { useProgramSettings } from './useProgramSettings';
 import { Button } from '../../ui/Button';
 import { Card, Note } from '../../ui/Card';
 import { LabeledInput } from '../../ui/Field';
+import type { Exercise } from '../../api/types';
 
 type Props = {
   /** 種目IDを表示名にする。 */
   nameOf: (id: string) => string;
   /** 種目マスタ全件のID。使う種目の候補になる。 */
-  allExerciseIds: readonly string[];
+  /** exercises は種目マスタ。部位ごとにまとめるのに刺激の分布が要る。 */
+  exercises: readonly Exercise[];
   /** 変更後にメニューを取り直す。設定はその日の献立を変える。 */
   onChanged: () => Promise<void>;
 };
@@ -32,7 +35,7 @@ type Props = {
  * メニューは変わらないまま「変えたつもり」になる。失敗しても記録は
  * 1件も失わないので、その場で成否を見せるほうが正直。
  */
-export function ProgramSettings({ nameOf, allExerciseIds, onChanged }: Props) {
+export function ProgramSettings({ nameOf, exercises, onChanged }: Props) {
   const {
     program,
     draft,
@@ -86,26 +89,13 @@ export function ProgramSettings({ nameOf, allExerciseIds, onChanged }: Props) {
       </Note>
 
       {program && draft && (
-        <div className="flex flex-wrap gap-2">
-          {program.selected_exercises.map((id) => {
-            const on = draft.includes(id);
-            const why = locked.get(id);
-            return (
-              <Button
-                key={id}
-                size="chip"
-                variant={on ? 'primary' : 'quiet'}
-                disabled={busy || (on && why !== undefined)}
-                title={why}
-                onClick={() => setDraft(toggleDeclared(draft, id))}
-              >
-                {on ? '✓ ' : ''}
-                {nameOf(id)}
-                {why && on ? ` — ${why}` : ''}
-              </Button>
-            );
-          })}
-        </div>
+        <ExercisePicker
+          exercises={exercises.filter((e) => program.selected_exercises.includes(e.id))}
+          chosen={draft}
+          lockedReason={locked}
+          disabled={busy}
+          onToggle={(id) => setDraft(toggleDeclared(draft, id))}
+        />
       )}
 
       {dirty && (
@@ -154,26 +144,13 @@ export function ProgramSettings({ nameOf, allExerciseIds, onChanged }: Props) {
       </Note>
 
       {program && pick && (
-        <div className="flex flex-wrap gap-2">
-          {allExerciseIds.map((id) => {
-            const on = pick.includes(id);
-            const why = lockedSelected(pick, program.declared_exercises).get(id);
-            return (
-              <Button
-                key={id}
-                size="chip"
-                variant={on ? 'primary' : 'quiet'}
-                disabled={busy || (on && why !== undefined)}
-                title={why}
-                onClick={() => setPick(toggleDeclared(pick, id))}
-              >
-                {on ? '✓ ' : ''}
-                {nameOf(id)}
-                {why && on ? ` — ${why}` : ''}
-              </Button>
-            );
-          })}
-        </div>
+        <ExercisePicker
+          exercises={exercises}
+          chosen={pick}
+          lockedReason={lockedSelected(pick, program.declared_exercises)}
+          disabled={busy}
+          onToggle={(id) => setPick(toggleDeclared(pick, id))}
+        />
       )}
 
       {pickDirty && (

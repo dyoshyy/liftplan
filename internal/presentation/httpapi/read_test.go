@@ -465,3 +465,33 @@ func TestGetSetLogs_DefaultPeriodLooksBack(t *testing.T) {
 		t.Fatalf("既定の期間が遡っていない: %+v", got.Days)
 	}
 }
+
+// 種目の一覧が刺激の分布まで返すこと。
+//
+// 画面が部位ごとにまとめるのに使う。応答にフィールドを足すのは古い
+// クライアントを壊さない（DisallowUnknownFields はリクエストにしか効かない）。
+func TestGetExercises_CarriesStimulus(t *testing.T) {
+	rec := do(t, newServer(t, true), http.MethodGet, "/api/exercises", "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("ステータスが %d", rec.Code)
+	}
+
+	var got struct {
+		Exercises []struct {
+			ID       string             `json:"id"`
+			Stimulus map[string]float64 `json:"stimulus"`
+		} `json:"exercises"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatalf("応答を読めない: %v", err)
+	}
+	if len(got.Exercises) == 0 {
+		t.Fatal("種目が1件も返っていない")
+	}
+
+	for _, e := range got.Exercises {
+		if len(e.Stimulus) == 0 {
+			t.Errorf("%s の刺激分布が空である", e.ID)
+		}
+	}
+}

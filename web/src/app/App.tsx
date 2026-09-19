@@ -95,7 +95,7 @@ export function App() {
             {route === 'settings' && (
               <SettingsScreen
                 nameOf={nameOf}
-                allExerciseIds={[...data.names.keys()]}
+                exercises={data.exercises}
                 onChanged={reload}
                 timer={timer}
                 onForget={() => {

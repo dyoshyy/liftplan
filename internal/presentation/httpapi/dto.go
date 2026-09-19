@@ -212,6 +212,10 @@ type exerciseDTO struct {
 	ID          string  `json:"id"`
 	Name        string  `json:"name"`
 	IncrementKg float64 `json:"increment_kg"`
+	// Stimulus はその種目が各筋区分へ与える刺激。画面が種目の一覧を
+	// 部位ごとにまとめるのに使う。どれを代表に選ぶかは表示の判断なので、
+	// ここでは分布のまま渡す。
+	Stimulus map[string]float64 `json:"stimulus"`
 }
 
 type exercisesResponse struct {

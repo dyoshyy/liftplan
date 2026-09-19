@@ -17,6 +17,12 @@ const button = cva(
         // 15kg プレートの黄。その画面で一番やりたいこと。
         primary: 'bg-amber font-bold text-[#1a1204]',
         quiet: 'border border-line bg-surface-2 font-medium text-text',
+        // 複数選べる一覧の「選択中」。
+        //
+        // primary（ベタ塗りの黄）を使わない。黄は「この画面で一番やりたい
+        // こと」の色で、30個に付くと意味を失う。縁と文字だけ黄にして、
+        // 選ばれていることは分かるが主張はしない状態にする。
+        selected: 'border border-amber/55 bg-amber/15 font-medium text-amber',
         // 25kg プレートの赤。取り消し。
         danger: 'border border-red/55 bg-transparent font-medium text-red',
         ghost: 'text-muted hover:text-text',

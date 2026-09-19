@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"sort"
 
+	"github.com/dyoshyy/liftplan/internal/domain/training"
 	"github.com/dyoshyy/liftplan/internal/domain/training/exercise"
 )
 
@@ -16,6 +17,16 @@ type Exercise struct {
 	ID          exercise.ExerciseID
 	Name        string
 	IncrementKg float64
+	// Stimulus はその種目が各筋区分へ与える刺激。
+	//
+	// 画面が種目の一覧を部位ごとにまとめるのに要る。どれを代表に選ぶかは
+	// 表示の判断なので、ここでは argmax を取らず分布のまま渡す。
+	//
+	// 支配区分（PrimaryRegion）をドメインに作らないのは、あれが「その種目が
+	// どの日に出るか」を決めるためのもので、分割法と一緒に入れると決めて
+	// あるため（2026-09-06-training-goals-design.md）。表示のために先に
+	// 作ると、意味の違う2つが同じ名前で並ぶ。
+	Stimulus map[training.MuscleRegion]float64
 }
 
 // Exercises は種目マスタを読む経路。
@@ -42,10 +53,18 @@ func (q *Exercises) All(ctx context.Context) ([]Exercise, error) {
 		if e == nil {
 			continue
 		}
+		stimulus := make(map[training.MuscleRegion]float64, len(e.Stimulus().Regions()))
+		for _, r := range e.Stimulus().Regions() {
+			if c, ok := e.Stimulus().Contribution(r); ok {
+				stimulus[r] = c.Float()
+			}
+		}
+
 		item := Exercise{
 			ID:          e.ID(),
 			Name:        e.Name(),
 			IncrementKg: e.Increment().Kg(),
+			Stimulus:    stimulus,
 		}
 		out = append(out, item)
 	}
