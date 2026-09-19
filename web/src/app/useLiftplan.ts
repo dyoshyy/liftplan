@@ -17,6 +17,8 @@ export type LoadResult = { ok: true } | { ok: false; reason: 'offline' | 'unauth
 export type Data = {
   session: Session | null;
   names: Map<string, string>;
+  /** exercises は種目マスタ。設定画面が部位ごとにまとめるのに使う。 */
+  exercises: Exercise[];
   last: Record<string, LastPerformance>;
   /** doneToday は今日の実績。サーバーから復元し、記録のたびに手元でも進める。 */
   doneToday: Map<string, RecordedSet[]>;
@@ -32,6 +34,7 @@ export type Data = {
 const empty: Data = {
   session: null,
   names: new Map(),
+  exercises: [],
   last: {},
   doneToday: new Map(),
   days: [],
@@ -71,6 +74,7 @@ export function useLiftplan() {
       setData({
         session: null,
         names: new Map(exercises.exercises.map((e: Exercise) => [e.id, e.name])),
+        exercises: exercises.exercises,
         last: history.last_performances,
         doneToday,
         // サーバーが新しい日から順に返す（query.History.Days）。並べ替えない。
