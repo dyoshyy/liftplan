@@ -129,28 +129,33 @@ func (p SessionPlanner) Plan(req PlanRequest) (PlannedSession, error) {
 
 	rirBump := p.analyzer.RIRAdjustment(req.Conditions, req.Date)
 
-	// 週内カバレッジは前日まで。当日の記録は見ない。
+	// 直近1週のカバレッジ。窓は前日までの6日ぶんで、当日を足して7日。
+	//
+	// date-7 にしてはいけない。先週の同じ曜日のセッションが窓に残り、
+	// 同じ曜日に通う人は定常状態で不足が 0 になって補助が出なくなる。
+	//
+	// 暦週をやめたのは、週の先頭でリセットされるため。埋めきった週末は
+	// セッションが短くなり（実測18セット）、週明けに全区分の不足が
+	// 最大になって一日で使い尽くしていた。
+	//
+	// 当日の記録は見ない。
 	// 当日を含めると、1セット記録するたびに残差が動いて選ばれる種目と並びが
 	// 変わり、ジムで消化している最中にリストが自分の下で入れ替わる。
-	coverage := CoverageBetween(req.History, pool, req.Date.WeekStart(), req.Date.AddDays(-1))
+	coverage := CoverageBetween(req.History, pool, req.Date.AddDays(-6), req.Date.AddDays(-1))
 
 	set := p.planHeavy(req, estHistory, heavy, rirBump)
-	coverage = coverage.Plus(heavy.Stimulus(), set.Sets())
+	thisSession := StimulusCoverage{}.Plus(heavy.Stimulus(), set.Sets())
 
 	variation := make([]PlannedSet, 0, 1)
 	exclude := accessoryExcluded(pool, req.Program)
 	if v := p.variationLift(req, pool, heavy); v != nil {
 		vs := p.planVariation(req, estHistory, v, rirBump)
 		variation = append(variation, vs)
-		coverage = coverage.Plus(v.Stimulus(), vs.Sets())
+		thisSession = thisSession.Plus(v.Stimulus(), vs.Sets())
 		exclude = append(exclude, v.ID())
 	}
 
-	// 設定より多く通った場合でも、残り1セッション分は狙えるようにする。
-	// 0 以下にすると残差が空になり、補助が1つも出ないまま
-	// メイン種目のフルスロットだけが積まれる。
-	sessionsRemaining := max(1, req.Program.Frequency().PerWeek()-sessionIndexInWeek(req.History, req.Date))
-	gaps := SessionResidual(req.Program.WeeklyTarget(), coverage, sessionsRemaining)
+	gaps := SessionResidual(req.Program.WeeklyTarget(), coverage, thisSession)
 
 	chosen := p.accessory.Select(gaps, pool, historyBefore(req), req.Date, exclude)
 	accessories := make([]PlannedSet, 0, len(chosen))
@@ -353,12 +358,6 @@ func CoverageBetween(h setlog.History, pool []*exercise.Exercise, from, to train
 		coverage = coverage.Plus(e.Stimulus(), one)
 	}
 	return coverage
-}
-
-// sessionIndexInWeek はその週で対象日が何本目のセッションか（0始まり）。
-// 曜日の割り当てはドメインの責務ではないため、実績から導出する。
-func sessionIndexInWeek(h setlog.History, date training.Date) int {
-	return h.OnOrAfter(date.WeekStart()).Before(date).SessionCount()
 }
 
 // heavyLift は今日メインでやる＝高重量を扱う種目を返す。

@@ -121,7 +121,7 @@ func (q *Stats) WeeklyVolume(ctx context.Context, asOf training.Date) ([]RegionV
 
 	// 数え方はエンジンと同じものを使う。別々に実装すると、画面に出る
 	// 数字とエンジンが使う数字がずれて、どちらが正しいか分からなくなる。
-	coverage := planning.CoverageBetween(h, pool, asOf.WeekStart(), asOf)
+	coverage := planning.CoverageBetween(h, pool, asOf.AddDays(-6), asOf)
 
 	target := prog.WeeklyTarget()
 	out := make([]RegionVolume, 0, len(target.Regions()))

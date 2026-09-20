@@ -75,52 +75,38 @@ func TestStimulusCoverage_IsQuantized(t *testing.T) {
 	}
 }
 
-func TestSessionResidual_SplitsRemainderAcrossRemainingSessions(t *testing.T) {
-	target := mustTarget(t, map[training.MuscleRegion]float64{training.ChestMid: 12})
-
-	// 週の頭、まだ何もしていない。3セッション残っているので4セット狙う。
-	got := planning.SessionResidual(target, planning.StimulusCoverage{}, 3)
-	if math.Abs(got[training.ChestMid]-4) > 1e-9 {
-		t.Errorf("残り3セッションでの配分が誤り: %v", got[training.ChestMid])
-	}
-
-	// 最終セッションでは残り全部を狙う。
-	got = planning.SessionResidual(target, planning.StimulusCoverage{}, 1)
-	if math.Abs(got[training.ChestMid]-12) > 1e-9 {
-		t.Errorf("最終セッションでの配分が誤り: %v", got[training.ChestMid])
-	}
-}
-
-// 過不足が翌セッションへ繰り越されること。
+// 不足がそのまま出ること。割らない。
 //
-// 週目標を頻度で割った固定値を毎回使うと繰り越しが起きない。
-// 補助種目は3セット固定なので、目標の小さい区分は毎回超過し、
-// 目標の大きい区分は毎回埋まらないまま、誤差が次に伝わらない。
-func TestSessionResidual_CarriesOverShortfall(t *testing.T) {
+// 暦週のころは「残りセッション数で割る」だったので、週の後半ほど1回
+// あたりの量が増えた。ローリング窓には「残り」という区切りが無い。
+func TestSessionResidual_ReportsTheWholeGap(t *testing.T) {
 	target := mustTarget(t, map[training.MuscleRegion]float64{training.ChestMid: 12})
 
-	// 1本目で目標4に対し1セットしか埋まらなかった。
-	after := planning.StimulusCoverage{}.Plus(
-		singleRegionProfile(t, training.ChestMid, 1.0), mustSetCount(t, 1))
+	got := planning.SessionResidual(target, planning.StimulusCoverage{}, planning.StimulusCoverage{})
+	if math.Abs(got[training.ChestMid]-12) > 1e-9 {
+		t.Errorf("不足が %v。12のはず", got[training.ChestMid])
+	}
 
-	// 残り2セッションで 11 セットを分け合うので、1回あたり 5.5。
-	got := planning.SessionResidual(target, after, 2)
-	if math.Abs(got[training.ChestMid]-5.5) > 1e-9 {
-		t.Errorf("不足が繰り越されていない: %v", got[training.ChestMid])
+	// 直近1週で10セット埋まっていれば残りは2。
+	covered := planning.StimulusCoverage{}.Plus(
+		singleRegionProfile(t, training.ChestMid, 1.0), mustSetCount(t, 10))
+	got = planning.SessionResidual(target, covered, planning.StimulusCoverage{})
+	if math.Abs(got[training.ChestMid]-2) > 1e-9 {
+		t.Errorf("不足が %v。2のはず", got[training.ChestMid])
 	}
 }
 
-func TestSessionResidual_CarriesOverExcess(t *testing.T) {
+// 今日すでに積んだ分を引くこと。
+//
+// 引かないと、軸が胸を3セット埋めた日でも補助が同じだけ上乗せする。
+func TestSessionResidual_SubtractsWhatThisSessionAlreadyCovers(t *testing.T) {
 	target := mustTarget(t, map[training.MuscleRegion]float64{training.ChestMid: 12})
+	today := planning.StimulusCoverage{}.Plus(
+		singleRegionProfile(t, training.ChestMid, 1.0), mustSetCount(t, 3))
 
-	// 1本目で目標4に対し8セット埋まった。
-	after := planning.StimulusCoverage{}.Plus(
-		singleRegionProfile(t, training.ChestMid, 1.0), mustSetCount(t, 8))
-
-	// 残り2セッションで 4 セットなので、1回あたり 2。
-	got := planning.SessionResidual(target, after, 2)
-	if math.Abs(got[training.ChestMid]-2) > 1e-9 {
-		t.Errorf("超過が繰り越されていない: %v", got[training.ChestMid])
+	got := planning.SessionResidual(target, planning.StimulusCoverage{}, today)
+	if math.Abs(got[training.ChestMid]-9) > 1e-9 {
+		t.Errorf("今日の分が引かれていない: %v（9のはず）", got[training.ChestMid])
 	}
 }
 
@@ -131,7 +117,7 @@ func TestSessionResidual_DropsSatisfiedRegions(t *testing.T) {
 		covered := planning.StimulusCoverage{}.Plus(
 			singleRegionProfile(t, training.ChestMid, 1.0), mustSetCount(t, sets))
 
-		if got := planning.SessionResidual(target, covered, 2); len(got) != 0 {
+		if got := planning.SessionResidual(target, covered, planning.StimulusCoverage{}); len(got) != 0 {
 			t.Errorf("%dセット埋めたのに残差が残っている: %v", sets, got)
 		}
 	}
@@ -143,23 +129,16 @@ func TestSessionResidual_IgnoresRegionsOutsideTheTarget(t *testing.T) {
 	covered := planning.StimulusCoverage{}.Plus(
 		singleRegionProfile(t, training.Calf, 1.0), mustSetCount(t, 5))
 
-	got := planning.SessionResidual(target, covered, 3)
+	got := planning.SessionResidual(target, covered, planning.StimulusCoverage{})
 	if _, ok := got[training.Calf]; ok {
 		t.Errorf("目標に無い区分が残差に現れている: %v", got)
 	}
 }
 
 func TestSessionResidual_EdgeCases(t *testing.T) {
-	target := mustTarget(t, map[training.MuscleRegion]float64{training.ChestMid: 12})
-
-	for _, remaining := range []int{0, -1} {
-		if got := planning.SessionResidual(target, planning.StimulusCoverage{}, remaining); len(got) != 0 {
-			t.Errorf("残りセッション %d で残差が出る: %v", remaining, got)
-		}
-	}
-
 	var zero program.WeeklyVolumeTarget
-	if got := planning.SessionResidual(zero, planning.StimulusCoverage{}, 3); len(got) != 0 {
+	if got := planning.SessionResidual(zero, planning.StimulusCoverage{},
+		planning.StimulusCoverage{}); len(got) != 0 {
 		t.Errorf("ゼロ値の目標から残差が出る: %v", got)
 	}
 }
@@ -167,17 +146,18 @@ func TestSessionResidual_EdgeCases(t *testing.T) {
 func TestSessionResidual_IsQuantized(t *testing.T) {
 	target := mustTarget(t, map[training.MuscleRegion]float64{training.ChestMid: 10})
 
-	got := planning.SessionResidual(target, planning.StimulusCoverage{}, 3)[training.ChestMid]
+	got := planning.SessionResidual(target, planning.StimulusCoverage{}, planning.StimulusCoverage{})[training.ChestMid]
 	if n := decimalPlaces(strconv.FormatFloat(got, 'f', -1, 64)); n > 6 {
 		t.Errorf("端数が残っている: %v（小数点以下 %d 桁）", got, n)
 	}
 }
 
-// 週を通して目標が達成できること。
+// 1週を通して目標に届き、大きく超えないこと。
 //
-// 毎セッション「残りを残りセッション数で割る」ので、補助種目のセット数が
-// 固定でも、超過・不足が次に繰り越されて週の終わりには目標に収束する。
-func TestSessionResidual_ConvergesOverTheWeek(t *testing.T) {
+// 補助種目は3セット単位なので、天井が小さすぎると届かず、大きすぎると
+// 超過する。ローリング窓では窓から落ちた分だけ不足が戻ってくるので、
+// 定常状態では毎回ほぼ1回ぶんを出し続けることになる。
+func TestSessionResidual_ConvergesOverAWeek(t *testing.T) {
 	const (
 		weeklyTarget = 12.0
 		frequency    = 4
@@ -186,15 +166,22 @@ func TestSessionResidual_ConvergesOverTheWeek(t *testing.T) {
 	target := mustTarget(t, map[training.MuscleRegion]float64{training.ChestMid: weeklyTarget})
 	profile := singleRegionProfile(t, training.ChestMid, 1.0)
 
-	coverage := planning.StimulusCoverage{}
-	for session := range frequency {
-		remaining := frequency - session
-		residual := planning.SessionResidual(target, coverage, remaining)
+	// 回数に上限を置く。残差が減らなくなる変異を入れたとき、赤ではなく
+	// ハングになるとテストとして役に立たない。
+	const maxBouts = 100
 
-		// 残差がある限り、3セット単位で埋める（実際の補助種目の挙動）。
+	coverage := planning.StimulusCoverage{}
+	bouts := 0
+	for range frequency {
+		residual := planning.SessionResidual(target, coverage, planning.StimulusCoverage{})
 		for residual[training.ChestMid] > 0 {
+			bouts++
+			if bouts > maxBouts {
+				t.Fatalf("残差が減らない: %v セット埋めても残差 %v",
+					coverage.Sets(training.ChestMid), residual[training.ChestMid])
+			}
 			coverage = coverage.Plus(profile, mustSetCount(t, setsPerBout))
-			residual = planning.SessionResidual(target, coverage, remaining)
+			residual = planning.SessionResidual(target, coverage, planning.StimulusCoverage{})
 		}
 	}
 
@@ -202,13 +189,11 @@ func TestSessionResidual_ConvergesOverTheWeek(t *testing.T) {
 	if got < weeklyTarget {
 		t.Errorf("週目標に届かない: %v / %v", got, weeklyTarget)
 	}
-	// 3セット単位なので多少の超過は避けられないが、1単位以内に収まること。
 	if got > weeklyTarget+setsPerBout {
 		t.Errorf("週目標を大きく超過している: %v / %v", got, weeklyTarget)
 	}
 }
 
-// singleRegionProfile は1区分だけに寄与する種目の刺激分布を返す。
 func singleRegionProfile(t *testing.T, r training.MuscleRegion, contribution float64) exercise.StimulusProfile {
 	t.Helper()
 	p := benchParams()

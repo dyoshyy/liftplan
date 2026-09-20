@@ -42,32 +42,36 @@ func (c StimulusCoverage) Plus(p exercise.StimulusProfile, sets training.SetCoun
 
 // SessionResidual はこのセッションで狙うべき、筋区分ごとの不足セット数。
 //
-// 週目標から「その週にすでに埋めた分」を引き、残りのセッション数で割る。
-// 割る前に引くのが要点で、これによって過不足が翌セッションへ繰り越される。
+// 直近1週の実績と、今日すでに積んだ分を、週目標から引いた残り。
 //
-// 週目標を頻度で割った固定値を毎回使うと、繰り越しが起きない。
-// 補助種目は3セット固定なので、目標の小さい区分は毎回3倍超過し、
-// 目標の大きい区分は毎回埋まらない。どちらの誤差も次に伝わらないため、
-// 週を通した目標は構造的に達成できなくなる。
+// **割らない。**暦週のころは残りセッション数で割っていたが、ローリング窓には
+// 「今週の残り」という区切りが存在しない（窓が毎日ずれる）。
 //
-// sessionsRemaining はこのセッションを含む、その週の残りセッション数。
-// 0以下なら「もう今週は埋める余地が無い」とみなして空を返す。
+// 1回ぶんの天井を掛ける案も測ったが、逆効果だった。全区分の share が
+// 一律「週目標 ÷ 頻度」に揃うので、補助が枯れた区分に集中せず散る。
+// 軸がベンチの日の上体ボリュームが 33.6 → 18.0 まで落ちた。
+//
+// 天井を提案した理由は「1週間休んだ翌日に1つの区分がスロットを食い尽くす」
+// だったが、実測では起きない（最大2種目）。補助の選択は区分の古さで回すので、
+// 残差が大きいだけでは同じ区分に積み上がらない。
+//
+// thisSession は今日すでに積んだ分（軸とバリエーション）。引かないと、
+// 軸が胸を3セット埋めた日でも補助が同じだけ上乗せする。
 func SessionResidual(
-	target program.WeeklyVolumeTarget, coveredThisWeek StimulusCoverage,
-	sessionsRemaining int,
+	target program.WeeklyVolumeTarget,
+	window, thisSession StimulusCoverage,
 ) map[training.MuscleRegion]float64 {
 	out := map[training.MuscleRegion]float64{}
-	if target.IsEmpty() || sessionsRemaining <= 0 {
+	if target.IsEmpty() {
 		return out
 	}
 
 	for _, region := range target.Regions() {
-		gap := target.Sets(region) - coveredThisWeek.Sets(region)
+		gap := target.Sets(region) - window.Sets(region) - thisSession.Sets(region)
 		if gap <= 0 {
 			continue
 		}
-		share := training.Quantize(gap / float64(sessionsRemaining))
-		if share > 0 {
+		if share := training.Quantize(gap); share > 0 {
 			out[region] = share
 		}
 	}
