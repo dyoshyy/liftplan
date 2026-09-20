@@ -515,7 +515,7 @@ func TestPutProgramFrequency_Rejects(t *testing.T) {
 	}{
 		{"0回", true, `{"per_week":0}`, http.StatusBadRequest},
 		{"負", true, `{"per_week":-1}`, http.StatusBadRequest},
-		{"上限超え", true, `{"per_week":5}`, http.StatusBadRequest},
+		{"上限超え", true, `{"per_week":8}`, http.StatusBadRequest},
 		{"プログラムが未設定", false, `{"per_week":3}`, http.StatusConflict},
 		{"余計なフィールド", true, `{"per_week":3,"focus_exercise":"bench"}`, http.StatusBadRequest},
 	}

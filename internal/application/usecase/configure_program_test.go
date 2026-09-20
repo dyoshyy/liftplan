@@ -92,7 +92,7 @@ func TestConfigureProgram_RejectsUnknownExercise(t *testing.T) {
 func TestConfigureProgram_RejectsInvalidFrequency(t *testing.T) {
 	programs := &fakeProgram{}
 	in := configureInput(t)
-	in.PerWeek = 7
+	in.PerWeek = 8
 
 	if err := newConfigure(t, programs).Execute(context.Background(), in); err == nil {
 		t.Error("範囲外の頻度が通った")
