@@ -12,7 +12,6 @@ const upperLower = preset('upper_lower', [
   { name: '上半身', regions: ['CHEST_MID', 'LAT'] },
   { name: '下半身', regions: ['GLUTE', 'QUAD'] },
 ]);
-const fullBody = preset('full_body', [{ name: '全身', regions: [] }]);
 
 const program = (splits: Program['splits']): Program => ({
   per_week: 4,
@@ -25,18 +24,12 @@ const program = (splits: Program['splits']): Program => ({
 
 describe('matchingPresetKey', () => {
   it('中身が一致すればそのキーを返す', () => {
-    expect(matchingPresetKey(program(upperLower.splits), [fullBody, upperLower])).toBe(
-      'upper_lower',
-    );
+    expect(matchingPresetKey(program(upperLower.splits), [upperLower])).toBe('upper_lower');
   });
 
+  // 分割なしが全身法。画面では「全身法」を押した状態になる。
   it('分割なしはどれとも一致しない', () => {
-    expect(matchingPresetKey(program([]), [fullBody, upperLower])).toBeNull();
-  });
-
-  // 全身法は「区分を持たない1日」。分割なしとは別物。
-  it('全身法と分割なしを取り違えない', () => {
-    expect(matchingPresetKey(program(fullBody.splits), [fullBody, upperLower])).toBe('full_body');
+    expect(matchingPresetKey(program([]), [upperLower])).toBeNull();
   });
 
   it('区分の数が違えば一致しない', () => {

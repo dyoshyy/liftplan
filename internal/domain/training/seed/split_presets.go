@@ -44,11 +44,6 @@ func SplitPresets() ([]SplitPreset, error) {
 	)
 
 	specs := []spec{
-		{"full_body", "全身法", [][2]any{
-			// 区分を持たない分割は全区分を狙う。分割なしと同じ挙動だが、
-			// 「全身法を選んだ」という意思が設定に残る。
-			{"全身", R()},
-		}},
 		{"upper_lower", "上下2分割", [][2]any{
 			{"上半身", upper},
 			{"下半身", lower},

@@ -70,24 +70,3 @@ func TestSplitPresets_AreUsableWithTheSeed(t *testing.T) {
 		}
 	}
 }
-
-// 全身法は区分を持たない1日の周期。分割なしと同じ挙動になる。
-func TestSplitPresets_FullBodyCoversEverything(t *testing.T) {
-	presets, err := seed.SplitPresets()
-	if err != nil {
-		t.Fatalf("プリセットが不正: %v", err)
-	}
-	for _, p := range presets {
-		if p.Key != "full_body" {
-			continue
-		}
-		if len(p.Cycle) != 1 {
-			t.Fatalf("全身法の周期が %d 日。1日のはず", len(p.Cycle))
-		}
-		if !p.Cycle[0].CoversNothing() {
-			t.Errorf("全身法が区分を持っている: %v", p.Cycle[0].Regions())
-		}
-		return
-	}
-	t.Error("全身法のプリセットが無い")
-}

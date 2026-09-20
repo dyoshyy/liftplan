@@ -6,7 +6,7 @@ import { useProgramSettings } from './useProgramSettings';
 import { Button } from '../../ui/Button';
 import { Note } from '../../ui/Card';
 import { Section } from '../../ui/Section';
-import { LabeledInput } from '../../ui/Field';
+import { LabeledInput, Select } from '../../ui/Field';
 import type { Exercise } from '../../api/types';
 
 type Props = {
@@ -65,12 +65,12 @@ export function ProgramSettings({ nameOf, exercises, onChanged }: Props) {
     <>
       <Section
         title="分割"
-        summary={program && program.splits.length > 0 ? program.splits.map((s) => s.name).join(' → ') : "指定なし"}
+        summary={program && program.splits.length > 0 ? program.splits.map((s) => s.name).join(' → ') : "全身法"}
         defaultOpen
       >
         <Note className="mb-3">
           その日に補助種目が狙う筋部位を決めます。通った回数で順に回るので、
-          休んでも飛びません。指定しなければ、毎回すべての部位から選ばれます。
+          休んでも飛びません。全身法では毎回すべての部位から選ばれます。
         </Note>
 
         <div className="grid gap-2">
@@ -79,7 +79,7 @@ export function ProgramSettings({ nameOf, exercises, onChanged }: Props) {
             disabled={busy}
             onClick={() => void chooseSplit(null)}
           >
-            指定しない
+            全身法
           </Button>
           {presets.map((p) => (
             <Button
@@ -93,7 +93,7 @@ export function ProgramSettings({ nameOf, exercises, onChanged }: Props) {
           ))}
         </div>
 
-        {program && program.splits.length > 0 && (
+        {program && program.splits.length > 1 && (
           <Note className="mt-3">
             {program.splits.map((s) => s.name).join(' → ')} の順に回ります。
           </Note>
@@ -106,18 +106,18 @@ export function ProgramSettings({ nameOf, exercises, onChanged }: Props) {
       </Note>
 
       {program && (
-        <div className="grid grid-cols-4 gap-2">
+        <Select
+          aria-label="週に通う回数"
+          value={program.per_week}
+          disabled={busy}
+          onChange={(e) => void saveFrequency(Number(e.target.value))}
+        >
           {[1, 2, 3, 4, 5, 6, 7].map((n) => (
-            <Button
-              key={n}
-              variant={program.per_week === n ? 'primary' : 'quiet'}
-              disabled={busy}
-              onClick={() => void saveFrequency(n)}
-            >
-              週{n}
-            </Button>
+            <option key={n} value={n}>
+              週{n}回
+            </option>
           ))}
-        </div>
+        </Select>
       )}
 
       </Section>
