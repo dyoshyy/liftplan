@@ -65,12 +65,12 @@ export function ProgramSettings({ nameOf, exercises, onChanged }: Props) {
     <>
       <Section
         title="分割"
-        summary={program && program.splits.length > 0 ? program.splits.map((s) => s.name).join(' → ') : "指定なし"}
+        summary={program && program.splits.length > 0 ? program.splits.map((s) => s.name).join(' → ') : "全身法"}
         defaultOpen
       >
         <Note className="mb-3">
           その日に補助種目が狙う筋部位を決めます。通った回数で順に回るので、
-          休んでも飛びません。指定しなければ、毎回すべての部位から選ばれます。
+          休んでも飛びません。全身法では毎回すべての部位から選ばれます。
         </Note>
 
         <div className="grid gap-2">
@@ -79,7 +79,7 @@ export function ProgramSettings({ nameOf, exercises, onChanged }: Props) {
             disabled={busy}
             onClick={() => void chooseSplit(null)}
           >
-            指定しない
+            全身法
           </Button>
           {presets.map((p) => (
             <Button
@@ -93,7 +93,7 @@ export function ProgramSettings({ nameOf, exercises, onChanged }: Props) {
           ))}
         </div>
 
-        {program && program.splits.length > 0 && (
+        {program && program.splits.length > 1 && (
           <Note className="mt-3">
             {program.splits.map((s) => s.name).join(' → ')} の順に回ります。
           </Note>

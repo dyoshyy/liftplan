@@ -873,8 +873,8 @@ func TestGetSplitPresets(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
 		t.Fatalf("JSONが壊れている: %v", err)
 	}
-	if len(got.Presets) < 4 {
-		t.Fatalf("プリセットが %d 件。4件以上のはず", len(got.Presets))
+	if len(got.Presets) < 3 {
+		t.Fatalf("プリセットが %d 件。3件以上のはず", len(got.Presets))
 	}
 
 	keys := map[string]int{}
@@ -885,7 +885,7 @@ func TestGetSplitPresets(t *testing.T) {
 		keys[p.Key] = len(p.Splits)
 	}
 	for key, want := range map[string]int{
-		"full_body": 1, "upper_lower": 2, "ppl": 3, "five_way": 5,
+		"upper_lower": 2, "ppl": 3, "five_way": 5,
 	} {
 		if got := keys[key]; got != want {
 			t.Errorf("%s の日数が %d。%d のはず", key, got, want)

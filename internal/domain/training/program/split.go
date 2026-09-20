@@ -27,7 +27,7 @@ var (
 
 // Split はその日に狙う筋区分の集合。
 //
-// 区分が空なら「全区分」。全身法の日をこれで表す。
+// 区分が空なら「全区分」。
 type Split struct {
 	name    string
 	regions []training.MuscleRegion
@@ -71,16 +71,13 @@ func (s Split) Regions() []training.MuscleRegion {
 
 // Includes はその筋区分を今日狙うか。
 //
-// 区分を1つも持たない分割は全区分を狙う。全身法の日。
+// 区分を1つも持たない分割は全区分を狙う。
 func (s Split) Includes(r training.MuscleRegion) bool {
 	if len(s.regions) == 0 {
 		return true
 	}
 	return slices.Contains(s.regions, r)
 }
-
-// CoversNothing は区分を1つも持たないか。全身法の日を見分ける。
-func (s Split) CoversNothing() bool { return len(s.regions) == 0 }
 
 func (s Split) IsZero() bool { return s.name == "" && len(s.regions) == 0 }
 

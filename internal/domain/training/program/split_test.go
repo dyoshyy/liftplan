@@ -68,12 +68,9 @@ func TestNewSplit_SortsRegions(t *testing.T) {
 	}
 }
 
-// 区分を1つも持たない分割は全区分を狙う。全身法の日。
+// 区分を1つも持たない分割は全区分を狙う。
 func TestSplit_WithNoRegionsCoversEverything(t *testing.T) {
 	s := mustSplit(t, "全身")
-	if !s.CoversNothing() {
-		t.Error("区分なしが CoversNothing でない")
-	}
 	for _, r := range training.AllMuscleRegions() {
 		if !s.Includes(r) {
 			t.Errorf("%s を狙わない", r)
