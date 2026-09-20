@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react';
 import { getJSON, send } from '../../api/client';
-import type { Program } from '../../api/types';
+import type { Program, SplitPreset, SplitPresetsResponse } from '../../api/types';
 import { regionLabel } from '../../domain/regions';
 import { focusBody, NO_FOCUS } from '../today/focus';
 import { lockedDeclared } from '../today/declared';
+import { matchingPresetKey, splitBody } from './split';
 
 // 設定の判断。副作用は持たない。
 //
@@ -62,6 +63,7 @@ export function useProgramSettings(onChanged: () => Promise<void>) {
   const [draft, setDraft] = useState<string[] | null>(null);
   const [pick, setPick] = useState<string[] | null>(null);
   const [target, setTarget] = useState<Record<string, string> | null>(null);
+  const [presets, setPresets] = useState<SplitPreset[]>([]);
 
   // 画面を開いたら読む。以前は「開く」を押したときだけだったが、
   // 設定画面そのものが「開いた」の意味を持つようになった。
@@ -83,8 +85,12 @@ export function useProgramSettings(onChanged: () => Promise<void>) {
   const load = async () => {
     setNote('');
     try {
-      const p = await getJSON<Program>('/api/program');
+      const [p, sp] = await Promise.all([
+        getJSON<Program>('/api/program'),
+        getJSON<SplitPresetsResponse>('/api/split-presets'),
+      ]);
       setProgram(p);
+      setPresets(sp.presets);
       setDraft(p.declared_exercises);
       setPick(p.selected_exercises);
       setTarget(asText(p.weekly_target));
@@ -149,6 +155,13 @@ export function useProgramSettings(onChanged: () => Promise<void>) {
     await onChanged();
   };
 
+  const chooseSplit = async (preset: SplitPreset | null) => {
+    if (!program || busy) return;
+    if (!(await put('/api/program/split', splitBody(preset)))) return;
+    setProgram({ ...program, splits: preset ? preset.splits : [] });
+    await onChanged();
+  };
+
   const saveFrequency = async (n: number) => {
     if (!program || busy) return;
     if (!(await put('/api/program/frequency', { per_week: n }))) return;
@@ -168,6 +181,7 @@ export function useProgramSettings(onChanged: () => Promise<void>) {
       ? JSON.stringify(target) !== JSON.stringify(asText(program.weekly_target))
       : false;
   const pickDirty = program && pick ? isDirty(pick, program.selected_exercises) : false;
+  const splitKey = program ? matchingPresetKey(program, presets) : null;
 
 
   return {
@@ -189,5 +203,8 @@ export function useProgramSettings(onChanged: () => Promise<void>) {
     saveSelected,
     saveTarget,
     saveFrequency,
+    presets,
+    splitKey,
+    chooseSplit,
   };
 }

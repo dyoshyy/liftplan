@@ -114,6 +114,7 @@ type programDTO struct {
 	Selected []string           `json:"selected_exercises"`
 	Declared []string           `json:"declared_exercises"`
 	Focus    *string            `json:"focus_exercise"`
+	Splits   []splitDTO         `json:"splits"`
 }
 
 // focusDTO は重点種目だけの書き込み。
@@ -150,6 +151,39 @@ type targetDTO struct {
 	Target map[string]float64 `json:"weekly_target"`
 }
 
+// splitDTO は分割1件。順序が周期そのものなので、配列の並びに意味がある。
+type splitDTO struct {
+	Name    string   `json:"name"`
+	Regions []string `json:"regions"`
+}
+
+// splitCycleDTO は分割の周期だけの書き込み。空なら分割なし。
+type splitCycleDTO struct {
+	Splits []splitDTO `json:"splits"`
+}
+
+type splitPresetDTO struct {
+	Key    string     `json:"key"`
+	Name   string     `json:"name"`
+	Splits []splitDTO `json:"splits"`
+}
+
+type splitPresetsResponse struct {
+	Presets []splitPresetDTO `json:"presets"`
+}
+
+func toSplitDTOs(cycle []program.Split) []splitDTO {
+	out := make([]splitDTO, 0, len(cycle))
+	for _, s := range cycle {
+		regions := make([]string, 0, len(s.Regions()))
+		for _, r := range s.Regions() {
+			regions = append(regions, string(r))
+		}
+		out = append(out, splitDTO{Name: s.Name(), Regions: regions})
+	}
+	return out
+}
+
 func toProgramDTO(p *program.Program) programDTO {
 	target := map[string]float64{}
 	for _, r := range p.WeeklyTarget().Regions() {
@@ -180,6 +214,7 @@ func toProgramDTO(p *program.Program) programDTO {
 		Selected: selected,
 		Declared: declared,
 		Focus:    focus,
+		Splits:   toSplitDTOs(p.Cycle()),
 	}
 }
 
