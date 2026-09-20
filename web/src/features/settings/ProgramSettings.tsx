@@ -6,7 +6,7 @@ import { useProgramSettings } from './useProgramSettings';
 import { Button } from '../../ui/Button';
 import { Note } from '../../ui/Card';
 import { Section } from '../../ui/Section';
-import { LabeledInput } from '../../ui/Field';
+import { LabeledInput, Select } from '../../ui/Field';
 import type { Exercise } from '../../api/types';
 
 type Props = {
@@ -106,18 +106,18 @@ export function ProgramSettings({ nameOf, exercises, onChanged }: Props) {
       </Note>
 
       {program && (
-        <div className="grid grid-cols-4 gap-2">
+        <Select
+          aria-label="週に通う回数"
+          value={program.per_week}
+          disabled={busy}
+          onChange={(e) => void saveFrequency(Number(e.target.value))}
+        >
           {[1, 2, 3, 4, 5, 6, 7].map((n) => (
-            <Button
-              key={n}
-              variant={program.per_week === n ? 'primary' : 'quiet'}
-              disabled={busy}
-              onClick={() => void saveFrequency(n)}
-            >
-              週{n}
-            </Button>
+            <option key={n} value={n}>
+              週{n}回
+            </option>
           ))}
-        </div>
+        </Select>
       )}
 
       </Section>

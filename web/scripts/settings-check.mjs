@@ -31,7 +31,7 @@ await page.waitForTimeout(1800);
 
 // 週に通う回数を変える（週目標も置き直るので、一番影響が大きい）
 const want = before.per_week === 3 ? 4 : 3;
-await page.click(`text=週${want}`);
+await page.selectOption('select', String(want));
 await page.waitForTimeout(2500);
 
 const after = await program();
@@ -40,7 +40,7 @@ console.log('他が壊れていないか: declared =', after.declared_exercises.
 console.log('週目標の区分数:', Object.keys(after.weekly_target).length);
 
 // 元に戻す
-await page.click(`text=週${before.per_week}`);
+await page.selectOption('select', String(before.per_week));
 await page.waitForTimeout(2000);
 const restored = await program();
 console.log('戻した後: per_week =', restored.per_week);
