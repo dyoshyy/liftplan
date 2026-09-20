@@ -82,7 +82,7 @@ func TestStimulusCoverage_IsQuantized(t *testing.T) {
 func TestSessionResidual_ReportsTheWholeGap(t *testing.T) {
 	target := mustTarget(t, map[training.MuscleRegion]float64{training.ChestMid: 12})
 
-	got := planning.SessionResidual(target, planning.StimulusCoverage{}, planning.StimulusCoverage{})
+	got := planning.SessionResidual(target, planning.StimulusCoverage{}, planning.StimulusCoverage{}, nil)
 	if math.Abs(got[training.ChestMid]-12) > 1e-9 {
 		t.Errorf("不足が %v。12のはず", got[training.ChestMid])
 	}
@@ -90,7 +90,7 @@ func TestSessionResidual_ReportsTheWholeGap(t *testing.T) {
 	// 直近1週で10セット埋まっていれば残りは2。
 	covered := planning.StimulusCoverage{}.Plus(
 		singleRegionProfile(t, training.ChestMid, 1.0), mustSetCount(t, 10))
-	got = planning.SessionResidual(target, covered, planning.StimulusCoverage{})
+	got = planning.SessionResidual(target, covered, planning.StimulusCoverage{}, nil)
 	if math.Abs(got[training.ChestMid]-2) > 1e-9 {
 		t.Errorf("不足が %v。2のはず", got[training.ChestMid])
 	}
@@ -104,7 +104,7 @@ func TestSessionResidual_SubtractsWhatThisSessionAlreadyCovers(t *testing.T) {
 	today := planning.StimulusCoverage{}.Plus(
 		singleRegionProfile(t, training.ChestMid, 1.0), mustSetCount(t, 3))
 
-	got := planning.SessionResidual(target, planning.StimulusCoverage{}, today)
+	got := planning.SessionResidual(target, planning.StimulusCoverage{}, today, nil)
 	if math.Abs(got[training.ChestMid]-9) > 1e-9 {
 		t.Errorf("今日の分が引かれていない: %v（9のはず）", got[training.ChestMid])
 	}
@@ -117,7 +117,7 @@ func TestSessionResidual_DropsSatisfiedRegions(t *testing.T) {
 		covered := planning.StimulusCoverage{}.Plus(
 			singleRegionProfile(t, training.ChestMid, 1.0), mustSetCount(t, sets))
 
-		if got := planning.SessionResidual(target, covered, planning.StimulusCoverage{}); len(got) != 0 {
+		if got := planning.SessionResidual(target, covered, planning.StimulusCoverage{}, nil); len(got) != 0 {
 			t.Errorf("%dセット埋めたのに残差が残っている: %v", sets, got)
 		}
 	}
@@ -129,7 +129,7 @@ func TestSessionResidual_IgnoresRegionsOutsideTheTarget(t *testing.T) {
 	covered := planning.StimulusCoverage{}.Plus(
 		singleRegionProfile(t, training.Calf, 1.0), mustSetCount(t, 5))
 
-	got := planning.SessionResidual(target, covered, planning.StimulusCoverage{})
+	got := planning.SessionResidual(target, covered, planning.StimulusCoverage{}, nil)
 	if _, ok := got[training.Calf]; ok {
 		t.Errorf("目標に無い区分が残差に現れている: %v", got)
 	}
@@ -138,7 +138,7 @@ func TestSessionResidual_IgnoresRegionsOutsideTheTarget(t *testing.T) {
 func TestSessionResidual_EdgeCases(t *testing.T) {
 	var zero program.WeeklyVolumeTarget
 	if got := planning.SessionResidual(zero, planning.StimulusCoverage{},
-		planning.StimulusCoverage{}); len(got) != 0 {
+		planning.StimulusCoverage{}, nil); len(got) != 0 {
 		t.Errorf("ゼロ値の目標から残差が出る: %v", got)
 	}
 }
@@ -146,7 +146,7 @@ func TestSessionResidual_EdgeCases(t *testing.T) {
 func TestSessionResidual_IsQuantized(t *testing.T) {
 	target := mustTarget(t, map[training.MuscleRegion]float64{training.ChestMid: 10})
 
-	got := planning.SessionResidual(target, planning.StimulusCoverage{}, planning.StimulusCoverage{})[training.ChestMid]
+	got := planning.SessionResidual(target, planning.StimulusCoverage{}, planning.StimulusCoverage{}, nil)[training.ChestMid]
 	if n := decimalPlaces(strconv.FormatFloat(got, 'f', -1, 64)); n > 6 {
 		t.Errorf("端数が残っている: %v（小数点以下 %d 桁）", got, n)
 	}
@@ -173,7 +173,7 @@ func TestSessionResidual_ConvergesOverAWeek(t *testing.T) {
 	coverage := planning.StimulusCoverage{}
 	bouts := 0
 	for range frequency {
-		residual := planning.SessionResidual(target, coverage, planning.StimulusCoverage{})
+		residual := planning.SessionResidual(target, coverage, planning.StimulusCoverage{}, nil)
 		for residual[training.ChestMid] > 0 {
 			bouts++
 			if bouts > maxBouts {
@@ -181,7 +181,7 @@ func TestSessionResidual_ConvergesOverAWeek(t *testing.T) {
 					coverage.Sets(training.ChestMid), residual[training.ChestMid])
 			}
 			coverage = coverage.Plus(profile, mustSetCount(t, setsPerBout))
-			residual = planning.SessionResidual(target, coverage, planning.StimulusCoverage{})
+			residual = planning.SessionResidual(target, coverage, planning.StimulusCoverage{}, nil)
 		}
 	}
 
@@ -199,4 +199,65 @@ func singleRegionProfile(t *testing.T, r training.MuscleRegion, contribution flo
 	p := benchParams()
 	p.Stimulus = map[training.MuscleRegion]float64{r: contribution}
 	return mustExercise(t, p).Stimulus()
+}
+
+// 天井を渡すと、1回ぶんを超えて出さないこと。
+//
+// 分割があるときだけ効かせる。上下2分割・週5なら下半身は2〜3日なので、
+// 週目標をその日数で割ったぶんが1回ぶんになる。
+func TestSessionResidual_CapsWhenActiveCountIsGiven(t *testing.T) {
+	target := mustTarget(t, map[training.MuscleRegion]float64{training.Quad: 24})
+	twice := func(training.MuscleRegion) int { return 2 }
+
+	// 不足24だが、週2回しか狙わないので1回ぶんは12。
+	got := planning.SessionResidual(target, planning.StimulusCoverage{},
+		planning.StimulusCoverage{}, twice)
+	if math.Abs(got[training.Quad]-12) > 1e-9 {
+		t.Errorf("天井が効いていない: %v（12のはず）", got[training.Quad])
+	}
+
+	// 天井を渡さなければ不足をそのまま出す。
+	got = planning.SessionResidual(target, planning.StimulusCoverage{},
+		planning.StimulusCoverage{}, nil)
+	if math.Abs(got[training.Quad]-24) > 1e-9 {
+		t.Errorf("天井なしで %v。24のはず", got[training.Quad])
+	}
+}
+
+// 今日すでに積んだ分は天井からも引くこと。
+//
+// 引かないと、軸が大腿四頭筋を3セット埋めた日でも補助が1回ぶんを上乗せする。
+func TestSessionResidual_CapAccountsForThisSession(t *testing.T) {
+	target := mustTarget(t, map[training.MuscleRegion]float64{training.Quad: 24})
+	today := planning.StimulusCoverage{}.Plus(
+		singleRegionProfile(t, training.Quad, 1.0), mustSetCount(t, 3))
+
+	got := planning.SessionResidual(target, planning.StimulusCoverage{}, today,
+		func(training.MuscleRegion) int { return 2 })
+	if math.Abs(got[training.Quad]-9) > 1e-9 {
+		t.Errorf("天井から今日の分が引かれていない: %v（12-3=9のはず）", got[training.Quad])
+	}
+}
+
+// 0回しか狙われない区分は出ないこと。ゼロ除算で +Inf を出すと、
+// その区分が残差の先頭に居座ってスロットを食い尽くす。
+func TestSessionResidual_SkipsRegionsThatAreNeverActive(t *testing.T) {
+	target := mustTarget(t, map[training.MuscleRegion]float64{
+		training.ChestMid: 12, training.Quad: 12,
+	})
+	active := func(r training.MuscleRegion) int {
+		if r == training.Quad {
+			return 0
+		}
+		return 2
+	}
+
+	got := planning.SessionResidual(target, planning.StimulusCoverage{},
+		planning.StimulusCoverage{}, active)
+	if _, ok := got[training.Quad]; ok {
+		t.Errorf("狙わない区分が残差に出ている: %v", got)
+	}
+	if _, ok := got[training.ChestMid]; !ok {
+		t.Errorf("狙う区分が残差から消えている: %v", got)
+	}
 }
