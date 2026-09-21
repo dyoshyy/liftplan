@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
+import { Unauthorized } from '../api/client';
 import {
   buildQuery,
+  describeFailure,
   defaultForm,
   formatPct,
   formatWeight,
@@ -102,5 +104,26 @@ describe('表示', () => {
   it('推定1RMに対する比は小数2桁。立っていなければ空', () => {
     expect(formatPct(set({}))).toBe('0.88');
     expect(formatPct(set({ pct_of_1rm: null }))).toBe('');
+  });
+});
+
+describe('describeFailure', () => {
+  // 401 だけは「もう一度押す」で直らない。画面が案内を変える。
+  it('認証が切れていたらログインし直す先を出す', () => {
+    const got = describeFailure(new Unauthorized());
+    expect(got).toContain('ログイン');
+    expect(got).not.toBe('unauthorized');
+  });
+
+  // サーバーは入力が成り立たない理由を本文に書いて 400 を返す。
+  // 握り潰すと、画面には「400 を返した」しか出ない。
+  it('サーバーが書いた理由はそのまま出す', () => {
+    expect(describeFailure(new Error('クエリ weeks が不正である: zero'))).toBe(
+      'クエリ weeks が不正である: zero',
+    );
+  });
+
+  it('Error でないものも文字列にする', () => {
+    expect(describeFailure('落ちた')).toBe('落ちた');
   });
 });

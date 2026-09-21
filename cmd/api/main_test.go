@@ -757,3 +757,43 @@ func TestBuildHandler_ServesHealthCheck(t *testing.T) {
 		t.Errorf("状態が返っていない: %s", rec.Body.String())
 	}
 }
+
+// シミュレーションの口が本番の組み立てに生えていて、かつ認証の内側にあること。
+//
+// #108 では開発中にだけ生やし、認証の外に置いていた。本番から叩けるように
+// した以上、外に置いたままだと「誰でも叩ける計算の口」になる。週7回×12週の
+// 導出を無料で回させる穴なので、認証の内側にあることを固定する。
+//
+// 401 を見るだけでは足りない。経路ごと消しても 401 は返らず 404 になるが、
+// 「生えていない」を「守られている」と読んでしまう。通る側も見る。
+func TestBuildHandler_GuardsTheSimulation(t *testing.T) {
+	setAuthEnv(t)
+	handler, closeRepos, err := buildHandler(context.Background())
+	if err != nil {
+		t.Fatalf("組み立てに失敗: %v", err)
+	}
+	t.Cleanup(closeRepos)
+
+	// 宣言を付けるのは、素のパスだと入力が足りず 400 になるため。
+	// 400 でも「認証は通った」は言えるが、口が本当に働くことまでは言えない。
+	queries := map[string]string{
+		httpapi.DevSimulatePath: "?declared=bench&frequency=3&weeks=1",
+		httpapi.DevOptionsPath:  "",
+	}
+
+	for path, query := range queries {
+		target := strings.TrimPrefix(path, "GET ") + query
+
+		rec := httptest.NewRecorder()
+		handler.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, target, nil))
+		if rec.Code != http.StatusUnauthorized {
+			t.Errorf("%s が認証なしで通った: %d", target, rec.Code)
+		}
+
+		rec = httptest.NewRecorder()
+		handler.ServeHTTP(rec, authed(http.MethodGet, target, nil))
+		if rec.Code != http.StatusOK {
+			t.Errorf("%s が認証ありで通らない: %d body=%s", target, rec.Code, rec.Body.String())
+		}
+	}
+}

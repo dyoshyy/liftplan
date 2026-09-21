@@ -12,13 +12,14 @@ import {
 } from './simulate';
 import { useSimulation } from './useSimulation';
 
-// 開発用のシミュレーション画面。
+// シミュレーション画面。
 //
 // 設定を変えて1ヶ月ぶんの計画を作り、何が起きているかを目で見る。
 // 通し検証（seed のテスト）が数字で守るのに対して、こちらは形を見せる。
 //
-// 本番のバンドルには入らない。dev.html は Vite の既定の入力（index.html）
-// ではないので、`vite build` の出力に含まれない。
+// 本番のバンドルにも入る（/dev.html）。メインの画面からは辿れない。
+// 導線を付けないのは、ここで変えたものが何も保存されないため。設定を
+// 変える場所は設定画面1つに保つ。
 export function DevSimulation() {
   const { options, form, setForm, result, error, busy, run } = useSimulation();
 
@@ -28,7 +29,7 @@ export function DevSimulation() {
         <h1 className="num text-[19px] font-semibold uppercase tracking-[0.08em]">
           lift<span className="text-amber">plan</span> / sim
         </h1>
-        <span className="text-[13px] text-muted">開発用。記録は保存されない</span>
+        <span className="text-[13px] text-muted">記録は保存されない</span>
       </header>
 
       <section className="grid gap-3 rounded-[14px] border border-line bg-surface p-4">

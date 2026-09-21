@@ -270,12 +270,13 @@ func buildHandler(ctx context.Context) (http.Handler, func(), error) {
 	}
 	auth.Register(mux)
 
-	guarded, err := withAuth(ctx, mux, repos)
-	if err != nil {
+	// シミュレーションの口もルータに載せる。認証の内側に入る。
+	if err := mountSimulation(mux, pool); err != nil {
 		repos.close()
 		return nil, nil, err
 	}
-	guarded, err = withDevSimulation(guarded, pool)
+
+	guarded, err := withAuth(ctx, mux, repos)
 	if err != nil {
 		repos.close()
 		return nil, nil, err
@@ -576,33 +577,26 @@ func seedProgramIfMissing(
 	return nil
 }
 
-// devSimulationEnv は開発用シミュレーションを取り付けるかを決める環境変数。
-const devSimulationEnv = "DEV_SIMULATION"
-
-// withDevSimulation は開発用シミュレーションの口を前に置く。
+// mountSimulation はシミュレーションの口をルータに足す。
 //
-// 環境変数が "1" のときだけ取り付ける。既定は取り付けない側で、設定漏れが
-// 公開につながらない向きに倒してある（AUTH_TOKEN と逆で、こちらは
-// 「無ければ無い」が安全）。
+// **認証の内側に置く。**#108 では認証の外に置いていた。捏造した設定で計画を
+// 作るだけで保存先も記録も触らないので、開発中に画面を1枚開くために本番の
+// 認証を用意させないための判断だった。本番から叩けるようにした時点で前提が
+// 変わる。外に置いたままだと、週7回×12週の導出を誰でも無料で回させる口に
+// なる。読むものも書くものも無いが、CPU は使う。
 //
-// **認証の外側に置く。**捏造した設定で計画を作るだけで、保存先も利用者の
-// 記録も触らない。開発中にトークンを用意させると、画面を1枚開くために
-// 本番の認証の話が要ることになる。
-func withDevSimulation(next http.Handler, pool []*exercise.Exercise) (http.Handler, error) {
-	if os.Getenv(devSimulationEnv) != "1" {
-		return next, nil
-	}
-
+// 環境変数で取り付けを切り替えるのもやめた（`DEV_SIMULATION`）。あれは
+// 「設定漏れが公開につながらない」向きに倒すためのもので、認証の内側に
+// 入った時点で守る対象が無い。本番で立てる必要のあるフラグは、名前が
+// 「開発用」と言っている時点で嘘になる。
+//
+// **`Handler` には混ぜていない。**取り付けはここ1箇所で、消すときは
+// `internal/application/devsim/` とこの関数を消すだけ。
+func mountSimulation(mux *http.ServeMux, pool []*exercise.Exercise) error {
 	sim, err := devsim.NewSimulator(pool)
 	if err != nil {
-		return nil, fmt.Errorf("シミュレーションの組み立てに失敗: %w", err)
+		return fmt.Errorf("シミュレーションの組み立てに失敗: %w", err)
 	}
-
-	mux := http.NewServeMux()
 	httpapi.NewDevSimulation(sim).Mount(mux)
-	mux.Handle("/", next)
-
-	slog.Warn("開発用シミュレーションを有効にした。本番では外すこと",
-		"path", httpapi.DevSimulatePath)
-	return mux, nil
+	return nil
 }
