@@ -13,27 +13,50 @@
 
 ## 起動
 
+手元で動かすなら、DB 無し（インメモリ）が一番早い。
+
 ```bash
-make run          # Postgres を立てて起動する
+DEV_SESSION_TOKEN=dev-token-0123456789abcdef0123456789ab \
+  API_ORIGIN=http://localhost:8080 WEB_ORIGIN=http://localhost:5173 \
+  ALLOWED_ORIGINS=http://localhost:5173 \
+  GITHUB_CLIENT_ID=dev GITHUB_CLIENT_SECRET=dev \
+  GOOGLE_CLIENT_ID=dev GOOGLE_CLIENT_SECRET=dev \
+  go run ./cmd/api
 ```
 
-または直接:
+OAuth の4つは**起動の条件なので値が要るが、起動時に中身は確かめていない**。ログインを通らないなら何でもよい（上の `dev` のままでは本物のログインは通らない）。代わりに `DEV_SESSION_TOKEN` の値がそのままセッショントークンとして通る。
+
+Postgres で動かすなら `DATABASE_URL` を足す。**そのとき `DEV_SESSION_TOKEN` は無視される**ので、入るには本物の OAuth のクライアントIDとシークレットが要る。
 
 ```bash
 docker compose up -d --wait db
-DATABASE_URL='postgres://liftplan:liftplan@127.0.0.1:5433/liftplan' go run ./cmd/api
+DATABASE_URL='postgres://liftplan:liftplan@127.0.0.1:5433/liftplan' \
+  API_ORIGIN=... WEB_ORIGIN=... ALLOWED_ORIGINS=... \
+  GITHUB_CLIENT_ID=... GITHUB_CLIENT_SECRET=... \
+  GOOGLE_CLIENT_ID=... GOOGLE_CLIENT_SECRET=... \
+  go run ./cmd/api
 ```
+
+`make run` と `make docker-run` は**いまは起動しない**。どちらも廃止した `AUTH_TOKEN` を渡していて、サーバーはそれが残っていると起動を拒む。
 
 | 環境変数 | 既定 | 説明 |
 |---|---|---|
 | `DATABASE_URL` | なし | Postgres の接続文字列。無ければインメモリで動き、再起動で記録が消える |
-| `AUTH_TOKEN` | **必須** | Bearer トークン。32文字未満なら起動しない |
+| `API_ORIGIN` | **必須** | このサーバー自身のオリジン。OAuth のコールバックURLをここから組むので、認可先に登録したものと一致させる |
+| `WEB_ORIGIN` | **必須** | 画面のオリジン。ログイン後の戻り先 |
 | `ALLOWED_ORIGINS` | **必須** | 画面のオリジン（カンマ区切り）。ここに無いオリジンからは叩けない |
+| `GITHUB_CLIENT_ID` / `GITHUB_CLIENT_SECRET` | **必須** | GitHub の OAuth App |
+| `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | **必須** | Google の OAuth クライアント |
+| `DEV_SESSION_TOKEN` | なし | 開発用のセッションを1件入れる。**`DATABASE_URL` が無いときだけ効く** |
 | `PORT` | `8080` | 待ち受けポート |
 
-`AUTH_TOKEN` と `ALLOWED_ORIGINS` を必須にしているのは、未設定なら素通しする挙動にすると、設定漏れがそのまま全公開になるため。起動しないほうが、気づかないまま公開されるよりよい。
+必須のものが1つでも欠けていたら起動しない。未設定なら素通しする（または黙ってログインを無効にする）挙動にすると、設定漏れがそのまま全公開や「健全に見えるがログインできないサーバー」になるため。起動しないほうが、気づかないまま公開されるよりよい。
 
-`ALLOWED_ORIGINS` にワイルドカードは書けない。Bearer トークンで守っている API なので、`*` を返すと任意のサイトが利用者のトークン付き要求の結果を読める。
+**`AUTH_TOKEN` は廃止した。残っていると起動を拒む。**黙って無視すると、「まだトークン認証で動いている」と思ったまま OAuth で公開されるため。
+
+`DEV_SESSION_TOKEN` をフラグではなく「インメモリのときだけ」で守っているのは、フラグだと本番で立った瞬間に固定トークンで入れる穴になるため。インメモリは再起動で記録が消える構成で、そもそも本番では使えない。
+
+`ALLOWED_ORIGINS` にワイルドカードは書けない。Bearer のセッショントークンで守っている API なので、`*` を返すと任意のサイトが利用者のトークン付き要求の結果を読める。
 
 マイグレーションは起動時に自動で流れる。手で流す運用にすると、流し忘れたインスタンスが古いスキーマに書き込む。空のデータベースなら初期プログラム（週3回・36種目からバリエーションを除いた全部）も入る。
 
@@ -43,13 +66,15 @@ DATABASE_URL='postgres://liftplan:liftplan@127.0.0.1:5433/liftplan' go run ./cmd
 
 ## 認証
 
-`/health` 以外の全経路が Bearer トークンを要求する。
+GitHub か Google の OAuth でログインする（`GET /auth/{github,google}/start`）。通るとサーバーがセッションを発行し、画面へ `#token=...` で渡す。以後は Bearer で送る。トークンが決めるのは「通してよいか」ではなく**誰の記録か**で、読みも書きもその利用者のものだけに絞られる。
 
 ```bash
-curl -H 'Authorization: Bearer <トークン>' 'http://localhost:8080/api/sessions?date=2026-08-17'
+curl -H 'Authorization: Bearer <セッショントークン>' 'http://localhost:8080/api/sessions?date=2026-08-17'
 ```
 
-`/health` だけ認証しないのは、Cloud Run の起動プローブが叩けなくなるため。
+手元では `DEV_SESSION_TOKEN` に渡した値がそのまま使える（インメモリ構成のときだけ）。
+
+認証しないのは `/health` と、ログインの入口である `/auth/*/start`・`/auth/*/callback` だけ（開発用の `/api/dev/*` は後述）。`/health` は Cloud Run の起動プローブが叩けなくなるため。ログアウト（`DELETE /auth/session`）は認証の内側にある。
 
 デプロイ手順は `docs/deploy.md`。
 

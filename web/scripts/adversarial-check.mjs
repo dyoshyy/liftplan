@@ -7,9 +7,15 @@
 // **dev サーバーでは意味がない。**Service Worker が無効なので、圏外で
 // 再読み込みする経路を検査できない。必ず本番ビルドを preview で出すこと。
 //
-//   # 1. サーバー
-//   cd .. && AUTH_TOKEN=dev-token-0123456789abcdef0123456789ab \
-//     ALLOWED_ORIGINS=http://localhost:4173 go run ./cmd/api
+//   # 1. サーバー。DATABASE_URL を付けないこと（DEV_SESSION_TOKEN は
+//   #    インメモリ構成でしか効かない）。OAuth の4つは起動の条件で、
+//   #    中身は何でもよい。理由は scripts/ui-check.mjs の冒頭
+//   cd .. && DEV_SESSION_TOKEN=dev-token-0123456789abcdef0123456789ab \
+//     API_ORIGIN=http://localhost:8080 WEB_ORIGIN=http://localhost:4173 \
+//     ALLOWED_ORIGINS=http://localhost:4173 \
+//     GITHUB_CLIENT_ID=dev GITHUB_CLIENT_SECRET=dev \
+//     GOOGLE_CLIENT_ID=dev GOOGLE_CLIENT_SECRET=dev \
+//     go run ./cmd/api
 //
 //   # 2. 本番ビルドを出す
 //   VITE_API_BASE=http://127.0.0.1:8080 pnpm build

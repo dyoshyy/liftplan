@@ -21,7 +21,8 @@ const defaultHistoryDays = 56
 // maxHistoryDays は一度に遡れる上限。
 //
 // 上限が無いと、3年ぶんを1回で要求されたときに応答が数MBになる。
-// 単一ユーザーでも、画面が固まれば使えないことに変わりはない。
+// 画面が固まれば使えないことに変わりはないし、その1本を組み立てている間の
+// メモリは同じインスタンスに居るほかの利用者と分け合っている。
 const maxHistoryDays = 400
 
 func (h *Handler) handleGetExercises(w http.ResponseWriter, r *http.Request) {
@@ -156,8 +157,14 @@ func periodOf(r *http.Request) (training.Date, training.Date, error) {
 
 func dateOrToday(raw string) (training.Date, error) {
 	if raw == "" {
-		// サーバーの日付を使う。単一ユーザーで、端末とサーバーの
-		// タイムゾーンが違う運用は想定していない。
+		// to が無いときだけサーバーの日付（UTC）を使う。
+		//
+		// UTC の「今日」は利用者の「今日」と一致するとは限らない（日本では
+		// 朝9時まで前日になる）。それでも利用者ごとのタイムゾーンを
+		// 持たないのは、画面が必ず端末の日付で to を付けてくるので
+		// （web の useLiftplan.ts と useStats.ts）、この既定が誰かの
+		// 「今日」を決める経路が無いため。ここに来るのは curl で手で
+		// 叩いたときだけで、窓の端が1日ずれるだけで済む。
 		d, err := training.FromTime(time.Now(), time.UTC)
 		if err != nil {
 			return training.Date{}, err
