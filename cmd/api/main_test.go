@@ -179,27 +179,6 @@ func TestPort(t *testing.T) {
 	}
 }
 
-// 初期プログラムにバリエーションを含めないこと。
-// 含めると、バリエーションがメイン扱いで独立したスロットを持つ。
-func TestDefaultProgram_ExcludesVariations(t *testing.T) {
-	pool, err := seed.Exercises()
-	if err != nil {
-		t.Fatalf("シードが不正: %v", err)
-	}
-	prog, err := defaultProgram(pool)
-	if err != nil {
-		t.Fatalf("初期プログラムが不正: %v", err)
-	}
-
-	// 全種目が選ばれていること。かつてバリエーションは選択に入れずとも
-	// 自動で回っていたが、その抜け道を塞いだので明示的に選ぶ必要がある。
-	for _, e := range pool {
-		if !prog.Includes(e.ID()) {
-			t.Errorf("%s が選択に含まれていない", e.ID())
-		}
-	}
-}
-
 // タイムアウトが実際に設定されていること。
 // 既定の http.Server は無制限で、ヘッダを1バイトずつ送るだけで
 // 接続を占有できる。
@@ -335,21 +314,6 @@ func TestServe_ReleasesSignalHandling(t *testing.T) {
 	}
 }
 
-// 初期プログラムの頻度が README の記述と一致すること。
-func TestDefaultProgram_MatchesTheDocumentedFrequency(t *testing.T) {
-	pool, err := seed.Exercises()
-	if err != nil {
-		t.Fatalf("シードが不正: %v", err)
-	}
-	prog, err := defaultProgram(pool)
-	if err != nil {
-		t.Fatalf("初期プログラムが不正: %v", err)
-	}
-	if got := prog.Frequency().PerWeek(); got != 3 {
-		t.Errorf("既定の頻度が誤り: %d（README は週3回と書いている）", got)
-	}
-}
-
 // 組み立てたハンドラのリクエストに期限が付くこと。
 // buildHandler だけを見ていると、配線を外しても気づけない。
 func TestRun_WiresTheRequestTimeout(t *testing.T) {
@@ -386,11 +350,6 @@ func TestBuildHandler_FailsFastOnBadSeed(t *testing.T) {
 	}
 	if len(pool) == 0 {
 		t.Fatal("シードが空である")
-	}
-	// 空のプールから初期プログラムを組もうとしたら失敗すること。
-	// 失敗しないなら、シードが空でもサーバーが起動してしまう。
-	if _, err := defaultProgram(nil); err == nil {
-		t.Error("空のプールで初期プログラムが組めてしまう")
 	}
 }
 

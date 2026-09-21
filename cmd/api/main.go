@@ -33,8 +33,6 @@ import (
 	"github.com/dyoshyy/liftplan/internal/domain/training/setlog"
 )
 
-const defaultFrequencyPerWeek = 3
-
 // タイムアウトはスローロリス対策。既定の http.Server は無制限で、
 // ヘッダを1バイトずつ送るだけで接続を占有できる。
 const (
@@ -400,7 +398,7 @@ func seedProgramIfMissing(
 		return fmt.Errorf("プログラムの確認に失敗: %w", err)
 	}
 
-	prog, err := defaultProgram(pool)
+	prog, err := seed.DefaultProgram(pool)
 	if err != nil {
 		return err
 	}
@@ -409,29 +407,4 @@ func seedProgramIfMissing(
 	}
 	slog.Info("初期プログラムを保存した", "per_week", prog.Frequency().PerWeek())
 	return nil
-}
-
-// defaultProgram はシードから初期プログラムを組む。
-//
-// バリエーションはメインに付随して自動で回るため、選択には含めない。
-// 初期値を入れておくのは、起動直後に PUT /api/program を叩かないと
-// 何も使えない状態を避けるため。設定はいつでも上書きできる。
-func defaultProgram(pool []*exercise.Exercise) (*program.Program, error) {
-	freq, err := program.NewFrequency(defaultFrequencyPerWeek)
-	if err != nil {
-		return nil, fmt.Errorf("既定の頻度が不正: %w", err)
-	}
-
-	target, err := seed.DefaultWeeklyTarget(freq)
-	if err != nil {
-		return nil, fmt.Errorf("週目標シードが不正: %w", err)
-	}
-
-	// 全種目を選んでおく。外したいものはあとから設定で外せる。
-	selected := make([]exercise.ExerciseID, 0, len(pool))
-	for _, e := range pool {
-		selected = append(selected, e.ID())
-	}
-	// 重点種目は既定では指定しない。バリエーションレーンは空のまま回る。
-	return program.NewProgram(freq, target, selected, seed.DefaultDeclared(), "")
 }
