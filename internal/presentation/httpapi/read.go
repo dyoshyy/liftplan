@@ -49,13 +49,17 @@ func (h *Handler) handleGetExercises(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) handleGetSetLogs(w http.ResponseWriter, r *http.Request) {
+	user, ok := requireUser(w, r)
+	if !ok {
+		return
+	}
 	from, to, err := periodOf(r)
 	if err != nil {
 		respondError(w, err)
 		return
 	}
 
-	days, err := h.history.Days(r.Context(), from, to)
+	days, err := h.history.Days(r.Context(), user, from, to)
 	if err != nil {
 		respondError(w, err)
 		return
@@ -63,7 +67,7 @@ func (h *Handler) handleGetSetLogs(w http.ResponseWriter, r *http.Request) {
 
 	// 直近の実績も同じ応答で返す。画面は「今日のメニュー」と並べて
 	// 「前回どうだったか」を出すので、別の往復にすると表示が揃わない。
-	last, err := h.history.LastPerformances(r.Context(), to)
+	last, err := h.history.LastPerformances(r.Context(), user, to)
 	if err != nil {
 		respondError(w, err)
 		return
@@ -78,8 +82,12 @@ func (h *Handler) handleGetSetLogs(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) handleDeleteSetLog(w http.ResponseWriter, r *http.Request) {
+	user, ok := requireUser(w, r)
+	if !ok {
+		return
+	}
 	id := r.PathValue("id")
-	if err := h.deleteSetLog.Execute(r.Context(), setlog.SetLogID(id)); err != nil {
+	if err := h.deleteSetLog.Execute(r.Context(), user, setlog.SetLogID(id)); err != nil {
 		respondError(w, err)
 		return
 	}
@@ -87,18 +95,22 @@ func (h *Handler) handleDeleteSetLog(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) handleGetStats(w http.ResponseWriter, r *http.Request) {
+	user, ok := requireUser(w, r)
+	if !ok {
+		return
+	}
 	from, to, err := periodOf(r)
 	if err != nil {
 		respondError(w, err)
 		return
 	}
 
-	trends, err := h.stats.Trends(r.Context(), from, to)
+	trends, err := h.stats.Trends(r.Context(), user, from, to)
 	if err != nil {
 		respondError(w, err)
 		return
 	}
-	volume, err := h.stats.WeeklyVolume(r.Context(), to)
+	volume, err := h.stats.WeeklyVolume(r.Context(), user, to)
 	if err != nil {
 		respondError(w, err)
 		return

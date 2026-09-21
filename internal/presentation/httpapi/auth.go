@@ -4,6 +4,8 @@ import (
 	"crypto/subtle"
 	"net/http"
 	"strings"
+
+	"github.com/dyoshyy/liftplan/internal/domain/account"
 )
 
 // unauthenticatedPaths は認証を通さない経路。
@@ -18,10 +20,14 @@ var unauthenticatedPaths = map[string]bool{healthPath: true}
 
 // RequireBearerToken は Bearer トークンによる認証を要求する。
 //
-// 単一ユーザー向けの最小構成。ユーザーという概念はここから内側へ
-// 持ち込まない。ドメインもユースケースも「誰が」を知らないままにする。
+// **「誰が」を決めるのはここ。**通した要求の context に利用者を載せ、
+// ハンドラはそれを取り出してユースケースへ引数で渡す。ここから内側は
+// 全て利用者を明示して動く。
 //
-// OAuth へ移るときは、このミドルウェアを差し替えるだけで済む。
+// いまはトークン1本なので、載せるのは常に既定ユーザー（マイグレーション
+// 0007 が既存の行を寄せた先）。トークンは「本人かどうか」しか言えず、
+// 「誰か」を言えない。OAuth へ移ったらセッションから引いた利用者に
+// 変わるが、内側の形は変わらない。差し替えるのはこのミドルウェアだけ。
 func RequireBearerToken(token string) func(http.Handler) http.Handler {
 	want := []byte(token)
 
@@ -49,7 +55,10 @@ func RequireBearerToken(token string) func(http.Handler) http.Handler {
 				return
 			}
 
-			next.ServeHTTP(w, r)
+			// 利用者を context に載せるのはここだけ。ハンドラが
+			// 取り出したら終わりで、その先へは引数で渡す（user.go）。
+			next.ServeHTTP(w, r.WithContext(
+				withUser(r.Context(), account.DefaultUserID())))
 		})
 	}
 }

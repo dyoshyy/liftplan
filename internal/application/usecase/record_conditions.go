@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/dyoshyy/liftplan/internal/domain/account"
 	"github.com/dyoshyy/liftplan/internal/domain/training/condition"
 )
 
@@ -16,7 +17,7 @@ func NewRecordConditions(repo condition.Writer) *RecordConditions {
 	return &RecordConditions{repo: repo}
 }
 
-func (u *RecordConditions) Execute(ctx context.Context, items []condition.DailyCondition) (err error) {
+func (u *RecordConditions) Execute(ctx context.Context, user account.UserID, items []condition.DailyCondition) (err error) {
 	// 出口で1度だけ翻訳する。return ごとに書くと、経路が増えたときに
 	// 包み忘れた1本だけが 500 で返る。
 	defer func() { err = classify(err) }()
@@ -32,7 +33,7 @@ func (u *RecordConditions) Execute(ctx context.Context, items []condition.DailyC
 		return fmt.Errorf("保存が中断された: %w", err)
 	}
 
-	if err := u.repo.Save(ctx, currentUser(), items); err != nil {
+	if err := u.repo.Save(ctx, user, items); err != nil {
 		return fmt.Errorf("コンディションの保存に失敗: %w", err)
 	}
 	return nil
