@@ -151,7 +151,7 @@ func TestBuildHandler_Healthz(t *testing.T) {
 }
 
 // 初期プログラムでセッションが導出できること。
-// 起動直後に PUT /api/program を叩かないと何も使えない状態を避ける。
+// 起動直後に何かを設定しないと何も使えない状態を避ける。
 func TestBuildHandler_WorksOutOfTheBox(t *testing.T) {
 	setAuthEnv(t)
 	handler, closeRepos, err := buildHandler(context.Background())
