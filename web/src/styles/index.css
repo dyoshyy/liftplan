@@ -174,3 +174,221 @@
 
 
 }
+
+/* ── 自己ベスト更新の演出 ────────────────────────────────────────
+   判断は features/today/pr.ts にある。ここは見た目だけ。
+
+   **keyframes は transform と opacity だけで書く。**box-shadow や filter を
+   動かすと、ジムで使う古い端末でコマが落ちる。唯一の例外がパロットの
+   hue-rotate で、これは色替えそのものが本体なので代わりが無い。5羽だけ。 */
+@layer components {
+  .pr-overlay {
+    position: fixed;
+    /* 画面より少し大きく取る。揺らしているのは要素そのものなので、
+       inset: 0 にすると揺れた側の端に地の色の帯が出る。はみ出させたぶんは
+       padding で戻す（中の配置は画面の端を基準にしたい）。 */
+    inset: -24px;
+    padding: 24px;
+    z-index: 100; /* BottomNav が z-50。その上に出す。 */
+    display: grid;
+    place-items: center;
+    overflow: hidden;
+    background: rgb(0 0 0 / 0.55);
+    animation: pr-shake 0.5s cubic-bezier(0.36, 0.07, 0.19, 0.97);
+  }
+
+  .pr-flash {
+    position: absolute;
+    inset: 0;
+    background: var(--color-amber);
+    opacity: 0;
+    animation: pr-flash 0.42s ease-out;
+  }
+
+  /* 放射光線。conic-gradient を回しながら広げる。 */
+  .pr-rays {
+    position: absolute;
+    width: 200vmax;
+    height: 200vmax;
+    /* 角が四角く見えないように円に切る。 */
+    border-radius: 999px;
+    /* repeating- が要る。conic-gradient は最後の停止位置から先を最後の色で
+       塗るので、筋が1本も出ずに全面が黄色く埋まる。 */
+    background: repeating-conic-gradient(
+      from 0deg,
+      transparent 0deg 9deg,
+      color-mix(in srgb, var(--color-amber) 55%, transparent) 9deg 12deg
+    );
+    animation: pr-rays 2.6s linear;
+  }
+
+  .pr-ring {
+    position: absolute;
+    width: 220px;
+    height: 220px;
+    border: 4px solid var(--color-amber);
+    border-radius: 999px;
+    opacity: 0;
+    animation: pr-ring 1.1s ease-out;
+  }
+  .pr-ring-2 {
+    border-color: var(--color-green);
+    animation-delay: 0.14s;
+  }
+  .pr-ring-3 {
+    border-color: var(--color-red);
+    animation-delay: 0.28s;
+  }
+
+  .pr-shards {
+    position: absolute;
+    inset: 0;
+    display: grid;
+    place-items: center;
+  }
+
+  /* 破片。親から --a（飛ぶ向き）--d（距離）--r（回転）を受け取る。 */
+  .pr-shard {
+    position: absolute;
+    width: var(--w);
+    height: var(--h);
+    background: var(--c);
+    border-radius: 2px;
+    opacity: 0;
+    animation: pr-shard var(--t) cubic-bezier(0.16, 0.7, 0.3, 1) var(--delay);
+  }
+
+  .pr-card {
+    position: relative;
+    display: grid;
+    justify-items: center;
+    gap: 2px;
+    padding: 0 16px;
+    text-align: center;
+    animation: pr-slam 0.52s cubic-bezier(0.18, 1.5, 0.4, 1);
+  }
+
+  .pr-badge {
+    font-size: 88px;
+    font-weight: 700;
+    line-height: 1;
+    letter-spacing: 2px;
+    color: var(--color-amber);
+    animation: pr-badge 1.6s ease-in-out infinite;
+  }
+
+  .pr-title {
+    font-size: 20px;
+    font-weight: 700;
+    letter-spacing: 6px;
+  }
+
+  .pr-name {
+    font-size: 15px;
+    color: var(--color-muted);
+  }
+
+  .pr-kg {
+    font-size: 56px;
+    font-weight: 700;
+    line-height: 1.1;
+  }
+
+  .pr-unit {
+    font-size: 22px;
+    margin-left: 2px;
+    color: var(--color-muted);
+  }
+
+  .pr-delta {
+    font-size: 20px;
+    font-weight: 700;
+    color: var(--color-green);
+  }
+
+  .pr-prev {
+    font-size: 13px;
+    font-weight: 400;
+    color: var(--color-muted);
+  }
+
+  .pr-note {
+    margin-top: 6px;
+    font-size: 12px;
+    color: var(--color-faint);
+  }
+
+  .pr-parrot {
+    position: absolute;
+    display: block;
+    animation:
+      pr-parrot-hop 0.36s steps(1, end) infinite var(--delay),
+      pr-parrot-hue 0.72s steps(6, end) infinite var(--delay);
+  }
+
+  /* 動きを減らす設定のときは、演出ではなく結果だけを出す。 */
+  .pr-overlay[data-reduced] {
+    animation: none;
+    background: rgb(0 0 0 / 0.72);
+  }
+  .pr-overlay[data-reduced] .pr-card,
+  .pr-overlay[data-reduced] .pr-badge {
+    animation: none;
+  }
+}
+
+@keyframes pr-shake {
+  0%, 100% { transform: translate3d(0, 0, 0); }
+  12% { transform: translate3d(-9px, 4px, 0); }
+  28% { transform: translate3d(8px, -6px, 0); }
+  44% { transform: translate3d(-6px, -3px, 0); }
+  62% { transform: translate3d(5px, 4px, 0); }
+  80% { transform: translate3d(-3px, -2px, 0); }
+}
+
+@keyframes pr-flash {
+  0% { opacity: 0.92; }
+  100% { opacity: 0; }
+}
+
+@keyframes pr-rays {
+  0% { transform: rotate(0deg) scale(0.2); opacity: 0; }
+  14% { opacity: 0.85; }
+  100% { transform: rotate(150deg) scale(1); opacity: 0; }
+}
+
+@keyframes pr-ring {
+  0% { transform: scale(0.15); opacity: 0.95; }
+  100% { transform: scale(3.4); opacity: 0; }
+}
+
+@keyframes pr-shard {
+  0% { transform: rotate(var(--a)) translateY(0) scale(0.35); opacity: 0; }
+  10% { opacity: 1; }
+  100% { transform: rotate(var(--a)) translateY(calc(var(--d) * -1)) rotate(var(--r)) scale(1); opacity: 0; }
+}
+
+@keyframes pr-slam {
+  0% { transform: scale(2.6) rotate(-9deg); opacity: 0; }
+  55% { transform: scale(0.92) rotate(2deg); opacity: 1; }
+  100% { transform: scale(1) rotate(0deg); opacity: 1; }
+}
+
+@keyframes pr-badge {
+  0%, 100% { transform: scale(1) rotate(-2deg); }
+  50% { transform: scale(1.1) rotate(2deg); }
+}
+
+/* パロットは連続ではなく段で跳ねる。GIF のコマ送りに寄せる。 */
+@keyframes pr-parrot-hop {
+  0% { transform: translateY(0) rotate(-8deg) scaleX(1); }
+  25% { transform: translateY(-16px) rotate(0deg) scaleX(1); }
+  50% { transform: translateY(-22px) rotate(8deg) scaleX(-1); }
+  75% { transform: translateY(-16px) rotate(0deg) scaleX(-1); }
+  100% { transform: translateY(0) rotate(-8deg) scaleX(1); }
+}
+
+@keyframes pr-parrot-hue {
+  0% { filter: hue-rotate(0deg); }
+  100% { filter: hue-rotate(360deg); }
+}
