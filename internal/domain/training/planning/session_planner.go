@@ -161,7 +161,13 @@ func (p SessionPlanner) Plan(req PlanRequest) (PlannedSession, error) {
 	// 当日の記録は見ない。
 	// 当日を含めると、1セット記録するたびに残差が動いて選ばれる種目と並びが
 	// 変わり、ジムで消化している最中にリストが自分の下で入れ替わる。
-	coverage := CoverageBetween(req.History, pool, req.Date.AddDays(-6), req.Date.AddDays(-1))
+	//
+	// 数えるのはマスタ全件（req.Pool）で、選択された種目だけではない。
+	// やったセットは、いま選択しているかに関係なく、やったセット。pool で
+	// 数えると、種目を選択から外した瞬間にその記録が読み飛ばされ、区分の
+	// 残差が最大1週間ふくらむ。画面の「今週の充足」もマスタ全件で数えて
+	// いるので、そちらとも食い違う（#133）。
+	coverage := CoverageBetween(req.History, req.Pool, req.Date.AddDays(-6), req.Date.AddDays(-1))
 
 	main := make([]PlannedSet, 0, 1)
 	thisSession := StimulusCoverage{}
@@ -203,7 +209,19 @@ func (p SessionPlanner) Plan(req PlanRequest) (PlannedSession, error) {
 		}
 	}
 
-	chosen := p.accessory.Select(gaps, pool, historyBefore(req), req.Date, exclude)
+	// Select にもマスタ全件を渡し、選択されていない種目は exclude で候補から
+	// 落とす。Select は除外した種目も履歴を読む辞書には残すので、外した種目を
+	// 前日にやっていれば、その区分は回復中と判定される。pool を渡すと辞書から
+	// も消え、前日にやった区分の補助が今日も出る（#133）。
+	//
+	// 候補と辞書を別の引数に分けなかったのは、「候補にはしないが記録は読む」
+	// が exclude の既にある意味そのものだから。
+	for _, e := range req.Pool {
+		if e != nil && !req.Program.Includes(e.ID()) {
+			exclude = append(exclude, e.ID())
+		}
+	}
+	chosen := p.accessory.Select(gaps, req.Pool, historyBefore(req), req.Date, exclude)
 	accessories := make([]PlannedSet, 0, len(chosen))
 	for _, id := range chosen {
 		accessories = append(accessories, p.planAccessory(req, pool, estHistory, id, rirBump))
