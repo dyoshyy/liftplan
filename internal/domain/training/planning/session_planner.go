@@ -15,17 +15,23 @@ import (
 const (
 	// 軸レーンの処方。3レーンで最も重い。
 	//
-	// 表を引かず定数にしているのは、週の何本目かで強度を変える必要が
-	// 無くなったため。表は「同じ種目を週に何度もやるなら強度を散らす」
-	// ための仕組みだったが、宣言種目は「最後にやったのが最も古いもの」で
-	// 回るので、宣言が3つあれば各種目は週1回しか軸に来ない（D-117）。
-	// 散らす相手がいない。
+	// 割合は Epley の逆算に合わせる（1 / (1 + (レップ + RIR) / 30)）。
+	// 0.88 は3レップ RIR1、0.81 は6レップ RIR1。外部の強度表から刻みだけを
+	// 借りると、推定（Epley）と処方が別の式で動く。
 	//
-	// 派生を重ねたいときはバリエーションレーンが受け持つ。そちらは
-	// 0.80 で、軸とは別の種目・別の推定1RMを使う。
-	heavyIntensityPct = 0.88
-	heavySets         = 3
-	heavyTargetRIR    = 1
+	// 軸の強度を1つの定数にしていたのは、散らす相手がいなかったため。
+	// 宣言種目は「最後にやったのが最も古いもの」で回るので、宣言が3つ
+	// あれば各種目は週1回しか軸に来ない（D-117）。分割が入ると前提が
+	// 変わる。上下2分割で宣言がBIG3なら、上半身の日に立てる宣言はベンチ
+	// だけになり、同じ種目を同じ強度で週2回やることになる。
+	heavyIntensityPct       = 0.88
+	focusVolumeIntensityPct = 0.81
+	heavySets               = 3
+	heavyTargetRIR          = 1
+
+	// focusCycleLength は重点種目の番に回す一巡の長さ。
+	// 3レップ相当 → 6レップ相当 → 派生 の3つ。
+	focusCycleLength = 3
 
 	// accessoryIntensityPct は補助種目の強度。RIR2 で10レップ前後を狙う位置。
 	accessoryIntensityPct = 0.71
@@ -139,7 +145,7 @@ func (p SessionPlanner) Plan(req PlanRequest) (PlannedSession, error) {
 	// 該当が無ければ軸は空。5分割の肩・腕には BIG3 の中に主働を持つ
 	// 種目が無く、そういう日が実際にできる。0.88 のスクワットを肩の日に
 	// 出すより、軸の枠が無いほうが正直（2026-09-19 の仕様書）。
-	heavy := p.heavyLift(req, declared, today, hasSplit)
+	heavy, heavyPct := p.axis(req, pool, declared, today, hasSplit)
 
 	rirBump := p.analyzer.RIRAdjustment(req.Conditions, req.Date)
 
@@ -160,7 +166,7 @@ func (p SessionPlanner) Plan(req PlanRequest) (PlannedSession, error) {
 	main := make([]PlannedSet, 0, 1)
 	thisSession := StimulusCoverage{}
 	if heavy != nil {
-		set := p.planHeavy(req, estHistory, heavy, rirBump)
+		set := p.planHeavy(req, estHistory, heavy, heavyPct, rirBump)
 		main = append(main, set)
 		thisSession = thisSession.Plus(heavy.Stimulus(), set.Sets())
 	}
@@ -249,10 +255,11 @@ func (p SessionPlanner) planHeavy(
 	req PlanRequest,
 	historyBefore setlog.History,
 	target *exercise.Exercise,
+	intensityPct float64,
 	rirBump int,
 ) PlannedSet {
 	return p.prescribe(req, historyBefore, target,
-		heavyIntensityPct, heavySets, heavyTargetRIR, rirBump)
+		intensityPct, heavySets, heavyTargetRIR, rirBump)
 }
 
 // planVariation はバリエーションレーンの処方を組み立てる。
@@ -396,6 +403,62 @@ func CoverageBetween(h setlog.History, pool []*exercise.Exercise, from, to train
 		coverage = coverage.Plus(e.Stimulus(), one)
 	}
 	return coverage
+}
+
+// axis は今日の軸と、その強度を返す。
+//
+// 重点種目の番に来たときだけ一巡する。3レップ相当 → 6レップ相当 → 派生。
+//
+// 派生を軸に出すのは、バリエーションレーンが届かない日があるため。あちらは
+// 軸が系統に含まれる日は出ない（D-125）ので、上半身の日が毎回ベンチになる
+// 構成では派生がどこにも出ない。
+func (p SessionPlanner) axis(
+	req PlanRequest, pool, declared []*exercise.Exercise,
+	today program.Split, hasSplit bool,
+) (*exercise.Exercise, float64) {
+	lift := p.heavyLift(req, declared, today, hasSplit)
+	if lift == nil {
+		return nil, heavyIntensityPct
+	}
+
+	focus, ok := req.Program.FocusExercise()
+	if !ok || lift.ID() != focus {
+		return lift, heavyIntensityPct
+	}
+
+	h := historyBefore(req)
+	switch focusCyclePosition(h, lineage(pool, focus)) {
+	case 1:
+		return lift, focusVolumeIntensityPct
+	case 2:
+		// 選択から外した派生は pool に無い。そのときは本体を重い側で出す。
+		if d := stalest(h, variationsOf(pool, focus)); d != nil {
+			return d, heavyIntensityPct
+		}
+	}
+	return lift, heavyIntensityPct
+}
+
+// focusCyclePosition は重点種目の一巡のうち、今日がどこかを返す。
+//
+// 数えるのは「系統のどれかを実施したセッション数」。本体の実施回数で
+// 数えると、派生をやった日に位置が進まず同じ派生が出続ける。
+func focusCyclePosition(h setlog.History, family []*exercise.Exercise) int {
+	inFamily := make(map[exercise.ExerciseID]bool, len(family))
+	for _, e := range family {
+		inFamily[e.ID()] = true
+	}
+
+	n := 0
+	for _, s := range h.Sessions() {
+		for _, l := range s.Logs() {
+			if inFamily[l.ExerciseID()] {
+				n++
+				break
+			}
+		}
+	}
+	return n % focusCycleLength
 }
 
 // heavyLift は今日メインでやる＝高重量を扱う種目を返す。
