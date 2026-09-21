@@ -149,12 +149,12 @@ func (h *Handler) handleGetSession(w http.ResponseWriter, r *http.Request) {
 	}
 	raw := r.URL.Query().Get("date")
 	if raw == "" {
-		writeError(w, http.StatusBadRequest, "date クエリパラメータが必要である")
+		respondError(w, invalidInput("date クエリパラメータが必要である"))
 		return
 	}
 	date, err := training.ParseDate(raw)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		respondError(w, invalidInput(err.Error()))
 		return
 	}
 
@@ -182,12 +182,12 @@ func (h *Handler) handlePostSetLogs(w http.ResponseWriter, r *http.Request) {
 	for i, dto := range req.Logs {
 		date, err := training.ParseDate(dto.Date)
 		if err != nil {
-			writeError(w, http.StatusBadRequest, fmt.Sprintf("logs[%d]: %v", i, err))
+			respondError(w, invalidInput(fmt.Sprintf("logs[%d]: %v", i, err)))
 			return
 		}
 		if dto.WeightKg == nil || dto.Reps == nil || dto.RIR == nil {
-			writeError(w, http.StatusBadRequest,
-				fmt.Sprintf("logs[%d]: weight_kg / reps / rir は必須である", i))
+			respondError(w, invalidInput(
+				fmt.Sprintf("logs[%d]: weight_kg / reps / rir は必須である", i)))
 			return
 		}
 		log, err := setlog.NewSetLog(setlog.SetLogParams{
@@ -199,7 +199,7 @@ func (h *Handler) handlePostSetLogs(w http.ResponseWriter, r *http.Request) {
 			RIR:         *dto.RIR,
 		})
 		if err != nil {
-			writeError(w, http.StatusBadRequest, fmt.Sprintf("logs[%d]: %v", i, err))
+			respondError(w, invalidInput(fmt.Sprintf("logs[%d]: %v", i, err)))
 			return
 		}
 		logs = append(logs, log)
@@ -227,7 +227,7 @@ func (h *Handler) handlePostConditions(w http.ResponseWriter, r *http.Request) {
 	for i, dto := range req.Conditions {
 		date, err := training.ParseDate(dto.Date)
 		if err != nil {
-			writeError(w, http.StatusBadRequest, fmt.Sprintf("conditions[%d]: %v", i, err))
+			respondError(w, invalidInput(fmt.Sprintf("conditions[%d]: %v", i, err)))
 			return
 		}
 		// ドメインは範囲外の値を「無かったこと」にする。1日ぶんの異常値で
@@ -238,22 +238,22 @@ func (h *Handler) handlePostConditions(w http.ResponseWriter, r *http.Request) {
 		if dto.BodyWeightKg != nil {
 			c = c.WithBodyWeight(*dto.BodyWeightKg)
 			if _, ok := c.BodyWeightKg(); !ok {
-				writeError(w, http.StatusBadRequest,
-					fmt.Sprintf("conditions[%d]: 体重が範囲外である: %v", i, *dto.BodyWeightKg))
+				respondError(w, invalidInput(
+					fmt.Sprintf("conditions[%d]: 体重が範囲外である: %v", i, *dto.BodyWeightKg)))
 				return
 			}
 		}
 		if dto.SleepHours != nil {
 			c = c.WithSleepHours(*dto.SleepHours)
 			if _, ok := c.SleepHours(); !ok {
-				writeError(w, http.StatusBadRequest,
-					fmt.Sprintf("conditions[%d]: 睡眠時間が範囲外である: %v", i, *dto.SleepHours))
+				respondError(w, invalidInput(
+					fmt.Sprintf("conditions[%d]: 睡眠時間が範囲外である: %v", i, *dto.SleepHours)))
 				return
 			}
 		}
 		if dto.BodyWeightKg == nil && dto.SleepHours == nil {
-			writeError(w, http.StatusBadRequest,
-				fmt.Sprintf("conditions[%d]: body_weight_kg か sleep_hours のどちらかが必要である", i))
+			respondError(w, invalidInput(
+				fmt.Sprintf("conditions[%d]: body_weight_kg か sleep_hours のどちらかが必要である", i)))
 			return
 		}
 		items = append(items, c)

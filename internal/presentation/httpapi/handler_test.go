@@ -1035,6 +1035,75 @@ func TestPostSetLogs_InvalidDomainValue(t *testing.T) {
 	}
 }
 
+// 入力の不正は、どの口から返っても同じ形（code が INVALID_INPUT）である。
+//
+// 元は date の検査と set-logs / conditions の中身の検査だけが別の経路で
+// 400 を返していて、code が空文字だった。画面が code で分岐し始めると、
+// 同じ「入力が不正」なのに口によって拾えたり拾えなかったりする。
+// 1行が handler.go の拒否1箇所に対応する。
+func TestBadInput_IsCodedAsInvalidInput(t *testing.T) {
+	cases := []struct {
+		name   string
+		method string
+		path   string
+		body   string
+	}{
+		{name: "sessions に date が無い", method: http.MethodGet, path: "/api/sessions"},
+		{name: "sessions の date が日付でない", method: http.MethodGet, path: "/api/sessions?date=2026/08/17"},
+		{
+			name: "set-logs の date が日付でない", method: http.MethodPost, path: "/api/set-logs",
+			body: `{"logs":[{"id":"01J-B","date":"2026/08/17","exercise_id":"bench","weight_kg":85,"reps":9,"rir":2}]}`,
+		},
+		{
+			// rir を落とす。0 と「送られていない」を区別するための必須検査。
+			name: "set-logs の必須項目が欠けている", method: http.MethodPost, path: "/api/set-logs",
+			body: `{"logs":[{"id":"01J-B","date":"2026-08-17","exercise_id":"bench","weight_kg":85,"reps":9}]}`,
+		},
+		{
+			// 0レップはドメインが拒む。
+			name: "set-logs の値をドメインが拒む", method: http.MethodPost, path: "/api/set-logs",
+			body: `{"logs":[{"id":"01J-B","date":"2026-08-17","exercise_id":"bench","weight_kg":85,"reps":0,"rir":2}]}`,
+		},
+		{
+			name: "conditions の date が日付でない", method: http.MethodPost, path: "/api/conditions",
+			body: `{"conditions":[{"date":"2026/08/17","body_weight_kg":75}]}`,
+		},
+		{
+			// 体重の上限は 300kg。
+			name: "conditions の体重が範囲外", method: http.MethodPost, path: "/api/conditions",
+			body: `{"conditions":[{"date":"2026-08-17","body_weight_kg":301}]}`,
+		},
+		{
+			// 睡眠の上限は 24時間。
+			name: "conditions の睡眠時間が範囲外", method: http.MethodPost, path: "/api/conditions",
+			body: `{"conditions":[{"date":"2026-08-17","sleep_hours":25}]}`,
+		},
+		{
+			name: "conditions に体重も睡眠も無い", method: http.MethodPost, path: "/api/conditions",
+			body: `{"conditions":[{"date":"2026-08-17"}]}`,
+		},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			rec := do(t, newServer(t, true), c.method, c.path, c.body)
+
+			if rec.Code != http.StatusBadRequest {
+				t.Fatalf("%d が返った。400 のはず: %s", rec.Code, rec.Body.String())
+			}
+			var body struct {
+				Code string `json:"code"`
+			}
+			if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+				t.Fatalf("JSONが壊れている: %v", err)
+			}
+			if body.Code != "INVALID_INPUT" {
+				t.Errorf("code が %q。INVALID_INPUT のはず: %s", body.Code, rec.Body.String())
+			}
+		})
+	}
+}
+
 func TestPostConditions(t *testing.T) {
 	rec := httptest.NewRecorder()
 	payload := `{"conditions":[{"date":"2026-08-17","body_weight_kg":75.2,"sleep_hours":6.5}]}`
