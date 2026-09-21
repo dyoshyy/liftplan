@@ -16,7 +16,7 @@ const allowed = "https://liftplan-web.example.workers.dev"
 // ブラウザからは原因の分からない失敗になる。
 func corsHandler(t *testing.T) http.Handler {
 	t.Helper()
-	inner := httpapi.RequireBearerToken("0123456789abcdef0123456789abcdef")(
+	inner := requireTestSession(t)(
 		http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 			w.WriteHeader(http.StatusOK)
 		}),
@@ -98,7 +98,7 @@ func TestAllowOrigins_AlwaysVariesOnOrigin(t *testing.T) {
 func TestAllowOrigins_AllowsTheRealRequest(t *testing.T) {
 	r := httptest.NewRequest(http.MethodGet, "/api/sessions", nil)
 	r.Header.Set("Origin", allowed)
-	r.Header.Set("Authorization", "Bearer 0123456789abcdef0123456789abcdef")
+	r.Header.Set("Authorization", "Bearer "+sampleToken)
 	rec := httptest.NewRecorder()
 	corsHandler(t).ServeHTTP(rec, r)
 
@@ -113,7 +113,7 @@ func TestAllowOrigins_AllowsTheRealRequest(t *testing.T) {
 // オリジンが無い要求（curl やヘルスチェック）はそのまま通す。
 func TestAllowOrigins_PassesRequestsWithoutOrigin(t *testing.T) {
 	r := httptest.NewRequest(http.MethodGet, "/api/sessions", nil)
-	r.Header.Set("Authorization", "Bearer 0123456789abcdef0123456789abcdef")
+	r.Header.Set("Authorization", "Bearer "+sampleToken)
 	rec := httptest.NewRecorder()
 	corsHandler(t).ServeHTTP(rec, r)
 

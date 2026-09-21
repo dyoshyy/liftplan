@@ -1,36 +1,58 @@
 package httpapi
 
 import (
-	"crypto/subtle"
+	"errors"
 	"net/http"
 	"strings"
+	"time"
 
+	"github.com/dyoshyy/liftplan/internal/application/apperror"
 	"github.com/dyoshyy/liftplan/internal/domain/account"
+	"github.com/dyoshyy/liftplan/internal/domain/training"
 )
 
 // unauthenticatedPaths は認証を通さない経路。
 //
-// ヘルスチェックだけ。画面は別オリジンに移したので、
-// 「トークンを入力する画面そのものが出せなくなる」問題は無くなった。前段のロードバランサが叩けなくなると、
-// 認証が正しくても「起動していない」と判定されてトラフィックが来なくなる。
+// ヘルスチェックと、**ログインの入口と戻りだけ。**前段のロードバランサが
+// ヘルスチェックを叩けなくなると、認証が正しくても「起動していない」と
+// 判定されてトラフィックが来なくなる。ログインの経路は、通す前の人が
+// 通るための経路なので、認証を要求すると誰もログインできない。
+//
+// **ログアウト（DELETE /auth/session）はここに入れない。**誰でも叩けると、
+// トークンのハッシュを総当たりする口になる。「/auth で始まる経路は通す」と
+// まとめて書くとここが静かに開くので、経路を1つずつ並べる。
 //
 // パスが /healthz ではなく /health なのは、Cloud Run のフロントエンドが
 // /healthz を完全一致で横取りするため（D-073）。
-var unauthenticatedPaths = map[string]bool{healthPath: true}
+var unauthenticatedPaths = map[string]bool{
+	healthPath:              true,
+	"/auth/github/start":    true,
+	"/auth/github/callback": true,
+	"/auth/google/start":    true,
+	"/auth/google/callback": true,
+}
 
-// RequireBearerToken は Bearer トークンによる認証を要求する。
+// RequireSession はセッショントークンによる認証を要求する。
 //
-// **「誰が」を決めるのはここ。**通した要求の context に利用者を載せ、
-// ハンドラはそれを取り出してユースケースへ引数で渡す。ここから内側は
-// 全て利用者を明示して動く。
+// **「誰が」を決めるのはここ。**トークンをハッシュにしてセッションを引き、
+// そのセッションの利用者を context に載せる。ハンドラはそれを取り出して
+// ユースケースへ引数で渡す（user.go）。ここから内側は全て利用者を
+// 明示して動く。
 //
-// いまはトークン1本なので、載せるのは常に既定ユーザー（マイグレーション
-// 0007 が既存の行を寄せた先）。トークンは「本人かどうか」しか言えず、
-// 「誰か」を言えない。OAuth へ移ったらセッションから引いた利用者に
-// 変わるが、内側の形は変わらない。差し替えるのはこのミドルウェアだけ。
-func RequireBearerToken(token string) func(http.Handler) http.Handler {
-	want := []byte(token)
-
+// 以前はトークン1本を定数時間で比べていた（D-068/D-069）。あれは
+// 「本人かどうか」しか言えず「誰か」を言えないので、載せる利用者は常に
+// 既定ユーザーだった。**差し替えたのはこのミドルウェアだけで、内側の形は
+// 変わっていない。**D-068 が「OAuth へはミドルウェアの差し替えで移れる」と
+// 書いていたのがこれ。
+//
+// トークンそのものは保存されていないので、比較は起きない。ハッシュで
+// 引くだけなので、定数時間比較も要らない。
+//
+// now を引数で受けるのは、期限切れのテストが書けなくなるため。
+// 期限の判定はセッションの店に委ねる（規則を2箇所に置かない）。
+func RequireSession(
+	sessions account.SessionReader, now func() time.Time,
+) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if unauthenticatedPaths[r.URL.Path] {
@@ -38,29 +60,61 @@ func RequireBearerToken(token string) func(http.Handler) http.Handler {
 				return
 			}
 
-			got, ok := bearerToken(r)
+			user, ok := resolveSession(w, r, sessions, now())
 			if !ok {
-				// WWW-Authenticate を付けるのは、クライアントが
-				// 「認証が要る」と「壊れている」を区別できるようにするため。
-				w.Header().Set("WWW-Authenticate", `Bearer realm="liftplan"`)
-				writeError(w, http.StatusUnauthorized, "認証が必要である")
-				return
-			}
-
-			// 定数時間で比べる。素朴な == は、一致する接頭辞が長いほど
-			// 応答が遅くなるので、トークンを1バイトずつ推測できる。
-			if subtle.ConstantTimeCompare([]byte(got), want) != 1 {
-				w.Header().Set("WWW-Authenticate", `Bearer realm="liftplan"`)
-				writeError(w, http.StatusUnauthorized, "認証に失敗した")
 				return
 			}
 
 			// 利用者を context に載せるのはここだけ。ハンドラが
 			// 取り出したら終わりで、その先へは引数で渡す（user.go）。
-			next.ServeHTTP(w, r.WithContext(
-				withUser(r.Context(), account.DefaultUserID())))
+			next.ServeHTTP(w, r.WithContext(withUser(r.Context(), user)))
 		})
 	}
+}
+
+// resolveSession はトークンから利用者を引く。引けなければ応答を書く。
+func resolveSession(
+	w http.ResponseWriter, r *http.Request,
+	sessions account.SessionReader, now time.Time,
+) (account.UserID, bool) {
+	raw, ok := bearerToken(r)
+	if !ok {
+		// WWW-Authenticate を付けるのは、クライアントが
+		// 「認証が要る」と「壊れている」を区別できるようにするため。
+		unauthorized(w, "認証が必要である")
+		return account.UserID{}, false
+	}
+
+	token, err := account.ParseSessionToken(raw)
+	if err != nil {
+		// 形が違えば、そのトークンのセッションは存在しない。
+		// 保存先に問い合わせるまでもない。
+		unauthorized(w, "認証に失敗した")
+		return account.UserID{}, false
+	}
+
+	session, err := sessions.Find(r.Context(), token.Hash(), now)
+	switch {
+	case errors.Is(err, account.ErrSessionNotFound):
+		// 知らない・消された・期限切れ。どれも本人がログインし直せば直る。
+		// 区別して返さないのは、存在するハッシュを教えないため。
+		unauthorized(w, "認証に失敗した")
+		return account.UserID{}, false
+	case errors.Is(err, training.ErrRepositoryUnavailable):
+		// **401 にしない。**クライアントは 401 を「ログインし直せ」と読み、
+		// 通るはずのトークンを捨てる。保存先が戻れば通るので 503。
+		respondCoded(w, apperror.ErrUnavailable, err)
+		return account.UserID{}, false
+	case err != nil:
+		respondCoded(w, apperror.ErrInternal, err)
+		return account.UserID{}, false
+	}
+	return session.UserID(), true
+}
+
+func unauthorized(w http.ResponseWriter, message string) {
+	w.Header().Set("WWW-Authenticate", `Bearer realm="liftplan"`)
+	writeError(w, http.StatusUnauthorized, message)
 }
 
 // bearerToken は Authorization ヘッダからトークンを取り出す。

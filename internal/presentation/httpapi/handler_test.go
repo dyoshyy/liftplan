@@ -34,17 +34,23 @@ import (
 // なってしまう。ここを通しておけば、届かなくなった瞬間に全部が赤くなる。
 func newServer(t *testing.T, configured bool) http.Handler {
 	t.Helper()
-	return authed(buildRoutes(t, configured))
+	return authed(t, buildRoutes(t, configured))
 }
 
 // authed は各テストに Authorization を書かせずに認証を通す。
 //
-// トークンの検査そのものは auth_test.go が見ている。ここで個々の
+// 認証そのものの検査は session_auth_test.go が見ている。ここで個々の
 // テストにヘッダを書かせると、検査したいこと（ハンドラの応答）から遠くなる。
-func authed(routes http.Handler) http.Handler {
-	guarded := httpapi.RequireBearerToken(testToken)(routes)
+//
+// **本物のミドルウェアを通す。**素通しのラッパにすると、利用者が
+// context に載らない経路をテストが作ってしまい、ハンドラが
+// 受け取る利用者を誰も確かめていない状態になる。
+func authed(t *testing.T, routes http.Handler) http.Handler {
+	t.Helper()
+
+	guarded := requireTestSession(t)(routes)
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		r.Header.Set("Authorization", "Bearer "+testToken)
+		r.Header.Set("Authorization", "Bearer "+sampleToken)
 		guarded.ServeHTTP(w, r)
 	})
 }
@@ -1132,7 +1138,7 @@ func TestGetSession_UnavailableIsNot500(t *testing.T) {
 	// 認証を通す。利用者を決めるのはミドルウェアなので、
 	// 生のルータを叩くと「利用者が無い」で 500 になり、
 	// ここで見たい分類が見えない。
-	mux = authed(mux)
+	mux = authed(t, mux)
 
 	rec := do(t, mux, http.MethodGet, "/api/sessions?date=2026-08-17", "")
 	if rec.Code != http.StatusServiceUnavailable {
@@ -1337,7 +1343,7 @@ func TestGetSession_InternalErrorDoesNotLeak(t *testing.T) {
 	// 認証を通す。利用者を決めるのはミドルウェアなので、
 	// 生のルータを叩くと「利用者が無い」で 500 になり、
 	// ここで見たい分類が見えない。
-	mux = authed(mux)
+	mux = authed(t, mux)
 
 	rec := do(t, mux, http.MethodGet, "/api/sessions?date=2026-08-17", "")
 	if rec.Code != http.StatusInternalServerError {
