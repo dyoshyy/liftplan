@@ -48,6 +48,47 @@ func TestMigrate_CreatesEverySchemaObject(t *testing.T) {
 	}
 }
 
+// accounts.email が、NULL を許し一意制約を持たない列として作られること。
+//
+// 契約テストは Go の実装越しにしか見ておらず、スキーマ側の決めごとは
+// そこに現れない。NOT NULL や UNIQUE を後から足しても、インメモリ実装の
+// 契約は緑のまま通る。
+//
+//   - NULL を許す: 既にある行は当時アドレスを取っていない。空文字で
+//     埋めると、アドレスを持たない利用者が全員同じ値を持つ
+//   - 一意制約を持たない: 同じ人が GitHub と Google の両方で入れば、
+//     同じアドレスの行が2つできる。それが結びたい形
+func TestMigrate_AccountsHaveNullableNonUniqueEmail(t *testing.T) {
+	pool := migratedDB(t)
+	ctx := context.Background()
+
+	var nullable string
+	if err := pool.QueryRow(ctx, `
+		SELECT is_nullable FROM information_schema.columns
+		WHERE table_schema = current_schema()
+		  AND table_name = 'accounts' AND column_name = 'email'`).Scan(&nullable); err != nil {
+		t.Fatalf("email 列を確認できない: %v", err)
+	}
+	if nullable != "YES" {
+		t.Errorf("email 列が NOT NULL になっている")
+	}
+
+	// email を含む一意な索引（UNIQUE 制約も索引として現れる）が無いこと。
+	var unique int
+	if err := pool.QueryRow(ctx, `
+		SELECT count(*) FROM pg_index i
+		JOIN pg_class c ON c.oid = i.indrelid
+		JOIN pg_attribute a ON a.attrelid = c.oid AND a.attnum = ANY (i.indkey)
+		WHERE c.relname = 'accounts' AND a.attname = 'email'
+		  AND c.relnamespace = current_schema()::regnamespace
+		  AND i.indisunique`).Scan(&unique); err != nil {
+		t.Fatalf("索引を確認できない: %v", err)
+	}
+	if unique != 0 {
+		t.Errorf("email に一意な索引がある: %d件", unique)
+	}
+}
+
 // 二度流しても壊れないこと。起動のたびに呼ぶので冪等でなければならない。
 func TestMigrate_IsIdempotent(t *testing.T) {
 	pool := newTestDB(t)

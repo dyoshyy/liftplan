@@ -120,7 +120,7 @@ func (u *SignIn) findOrCreateAccount(
 	if err != nil {
 		return nil, fmt.Errorf("利用者の識別子を採番できない: %w", err)
 	}
-	created, err := account.NewAccount(provider, subject, userID)
+	created, err := account.NewAccount(provider, subject, userID, account.Email{})
 	if err != nil {
 		return nil, fmt.Errorf("アカウントを組めない: %w", err)
 	}

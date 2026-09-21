@@ -42,7 +42,7 @@ func TestAccountRepository_SurvivesReconnect(t *testing.T) {
 	if err != nil {
 		t.Fatalf("UserID を作れない: %v", err)
 	}
-	a, err := account.NewAccount(account.GitHub(), "12345", uid)
+	a, err := account.NewAccount(account.GitHub(), "12345", uid, account.Email{})
 	if err != nil {
 		t.Fatalf("アカウントを作れない: %v", err)
 	}

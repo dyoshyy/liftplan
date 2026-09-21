@@ -43,6 +43,43 @@ func (r *AccountRepository) Find(
 	return a, nil
 }
 
+// FindUserByEmail はそのメールアドレスを持つ利用者を返す。
+//
+// 索引は持たず、毎回なめる。行数は利用者の数しかなく、引くのも
+// ログインのときだけ。Postgres 側で索引を付けなかったのと同じ理由。
+func (r *AccountRepository) FindUserByEmail(
+	_ context.Context, email account.Email,
+) (account.UserID, error) {
+	// 空では必ず見つからない。これが無いと、アドレスを持たない行が
+	// 空のアドレスに当たり、その利用者が全員同一人物になる。
+	if email.IsZero() {
+		return account.UserID{}, fmt.Errorf(
+			"%w: メールアドレスが空である", account.ErrAccountNotFound)
+	}
+
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	// 見つけた利用者が1種類かを見る。アカウントの件数ではない。同じ人が
+	// GitHub と Google の両方で入れば同じアドレスの行が2つできるが、
+	// それは正常な形で、曖昧ではない。
+	var found account.UserID
+	for _, a := range r.byKey {
+		if a.Email() != email {
+			continue
+		}
+		if found != (account.UserID{}) && a.UserID() != found {
+			// どちらかを選ぶと、map の反復順次第で他人の記録に結びつく。
+			return account.UserID{}, fmt.Errorf("%w: %s", account.ErrAmbiguousEmail, email)
+		}
+		found = a.UserID()
+	}
+	if found == (account.UserID{}) {
+		return account.UserID{}, fmt.Errorf("%w: %s", account.ErrAccountNotFound, email)
+	}
+	return found, nil
+}
+
 // Create はアカウントを作る。既にあれば ErrAccountAlreadyExists を返す。
 //
 // 上書きしないのは、上書きすると同じ人の UserID が入れ替わり、
