@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"github.com/dyoshyy/liftplan/internal/application/apperror"
+	"github.com/dyoshyy/liftplan/internal/domain/account"
 
 	"github.com/dyoshyy/liftplan/internal/domain/training"
 	"github.com/dyoshyy/liftplan/internal/domain/training/exercise"
@@ -29,7 +30,7 @@ func NewSetWeeklyTarget(
 	return &SetWeeklyTarget{exercises: exercises, reader: reader, writer: writer}
 }
 
-func (u *SetWeeklyTarget) Execute(ctx context.Context, sets map[training.MuscleRegion]float64) (err error) {
+func (u *SetWeeklyTarget) Execute(ctx context.Context, user account.UserID, sets map[training.MuscleRegion]float64) (err error) {
 	// 出口で1度だけ翻訳する。return ごとに書くと、経路が増えたときに
 	// 包み忘れた1本だけが 500 で返る。
 	defer func() { err = classify(err) }()
@@ -39,7 +40,7 @@ func (u *SetWeeklyTarget) Execute(ctx context.Context, sets map[training.MuscleR
 		return fmt.Errorf("%w: 週目標: %w", apperror.ErrInvalidInput, err)
 	}
 
-	prog, err := u.reader.Get(ctx)
+	prog, err := u.reader.Get(ctx, user)
 	if err != nil {
 		return err
 	}
@@ -61,5 +62,5 @@ func (u *SetWeeklyTarget) Execute(ctx context.Context, sets map[training.MuscleR
 		return err
 	}
 
-	return u.writer.Save(ctx, next)
+	return u.writer.Save(ctx, user, next)
 }

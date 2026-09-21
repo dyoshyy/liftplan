@@ -51,9 +51,10 @@ const errs = [];
 page.on('pageerror', (e) => errs.push('pageerror: ' + e.message));
 page.on('console', (m) => { if (m.type() === 'error') errs.push(m.text()); });
 
-await page.goto(APP);
-await page.fill('input[type=password]', TOKEN);
-await page.click('text=保存する');
+// ログインはフラグメントで済ませる。/auth/* を通すとプロバイダの画面が
+// 挟まり、自動では抜けられない。#token= はサーバーがコールバックで戻して
+// くる形そのものなので、取り込みの配線もここで一緒に検査できる。
+await page.goto(`${APP}/#token=${TOKEN}`);
 await page.waitForTimeout(2500);
 
 // 休憩バーは休憩中だけ出る（PR #78）。待機中は存在しないので、

@@ -190,9 +190,14 @@ func (p SessionPlanner) Plan(req PlanRequest) (PlannedSession, error) {
 	// 今日の分割に属さない区分は狙わない。残差から落とすのは補助の
 	// 選択に効かせるためで、週目標そのものは変えない。窓が1週なので、
 	// 落とした分は次にその分割が来た日に残ったまま出てくる。
+	//
+	// ただし**どの日にも属さない区分は毎日活かす**。腹はどの日にやっても
+	// よい部位で、どのプリセットにも入っていない。素直に落とすと永久に
+	// 埋まらない（実測で腹斜筋が全プリセット・全頻度で 0%）。
 	if hasSplit {
+		cycle := req.Program.Cycle()
 		for region := range gaps {
-			if !today.Includes(region) {
+			if affiliated(cycle, region) && !today.Includes(region) {
 				delete(gaps, region)
 			}
 		}
@@ -431,8 +436,16 @@ func (p SessionPlanner) axis(
 	case 1:
 		return lift, focusVolumeIntensityPct
 	case 2:
-		// 選択から外した派生は pool に無い。そのときは本体を重い側で出す。
-		if d := stalest(h, variationsOf(pool, focus)); d != nil {
+		// 派生も分割で絞る。軸の候補（heavyLift）は絞っているのに
+		// ここだけ素通しにすると、胸の日にナローベンチ（主働は三頭）が
+		// 軸として出る。型が「今日は胸の日」と言いながら三頭を主役に据える。
+		//
+		// 該当が無ければ本体を重い側で出す（選択から外した派生も同じ経路）。
+		candidates := variationsOf(pool, focus)
+		if hasSplit {
+			candidates = primaryIn(candidates, today)
+		}
+		if d := stalest(h, candidates); d != nil {
 			return d, heavyIntensityPct
 		}
 	}
@@ -492,6 +505,12 @@ func (p SessionPlanner) activeCount(req PlanRequest) ActiveCount {
 	from := historyBefore(req).SessionCount()
 
 	return func(r training.MuscleRegion) int {
+		// どの日にも属さない区分は毎日活きるので、頻度そのもの。
+		// 0 を返すと SessionResidual が区分ごと落とす（天井が 0 になる）。
+		if !affiliated(cycle, r) {
+			return perWeek
+		}
+
 		n := 0
 		for i := range perWeek {
 			if cycle[(from+i)%len(cycle)].Includes(r) {
@@ -500,6 +519,19 @@ func (p SessionPlanner) activeCount(req PlanRequest) ActiveCount {
 		}
 		return n
 	}
+}
+
+// affiliated はその区分が、周期のどこかの日に書かれているか。
+//
+// 書かれていない区分は「その日の分割に無い」のではなく「どの日にも
+// 属さない」。前者は別の日に来るが、後者は二度と来ない。
+func affiliated(cycle []program.Split, r training.MuscleRegion) bool {
+	for _, day := range cycle {
+		if day.Includes(r) {
+			return true
+		}
+	}
+	return false
 }
 
 // primaryIn はその分割の区分を主働に含む種目だけを返す。

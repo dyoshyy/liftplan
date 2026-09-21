@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"github.com/dyoshyy/liftplan/internal/application/apperror"
+	"github.com/dyoshyy/liftplan/internal/domain/account"
 
 	"github.com/dyoshyy/liftplan/internal/domain/training/exercise"
 	"github.com/dyoshyy/liftplan/internal/domain/training/setlog"
@@ -28,7 +29,7 @@ func NewRecordSets(
 	return &RecordSets{repo: repo, exercises: exercises}
 }
 
-func (u *RecordSets) Execute(ctx context.Context, logs []*setlog.SetLog) (err error) {
+func (u *RecordSets) Execute(ctx context.Context, user account.UserID, logs []*setlog.SetLog) (err error) {
 	// 出口で1度だけ翻訳する。return ごとに書くと、経路が増えたときに
 	// 包み忘れた1本だけが 500 で返る。
 	defer func() { err = classify(err) }()
@@ -70,7 +71,7 @@ func (u *RecordSets) Execute(ctx context.Context, logs []*setlog.SetLog) (err er
 		}
 	}
 
-	if err := u.repo.Save(ctx, logs); err != nil {
+	if err := u.repo.Save(ctx, user, logs); err != nil {
 		return fmt.Errorf("実績の保存に失敗: %w", err)
 	}
 	return nil

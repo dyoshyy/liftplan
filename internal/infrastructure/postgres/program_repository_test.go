@@ -43,11 +43,11 @@ func TestProgramRepository_RoundTrips(t *testing.T) {
 	repo := postgres.NewProgramRepository(pool)
 
 	want := samplePrograms(t)
-	if err := repo.Save(ctx, want); err != nil {
+	if err := repo.Save(ctx, userA(t), want); err != nil {
 		t.Fatalf("保存に失敗: %v", err)
 	}
 
-	got, err := postgres.NewProgramRepository(pool).Get(ctx)
+	got, err := postgres.NewProgramRepository(pool).Get(ctx, userA(t))
 	if err != nil {
 		t.Fatalf("取得に失敗: %v", err)
 	}
@@ -97,11 +97,11 @@ func TestProgramRepository_RoundTripsTheSplitCycle(t *testing.T) {
 	if err != nil {
 		t.Fatalf("WithCycle: %v", err)
 	}
-	if err := repo.Save(ctx, with); err != nil {
+	if err := repo.Save(ctx, userA(t), with); err != nil {
 		t.Fatalf("保存に失敗: %v", err)
 	}
 
-	got, err := postgres.NewProgramRepository(pool).Get(ctx)
+	got, err := postgres.NewProgramRepository(pool).Get(ctx, userA(t))
 	if err != nil {
 		t.Fatalf("取得に失敗: %v", err)
 	}
@@ -123,10 +123,10 @@ func TestProgramRepository_RoundTripsTheSplitCycle(t *testing.T) {
 	if err != nil {
 		t.Fatalf("WithCycle(nil): %v", err)
 	}
-	if err := repo.Save(ctx, cleared); err != nil {
+	if err := repo.Save(ctx, userA(t), cleared); err != nil {
 		t.Fatalf("解除の保存に失敗: %v", err)
 	}
-	again, err := postgres.NewProgramRepository(pool).Get(ctx)
+	again, err := postgres.NewProgramRepository(pool).Get(ctx, userA(t))
 	if err != nil {
 		t.Fatalf("取得に失敗: %v", err)
 	}

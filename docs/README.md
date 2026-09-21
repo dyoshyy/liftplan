@@ -4,7 +4,7 @@
 |---|---|
 | `specs/` | 設計。何を作るか・なぜそうするか |
 | `decisions.md` | いま効いている判断と、その根拠 |
-| `refactoring.md` | 見つけたが、まだ直していないもの |
+| `refactoring.md` | 見つけたが直していないもの（**過去分。新しいものは GitHub issue へ**） |
 | `user-stories.md` | 誰が・いつ・何のために使うか |
 | `deploy.md` | 配備と運用の手順 |
 

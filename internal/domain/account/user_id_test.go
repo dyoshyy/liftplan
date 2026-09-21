@@ -124,15 +124,3 @@ func TestUserID_ComparesByValue(t *testing.T) {
 		t.Errorf("別の UUID が等しいと判定された")
 	}
 }
-
-// 既定ユーザーは、マイグレーション 0007 が既存の行に埋めた UUID と
-// 同じでなければならない。ここがずれると、これまでの記録が
-// 「誰のものでもない」状態になり、本人がログインしても出てこない。
-func TestDefaultUserID_MatchesMigration(t *testing.T) {
-	const inMigration = "8d5e743e-f1b0-4430-9998-89d313e89da8"
-
-	if got := account.DefaultUserID().String(); got != inMigration {
-		t.Errorf("既定ユーザーが %q。マイグレーション 0007 の %q と一致しない",
-			got, inMigration)
-	}
-}

@@ -17,6 +17,22 @@ env:
   # ここに直書きすると、URL が変わったときにコードの変更として出る。
   # 未設定なら下のジョブが落ちる（黙って既定値に落ちない）。
   ALLOWED_ORIGINS: ${{ vars.ALLOWED_ORIGINS }}
+  # ログイン後の戻り先（画面）。
+  WEB_ORIGIN: ${{ vars.WEB_ORIGIN }}
+  # 認可先に登録したコールバックの元（API 自身のオリジン）。
+  #
+  # **API_BASE から引く。**同じ URL を指す変数を2つ持つと、片方だけ
+  # 更新した日にコールバックが黙って合わなくなり、認可が通らない理由が
+  # どこにも出ない。画面のビルドが使っているのと同じ1本にする。
+  API_ORIGIN: ${{ vars.API_BASE }}
+  # クライアントIDは秘密ではない。シークレットだけ Secret Manager に置く。
+  #
+  # **リポジトリ変数の名前は GH_CLIENT_ID。**GitHub は GITHUB_ で始まる名前の
+  # リポジトリ変数を作らせない（予約接頭辞。作ろうとすると HTTP 422）。
+  # サーバーが読む環境変数の名前は GITHUB_CLIENT_ID のままでよいので、
+  # 読み替えはここ1箇所に閉じる。
+  GITHUB_CLIENT_ID: ${{ vars.GH_CLIENT_ID }}
+  GOOGLE_CLIENT_ID: ${{ vars.GOOGLE_CLIENT_ID }}
   API_BASE: ${{ vars.API_BASE }}
   REGION: asia-southeast1
   SERVICE: liftplan-server
@@ -85,6 +101,21 @@ jobs:
       # 出してから気づくより、出す前に止めるほうが速い。
       - name: 許可オリジンが設定されているか確かめる
         run: |
+          # 左がリポジトリ変数の名前、右がこの workflow での環境変数の名前。
+          # 2つは GH_CLIENT_ID と API_BASE でずれる（前者は GitHub の予約接頭辞、
+          # 後者は画面のビルドと同じ1本を使い回しているため）。**人が直す先は
+          # 左の名前**なので、メッセージには左を出す。
+          #
+          # ${!name} は bash の間接展開。eval を通すより読みやすく、
+          # 変数名に妙な文字が来ても実行にならない。
+          for pair in WEB_ORIGIN:WEB_ORIGIN API_BASE:API_ORIGIN \
+                      GH_CLIENT_ID:GITHUB_CLIENT_ID GOOGLE_CLIENT_ID:GOOGLE_CLIENT_ID; do
+            name="${pair##*:}"
+            if [ -z "${!name}" ]; then
+              echo "リポジトリ変数 ${pair%%:*} が未設定。サーバーは起動を拒む"
+              exit 1
+            fi
+          done
           if [ -z "${ALLOWED_ORIGINS}" ]; then
             echo "リポジトリ変数 ALLOWED_ORIGINS が未設定。画面のオリジンを入れること"
             exit 1
@@ -132,8 +163,8 @@ jobs:
             --min-instances=0 \
             --max-instances=2 \
             --cpu=1 --memory=512Mi \
-            --set-secrets=DATABASE_URL=liftplan-database-url:latest,AUTH_TOKEN=liftplan-auth-token:latest \
-            --set-env-vars="ALLOWED_ORIGINS=${ALLOWED_ORIGINS}" \
+            --set-secrets=DATABASE_URL=liftplan-database-url:latest,GITHUB_CLIENT_SECRET=liftplan-github-client-secret:latest,GOOGLE_CLIENT_SECRET=liftplan-google-client-secret:latest \
+            --set-env-vars="ALLOWED_ORIGINS=${ALLOWED_ORIGINS},WEB_ORIGIN=${WEB_ORIGIN},API_ORIGIN=${API_ORIGIN},GITHUB_CLIENT_ID=${GITHUB_CLIENT_ID},GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID}" \
             --allow-unauthenticated \
             --quiet
 

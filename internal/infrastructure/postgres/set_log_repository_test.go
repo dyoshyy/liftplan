@@ -22,12 +22,12 @@ func TestSetLogRepository_SurvivesReconnect(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ログ生成に失敗: %v", err)
 	}
-	if err := postgres.NewSetLogRepository(pool).Save(ctx, []*setlog.SetLog{log}); err != nil {
+	if err := postgres.NewSetLogRepository(pool).Save(ctx, userA(t), []*setlog.SetLog{log}); err != nil {
 		t.Fatalf("保存に失敗: %v", err)
 	}
 
 	// 別のリポジトリインスタンスから読む。
-	h, err := postgres.NewSetLogRepository(pool).FindAll(ctx)
+	h, err := postgres.NewSetLogRepository(pool).FindAll(ctx, userA(t))
 	if err != nil {
 		t.Fatalf("取得に失敗: %v", err)
 	}
@@ -57,11 +57,11 @@ func TestSetLogRepository_RoundTripsWeights(t *testing.T) {
 		}
 		logs = append(logs, l)
 	}
-	if err := repo.Save(ctx, logs); err != nil {
+	if err := repo.Save(ctx, userA(t), logs); err != nil {
 		t.Fatalf("保存に失敗: %v", err)
 	}
 
-	h, _ := repo.FindAll(ctx)
+	h, _ := repo.FindAll(ctx, userA(t))
 	got := make(map[setlog.SetLogID]float64, len(h.Logs()))
 	for _, l := range h.Logs() {
 		got[l.ID()] = l.Weight().Kg()
@@ -98,11 +98,11 @@ func TestSetLogRepository_RoundTripsDates(t *testing.T) {
 		}
 		logs = append(logs, l)
 	}
-	if err := repo.Save(ctx, logs); err != nil {
+	if err := repo.Save(ctx, userA(t), logs); err != nil {
 		t.Fatalf("保存に失敗: %v", err)
 	}
 
-	h, _ := repo.FindAll(ctx)
+	h, _ := repo.FindAll(ctx, userA(t))
 	got := make(map[setlog.SetLogID]training.Date, len(h.Logs()))
 	for _, l := range h.Logs() {
 		got[l.ID()] = l.PerformedOn()
@@ -135,7 +135,7 @@ func TestSetLogRepository_DetectsConflictUnderConcurrency(t *testing.T) {
 	results := make(chan error, 8)
 	for i := range 8 {
 		go func(i int) {
-			results <- repo.Save(ctx, []*setlog.SetLog{mk(80 + float64(i)*2.5)})
+			results <- repo.Save(ctx, userA(t), []*setlog.SetLog{mk(80 + float64(i)*2.5)})
 		}(i)
 	}
 
@@ -150,7 +150,7 @@ func TestSetLogRepository_DetectsConflictUnderConcurrency(t *testing.T) {
 		t.Errorf("内容の違う並行書き込みが %d 件成功した（期待 1）", succeeded)
 	}
 
-	h, _ := repo.FindAll(ctx)
+	h, _ := repo.FindAll(ctx, userA(t))
 	if len(h.Logs()) != 1 {
 		t.Errorf("件数が誤り: %d", len(h.Logs()))
 	}
@@ -162,13 +162,17 @@ func TestSetLogRepository_RejectsInvalidStoredRows(t *testing.T) {
 	pool := migratedDB(t)
 	ctx := context.Background()
 
+	// user_id を明示するのは、0009 で DEFAULT を落としたため。
+	// 書かないと NOT NULL 違反になる。「渡し忘れが黙って既定ユーザーの
+	// 行になる」を消したことが、ここにも出ている。
 	if _, err := pool.Exec(ctx, `
-		INSERT INTO set_logs (id, performed_on, exercise_id, weight_kg, reps, rir)
-		VALUES ('broken', DATE '2026-08-17', 'bench', 85, -5, 2)`); err != nil {
+		INSERT INTO set_logs (user_id, id, performed_on, exercise_id, weight_kg, reps, rir)
+		VALUES ($1, 'broken', DATE '2026-08-17', 'bench', 85, -5, 2)`,
+		userA(t).String()); err != nil {
 		t.Fatalf("準備に失敗: %v", err)
 	}
 
-	if _, err := postgres.NewSetLogRepository(pool).FindAll(ctx); err == nil {
+	if _, err := postgres.NewSetLogRepository(pool).FindAll(ctx, userA(t)); err == nil {
 		t.Error("不正な行が黙って読み込まれた")
 	}
 }
@@ -189,7 +193,7 @@ func TestSetLogRepository_StoresTheSameCalendarDate(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ログ生成に失敗: %v", err)
 	}
-	if err := postgres.NewSetLogRepository(pool).Save(ctx, []*setlog.SetLog{log}); err != nil {
+	if err := postgres.NewSetLogRepository(pool).Save(ctx, userA(t), []*setlog.SetLog{log}); err != nil {
 		t.Fatalf("保存に失敗: %v", err)
 	}
 

@@ -78,29 +78,30 @@ func TestExerciseRepository_DoesNotAliasItsState(t *testing.T) {
 func TestRepositories_AreSafeForConcurrentUse(t *testing.T) {
 	logs := memory.NewSetLogRepository()
 	conditions := memory.NewConditionRepository()
-	programs := memory.NewProgramRepository(nil)
+	programs := memory.NewProgramRepository()
 	ctx := context.Background()
+	user := userA(t)
 
 	var wg sync.WaitGroup
 	for i := range 16 {
 		wg.Add(1)
 		go func(i int) {
 			defer wg.Done()
-			_ = logs.Save(ctx, []*setlog.SetLog{mkSetLog(t, fmt.Sprintf("c%03d", i), 85)})
-			_, _ = logs.FindAll(ctx)
-			_ = conditions.Save(ctx, []condition.DailyCondition{
+			_ = logs.Save(ctx, user, []*setlog.SetLog{mkSetLog(t, fmt.Sprintf("c%03d", i), 85)})
+			_, _ = logs.FindAll(ctx, user)
+			_ = conditions.Save(ctx, user, []condition.DailyCondition{
 				condition.NewDailyCondition(day.AddDays(-i)).WithBodyWeight(75),
 			})
-			_, _ = conditions.FindAll(ctx)
-			_, _ = programs.Get(ctx)
+			_, _ = conditions.FindAll(ctx, user)
+			_, _ = programs.Get(ctx, user)
 		}(i)
 	}
 	wg.Wait()
 
-	if logs.Size() != 16 {
-		t.Errorf("並行保存で件数が合わない: %d", logs.Size())
+	if logs.Size(user) != 16 {
+		t.Errorf("並行保存で件数が合わない: %d", logs.Size(user))
 	}
-	if conditions.Size() != 16 {
-		t.Errorf("並行保存で件数が合わない: %d", conditions.Size())
+	if conditions.Size(user) != 16 {
+		t.Errorf("並行保存で件数が合わない: %d", conditions.Size(user))
 	}
 }

@@ -103,10 +103,18 @@ const snap = async (label, file) => {
 
 await page.goto(APP);
 await page.waitForTimeout(1500);
-await snap('設定（トークン入力）', '/tmp/a-setup.png');
+// ログイン画面も測る。ここだけ見落とすと、押せない的や読めない色が
+// 「トークンを持っていない人にしか出ない画面」に残る。
+await snap('ログイン', '/tmp/a-setup.png');
 
-await page.fill('input[type=password]', TOKEN);
-await page.click('text=保存する');
+// ログインはフラグメントで済ませる。/auth/* を通すとプロバイダの画面が
+// 挟まり、自動では抜けられない。#token= はサーバーがコールバックで戻して
+// くる形そのものなので、取り込みの配線もここで一緒に検査できる。
+await page.goto(`${APP}/#token=${TOKEN}`);
+// ここだけ reload が要る。既に同じ URL を開いているので、フラグメントだけの
+// 移動は同一ドキュメント内の遷移になり、画面が組み直されない（取り込みは
+// 起動時に1回だけ走る）。本番はコールバックからの完全な遷移なので起きない。
+await page.reload();
 await page.waitForTimeout(3000);
 await snap('今日', '/tmp/a-today.png');
 

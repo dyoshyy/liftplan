@@ -58,7 +58,7 @@ func newConfigure(t *testing.T, programs *fakeProgram) *usecase.ConfigureProgram
 
 func TestConfigureProgram_SavesTheProgram(t *testing.T) {
 	programs := &fakeProgram{}
-	if err := newConfigure(t, programs).Execute(context.Background(), configureInput(t)); err != nil {
+	if err := newConfigure(t, programs).Execute(context.Background(), testUser, configureInput(t)); err != nil {
 		t.Fatalf("実行に失敗: %v", err)
 	}
 	if programs.savedProgram() == nil {
@@ -80,7 +80,7 @@ func TestConfigureProgram_RejectsUnknownExercise(t *testing.T) {
 	in := configureInput(t)
 	in.Selected = append(in.Selected, "存在しない種目")
 
-	err := newConfigure(t, programs).Execute(context.Background(), in)
+	err := newConfigure(t, programs).Execute(context.Background(), testUser, in)
 	if !errors.Is(err, exercise.ErrExerciseNotFound) {
 		t.Errorf("未知の種目が弾かれていない: %v", err)
 	}
@@ -94,7 +94,7 @@ func TestConfigureProgram_RejectsInvalidFrequency(t *testing.T) {
 	in := configureInput(t)
 	in.PerWeek = 8
 
-	if err := newConfigure(t, programs).Execute(context.Background(), in); err == nil {
+	if err := newConfigure(t, programs).Execute(context.Background(), testUser, in); err == nil {
 		t.Error("範囲外の頻度が通った")
 	}
 	if programs.savedProgram() != nil {
@@ -106,7 +106,7 @@ func TestConfigureProgram_PropagatesSaveError(t *testing.T) {
 	boom := errors.New("書けない")
 	programs := &fakeProgram{err: boom}
 
-	if err := newConfigure(t, programs).Execute(context.Background(), configureInput(t)); !errors.Is(err, boom) {
+	if err := newConfigure(t, programs).Execute(context.Background(), testUser, configureInput(t)); !errors.Is(err, boom) {
 		t.Errorf("エラーが伝播していない: %v", err)
 	}
 }
@@ -117,7 +117,7 @@ func TestConfigureProgram_DoesNotSaveWhenExercisesAreUnavailable(t *testing.T) {
 	programs := &fakeProgram{}
 	uc := usecase.NewConfigureProgram(&fakeExercises{err: boom}, programs)
 
-	if err := uc.Execute(context.Background(), configureInput(t)); !errors.Is(err, boom) {
+	if err := uc.Execute(context.Background(), testUser, configureInput(t)); !errors.Is(err, boom) {
 		t.Errorf("エラーが伝播していない: %v", err)
 	}
 	if programs.savedProgram() != nil {
@@ -137,7 +137,7 @@ func TestConfigureProgram_RejectsSelectionWithoutDeclared(t *testing.T) {
 	in.Declared = nil
 
 	programs := &fakeProgram{}
-	err := newConfigure(t, programs).Execute(context.Background(), in)
+	err := newConfigure(t, programs).Execute(context.Background(), testUser, in)
 	if !errors.Is(err, program.ErrNoDeclaredExercise) {
 		t.Errorf("宣言ゼロが弾かれていない: %v", err)
 	}
@@ -157,7 +157,7 @@ func TestConfigureProgram_ProducesAUsableProgram(t *testing.T) {
 		t.Fatalf("シードが不正: %v", err)
 	}
 	programs := &fakeProgram{}
-	if err := newConfigure(t, programs).Execute(context.Background(), configureInput(t)); err != nil {
+	if err := newConfigure(t, programs).Execute(context.Background(), testUser, configureInput(t)); err != nil {
 		t.Fatalf("実行に失敗: %v", err)
 	}
 
@@ -168,7 +168,7 @@ func TestConfigureProgram_ProducesAUsableProgram(t *testing.T) {
 		&fakeProgram{program: programs.savedProgram()},
 		planning.DefaultSessionPlanner(),
 	)
-	s, err := uc.Execute(context.Background(), usecase.GetSessionInput{Date: testDate})
+	s, err := uc.Execute(context.Background(), testUser, usecase.GetSessionInput{Date: testDate})
 	if err != nil {
 		t.Fatalf("設定したプログラムでセッションが導出できない: %v", err)
 	}
@@ -196,7 +196,7 @@ func TestConfigureProgram_ClassifiesInvalidInput(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			in := configureInput(t)
 			mutate(&in)
-			err := newConfigure(t, &fakeProgram{}).Execute(context.Background(), in)
+			err := newConfigure(t, &fakeProgram{}).Execute(context.Background(), testUser, in)
 			if !errors.Is(err, apperror.ErrInvalidInput) {
 				t.Errorf("入力の不正として分類されていない: %v", err)
 			}
@@ -210,7 +210,7 @@ func TestConfigureProgram_ClassifiesInvalidInput(t *testing.T) {
 		"保存の障害":    usecase.NewConfigureProgram(&fakeExercises{all: pool}, &fakeProgram{err: boom}),
 	} {
 		t.Run(name, func(t *testing.T) {
-			err := uc.Execute(context.Background(), configureInput(t))
+			err := uc.Execute(context.Background(), testUser, configureInput(t))
 			if errors.Is(err, apperror.ErrInvalidInput) {
 				t.Errorf("I/O 障害が入力の不正として分類された: %v", err)
 			}
@@ -228,7 +228,7 @@ func TestConfigureProgram_ValidatesInputBeforeTouchingIO(t *testing.T) {
 
 	in := configureInput(t)
 	in.PerWeek = 99
-	err := uc.Execute(context.Background(), in)
+	err := uc.Execute(context.Background(), testUser, in)
 	if !errors.Is(err, apperror.ErrInvalidInput) {
 		t.Errorf("I/O 障害に隠れて入力の不正が診断できない: %v", err)
 	}
@@ -245,7 +245,7 @@ func TestConfigureProgram_RejectsSelectionDisjointFromTarget(t *testing.T) {
 	in.Selected = []exercise.ExerciseID{"squat", "calf_raise"}
 
 	programs := &fakeProgram{}
-	err := newConfigure(t, programs).Execute(context.Background(), in)
+	err := newConfigure(t, programs).Execute(context.Background(), testUser, in)
 	if !errors.Is(err, apperror.ErrInvalidInput) {
 		t.Errorf("週目標と噛み合わない選択が通った: %v", err)
 	}
@@ -261,7 +261,7 @@ func TestConfigureProgram_SkipsNilExercisesInThePool(t *testing.T) {
 
 	programs := &fakeProgram{}
 	uc := usecase.NewConfigureProgram(&fakeExercises{all: withNil}, programs)
-	if err := uc.Execute(context.Background(), configureInput(t)); err != nil {
+	if err := uc.Execute(context.Background(), testUser, configureInput(t)); err != nil {
 		t.Fatalf("nil 混じりのプールで失敗: %v", err)
 	}
 	if programs.savedProgram() == nil {
@@ -275,7 +275,7 @@ func TestConfigureProgram_StopsOnCancelledContext(t *testing.T) {
 	cancel()
 
 	programs := &fakeProgram{}
-	err := newConfigure(t, programs).Execute(ctx, configureInput(t))
+	err := newConfigure(t, programs).Execute(ctx, testUser, configureInput(t))
 	if !errors.Is(err, context.Canceled) {
 		t.Errorf("キャンセルが伝わっていない: %v", err)
 	}

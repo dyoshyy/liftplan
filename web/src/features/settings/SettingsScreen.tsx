@@ -46,22 +46,25 @@ export function SettingsScreen({ nameOf, exercises, onChanged, timer, onForget }
         </Note>
       </Section>
 
-      <Section title="この端末">
+      <Section title="アカウント">
         {/* confirm() は使わない。ページ全体が止まるうえ、記録の途中なら
             入力中の値が消える。取り消せない操作はその場で二段階にする。 */}
         {confirming ? (
           <>
             <Note className="mb-3">
-              この端末からトークンを消します。未送信の記録は消えませんが、入れ直すまで送れません。
+              この端末からログアウトします。未送信の記録は消えませんが、ログインし直すまで送れません。
             </Note>
             <Button
               variant="danger"
               onClick={() => {
+                // 捨てるのは**この端末のトークンだけ**。サーバー側の失効
+                // （DELETE /auth/session）はまだ無いので、他の端末のログインは
+                // 生きたまま残る。口ができたら、ここから呼ぶ。
                 clearToken();
                 onForget();
               }}
             >
-              消す
+              ログアウトする
             </Button>
             <Button variant="quiet" className="mt-2" onClick={() => setConfirming(false)}>
               やめる
@@ -69,7 +72,7 @@ export function SettingsScreen({ nameOf, exercises, onChanged, timer, onForget }
           </>
         ) : (
           <Button variant="danger" onClick={() => setConfirming(true)}>
-            トークンを消す
+            ログアウト
           </Button>
         )}
       </Section>

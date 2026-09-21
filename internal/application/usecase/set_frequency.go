@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"github.com/dyoshyy/liftplan/internal/application/apperror"
+	"github.com/dyoshyy/liftplan/internal/domain/account"
 
 	"github.com/dyoshyy/liftplan/internal/domain/training/program"
 	"github.com/dyoshyy/liftplan/internal/domain/training/seed"
@@ -31,7 +32,7 @@ func NewSetFrequency(reader program.Reader, writer program.Writer) *SetFrequency
 //
 // 頻度の検証を I/O より先に済ませるのは ConfigureProgram と同じ。後回しに
 // すると、範囲外という自明な入力ミスが保存先の障害時に別の顔で返る。
-func (u *SetFrequency) Execute(ctx context.Context, perWeek int) (err error) {
+func (u *SetFrequency) Execute(ctx context.Context, user account.UserID, perWeek int) (err error) {
 	// 出口で1度だけ翻訳する。return ごとに書くと、経路が増えたときに
 	// 包み忘れた1本だけが 500 で返る。
 	defer func() { err = classify(err) }()
@@ -45,7 +46,7 @@ func (u *SetFrequency) Execute(ctx context.Context, perWeek int) (err error) {
 		return fmt.Errorf("%w: 週目標: %w", apperror.ErrInvalidInput, err)
 	}
 
-	prog, err := u.reader.Get(ctx)
+	prog, err := u.reader.Get(ctx, user)
 	if err != nil {
 		return err
 	}
@@ -58,5 +59,5 @@ func (u *SetFrequency) Execute(ctx context.Context, perWeek int) (err error) {
 	if err := ctx.Err(); err != nil {
 		return fmt.Errorf("頻度の保存が中断された: %w", err)
 	}
-	return u.writer.Save(ctx, next)
+	return u.writer.Save(ctx, user, next)
 }

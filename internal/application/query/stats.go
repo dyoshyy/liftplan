@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"sort"
 
+	"github.com/dyoshyy/liftplan/internal/domain/account"
 	"github.com/dyoshyy/liftplan/internal/domain/training"
 	"github.com/dyoshyy/liftplan/internal/domain/training/exercise"
 	"github.com/dyoshyy/liftplan/internal/domain/training/planning"
@@ -60,12 +61,12 @@ func NewStats(
 // セッションごとに1点を出す。日ごとではないのは、同じ日に同じ種目を
 // 2回やる運用が無いため。実施重量そのものではなく推定1RMを使うのは、
 // レップ数が違う日どうしを比べられるようにするため。
-func (q *Stats) Trends(ctx context.Context, from, to training.Date) ([]Trend, error) {
+func (q *Stats) Trends(ctx context.Context, user account.UserID, from, to training.Date) ([]Trend, error) {
 	if from.IsZero() || to.IsZero() {
 		return nil, fmt.Errorf("期間が指定されていない")
 	}
 
-	h, pool, prog, err := q.load(ctx)
+	h, pool, prog, err := q.load(ctx, user)
 	if err != nil {
 		return nil, err
 	}
@@ -109,12 +110,12 @@ func (q *Stats) Trends(ctx context.Context, from, to training.Date) ([]Trend, er
 // これはアプリの中心概念なのに、これまでどこにも表示されていなかった。
 // 週目標と残差で補助種目を選んでいるのに、利用者にはその存在すら
 // 見えていない。「なぜ今日この補助種目が出たのか」がここで分かる。
-func (q *Stats) WeeklyVolume(ctx context.Context, asOf training.Date) ([]RegionVolume, error) {
+func (q *Stats) WeeklyVolume(ctx context.Context, user account.UserID, asOf training.Date) ([]RegionVolume, error) {
 	if asOf.IsZero() {
 		return nil, fmt.Errorf("基準日が指定されていない")
 	}
 
-	h, pool, prog, err := q.load(ctx)
+	h, pool, prog, err := q.load(ctx, user)
 	if err != nil {
 		return nil, err
 	}
@@ -145,14 +146,14 @@ func (q *Stats) WeeklyVolume(ctx context.Context, asOf training.Date) ([]RegionV
 	return out, nil
 }
 
-func (q *Stats) load(ctx context.Context) (
+func (q *Stats) load(ctx context.Context, user account.UserID) (
 	setlog.History, []*exercise.Exercise, *program.Program, error,
 ) {
 	if err := ctx.Err(); err != nil {
 		return setlog.History{}, nil, nil, fmt.Errorf("読み取りが中断された: %w", err)
 	}
 
-	h, err := q.logs.FindAll(ctx)
+	h, err := q.logs.FindAll(ctx, user)
 	if err != nil {
 		return setlog.History{}, nil, nil, fmt.Errorf("実績の取得に失敗: %w", err)
 	}
@@ -160,7 +161,7 @@ func (q *Stats) load(ctx context.Context) (
 	if err != nil {
 		return setlog.History{}, nil, nil, fmt.Errorf("種目の取得に失敗: %w", err)
 	}
-	prog, err := q.programs.Get(ctx)
+	prog, err := q.programs.Get(ctx, user)
 	if err != nil {
 		return setlog.History{}, nil, nil, fmt.Errorf("プログラムの取得に失敗: %w", err)
 	}

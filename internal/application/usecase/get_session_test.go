@@ -5,6 +5,8 @@ import (
 	"errors"
 	"sync"
 	"testing"
+
+	"github.com/dyoshyy/liftplan/internal/domain/account"
 	"time"
 
 	"github.com/dyoshyy/liftplan/internal/application/usecase"
@@ -53,7 +55,7 @@ type fakeLogs struct {
 	err     error
 }
 
-func (f *fakeLogs) FindAll(context.Context) (setlog.History, error) {
+func (f *fakeLogs) FindAll(context.Context, account.UserID) (setlog.History, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.finds++
@@ -64,7 +66,7 @@ func (f *fakeLogs) findCount() int {
 	defer f.mu.Unlock()
 	return f.finds
 }
-func (f *fakeLogs) Save(_ context.Context, logs []*setlog.SetLog) error {
+func (f *fakeLogs) Save(_ context.Context, _ account.UserID, logs []*setlog.SetLog) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.calls++
@@ -74,7 +76,7 @@ func (f *fakeLogs) Save(_ context.Context, logs []*setlog.SetLog) error {
 	f.saved = append(f.saved, logs...)
 	return nil
 }
-func (f *fakeLogs) Delete(_ context.Context, id setlog.SetLogID) error {
+func (f *fakeLogs) Delete(_ context.Context, _ account.UserID, id setlog.SetLogID) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.deleted = append(f.deleted, id)
@@ -94,12 +96,14 @@ type fakeConditions struct {
 	err   error
 }
 
-func (f *fakeConditions) FindAll(context.Context) (condition.ConditionLog, error) {
+func (f *fakeConditions) FindAll(context.Context, account.UserID) (condition.ConditionLog, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return f.log, f.err
 }
-func (f *fakeConditions) Save(_ context.Context, items []condition.DailyCondition) error {
+func (f *fakeConditions) Save(
+	_ context.Context, _ account.UserID, items []condition.DailyCondition,
+) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.calls++
@@ -123,13 +127,13 @@ type fakeProgram struct {
 	err     error
 }
 
-func (f *fakeProgram) Get(context.Context) (*program.Program, error) {
+func (f *fakeProgram) Get(context.Context, account.UserID) (*program.Program, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.calls++
 	return f.program, f.err
 }
-func (f *fakeProgram) Save(_ context.Context, p *program.Program) error {
+func (f *fakeProgram) Save(_ context.Context, _ account.UserID, p *program.Program) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if f.err != nil {
@@ -190,7 +194,7 @@ func TestGetSession_ReturnsPlannedSession(t *testing.T) {
 		&fakeProgram{program: buildProgram(t, pool)},
 	)
 
-	got, err := uc.Execute(context.Background(), usecase.GetSessionInput{Date: testDate})
+	got, err := uc.Execute(context.Background(), testUser, usecase.GetSessionInput{Date: testDate})
 	if err != nil {
 		t.Fatalf("実行に失敗: %v", err)
 	}
@@ -209,7 +213,7 @@ func TestGetSession_PropagatesProgramNotConfigured(t *testing.T) {
 		&fakeProgram{err: program.ErrProgramNotConfigured},
 	)
 
-	_, err := uc.Execute(context.Background(), usecase.GetSessionInput{Date: testDate})
+	_, err := uc.Execute(context.Background(), testUser, usecase.GetSessionInput{Date: testDate})
 	if !errors.Is(err, program.ErrProgramNotConfigured) {
 		t.Errorf("未設定エラーが伝播していない: %v", err)
 	}
@@ -224,7 +228,7 @@ func TestGetSession_PropagatesRepositoryError(t *testing.T) {
 		&fakeProgram{program: buildProgram(t, pool)},
 	)
 
-	if _, err := uc.Execute(context.Background(), usecase.GetSessionInput{Date: testDate}); !errors.Is(err, boom) {
+	if _, err := uc.Execute(context.Background(), testUser, usecase.GetSessionInput{Date: testDate}); !errors.Is(err, boom) {
 		t.Errorf("リポジトリのエラーが伝播していない: %v", err)
 	}
 }
@@ -237,7 +241,7 @@ func TestGetSession_RejectsZeroDate(t *testing.T) {
 		&fakeProgram{program: buildProgram(t, pool)},
 	)
 
-	if _, err := uc.Execute(context.Background(), usecase.GetSessionInput{}); err == nil {
+	if _, err := uc.Execute(context.Background(), testUser, usecase.GetSessionInput{}); err == nil {
 		t.Error("日付無しが通ってしまう")
 	}
 }
@@ -249,7 +253,7 @@ func TestGetSession_RejectsZeroDateBeforeTouchingRepositories(t *testing.T) {
 	programs := &fakeProgram{}
 	uc := newGetSession(t, logs, conditions, programs)
 
-	if _, err := uc.Execute(context.Background(), usecase.GetSessionInput{}); err == nil {
+	if _, err := uc.Execute(context.Background(), testUser, usecase.GetSessionInput{}); err == nil {
 		t.Error("対象日が未指定なのに通った")
 	}
 	// 「エラーが返ること」だけを見ると、ガードを消しても
@@ -267,7 +271,7 @@ func TestGetSession_KeepsProgramNotConfiguredIdentifiable(t *testing.T) {
 		&fakeConditions{log: condition.NewConditionLog(nil)},
 		&fakeProgram{err: program.ErrProgramNotConfigured})
 
-	_, err := uc.Execute(context.Background(), usecase.GetSessionInput{Date: testDate})
+	_, err := uc.Execute(context.Background(), testUser, usecase.GetSessionInput{Date: testDate})
 	if !errors.Is(err, program.ErrProgramNotConfigured) {
 		t.Errorf("未設定が判別できない形になっている: %v", err)
 	}
@@ -295,7 +299,7 @@ func TestGetSession_ConditionsReachTheDomain(t *testing.T) {
 			&fakeLogs{history: setlog.NewHistory(nil)},
 			conditions,
 			&fakeProgram{program: buildProgram(t, pool)})
-		s, err := uc.Execute(context.Background(), usecase.GetSessionInput{Date: testDate})
+		s, err := uc.Execute(context.Background(), testUser, usecase.GetSessionInput{Date: testDate})
 		if err != nil {
 			t.Fatalf("実行に失敗: %v", err)
 		}
@@ -324,7 +328,7 @@ func TestGetSession_PropagatesConditionError(t *testing.T) {
 		&fakeConditions{log: condition.NewConditionLog(nil), err: boom},
 		&fakeProgram{program: buildProgram(t, pool)})
 
-	if _, err := uc.Execute(context.Background(), usecase.GetSessionInput{Date: testDate}); !errors.Is(err, boom) {
+	if _, err := uc.Execute(context.Background(), testUser, usecase.GetSessionInput{Date: testDate}); !errors.Is(err, boom) {
 		t.Errorf("コンディションのエラーが伝播していない: %v", err)
 	}
 }
@@ -336,7 +340,7 @@ func TestGetSession_TreatsNilProgramAsNotConfigured(t *testing.T) {
 		&fakeConditions{log: condition.NewConditionLog(nil)},
 		&fakeProgram{})
 
-	_, err := uc.Execute(context.Background(), usecase.GetSessionInput{Date: testDate})
+	_, err := uc.Execute(context.Background(), testUser, usecase.GetSessionInput{Date: testDate})
 	if !errors.Is(err, program.ErrProgramNotConfigured) {
 		t.Errorf("nil のプログラムが未設定として扱われていない: %v", err)
 	}
@@ -356,7 +360,7 @@ func TestGetSession_StopsOnCancelledContext(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	if _, err := uc.Execute(ctx, usecase.GetSessionInput{Date: testDate}); !errors.Is(err, context.Canceled) {
+	if _, err := uc.Execute(ctx, testUser, usecase.GetSessionInput{Date: testDate}); !errors.Is(err, context.Canceled) {
 		t.Errorf("キャンセルが伝わっていない: %v", err)
 	}
 	// 履歴の全件読み込みは最も高くつく。切断済みなら払わない。

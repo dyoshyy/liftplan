@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/dyoshyy/liftplan/internal/application/apperror"
+	"github.com/dyoshyy/liftplan/internal/domain/account"
 
 	"github.com/dyoshyy/liftplan/internal/domain/training/program"
 )
@@ -22,7 +23,7 @@ func NewGetProgram(programs program.Reader) *GetProgram {
 	return &GetProgram{programs: programs}
 }
 
-func (u *GetProgram) Execute(ctx context.Context) (_ *program.Program, err error) {
+func (u *GetProgram) Execute(ctx context.Context, user account.UserID) (_ *program.Program, err error) {
 	// 出口で1度だけ翻訳する。return ごとに書くと、経路が増えたときに
 	// 包み忘れた1本だけが 500 で返る。
 	defer func() { err = classify(err) }()
@@ -31,7 +32,7 @@ func (u *GetProgram) Execute(ctx context.Context) (_ *program.Program, err error
 		return nil, fmt.Errorf("プログラムの取得が中断された: %w", err)
 	}
 
-	prog, err := u.programs.Get(ctx)
+	prog, err := u.programs.Get(ctx, user)
 	if err != nil {
 		// 取得の文脈では 404。まだ存在しないという意味であって、状態の
 		// 衝突ではない。classify は分類済みのものを素通しするので、

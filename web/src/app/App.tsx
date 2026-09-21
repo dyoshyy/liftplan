@@ -66,10 +66,7 @@ export function App() {
         <UpdateBanner />
 
         {!hasToken ? (
-          <Setup
-            pending={outbox.pending}
-            onSaved={session.signIn}
-          />
+          <Setup pending={outbox.pending} />
         ) : (
           <>
             {/* 同期の異常はどの画面にいても出す。記録が送れていないことは、

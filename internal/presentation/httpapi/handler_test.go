@@ -11,6 +11,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
 	"time"
 
 	"github.com/dyoshyy/liftplan/internal/application/query"
@@ -25,7 +26,36 @@ import (
 	"github.com/dyoshyy/liftplan/internal/domain/training/program"
 )
 
+// newServer は認証を通したうえでルータを叩ける形にして返す。
+//
+// 認証ミドルウェアを噛ませるのは、そこが利用者を決める場所だから。
+// 外すと、全てのハンドラテストが「利用者が届いていなくても緑」に
+// なってしまう。ここを通しておけば、届かなくなった瞬間に全部が赤くなる。
 func newServer(t *testing.T, configured bool) http.Handler {
+	t.Helper()
+	return authed(t, buildRoutes(t, configured))
+}
+
+// authed は各テストに Authorization を書かせずに認証を通す。
+//
+// 認証そのものの検査は session_auth_test.go が見ている。ここで個々の
+// テストにヘッダを書かせると、検査したいこと（ハンドラの応答）から遠くなる。
+//
+// **本物のミドルウェアを通す。**素通しのラッパにすると、利用者が
+// context に載らない経路をテストが作ってしまい、ハンドラが
+// 受け取る利用者を誰も確かめていない状態になる。
+func authed(t *testing.T, routes http.Handler) http.Handler {
+	t.Helper()
+
+	guarded := requireTestSession(t)(routes)
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		r.Header.Set("Authorization", "Bearer "+sampleToken)
+		guarded.ServeHTTP(w, r)
+	})
+}
+
+// buildRoutes はミドルウェアを被せる前の生のルータを返す。
+func buildRoutes(t *testing.T, configured bool) http.Handler {
 	t.Helper()
 
 	pool, err := seed.Exercises()
@@ -36,7 +66,7 @@ func newServer(t *testing.T, configured bool) http.Handler {
 	logs := memory.NewSetLogRepository()
 	conditions := memory.NewConditionRepository()
 
-	programs := memory.NewProgramRepository(nil)
+	programs := memory.NewProgramRepository()
 	if configured {
 		freq, _ := program.NewFrequency(3)
 		target, err := seed.DefaultWeeklyTarget(freq)
@@ -51,7 +81,9 @@ func newServer(t *testing.T, configured bool) http.Handler {
 		if err != nil {
 			t.Fatalf("プログラムが不正: %v", err)
 		}
-		if err := programs.Save(context.Background(), program); err != nil {
+		// 保存先は既定ユーザー。ユースケースがいま使っているのと同じ
+		// 利用者でないと、設定したはずのプログラムが読めない。
+		if err := programs.Save(context.Background(), testUser, program); err != nil {
 			t.Fatalf("プログラムの保存に失敗: %v", err)
 		}
 	}
@@ -1078,14 +1110,14 @@ func TestGetSession_UnavailableIsNot500(t *testing.T) {
 	if err != nil {
 		t.Fatalf("プログラムが不正: %v", err)
 	}
-	programs := memory.NewProgramRepository(nil)
-	if err := programs.Save(context.Background(), prog); err != nil {
+	programs := memory.NewProgramRepository()
+	if err := programs.Save(context.Background(), testUser, prog); err != nil {
 		t.Fatalf("プログラムの保存に失敗: %v", err)
 	}
 
 	logs := memory.NewSetLogRepository()
 	conditions := memory.NewConditionRepository()
-	mux := httpapi.NewHandler(
+	var mux http.Handler = httpapi.NewHandler(
 		usecase.NewGetSession(unavailableExercises{}, logs, conditions, programs, planning.DefaultSessionPlanner()),
 		usecase.NewRecordSets(logs, unavailableExercises{}),
 		usecase.NewRecordConditions(conditions),
@@ -1102,6 +1134,10 @@ func TestGetSession_UnavailableIsNot500(t *testing.T) {
 		query.NewHistory(logs, unavailableExercises{}),
 		query.NewStats(logs, unavailableExercises{}, programs, planning.DefaultOneRepMaxEstimator()),
 	).Routes()
+	// 認証を通す。利用者を決めるのはミドルウェアなので、
+	// 生のルータを叩くと「利用者が無い」で 500 になり、
+	// ここで見たい分類が見えない。
+	mux = authed(t, mux)
 
 	rec := do(t, mux, http.MethodGet, "/api/sessions?date=2026-08-17", "")
 	if rec.Code != http.StatusServiceUnavailable {
@@ -1279,11 +1315,14 @@ func TestGetSession_InternalErrorDoesNotLeak(t *testing.T) {
 	if err != nil {
 		t.Fatalf("プログラムが不正: %v", err)
 	}
-	programs := memory.NewProgramRepository(program)
+	programs := memory.NewProgramRepository()
+	if err := programs.Save(context.Background(), testUser, program); err != nil {
+		t.Fatalf("プログラムの保存に失敗: %v", err)
+	}
 	logs := memory.NewSetLogRepository()
 	conditions := memory.NewConditionRepository()
 
-	mux := httpapi.NewHandler(
+	var mux http.Handler = httpapi.NewHandler(
 		usecase.NewGetSession(brokenExercises{}, logs, conditions, programs, planning.DefaultSessionPlanner()),
 		usecase.NewRecordSets(logs, brokenExercises{}),
 		usecase.NewRecordConditions(conditions),
@@ -1300,6 +1339,10 @@ func TestGetSession_InternalErrorDoesNotLeak(t *testing.T) {
 		query.NewHistory(logs, brokenExercises{}),
 		query.NewStats(logs, brokenExercises{}, programs, planning.DefaultOneRepMaxEstimator()),
 	).Routes()
+	// 認証を通す。利用者を決めるのはミドルウェアなので、
+	// 生のルータを叩くと「利用者が無い」で 500 になり、
+	// ここで見たい分類が見えない。
+	mux = authed(t, mux)
 
 	rec := do(t, mux, http.MethodGet, "/api/sessions?date=2026-08-17", "")
 	if rec.Code != http.StatusInternalServerError {

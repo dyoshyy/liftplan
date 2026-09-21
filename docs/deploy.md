@@ -73,7 +73,8 @@ gcloud run deploy liftplan-server \
   --min-instances=0 \
   --max-instances=2 \
   --cpu=1 --memory=512Mi \
-  --set-secrets=DATABASE_URL=liftplan-database-url:latest,AUTH_TOKEN=liftplan-auth-token:latest \
+  --set-secrets=DATABASE_URL=liftplan-database-url:latest,GITHUB_CLIENT_SECRET=liftplan-github-client-secret:latest,GOOGLE_CLIENT_SECRET=liftplan-google-client-secret:latest \
+  --set-env-vars="ALLOWED_ORIGINS=<画面のオリジン>,WEB_ORIGIN=<画面のオリジン>,API_ORIGIN=<このサービスのURL>,GITHUB_CLIENT_ID=<...>,GOOGLE_CLIENT_ID=<...>" \
   --allow-unauthenticated
 ```
 
@@ -223,3 +224,128 @@ gcloud iam service-accounts add-iam-policy-binding \
 ```bash
 make docker-run
 ```
+
+
+## OAuth に切り替える（一度だけ）
+
+`AUTH_TOKEN` は廃止した。**残っていると起動を拒む**（設定を外させるには止めるのが早い）。
+
+### 1. 認可先を登録する
+
+| | 作る場所 | コールバックURL |
+|---|---|---|
+| GitHub | Settings → Developer settings → OAuth Apps | `<API_ORIGIN>/auth/github/callback` |
+| Google | Google Cloud → APIs & Services → 認証情報 → OAuth クライアントID（ウェブ） | `<API_ORIGIN>/auth/google/callback` |
+
+**1文字でも違うと認可は通らない。**`API_ORIGIN` は Cloud Run が払い出した URL。
+
+### 2. シークレットを置く
+
+クライアントIDは秘密ではないのでリポジトリ変数、シークレットだけ Secret Manager に置く。
+
+```bash
+# --project を付けるのは、gcloud に既定のプロジェクトが入っていないと
+# 「resource is not properly specified」で落ちるため。
+# 毎回書くのが嫌なら gcloud config set project liftplan-85309。
+printf '%s' '<GitHub のシークレット>' | \
+  gcloud secrets create liftplan-github-client-secret \
+    --project=liftplan-85309 --data-file=-
+printf '%s' '<Google のシークレット>' | \
+  gcloud secrets create liftplan-google-client-secret \
+    --project=liftplan-85309 --data-file=-
+
+# 変数名が GH_ なのは、GitHub が GITHUB_ で始まるリポジトリ変数を
+# 作らせないため（予約接頭辞。作ろうとすると HTTP 422）。
+# サーバーが読む環境変数は GITHUB_CLIENT_ID のままで、読み替えは
+# deploy.yml の1箇所に閉じている。
+gh variable set GH_CLIENT_ID --body '<...>'
+gh variable set GOOGLE_CLIENT_ID --body '<...>'
+gh variable set WEB_ORIGIN --body 'https://liftplan-web.<サブドメイン>.workers.dev'
+```
+
+**`echo` ではなく `printf` を使う。**`echo` は末尾に改行を足すので、シークレットの
+最後に `\n` が付いたまま保存される。認可のときに「クライアントシークレットが違う」と
+だけ言われ、値は合って見えるので原因に辿り着くのに時間がかかる。長さで確かめられる。
+
+```bash
+gcloud secrets versions access latest \
+  --secret=liftplan-github-client-secret --project=liftplan-85309 | wc -c
+```
+
+GitHub のシークレットは40文字。`41` なら改行が混ざっている。
+
+**`API_ORIGIN` は新しく作らない。**画面のビルドが使っている `API_BASE` と同じ URL なので、
+`deploy.yml` がそちらから引く。同じ URL を指す変数が2つあると、片方だけ更新した日に
+コールバックが黙って合わなくなる。
+
+### 2.5 シークレットを読む権限を付ける
+
+**作っただけでは Cloud Run から読めない。**付け忘れるとデプロイの最後で落ちる。
+
+```
+ERROR: (gcloud.run.deploy) Permission denied on secret:
+  .../secrets/liftplan-github-client-secret/versions/latest
+  for Revision service account 385680444543-compute@developer.gserviceaccount.com
+```
+
+```bash
+for s in liftplan-github-client-secret liftplan-google-client-secret; do
+  gcloud secrets add-iam-policy-binding "$s" \
+    --project=liftplan-85309 \
+    --member=serviceAccount:385680444543-compute@developer.gserviceaccount.com \
+    --role=roles/secretmanager.secretAccessor
+done
+```
+
+サービスアカウントは Cloud Run のリビジョンが使うもので、既定では
+`<プロジェクト番号>-compute@developer.gserviceaccount.com`。相手が分からなく
+なったら、既に動いている `DATABASE_URL` のシークレットを見れば分かる。
+
+```bash
+gcloud secrets get-iam-policy liftplan-database-url --project=liftplan-85309
+```
+
+**デプロイを走らせる前に確かめられる。**
+
+```bash
+for s in liftplan-database-url liftplan-github-client-secret liftplan-google-client-secret; do
+  printf '%s: ' "$s"
+  gcloud secrets get-iam-policy "$s" --project=liftplan-85309 \
+    --format='value(bindings.members)' | tr ';' '\n' | grep -c compute@ || echo 0
+done
+```
+
+3本とも `1` なら揃っている。
+
+### 3. これまでの記録を自分のアカウントに結ぶ
+
+**デプロイしたら、最初にログインする前にこれを流す。**
+
+マルチユーザー化より前の記録は、マイグレーション `0007` が既定ユーザー
+`8d5e743e-f1b0-4430-9998-89d313e89da8` に寄せてある。この行を入れておくと、
+初回ログインがその利用者に結びつく。
+
+```sql
+INSERT INTO accounts (provider, subject, user_id)
+VALUES ('github', '<自分の GitHub の数値ID>', '8d5e743e-f1b0-4430-9998-89d313e89da8');
+```
+
+数値IDは `curl -s https://api.github.com/users/<ユーザー名> | jq .id` で取れる
+（`login` ではなく `id`。改名しても変わらないのはこちら）。Google なら
+`provider` を `'google'`、`subject` を userinfo の `sub` にする。
+
+**流す前にログインすると、空の利用者が新しく作られる。**これまでの記録は
+消えないが、そのアカウントからは見えない。そうなったら `accounts` の
+`user_id` を上の UUID に更新すれば戻る（作られたほうの行は消してよい）。
+
+「最初にログインした人が既存の記録を引き継ぐ」にはしていない。デプロイ直後に
+見知らぬ人が先にログインしただけで記録を持っていかれるため。
+
+### 4. 順序
+
+```
+シークレットと変数を置く → サーバーをデプロイ → 上の INSERT を流す
+  → 自分でログインして記録が見えることを確かめる → 画面をデプロイ
+```
+
+画面を先に出すと、ログインボタンの飛び先がまだ無い。

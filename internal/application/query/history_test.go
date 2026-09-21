@@ -5,6 +5,8 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/dyoshyy/liftplan/internal/domain/account"
+
 	"github.com/dyoshyy/liftplan/internal/application/query"
 	"github.com/dyoshyy/liftplan/internal/domain/training"
 	"github.com/dyoshyy/liftplan/internal/domain/training/exercise"
@@ -16,9 +18,13 @@ type stubLogs struct {
 	err     error
 }
 
-func (s *stubLogs) FindAll(context.Context) (setlog.History, error) { return s.history, s.err }
-func (s *stubLogs) Save(context.Context, []*setlog.SetLog) error    { return nil }
-func (s *stubLogs) Delete(context.Context, setlog.SetLogID) error   { return nil }
+func (s *stubLogs) FindAll(context.Context, account.UserID) (setlog.History, error) {
+	return s.history, s.err
+}
+func (s *stubLogs) Save(context.Context, account.UserID, []*setlog.SetLog) error { return nil }
+func (s *stubLogs) Delete(context.Context, account.UserID, setlog.SetLogID) error {
+	return nil
+}
 
 type stubExercises struct {
 	all []*exercise.Exercise
@@ -88,7 +94,7 @@ func TestDays_同じ日の種目を分ける(t *testing.T) {
 		[]*exercise.Exercise{newExercise(t, "bench", "ベンチプレス"), newExercise(t, "squat", "スクワット")},
 	)
 
-	days, err := q.Days(context.Background(), date(t, "2026-08-01"), date(t, "2026-08-31"))
+	days, err := q.Days(context.Background(), testUser, date(t, "2026-08-01"), date(t, "2026-08-31"))
 	if err != nil {
 		t.Fatalf("読めない: %v", err)
 	}
@@ -119,7 +125,7 @@ func TestDays_新しい日から並ぶ(t *testing.T) {
 		[]*exercise.Exercise{newExercise(t, "bench", "ベンチプレス")},
 	)
 
-	days, err := q.Days(context.Background(), date(t, "2026-08-01"), date(t, "2026-08-31"))
+	days, err := q.Days(context.Background(), testUser, date(t, "2026-08-01"), date(t, "2026-08-31"))
 	if err != nil {
 		t.Fatalf("読めない: %v", err)
 	}
@@ -144,7 +150,7 @@ func TestDays_期間の外を含めない(t *testing.T) {
 		[]*exercise.Exercise{newExercise(t, "bench", "ベンチプレス")},
 	)
 
-	days, err := q.Days(context.Background(), date(t, "2026-08-10"), date(t, "2026-08-20"))
+	days, err := q.Days(context.Background(), testUser, date(t, "2026-08-10"), date(t, "2026-08-20"))
 	if err != nil {
 		t.Fatalf("読めない: %v", err)
 	}
@@ -155,7 +161,7 @@ func TestDays_期間の外を含めない(t *testing.T) {
 
 func TestDays_期間が逆なら断る(t *testing.T) {
 	q := newHistory(t, nil, nil)
-	if _, err := q.Days(context.Background(), date(t, "2026-08-20"), date(t, "2026-08-10")); err == nil {
+	if _, err := q.Days(context.Background(), testUser, date(t, "2026-08-20"), date(t, "2026-08-10")); err == nil {
 		t.Fatal("終わりが始まりより前なのに通った")
 	}
 }
@@ -163,7 +169,7 @@ func TestDays_期間が逆なら断る(t *testing.T) {
 func TestDays_取得できなければ理由を返す(t *testing.T) {
 	boom := errors.New("接続できない")
 	q := query.NewHistory(&stubLogs{err: boom}, &stubExercises{})
-	_, err := q.Days(context.Background(), date(t, "2026-08-01"), date(t, "2026-08-31"))
+	_, err := q.Days(context.Background(), testUser, date(t, "2026-08-01"), date(t, "2026-08-31"))
 	if err == nil {
 		t.Fatal("失敗が伝わらない")
 	}
@@ -183,7 +189,7 @@ func TestLastPerformances_当日を含めない(t *testing.T) {
 		[]*exercise.Exercise{newExercise(t, "bench", "ベンチプレス")},
 	)
 
-	last, err := q.LastPerformances(context.Background(), date(t, "2026-08-20"))
+	last, err := q.LastPerformances(context.Background(), testUser, date(t, "2026-08-20"))
 	if err != nil {
 		t.Fatalf("読めない: %v", err)
 	}
@@ -211,7 +217,7 @@ func TestLastPerformances_セットごとの重量を残す(t *testing.T) {
 		[]*exercise.Exercise{newExercise(t, "bench", "ベンチプレス")},
 	)
 
-	last, err := q.LastPerformances(context.Background(), date(t, "2026-08-20"))
+	last, err := q.LastPerformances(context.Background(), testUser, date(t, "2026-08-20"))
 	if err != nil {
 		t.Fatalf("読めない: %v", err)
 	}
@@ -245,7 +251,7 @@ func TestLastPerformances_種目ごとに最新を選ぶ(t *testing.T) {
 		[]*exercise.Exercise{newExercise(t, "bench", "ベンチプレス"), newExercise(t, "squat", "スクワット")},
 	)
 
-	last, err := q.LastPerformances(context.Background(), date(t, "2026-08-20"))
+	last, err := q.LastPerformances(context.Background(), testUser, date(t, "2026-08-20"))
 	if err != nil {
 		t.Fatalf("読めない: %v", err)
 	}
@@ -259,7 +265,7 @@ func TestLastPerformances_種目ごとに最新を選ぶ(t *testing.T) {
 
 func TestLastPerformances_基準日が無ければ断る(t *testing.T) {
 	q := newHistory(t, nil, nil)
-	if _, err := q.LastPerformances(context.Background(), training.Date{}); err == nil {
+	if _, err := q.LastPerformances(context.Background(), testUser, training.Date{}); err == nil {
 		t.Fatal("基準日が無いのに通った")
 	}
 }
@@ -276,7 +282,7 @@ func TestLastPerformances_過去が複数あれば最も新しい日(t *testing.
 		[]*exercise.Exercise{newExercise(t, "bench", "ベンチプレス")},
 	)
 
-	last, err := q.LastPerformances(context.Background(), date(t, "2026-08-20"))
+	last, err := q.LastPerformances(context.Background(), testUser, date(t, "2026-08-20"))
 	if err != nil {
 		t.Fatalf("読めない: %v", err)
 	}

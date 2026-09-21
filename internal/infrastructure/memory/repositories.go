@@ -10,6 +10,7 @@ import (
 	"sort"
 	"sync"
 
+	"github.com/dyoshyy/liftplan/internal/domain/account"
 	"github.com/dyoshyy/liftplan/internal/domain/training/condition"
 	"github.com/dyoshyy/liftplan/internal/domain/training/exercise"
 	"github.com/dyoshyy/liftplan/internal/domain/training/program"
@@ -37,33 +38,43 @@ func (r *ExerciseRepository) FindAll(context.Context) ([]*exercise.Exercise, err
 	return out, nil
 }
 
-// SetLogRepository は実績ログを ID キーで保持する。
-// 同じ ID を二度受けても重複しないため、Save は冪等になる。
+// SetLogRepository は実績ログを「所有者とID」のキーで保持する。
+// 同じキーを二度受けても重複しないため、Save は冪等になる。
+//
+// 利用者ごとに map を分けるのは、IDだけをキーにすると別の利用者の
+// 同じIDが同じ場所に落ちるため。Postgres 側が主キーを (user_id, id) に
+// しているのと同じことを、インメモリでもやる。
 type SetLogRepository struct {
-	mu   sync.RWMutex
-	byID map[setlog.SetLogID]*setlog.SetLog
+	mu     sync.RWMutex
+	byUser map[account.UserID]map[setlog.SetLogID]*setlog.SetLog
 }
 
 func NewSetLogRepository() *SetLogRepository {
-	return &SetLogRepository{byID: map[setlog.SetLogID]*setlog.SetLog{}}
+	return &SetLogRepository{
+		byUser: map[account.UserID]map[setlog.SetLogID]*setlog.SetLog{},
+	}
 }
 
-func (r *SetLogRepository) FindAll(context.Context) (setlog.History, error) {
+func (r *SetLogRepository) FindAll(
+	_ context.Context, userID account.UserID,
+) (setlog.History, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
+
+	byID := r.byUser[userID]
 
 	// 取得順を安定させる。map の反復順は保証されないので、揺れると
 	// History の重複解決や推定1RMの畳み込みが呼び出しごとに変わり、
 	// 同じ入力から違う計画が出る。
-	ids := make([]setlog.SetLogID, 0, len(r.byID))
-	for id := range r.byID {
+	ids := make([]setlog.SetLogID, 0, len(byID))
+	for id := range byID {
 		ids = append(ids, id)
 	}
 	sort.Slice(ids, func(i, j int) bool { return ids[i] < ids[j] })
 
 	out := make([]*setlog.SetLog, 0, len(ids))
 	for _, id := range ids {
-		out = append(out, r.byID[id])
+		out = append(out, byID[id])
 	}
 	return setlog.NewHistory(out), nil
 }
@@ -74,16 +85,22 @@ func (r *SetLogRepository) FindAll(context.Context) (setlog.History, error) {
 //
 // 全か無かで書く。途中で衝突を見つけたら1件も書かない。半分だけ保存された
 // 状態は、その週の刺激量を実態とずらしたまま計画に効き続ける。
-func (r *SetLogRepository) Save(_ context.Context, logs []*setlog.SetLog) error {
+func (r *SetLogRepository) Save(
+	_ context.Context, userID account.UserID, logs []*setlog.SetLog,
+) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+
+	byID := r.byUser[userID]
 
 	staged := make(map[setlog.SetLogID]*setlog.SetLog, len(logs))
 	for i, l := range logs {
 		if l == nil {
 			return fmt.Errorf("%d番目のセットログが nil である", i)
 		}
-		for _, existing := range []*setlog.SetLog{r.byID[l.ID()], staged[l.ID()]} {
+		// 衝突を見るのは同じ所有者の中だけ。他人の同じIDを衝突にすると、
+		// 「そのIDの記録が存在する」ことが他人に分かる。
+		for _, existing := range []*setlog.SetLog{byID[l.ID()], staged[l.ID()]} {
 			if existing != nil && !existing.Equals(l) {
 				return fmt.Errorf("%w: %s", setlog.ErrConflictingSetLog, l.ID())
 			}
@@ -91,47 +108,61 @@ func (r *SetLogRepository) Save(_ context.Context, logs []*setlog.SetLog) error 
 		staged[l.ID()] = l
 	}
 
+	if byID == nil {
+		byID = map[setlog.SetLogID]*setlog.SetLog{}
+		r.byUser[userID] = byID
+	}
 	for id, l := range staged {
-		r.byID[id] = l
+		byID[id] = l
 	}
 	return nil
 }
 
 // Delete は打ち間違いの訂正。存在しないIDでも成功として扱う。
-func (r *SetLogRepository) Delete(_ context.Context, id setlog.SetLogID) error {
+// 所有者の map から消すので、他人の同じIDには届かない。
+func (r *SetLogRepository) Delete(
+	_ context.Context, userID account.UserID, id setlog.SetLogID,
+) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	delete(r.byID, id)
+	delete(r.byUser[userID], id)
 	return nil
 }
 
-func (r *SetLogRepository) Size() int {
+// Size はその利用者の件数。テストが保存の結果を確かめるためにある。
+func (r *SetLogRepository) Size(userID account.UserID) int {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	return len(r.byID)
+	return len(r.byUser[userID])
 }
 
 // ConditionRepository は日次コンディションを日付キーで保持する。
 // 同じ日付を二度受けたら上書きになるため、Save は冪等になる。
 type ConditionRepository struct {
 	mu     sync.RWMutex
-	byDate map[string]condition.DailyCondition
+	byUser map[account.UserID]map[string]condition.DailyCondition
 }
 
 func NewConditionRepository() *ConditionRepository {
-	return &ConditionRepository{byDate: map[string]condition.DailyCondition{}}
+	return &ConditionRepository{
+		byUser: map[account.UserID]map[string]condition.DailyCondition{},
+	}
 }
 
-func (r *ConditionRepository) FindAll(context.Context) (condition.ConditionLog, error) {
+func (r *ConditionRepository) FindAll(
+	_ context.Context, userID account.UserID,
+) (condition.ConditionLog, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
+
+	byDate := r.byUser[userID]
 
 	// 並べ替えはしない。NewConditionLog が日付で整列し、同じ日付は
 	// 項目ごとに合成するので、渡す順序は結果に影響しない。
 	// ここで整列すると、意味のある処理に見えて実は何もしていない
 	// コードが残る（実際、消しても全テストが通る状態だった）。
-	out := make([]condition.DailyCondition, 0, len(r.byDate))
-	for _, c := range r.byDate {
+	out := make([]condition.DailyCondition, 0, len(byDate))
+	for _, c := range byDate {
 		out = append(out, c)
 	}
 	return condition.NewConditionLog(out), nil
@@ -141,9 +172,13 @@ func (r *ConditionRepository) FindAll(context.Context) (condition.ConditionLog, 
 //
 // 日付ごと置き換えないのは、体重だけを送ったときに睡眠時間が消えるため。
 // クライアントは体重と睡眠を別のタイミングで記録するので、これは日常的に起きる。
-func (r *ConditionRepository) Save(_ context.Context, items []condition.DailyCondition) error {
+func (r *ConditionRepository) Save(
+	_ context.Context, userID account.UserID, items []condition.DailyCondition,
+) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+
+	byDate := r.byUser[userID]
 
 	staged := make(map[string]condition.DailyCondition, len(items))
 	for i, c := range items {
@@ -155,7 +190,9 @@ func (r *ConditionRepository) Save(_ context.Context, items []condition.DailyCon
 		key := c.Date().String()
 		base, ok := staged[key]
 		if !ok {
-			base, ok = r.byDate[key]
+			// 合成の相手は同じ所有者の記録だけ。他人の同じ日付と
+			// 混ぜると、体重も睡眠も他人の値で埋まる。
+			base, ok = byDate[key]
 		}
 		if ok {
 			c = base.Merge(c)
@@ -163,45 +200,59 @@ func (r *ConditionRepository) Save(_ context.Context, items []condition.DailyCon
 		staged[key] = c
 	}
 
+	if byDate == nil {
+		byDate = map[string]condition.DailyCondition{}
+		r.byUser[userID] = byDate
+	}
 	for k, c := range staged {
-		r.byDate[k] = c
+		byDate[k] = c
 	}
 	return nil
 }
 
-func (r *ConditionRepository) Size() int {
+// Size はその利用者の件数。
+func (r *ConditionRepository) Size(userID account.UserID) int {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	return len(r.byDate)
+	return len(r.byUser[userID])
 }
 
-// ProgramRepository はユーザー設定を1つだけ保持する（単一ユーザー前提）。
+// ProgramRepository は利用者ごとに設定を1つ保持する。
+//
+// 初期値を受け取る形をやめた。初期プログラムを入れるのは「起動時に1人分」
+// ではなく「その利用者が最初に来たとき」の話になり、決める場所は配線層
+// （いまは cmd、OAuth が入れば初回ログインの受け入れ）に移る。
 type ProgramRepository struct {
-	mu      sync.RWMutex
-	program *program.Program
+	mu     sync.RWMutex
+	byUser map[account.UserID]*program.Program
 }
 
-func NewProgramRepository(p *program.Program) *ProgramRepository {
-	return &ProgramRepository{program: p}
+func NewProgramRepository() *ProgramRepository {
+	return &ProgramRepository{byUser: map[account.UserID]*program.Program{}}
 }
 
-func (r *ProgramRepository) Get(context.Context) (*program.Program, error) {
+func (r *ProgramRepository) Get(
+	_ context.Context, userID account.UserID,
+) (*program.Program, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
-	if r.program == nil {
+	p, ok := r.byUser[userID]
+	if !ok || p == nil {
 		return nil, program.ErrProgramNotConfigured
 	}
-	return r.program, nil
+	return p, nil
 }
 
 // Save は冪等。プログラムはユーザーごとに1つで、保存は常に全体の置き換え。
-func (r *ProgramRepository) Save(_ context.Context, p *program.Program) error {
+func (r *ProgramRepository) Save(
+	_ context.Context, userID account.UserID, p *program.Program,
+) error {
 	if p == nil {
 		return fmt.Errorf("プログラムが nil である")
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	r.program = p
+	r.byUser[userID] = p
 	return nil
 }

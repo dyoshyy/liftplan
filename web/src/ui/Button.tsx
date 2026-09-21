@@ -7,7 +7,9 @@ import { cn } from './cn';
 // 以前は index.css の .btn / .btn-quiet / .btn-danger と、各画面での
 // className の書き足しに散っていた。「主要な操作は黄、取り消しは赤」という
 // 決まり（IPF のプレート色から来ている）が、どこを見れば分かるのかが無かった。
-const button = cva(
+// buttonStyles は <a> にも同じ見た目を当てるために公開する。
+// ログインはトップレベル遷移なので、button ではなく a でなければならない。
+export const buttonStyles = cva(
   'inline-flex items-center justify-center rounded-xl text-center transition-transform ' +
     'active:scale-[.985] disabled:pointer-events-none disabled:opacity-50 ' +
     'focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber',
@@ -41,8 +43,8 @@ const button = cva(
 );
 
 export type ButtonProps = ButtonHTMLAttributes<HTMLButtonElement> &
-  VariantProps<typeof button>;
+  VariantProps<typeof buttonStyles>;
 
 export function Button({ className, variant, size, type = 'button', ...props }: ButtonProps) {
-  return <button type={type} className={cn(button({ variant, size }), className)} {...props} />;
+  return <button type={type} className={cn(buttonStyles({ variant, size }), className)} {...props} />;
 }

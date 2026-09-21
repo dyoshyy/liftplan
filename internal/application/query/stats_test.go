@@ -4,6 +4,8 @@ import (
 	"context"
 	"testing"
 
+	"github.com/dyoshyy/liftplan/internal/domain/account"
+
 	"github.com/dyoshyy/liftplan/internal/application/query"
 	"github.com/dyoshyy/liftplan/internal/domain/training"
 	"github.com/dyoshyy/liftplan/internal/domain/training/exercise"
@@ -17,8 +19,10 @@ type stubProgram struct {
 	err  error
 }
 
-func (s *stubProgram) Get(context.Context) (*program.Program, error) { return s.prog, s.err }
-func (s *stubProgram) Save(context.Context, *program.Program) error  { return nil }
+func (s *stubProgram) Get(context.Context, account.UserID) (*program.Program, error) {
+	return s.prog, s.err
+}
+func (s *stubProgram) Save(context.Context, account.UserID, *program.Program) error { return nil }
 
 func newProgram(t *testing.T, sets map[training.MuscleRegion]float64, selected []exercise.ExerciseID) *program.Program {
 	t.Helper()
@@ -68,7 +72,7 @@ func TestTrends_古い順に並び現在値は最後の点(t *testing.T) {
 		defaultProgram(t),
 	)
 
-	trends, err := q.Trends(context.Background(), date(t, "2026-08-01"), date(t, "2026-08-31"))
+	trends, err := q.Trends(context.Background(), testUser, date(t, "2026-08-01"), date(t, "2026-08-31"))
 	if err != nil {
 		t.Fatalf("読めない: %v", err)
 	}
@@ -102,7 +106,7 @@ func TestTrends_期間の外を含めない(t *testing.T) {
 		defaultProgram(t),
 	)
 
-	trends, err := q.Trends(context.Background(), date(t, "2026-08-01"), date(t, "2026-08-31"))
+	trends, err := q.Trends(context.Background(), testUser, date(t, "2026-08-01"), date(t, "2026-08-31"))
 	if err != nil {
 		t.Fatalf("読めない: %v", err)
 	}
@@ -119,7 +123,7 @@ func TestTrends_記録の無い種目は出さない(t *testing.T) {
 		defaultProgram(t),
 	)
 
-	trends, err := q.Trends(context.Background(), date(t, "2026-08-01"), date(t, "2026-08-31"))
+	trends, err := q.Trends(context.Background(), testUser, date(t, "2026-08-01"), date(t, "2026-08-31"))
 	if err != nil {
 		t.Fatalf("読めない: %v", err)
 	}
@@ -130,7 +134,7 @@ func TestTrends_記録の無い種目は出さない(t *testing.T) {
 
 func TestTrends_期間が無ければ断る(t *testing.T) {
 	q := newStats(t, nil, nil, defaultProgram(t))
-	if _, err := q.Trends(context.Background(), training.Date{}, date(t, "2026-08-31")); err == nil {
+	if _, err := q.Trends(context.Background(), testUser, training.Date{}, date(t, "2026-08-31")); err == nil {
 		t.Fatal("期間が無いのに通った")
 	}
 }
@@ -149,7 +153,7 @@ func TestWeeklyVolume_埋まっていない順に並ぶ(t *testing.T) {
 	)
 
 	// 2026-08-18 は火曜。週の頭から当日までを数える。
-	vols, err := q.WeeklyVolume(context.Background(), date(t, "2026-08-18"))
+	vols, err := q.WeeklyVolume(context.Background(), testUser, date(t, "2026-08-18"))
 	if err != nil {
 		t.Fatalf("読めない: %v", err)
 	}
@@ -186,7 +190,7 @@ func TestWeeklyVolume_先週を含めない(t *testing.T) {
 		defaultProgram(t),
 	)
 
-	vols, err := q.WeeklyVolume(context.Background(), date(t, "2026-08-18"))
+	vols, err := q.WeeklyVolume(context.Background(), testUser, date(t, "2026-08-18"))
 	if err != nil {
 		t.Fatalf("読めない: %v", err)
 	}
@@ -204,7 +208,7 @@ func TestWeeklyVolume_プログラムが無ければ断る(t *testing.T) {
 		&stubProgram{prog: nil},
 		planning.DefaultOneRepMaxEstimator(),
 	)
-	if _, err := q.WeeklyVolume(context.Background(), date(t, "2026-08-18")); err == nil {
+	if _, err := q.WeeklyVolume(context.Background(), testUser, date(t, "2026-08-18")); err == nil {
 		t.Fatal("プログラム未設定なのに通った")
 	}
 }

@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/dyoshyy/liftplan/internal/application/apperror"
+	"github.com/dyoshyy/liftplan/internal/domain/account"
 	"github.com/dyoshyy/liftplan/internal/domain/training/exercise"
 	"github.com/dyoshyy/liftplan/internal/domain/training/program"
 )
@@ -37,10 +38,10 @@ func NewSetSplitCycle(
 	return &SetSplitCycle{exercises: exercises, reader: reader, writer: writer}
 }
 
-func (u *SetSplitCycle) Execute(ctx context.Context, cycle []program.Split) (err error) {
+func (u *SetSplitCycle) Execute(ctx context.Context, user account.UserID, cycle []program.Split) (err error) {
 	defer func() { err = classify(err) }()
 
-	prog, err := u.reader.Get(ctx)
+	prog, err := u.reader.Get(ctx, user)
 	if err != nil {
 		return err
 	}
@@ -62,7 +63,7 @@ func (u *SetSplitCycle) Execute(ctx context.Context, cycle []program.Split) (err
 		return err
 	}
 
-	return u.writer.Save(ctx, next)
+	return u.writer.Save(ctx, user, next)
 }
 
 // verifyDeclaredHaveADay は、どの分割にも出られない宣言種目が無いことを確かめる。
