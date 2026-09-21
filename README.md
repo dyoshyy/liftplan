@@ -83,10 +83,17 @@ curl -H 'Authorization: Bearer <セッショントークン>' 'http://localhost:
 | メソッド | パス | 説明 |
 |---|---|---|
 | GET | `/health` | ヘルスチェック。保存先への疎通を含む（到達できなければ 503） |
-| GET | `/api/sessions?date=YYYY-MM-DD&deload_accepted=bench,squat` | その日のセッションを導出する |
+| GET | `/api/sessions?date=YYYY-MM-DD` | その日のセッションを導出する |
 | POST | `/api/set-logs` | 実績ログを保存する（冪等） |
 | POST | `/api/conditions` | 日次コンディションを保存する（冪等） |
-| GET | `/api/program` | プログラム（頻度・週目標・選択種目）を取得する。未設定なら 404 |
+| GET | `/api/program` | プログラム（頻度・週目標・選択種目・伸ばしたい種目・重点種目・分割）を取得する。未設定なら 404 |
+| PUT | `/api/program/frequency` | 週の頻度だけを差し替える。週目標も頻度に合わせて置き直される |
+| PUT | `/api/program/target` | 週目標だけを差し替える |
+| PUT | `/api/program/selected` | 使う種目だけを差し替える |
+| PUT | `/api/program/declared` | 伸ばしたい種目だけを差し替える |
+| PUT | `/api/program/focus` | 重点種目だけを差し替える。`null` で指定なしに戻す |
+| PUT | `/api/program/split` | 分割の周期だけを差し替える。空の配列で分割なしに戻す |
+| GET | `/api/split-presets` | 分割のプリセット。`splits` をそのまま `/api/program/split` へ送れる |
 | GET | `/api/exercises` | 種目マスタ（IDと日本語名） |
 | GET | `/api/set-logs?from=&to=` | 実績と、種目ごとの前回の実績。既定は直近56日 |
 | DELETE | `/api/set-logs/{id}` | 打ち間違いの取り消し |
@@ -95,33 +102,33 @@ curl -H 'Authorization: Bearer <セッショントークン>' 'http://localhost:
 ### セッション取得の例
 
 ```bash
-curl 'http://localhost:8080/api/sessions?date=2026-08-17'
+curl -H 'Authorization: Bearer <セッショントークン>' \
+  'http://localhost:8080/api/sessions?date=2026-08-17'
 ```
 
-`weight_kg` が `null` になるのはバグではない。履歴が足りず重量を推定できない状態で、初回だけ自分で決めて記録する。
-
-停滞するとデロードの提案が付く。適用はしないので、承認するかはユーザーが決める。
+起動直後（記録が1件も無い状態）の応答。`accessories` は8件返るが、ここでは2件に縮めてある。
 
 ```json
-"deload_proposal": {
-  "reason": "推定1RMが8セッション更新されていない（bench）、体重トレンド +0.00kg/週",
-  "intensity_drop_pct": 0.1,
-  "stalled_exercises": ["bench"]
+{
+  "date": "2026-08-17",
+  "main": [
+    {"exercise_id": "bench", "weight_kg": null, "sets": 3, "target_rir": 1}
+  ],
+  "variation": [],
+  "accessories": [
+    {"exercise_id": "back_extension", "weight_kg": null, "sets": 3, "target_rir": 2},
+    {"exercise_id": "deficit_deadlift", "weight_kg": null, "sets": 3, "target_rir": 2}
+  ]
 }
 ```
 
-承認するときは `stalled_exercises` の値をそのまま渡す。
-
-```bash
-curl 'http://localhost:8080/api/sessions?date=2026-08-17&deload_accepted=bench'
-```
-
-承認していない種目の重量は変わらない。伸びている種目まで一律に下げると本人の実感と噛み合わないため。
+`weight_kg` が `null` になるのはバグではない。履歴が足りず重量を推定できない状態で、初回だけ自分で決めて記録する。
 
 ### 実績の保存
 
 ```bash
 curl -X POST http://localhost:8080/api/set-logs \
+  -H 'Authorization: Bearer <セッショントークン>' \
   -H 'Content-Type: application/json' \
   -d '{"logs":[{"id":"01J-A","date":"2026-08-17","exercise_id":"bench","weight_kg":85,"reps":9,"rir":2}]}'
 ```
@@ -133,6 +140,28 @@ curl -X POST http://localhost:8080/api/set-logs \
 ### プログラムの設定
 
 起動時はシードの初期プログラム（週3回・36種目からバリエーションを除いた全部）が入っているので、設定しなくても使える。
+
+変えるときは、**変えたい1項目だけを、その項目の口へ送る。**プログラムを丸ごと受け取る口は無い（`PUT /api/program` は 405）。丸ごと送らせると、送る側がフィールドを1つ並べ忘れただけで、その設定が黙って消えるため（D-127）。
+
+```bash
+curl -X PUT http://localhost:8080/api/program/frequency \
+  -H 'Authorization: Bearer <セッショントークン>' \
+  -H 'Content-Type: application/json' \
+  -d '{"per_week":4}'
+```
+
+通れば 204。ボディはどの口も、`GET /api/program` の応答から該当のフィールド1つを抜き出した形。
+
+| パス | ボディ |
+|---|---|
+| `/api/program/frequency` | `{"per_week":4}` |
+| `/api/program/target` | `{"weekly_target":{"CHEST_MID":10}}` |
+| `/api/program/selected` | `{"selected_exercises":["bench","squat"]}`。伸ばしたい種目を外す選択は 400（先に `declared` を狭める） |
+| `/api/program/declared` | `{"declared_exercises":["bench","squat"]}` |
+| `/api/program/focus` | `{"focus_exercise":"bench"}`（`null` で指定なし） |
+| `/api/program/split` | `{"splits":[{"name":"上半身","regions":["CHEST_MID","LAT"]},{"name":"下半身","regions":["QUAD","GLUTE","HAMSTRING"]}]}`（`[]` で分割なし）。伸ばしたい種目が出られる日の無い周期は 400 |
+
+その口のもの以外のフィールドが混ざっていたら 400。受けて捨てると、送った側はそれも変わったと思い込む。
 
 ### ステータスコード
 
