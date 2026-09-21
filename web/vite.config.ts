@@ -58,6 +58,13 @@ export default defineConfig(({ command, mode }) => {
         manifest: false,
         injectManifest: {
           globPatterns: ['**/*.{js,css,html,svg,webmanifest}'],
+          // シミュレーション画面は precache に入れない。
+          //
+          // 殻をキャッシュするのはジムで圏外になっても記録できるようにする
+          // ため。あれは設定を眺める道具で、圏外で開く理由が無い。入れると
+          // 全端末の更新のたびに要らない資産が配られ、しかも更新の合図を
+          // 押すまで古い版が出続ける。
+          globIgnores: ['dev.html', 'assets/dev-*'],
         },
         devOptions: { enabled: false },
       }),
@@ -65,6 +72,12 @@ export default defineConfig(({ command, mode }) => {
     build: {
       // 資産のハッシュはそのまま。index.html だけが更新の起点になる。
       sourcemap: true,
+      // 入力を並べる。既定は index.html だけなので、書かないと
+      // シミュレーション画面が出力に入らない（#108 はそれで本番から
+      // 隠していた）。
+      rollupOptions: {
+        input: { main: 'index.html', dev: 'dev.html' },
+      },
     },
     test: {
       // テストがフックのモジュールを読み込むと、依存を辿って api/client に

@@ -10,11 +10,14 @@ import (
 	"github.com/dyoshyy/liftplan/internal/domain/training/exercise"
 )
 
-// DevSimulation は開発用のシミュレーションの口。
+// DevSimulation は設定を変えたときに計画がどう変わるかを見る口。
 //
-// `Handler` に混ぜない。あちらは本番の経路で、こちらは開発中にだけ
-// 取り付ける（取り付けは cmd が env で決める）。混ぜると、消すときに
-// 本番の配線を触ることになる。
+// 本番にも生やす。認証の内側に入るので、叩けるのはログイン済みの人だけ
+// （取り付けは cmd の mountSimulation 1箇所）。
+//
+// `Handler` に混ぜない。あちらは記録と設定を扱う経路で、こちらは捏造した
+// 設定から計画を作るだけ。保存先も利用者の記録も触らない。混ぜると、
+// 消すときに本番の配線を触ることになる。
 type DevSimulation struct {
 	sim *devsim.Simulator
 }

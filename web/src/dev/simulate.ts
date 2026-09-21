@@ -1,7 +1,9 @@
-// 開発用シミュレーションの判断。
+// シミュレーション画面の判断。
 //
 // 画面（.tsx）に書くと vitest が拾えない。問い合わせの組み立てと、
-// 達成率の色分けはここに置く。
+// 達成率の色分けと、失敗の読み替えはここに置く。
+
+import { Unauthorized } from '../api/client';
 
 export type DevExercise = {
   id: string;
@@ -124,4 +126,20 @@ export function declaredCandidates(exercises: DevExercise[]): DevExercise[] {
   const roots = exercises.filter((e) => !e.derived_from);
   const derived = exercises.filter((e) => e.derived_from);
   return [...roots, ...derived];
+}
+
+/** describeFailure は失敗を画面に出す1行にする。
+ *
+ *  401 だけ扱いが違う。ほかの失敗は「もう一度押す」で直りうるが、これは
+ *  直らない。トークンは捨てられた後（client.send）なので、この画面で
+ *  ログインし直す手段は無い。行き先を言わないと、押し続けるしかなくなる。
+ *
+ *  それ以外はサーバーが書いた文をそのまま出す。入力が成り立たない理由は
+ *  サーバーしか知らない（どの分割にどの区分があるか、頻度の上限）。
+ *  握り潰すと画面に残るのは状態コードだけになる。 */
+export function describeFailure(e: unknown): string {
+  if (e instanceof Unauthorized) {
+    return 'ログインが切れている。メイン画面（/）でログインし直してから開くこと';
+  }
+  return e instanceof Error ? e.message : String(e);
 }

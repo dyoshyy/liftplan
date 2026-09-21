@@ -1,20 +1,23 @@
 import { useCallback, useEffect, useState } from 'react';
+import { send } from '../api/client';
 import {
   buildQuery,
   defaultForm,
+  describeFailure,
   withFocusInDeclared,
   type DevOptions,
   type DevResult,
   type Form,
 } from './simulate';
 
-// 開発用の口は認証の外に置いてある（捏造した設定で計画を作るだけで、
-// 保存先も利用者の記録も触らない）。だから api/client.ts は通さない。
-// あちらはトークンと待ち行列の都合を持っていて、ここには要らない。
-const API_BASE = import.meta.env.VITE_API_BASE;
-
+// 口は認証の内側にあるので api/client.ts の send を通す。あちらが
+// トークンを載せ、401 なら捨てて Unauthorized を投げる。
+//
+// client.getJSON は使わない。あちらは状態コードしか throw せず、
+// サーバーが本文に書いた 400 の理由が消える。ここではその理由こそが
+// 見たいもの（どの設定が成り立たないか）なので、本文を読む。
 async function getJSON<T>(path: string): Promise<T> {
-  const res = await fetch(API_BASE + path);
+  const res = await send({ path });
   if (!res.ok) {
     const body = (await res.json().catch(() => null)) as { error?: string } | null;
     throw new Error(body?.error ?? `${path} が ${res.status} を返した`);
@@ -42,7 +45,7 @@ export function useSimulation() {
       setResult(await getJSON<DevResult>(`/api/dev/simulate?${buildQuery(target)}`));
     } catch (e) {
       setResult(null);
-      setError(e instanceof Error ? e.message : String(e));
+      setError(describeFailure(e));
     } finally {
       setBusy(false);
     }
@@ -57,7 +60,7 @@ export function useSimulation() {
         const got = await getJSON<DevOptions>('/api/dev/options');
         if (alive) setOptions(got);
       } catch (e) {
-        if (alive) setError(e instanceof Error ? e.message : String(e));
+        if (alive) setError(describeFailure(e));
       }
     })();
     void run(defaultForm);

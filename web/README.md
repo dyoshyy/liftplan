@@ -40,6 +40,7 @@ node scripts/adversarial-check.mjs   # 記録が消える経路。使い方は�
 node scripts/ui-check.mjs           # 休憩タイマーと記録シートの初期値
 node scripts/nav-check.mjs          # 画面の行き来と戻るジェスチャー
 node scripts/settings-check.mjs     # 設定の保存（週目標の置き直しを含む）
+node scripts/sim-check.mjs          # シミュレーション画面（/dev.html の配線と認証）
 ```
 
 **検査でのログインはフラグメントで済ませる。**`#token=<AUTH_TOKEN>` で開く。

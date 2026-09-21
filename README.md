@@ -155,18 +155,23 @@ make test-db    # Postgres を立てて全テスト
 種目の出番・セッション長・重量の確定を検証する。シードは「値が入っていること」を
 確かめても意味がなく、生成器を通した挙動でしか検証できない。
 
-### 開発用のシミュレーション画面
+### シミュレーション画面
 
 通し検証が数字で守るのに対して、**何が起きているかを目で見る**ための道具。
 宣言種目・重点種目・分割・頻度を変えて1ヶ月ぶんの計画を作り、レーンごとの
 処方（推定1RMに対する比つき）と週ごとの充足を出す。
 
+本番にもある。画面のオリジンの `/dev.html`（ログイン済みの端末で開く）。
+手元だけに置いていたが、設定を変えるかどうかを考えるのはたいていジムの
+あとで、そこに開発機が無い。
+
 ```bash
-# サーバー（DEV_SIMULATION=1 のときだけ /api/dev/* が生える）
+# サーバー。手元ではインメモリなので、DEV_SESSION_TOKEN でログイン済みの
+# 状態を作る（この変数は DATABASE_URL があるときは効かない）。
 #
-# OAuth の設定は起動の条件なので値が要るが、この画面はログインを通らない
-# ので中身は何でもよい。
-DEV_SIMULATION=1 \
+# OAuth の設定は起動の条件なので値が要るが、この経路は通らないので
+# 中身は何でもよい。
+DEV_SESSION_TOKEN=test-token-0123456789abcdef0123456789abcdef \
   API_ORIGIN=http://localhost:8080 WEB_ORIGIN=http://localhost:5173 \
   ALLOWED_ORIGINS=http://localhost:5173 \
   GITHUB_CLIENT_ID=dev GITHUB_CLIENT_SECRET=dev \
@@ -175,11 +180,14 @@ DEV_SIMULATION=1 \
 
 # 画面
 cd web && VITE_API_BASE=http://localhost:8080 pnpm dev
-# http://localhost:5173/dev.html
+
+# 1. http://localhost:5173/#token=test-token-0123456789abcdef0123456789abcdef
+#    を一度開く（トークンを localStorage に入れる。本物のコールバックと同じ形）
+# 2. http://localhost:5173/dev.html
 ```
 
-口は認証の外側にある。捏造した設定で計画を作るだけで、保存先も利用者の記録も
-触らない。画面は Vite の2つ目のエントリなので `vite build` の出力には入らない。
+口は**認証の内側**にある。捏造した設定で計画を作るだけで保存先も記録も
+触らないが、週7回×12週の導出は CPU を使うので、誰でも叩ける状態では置かない。
 
 ## 設計の判断記録
 
