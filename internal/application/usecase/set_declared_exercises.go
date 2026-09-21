@@ -32,7 +32,7 @@ func NewSetDeclaredExercises(reader program.Reader, writer program.Writer) *SetD
 func (u *SetDeclaredExercises) Execute(ctx context.Context, user account.UserID, ids []exercise.ExerciseID) (err error) {
 	// 出口で1度だけ翻訳する。return ごとに書くと、経路が増えたときに
 	// 包み忘れた1本だけが 500 で返る。
-	defer func() { err = classify(err) }()
+	defer func() { err = apperror.Classify(err) }()
 
 	prog, err := u.reader.Get(ctx, user)
 	if err != nil {

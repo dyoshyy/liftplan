@@ -5,7 +5,7 @@
 // かといって presentation に置くと、分類のためにドメインの全パッケージを
 // import することになり、センチネルを足すたびに presentation が動く。
 //
-// 間に1つ型を挟む。ユースケースがドメインのセンチネルをここに翻訳し、
+// 間に1つ型を挟む。Classify がドメインのセンチネルをここに翻訳し、
 // presentation は errors.As でこの型だけを見る。
 package apperror
 

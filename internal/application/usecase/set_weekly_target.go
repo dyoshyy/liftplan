@@ -33,7 +33,7 @@ func NewSetWeeklyTarget(
 func (u *SetWeeklyTarget) Execute(ctx context.Context, user account.UserID, sets map[training.MuscleRegion]float64) (err error) {
 	// 出口で1度だけ翻訳する。return ごとに書くと、経路が増えたときに
 	// 包み忘れた1本だけが 500 で返る。
-	defer func() { err = classify(err) }()
+	defer func() { err = apperror.Classify(err) }()
 
 	target, err := program.NewWeeklyVolumeTarget(sets)
 	if err != nil {

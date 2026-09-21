@@ -35,7 +35,7 @@ func NewSetFrequency(reader program.Reader, writer program.Writer) *SetFrequency
 func (u *SetFrequency) Execute(ctx context.Context, user account.UserID, perWeek int) (err error) {
 	// 出口で1度だけ翻訳する。return ごとに書くと、経路が増えたときに
 	// 包み忘れた1本だけが 500 で返る。
-	defer func() { err = classify(err) }()
+	defer func() { err = apperror.Classify(err) }()
 
 	freq, err := program.NewFrequency(perWeek)
 	if err != nil {
