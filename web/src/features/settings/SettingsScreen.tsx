@@ -1,11 +1,11 @@
 import { useState } from 'react';
-import { clearToken } from '../../storage/local';
 import { Button } from '../../ui/Button';
 import { Note } from '../../ui/Card';
 import { Section } from '../../ui/Section';
 import { Stepper } from '../../ui/Stepper';
 import type { RestTimer } from '../timer/useRestTimer';
 import { ProgramSettings } from './ProgramSettings';
+import { useLogout } from './useLogout';
 import type { Exercise } from '../../api/types';
 
 type Props = {
@@ -26,6 +26,7 @@ const STEP_MIN = 0.25;
 // 取っているのは割に合わない。
 export function SettingsScreen({ nameOf, exercises, onChanged, timer, onForget }: Props) {
   const [confirming, setConfirming] = useState(false);
+  const { logout, busy } = useLogout(onForget);
 
   return (
     <>
@@ -54,16 +55,9 @@ export function SettingsScreen({ nameOf, exercises, onChanged, timer, onForget }
             <Note className="mb-3">
               この端末からログアウトします。未送信の記録は消えませんが、ログインし直すまで送れません。
             </Note>
-            <Button
-              variant="danger"
-              onClick={() => {
-                // 捨てるのは**この端末のトークンだけ**。サーバー側の失効
-                // （DELETE /auth/session）はまだ無いので、他の端末のログインは
-                // 生きたまま残る。口ができたら、ここから呼ぶ。
-                clearToken();
-                onForget();
-              }}
-            >
+            {/* 失効するのは**この端末のセッションだけ**。他の端末のログインは
+                生きたまま残る。順序と、失敗したときの扱いは useLogout にある。 */}
+            <Button variant="danger" disabled={busy} onClick={() => void logout()}>
               ログアウトする
             </Button>
             <Button variant="quiet" className="mt-2" onClick={() => setConfirming(false)}>
