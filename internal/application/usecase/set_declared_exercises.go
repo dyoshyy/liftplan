@@ -12,8 +12,8 @@ import (
 
 // SetDeclaredExercises は伸ばしたい種目だけを差し替える。
 //
-// SetFocusExercise と同じ形。クライアントに全置換をさせないために口を
-// 分けている。週目標と選択種目はここを通らない。
+// SetFocusExercise と同じ形。受け取るのは宣言だけで、クライアントに設定を
+// 丸ごと送らせない。週目標と選択種目はここを通らない。
 type SetDeclaredExercises struct {
 	reader program.Reader
 	writer program.Writer

@@ -427,7 +427,8 @@ func TestPutProgramFocus_Rejects(t *testing.T) {
 			body: `{"focus_exercise":"bench"}`, want: http.StatusConflict,
 		},
 		{
-			// 全置換の口と取り違えて送ってきたものを黙って受けない。
+			// ほかの設定を一緒に送ってきたものを黙って受けない。受けて
+			// 捨てると、送った側は頻度も変わったと思い込む。
 			name: "余計なフィールド", configured: true,
 			body: `{"focus_exercise":"bench","per_week":4}`, want: http.StatusBadRequest,
 		},
