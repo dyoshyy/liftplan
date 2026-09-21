@@ -884,6 +884,110 @@ func TestSessionPlanner_AccessoriesFollowTheRollingGap(t *testing.T) {
 	}
 }
 
+// inclineDeselectedRequest は chestUpperRequest から incline だけを選択から
+// 外したもの。マスタ（Pool）には残っている。
+func inclineDeselectedRequest(t *testing.T) planning.PlanRequest {
+	t.Helper()
+
+	ids := []exercise.ExerciseID{"bench", "squat", "deadlift"}
+	for i := range 5 {
+		ids = append(ids, exercise.ExerciseID(fmt.Sprintf("chest_up_%d", i)))
+	}
+	deselected, err := program.NewProgram(mustFrequency(t, 3),
+		mustTarget(t, map[training.MuscleRegion]float64{training.ChestUpper: 12}),
+		ids, big3(), "")
+	if err != nil {
+		t.Fatalf("プログラムの生成に失敗: %v", err)
+	}
+
+	req := chestUpperRequest(t)
+	req.Program = deselected
+	return req
+}
+
+// やったセットは、いま「使う種目」に入れているかに関係なく、やったセット。
+//
+// 選択から外した種目の記録を読み飛ばすと、外した瞬間にその区分の残差が
+// ふくらみ、前日にやっていても回復中にならず、同じ区分の補助が余計に出る。
+// 画面の「今週の充足」（query.Stats.WeeklyVolume）はマスタ全件で数えるので、
+// 画面では埋まっているのに補助だけが出続ける、という食い違いにもなる。
+//
+// 選択が決めるのは「これから何を出すか」で、「何をやったか」ではない。
+func TestSessionPlanner_DeselectedExercisesStillCountAsDone(t *testing.T) {
+	base := inclineDeselectedRequest(t)
+
+	// 記録が無ければ補助は出る。ここが 0 だと、下のケースの「0件」は
+	// 何も検査していない。
+	if len(mustPlan(t, base).Accessories()) == 0 {
+		t.Fatal("前提が崩れている: 記録が無いのに胸上部の補助が出ていない")
+	}
+
+	cases := []struct {
+		name           string
+		daysFromMonday int
+		sets           int
+	}{
+		{
+			// 数える経路（CoverageBetween）。週目標12を使い切っているので
+			// 残差は 0。2日前は回復期間 (date-2, date) の外なので、補助が
+			// 出ないのは残差が埋まっているからでしかない。
+			name: "2日前に外した種目で週目標を埋めていたら補助は出ない", daysFromMonday: -2, sets: 12,
+		},
+		{
+			// 回復を見る経路（Select の辞書）。残差は 12 − 3 = 9 残って
+			// いるので、補助が出ないのは胸上部が回復中だからでしかない。
+			name: "前日に外した種目でやっていたら回復中として補助は出ない", daysFromMonday: -1, sets: 3,
+		},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			logs := planHistory(t)
+			for i := range c.sets {
+				logs = append(logs, mkLogOn(t, fmt.Sprintf("gone-%d", i),
+					planMonday.AddDays(c.daysFromMonday), "incline", 30, 10, 2))
+			}
+
+			req := base
+			req.History = setlog.NewHistory(logs)
+
+			if got := accessoryIDs(mustPlan(t, req)); len(got) != 0 {
+				t.Errorf("外した種目の記録が読み飛ばされている: 補助が %v。0件のはず", got)
+			}
+		})
+	}
+}
+
+// 選択から外した種目は、補助の候補にならない。
+//
+// 記録を数えるために Select へマスタ全件を渡すようにしたので（#133）、
+// 候補から落とすのは exclude の仕事になった。以前は usablePool を渡して
+// いたので構造上ありえなかったが、いまは exclude への追加を消すと、外した
+// 種目がそのまま今日のリストに出る。
+//
+// incline を「最も長くやっていない種目」にしてある。補助は放置日数の長い
+// ものから選ばれるので、候補に入っていれば真っ先に出る。全種目が未実施だと
+// 同点は ID 昇順で chest_up_* が先に枠を埋め、incline が候補に居ても出ない。
+func TestSessionPlanner_DeselectedExercisesAreNeverCandidates(t *testing.T) {
+	req := inclineDeselectedRequest(t)
+
+	// 10日前はカバレッジの窓（6日）の外。残差は 12 のまま。
+	logs := planHistory(t)
+	for i := range 5 {
+		logs = append(logs, mkLogOn(t, fmt.Sprintf("old-%d", i),
+			planMonday.AddDays(-10), fmt.Sprintf("chest_up_%d", i), 30, 10, 2))
+	}
+	req.History = setlog.NewHistory(logs)
+
+	got := accessoryIDs(mustPlan(t, req))
+	if len(got) == 0 {
+		t.Fatal("前提が崩れている: 胸上部の補助が1件も出ていない")
+	}
+	if slices.Contains(got, exercise.ExerciseID("incline")) {
+		t.Errorf("選択から外した種目が補助に出ている: %v", got)
+	}
+}
+
 // カバレッジの窓は直近1週。前日までの6日ぶんを数え、当日を足して7日。
 func TestSessionPlanner_RollingCoverageWindow(t *testing.T) {
 	base := chestUpperRequest(t)
