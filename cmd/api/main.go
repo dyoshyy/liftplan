@@ -241,7 +241,6 @@ func buildHandler(ctx context.Context) (http.Handler, func(), error) {
 		usecase.NewGetSession(exercises, logs, conditions, programs, planner),
 		usecase.NewRecordSets(logs, exercises),
 		usecase.NewRecordConditions(conditions),
-		usecase.NewConfigureProgram(exercises, programs),
 		usecase.NewSetFocusExercise(programs, programs),
 		usecase.NewSetDeclaredExercises(programs, programs),
 		usecase.NewSetFrequency(programs, programs),

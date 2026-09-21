@@ -24,7 +24,6 @@ type Handler struct {
 	getSession       *usecase.GetSession
 	recordSets       *usecase.RecordSets
 	recordConditions *usecase.RecordConditions
-	configureProgram *usecase.ConfigureProgram
 	setFocus         *usecase.SetFocusExercise
 	setDeclared      *usecase.SetDeclaredExercises
 	setFrequency     *usecase.SetFrequency
@@ -42,7 +41,6 @@ func NewHandler(
 	getSession *usecase.GetSession,
 	recordSets *usecase.RecordSets,
 	recordConditions *usecase.RecordConditions,
-	configureProgram *usecase.ConfigureProgram,
 	setFocus *usecase.SetFocusExercise,
 	setDeclared *usecase.SetDeclaredExercises,
 	setFrequency *usecase.SetFrequency,
@@ -59,7 +57,6 @@ func NewHandler(
 		getSession:       getSession,
 		recordSets:       recordSets,
 		recordConditions: recordConditions,
-		configureProgram: configureProgram,
 		setFocus:         setFocus,
 		setDeclared:      setDeclared,
 		setFrequency:     setFrequency,
@@ -277,23 +274,6 @@ func (h *Handler) handleGetProgram(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, toProgramDTO(prog))
-}
-
-func (h *Handler) handlePutProgram(w http.ResponseWriter, r *http.Request) {
-	user, ok := requireUser(w, r)
-	if !ok {
-		return
-	}
-	var req programDTO
-	if err := decodeJSON(r, &req); err != nil {
-		respondError(w, err)
-		return
-	}
-	if err := h.configureProgram.Execute(r.Context(), user, req.toInput()); err != nil {
-		respondError(w, err)
-		return
-	}
-	w.WriteHeader(http.StatusNoContent)
 }
 
 // handlePutProgramFocus は重点種目だけを差し替える。

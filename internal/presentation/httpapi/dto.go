@@ -5,9 +5,6 @@
 package httpapi
 
 import (
-	"github.com/dyoshyy/liftplan/internal/application/usecase"
-	"github.com/dyoshyy/liftplan/internal/domain/training"
-	"github.com/dyoshyy/liftplan/internal/domain/training/exercise"
 	"github.com/dyoshyy/liftplan/internal/domain/training/planning"
 	"github.com/dyoshyy/liftplan/internal/domain/training/program"
 )
@@ -104,9 +101,12 @@ type errorResponse struct {
 	Error string `json:"error"`
 }
 
-// programDTO はプログラム設定の入出力。
+// programDTO はプログラム設定の出力（GET /api/program の応答）。
 //
-// 週目標をマップで受けるのは、区分ごとに独立して調整するため。
+// 書き込みには使わない。全置換の口は、フィールドを足すたびに写し忘れた
+// 設定を黙って消したので無くした（#123）。書くのは1フィールドずつの DTO。
+//
+// 週目標をマップで返すのは、区分ごとに独立して調整するため。
 // 配列だと順序に意味が生まれ、区分の追加でクライアントが壊れる。
 type programDTO struct {
 	PerWeek  int                `json:"per_week"`
@@ -215,29 +215,6 @@ func toProgramDTO(p *program.Program) programDTO {
 		Declared: declared,
 		Focus:    focus,
 		Splits:   toSplitDTOs(p.Cycle()),
-	}
-}
-
-func (d programDTO) toInput() usecase.ConfigureProgramInput {
-	target := make(map[training.MuscleRegion]float64, len(d.Target))
-	for k, v := range d.Target {
-		target[training.MuscleRegion(k)] = v
-	}
-	selected := make([]exercise.ExerciseID, 0, len(d.Selected))
-	for _, id := range d.Selected {
-		selected = append(selected, exercise.ExerciseID(id))
-	}
-	declared := make([]exercise.ExerciseID, 0, len(d.Declared))
-	for _, id := range d.Declared {
-		declared = append(declared, exercise.ExerciseID(id))
-	}
-	var focus exercise.ExerciseID
-	if d.Focus != nil {
-		focus = exercise.ExerciseID(*d.Focus)
-	}
-	return usecase.ConfigureProgramInput{
-		PerWeek: d.PerWeek, Target: target, Selected: selected, Declared: declared,
-		Focus: focus,
 	}
 }
 
