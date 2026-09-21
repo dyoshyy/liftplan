@@ -6,7 +6,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/dyoshyy/liftplan/internal/domain/account"
 	"github.com/dyoshyy/liftplan/internal/presentation/httpapi"
 )
 
@@ -18,7 +17,7 @@ import (
 func requireTestSession(t *testing.T) func(http.Handler) http.Handler {
 	t.Helper()
 	return httpapi.RequireSession(
-		storeWith(t, sampleToken, account.DefaultUserID()),
+		storeWith(t, sampleToken, testUser),
 		func() time.Time { return authNow },
 	)
 }

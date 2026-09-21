@@ -94,7 +94,7 @@ func TestSignIn_FirstTimeCreatesEverything(t *testing.T) {
 	// 先にログインしただけで、これまでの記録を全部持っていかれる。
 	// 本人のアカウントを既定ユーザーに結ぶのは、初回ログインの前に手で流す
 	// 1行の仕事で、このユースケースの仕事ではない。
-	if a.UserID() == account.DefaultUserID() {
+	if a.UserID() == legacyUserID() {
 		t.Error("採番せず既定ユーザーを割り当てている")
 	}
 
@@ -483,4 +483,13 @@ func mustUserID(t *testing.T) account.UserID {
 		t.Fatalf("UserID を採番できない: %v", err)
 	}
 	return id
+}
+
+// legacyUserID はマイグレーション 0007 が既存の行を寄せた先。
+//
+// コードからは消した（もう誰も使わない）が、DBには残っている。
+// **SignIn がこれを特別扱いしないこと**が、このファイルの検査の1つ。
+// 引き継ぎは初回ログインの前に手で流す INSERT の仕事（docs/deploy.md）。
+func legacyUserID() account.UserID {
+	return mustTestUserID("8d5e743e-f1b0-4430-9998-89d313e89da8")
 }

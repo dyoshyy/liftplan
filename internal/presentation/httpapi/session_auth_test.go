@@ -94,14 +94,14 @@ func TestRequireSession_PutsTheSessionOwnerOnTheContext(t *testing.T) {
 	}
 	// 既定ユーザーに落ちていないこと。落ちると、誰がログインしても
 	// 同じ記録を見る状態に静かに戻る。
-	if rec.Body.String() == account.DefaultUserID().String() {
+	if rec.Body.String() == testUser.String() {
 		t.Error("セッションの利用者ではなく既定ユーザーが載っている")
 	}
 }
 
 // 期限の判定はセッションの店に委ねること（現在時刻を渡す）。
 func TestRequireSession_AsksTheStoreWithTheCurrentTime(t *testing.T) {
-	store := storeWith(t, sampleToken, account.DefaultUserID())
+	store := storeWith(t, sampleToken, testUser)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/sessions", nil)
 	req.Header.Set("Authorization", "Bearer "+sampleToken)
@@ -122,19 +122,19 @@ func TestRequireSession_RejectsWhatItCannotResolve(t *testing.T) {
 	}{
 		{
 			name: "Authorization が無い", header: "",
-			store: func(t *testing.T) *sessionStore { return storeWith(t, sampleToken, account.DefaultUserID()) },
+			store: func(t *testing.T) *sessionStore { return storeWith(t, sampleToken, testUser) },
 			want:  http.StatusUnauthorized,
 		},
 		{
 			// 形は正しいが、そのセッションは存在しない（消された・期限切れ）。
 			name: "知らないトークン", header: "Bearer " + strings.Repeat("z", 43),
-			store: func(t *testing.T) *sessionStore { return storeWith(t, sampleToken, account.DefaultUserID()) },
+			store: func(t *testing.T) *sessionStore { return storeWith(t, sampleToken, testUser) },
 			want:  http.StatusUnauthorized,
 		},
 		{
 			// セッショントークンの形ですらない。引く前に落とす。
 			name: "形が違うトークン", header: "Bearer short",
-			store: func(t *testing.T) *sessionStore { return storeWith(t, sampleToken, account.DefaultUserID()) },
+			store: func(t *testing.T) *sessionStore { return storeWith(t, sampleToken, testUser) },
 			want:  http.StatusUnauthorized,
 		},
 		{
@@ -142,7 +142,7 @@ func TestRequireSession_RejectsWhatItCannotResolve(t *testing.T) {
 			// 「ログインし直せ」と読んで、通るはずのトークンを捨てる。
 			name: "保存先に届かない", header: "Bearer " + sampleToken,
 			store: func(t *testing.T) *sessionStore {
-				s := storeWith(t, sampleToken, account.DefaultUserID())
+				s := storeWith(t, sampleToken, testUser)
 				s.err = fmt.Errorf("%w: 接続できない", training.ErrRepositoryUnavailable)
 				return s
 			},
@@ -195,7 +195,7 @@ func TestRequireSession_ExemptsOnlyTheLoginEntrances(t *testing.T) {
 
 	for _, c := range cases {
 		t.Run(c.path, func(t *testing.T) {
-			store := storeWith(t, sampleToken, account.DefaultUserID())
+			store := storeWith(t, sampleToken, testUser)
 			req := httptest.NewRequest(http.MethodGet, c.path, nil)
 			rec := httptest.NewRecorder()
 			guardedBy(store).ServeHTTP(rec, req)
@@ -214,7 +214,7 @@ func TestRequireSession_ExemptsOnlyTheLoginEntrances(t *testing.T) {
 
 // 401 の本体にトークンを書き出さないこと。ログと画面に残る。
 func TestRequireSession_DoesNotEchoTheToken(t *testing.T) {
-	store := storeWith(t, sampleToken, account.DefaultUserID())
+	store := storeWith(t, sampleToken, testUser)
 	const secret = "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz"
 
 	req := httptest.NewRequest(http.MethodGet, "/api/sessions", nil)

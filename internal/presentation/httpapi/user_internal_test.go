@@ -20,25 +20,28 @@ import (
 //
 // **なぜ外部テストでは書けないか。**鍵の型（userContextKey）は非公開で、
 // httpapi の外から利用者を詰められない。外から動かせるのは認証
-// ミドルウェアだけで、それが載せるのは常に既定ユーザーなので、
-// 「ハンドラが context を無視して account.DefaultUserID() を直接渡す」
-// 実装に戻しても外からは区別がつかない。載せた値と既定値が同じだから。
+// ミドルウェアだけで、そこに利用者を供給するのはセッションの店なので、
+// 外部テストが確かめられるのは「店が言った人が届くか」までになる。
 //
-// 既定以外の利用者を1人だけ登場させれば区別できる。その人のプログラム
-// だけを保存しておき、その人として叩いたときに 200、既定ユーザーとして
-// 叩いたときに 404 になることを見る。ハンドラが context を見ていなければ、
-// 前者が 404 になって落ちる。
+// ここで見たいのはその1つ内側、**ハンドラが context を見ているか**。
+// 2人を登場させ、片方のプログラムだけを保存しておく。その人として
+// 叩けば 200、もう片方として叩けば 404。ハンドラが context を無視して
+// 固定の利用者を渡す実装に戻せば、前者が 404 になって落ちる。
 func TestHandler_UsesTheUserFromContext(t *testing.T) {
 	userB, err := account.NewUserID("11111111-2222-3333-4444-555555555555")
 	if err != nil {
 		t.Fatalf("利用者の識別子が不正: %v", err)
 	}
-	if userB == account.DefaultUserID() {
-		t.Fatal("既定ユーザーと同じ値では、届いているかを区別できない")
+	other, err := account.NewUserID("99999999-8888-4777-a666-555555555555")
+	if err != nil {
+		t.Fatalf("利用者の識別子が不正: %v", err)
+	}
+	if userB == other {
+		t.Fatal("2人が同じ値では、届いているかを区別できない")
 	}
 
 	routes, programs := routesForUserTest(t)
-	// 保存するのは userB のぶんだけ。既定ユーザーには何も無い。
+	// 保存するのは userB のぶんだけ。もう片方には何も無い。
 	if err := programs.Save(context.Background(), userB, someProgram(t)); err != nil {
 		t.Fatalf("プログラムの保存に失敗: %v", err)
 	}
@@ -54,10 +57,10 @@ func TestHandler_UsesTheUserFromContext(t *testing.T) {
 			user: userB, want: http.StatusOK,
 		},
 		{
-			// 既定ユーザーには保存していない。ここが 200 になるなら、
-			// ハンドラは context ではなく既定ユーザーを見ている。
+			// こちらには保存していない。ここが 200 になるなら、
+			// ハンドラは context ではなく固定の利用者を見ている。
 			name: "別の利用者からは同じ設定が見えない",
-			user: account.DefaultUserID(), want: http.StatusNotFound,
+			user: other, want: http.StatusNotFound,
 		},
 	}
 

@@ -7,7 +7,6 @@ import (
 
 	"github.com/dyoshyy/liftplan/internal/application/apperror"
 	"github.com/dyoshyy/liftplan/internal/application/usecase"
-	"github.com/dyoshyy/liftplan/internal/domain/account"
 	"github.com/dyoshyy/liftplan/internal/domain/training/seed"
 
 	"github.com/dyoshyy/liftplan/internal/domain/training/condition"
@@ -27,7 +26,7 @@ func TestRecordSets_SavesLogs(t *testing.T) {
 		t.Fatalf("ログ生成に失敗: %v", err)
 	}
 
-	if err := uc.Execute(context.Background(), account.DefaultUserID(), []*setlog.SetLog{log}); err != nil {
+	if err := uc.Execute(context.Background(), testUser, []*setlog.SetLog{log}); err != nil {
 		t.Fatalf("実行に失敗: %v", err)
 	}
 	if len(repo.saved) != 1 {
@@ -37,7 +36,7 @@ func TestRecordSets_SavesLogs(t *testing.T) {
 
 func TestRecordSets_EmptyIsNoop(t *testing.T) {
 	repo := &fakeLogs{history: setlog.NewHistory(nil)}
-	if err := newRecordSets(t, repo).Execute(context.Background(), account.DefaultUserID(), nil); err != nil {
+	if err := newRecordSets(t, repo).Execute(context.Background(), testUser, nil); err != nil {
 		t.Errorf("空の保存でエラーになった: %v", err)
 	}
 	// 件数ではなく呼び出しの有無で見る。空スライスを渡しても
@@ -55,7 +54,7 @@ func TestRecordSets_PropagatesError(t *testing.T) {
 		ID: "01J-B", PerformedOn: testDate, ExerciseID: "bench",
 		WeightKg: 85, Reps: 9, RIR: 2,
 	})
-	if err := newRecordSets(t, repo).Execute(context.Background(), account.DefaultUserID(), []*setlog.SetLog{log}); !errors.Is(err, boom) {
+	if err := newRecordSets(t, repo).Execute(context.Background(), testUser, []*setlog.SetLog{log}); !errors.Is(err, boom) {
 		t.Errorf("エラーが伝播していない: %v", err)
 	}
 }
@@ -65,7 +64,7 @@ func TestRecordConditions_SavesItems(t *testing.T) {
 	uc := usecase.NewRecordConditions(repo)
 
 	item := condition.NewDailyCondition(testDate).WithBodyWeight(75).WithSleepHours(7)
-	if err := uc.Execute(context.Background(), account.DefaultUserID(), []condition.DailyCondition{item}); err != nil {
+	if err := uc.Execute(context.Background(), testUser, []condition.DailyCondition{item}); err != nil {
 		t.Fatalf("実行に失敗: %v", err)
 	}
 	if len(repo.saved) != 1 {
@@ -75,7 +74,7 @@ func TestRecordConditions_SavesItems(t *testing.T) {
 
 func TestRecordConditions_EmptyIsNoop(t *testing.T) {
 	repo := &fakeConditions{log: condition.NewConditionLog(nil)}
-	if err := usecase.NewRecordConditions(repo).Execute(context.Background(), account.DefaultUserID(), nil); err != nil {
+	if err := usecase.NewRecordConditions(repo).Execute(context.Background(), testUser, nil); err != nil {
 		t.Errorf("空の保存でエラーになった: %v", err)
 	}
 	if repo.calls != 0 {
@@ -89,7 +88,7 @@ func TestRecordConditions_PropagatesError(t *testing.T) {
 	item := condition.NewDailyCondition(testDate).WithBodyWeight(75)
 
 	err := usecase.NewRecordConditions(repo).Execute(
-		context.Background(), account.DefaultUserID(), []condition.DailyCondition{item})
+		context.Background(), testUser, []condition.DailyCondition{item})
 	if !errors.Is(err, boom) {
 		t.Errorf("エラーが伝播していない: %v", err)
 	}
@@ -108,7 +107,7 @@ func TestRecordSets_RejectsNilEntries(t *testing.T) {
 	}
 
 	err = newRecordSets(t, repo).Execute(
-		context.Background(), account.DefaultUserID(), []*setlog.SetLog{log, nil})
+		context.Background(), testUser, []*setlog.SetLog{log, nil})
 	if !errors.Is(err, apperror.ErrInvalidInput) {
 		t.Errorf("nil が弾かれていない: %v", err)
 	}
@@ -140,7 +139,7 @@ func TestRecordSets_RejectsUnknownExercise(t *testing.T) {
 		t.Fatalf("ログ生成に失敗: %v", err)
 	}
 
-	err = newRecordSets(t, repo).Execute(context.Background(), account.DefaultUserID(), []*setlog.SetLog{log})
+	err = newRecordSets(t, repo).Execute(context.Background(), testUser, []*setlog.SetLog{log})
 	if !errors.Is(err, exercise.ErrExerciseNotFound) {
 		t.Errorf("未知の種目が弾かれていない: %v", err)
 	}
@@ -163,7 +162,7 @@ func TestRecordSets_StopsOnCancelledContext(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	if err := newRecordSets(t, repo).Execute(ctx, account.DefaultUserID(), []*setlog.SetLog{log}); !errors.Is(err, context.Canceled) {
+	if err := newRecordSets(t, repo).Execute(ctx, testUser, []*setlog.SetLog{log}); !errors.Is(err, context.Canceled) {
 		t.Errorf("キャンセルが伝わっていない: %v", err)
 	}
 	if repo.callCount() != 0 {
@@ -177,7 +176,7 @@ func TestRecordConditions_StopsOnCancelledContext(t *testing.T) {
 	cancel()
 
 	item := condition.NewDailyCondition(testDate).WithBodyWeight(75)
-	err := usecase.NewRecordConditions(repo).Execute(ctx, account.DefaultUserID(), []condition.DailyCondition{item})
+	err := usecase.NewRecordConditions(repo).Execute(ctx, testUser, []condition.DailyCondition{item})
 	if !errors.Is(err, context.Canceled) {
 		t.Errorf("キャンセルが伝わっていない: %v", err)
 	}

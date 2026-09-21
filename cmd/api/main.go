@@ -206,6 +206,13 @@ type repositories struct {
 	programs   programStore
 	accounts   accountStore
 	sessions   sessionStore
+	// devUser はインメモリ構成でだけ使う利用者。
+	//
+	// ログインを通さずに画面を動かす経路（開発と、画面の検査スクリプト）の
+	// ために、起動のたびに1人ぶん採番する。**どの UUID かは誰も気にしない。**
+	// 初期プログラムと開発用セッションが同じ人を指していればよい。
+	// Postgres 構成ではゼロ値のまま。
+	devUser account.UserID
 	// ping は保存先に到達できるかを確かめる。インメモリなら常に成功する。
 	ping  func(context.Context) error
 	close func()
@@ -395,8 +402,13 @@ func seedDevSession(ctx context.Context, repos repositories) error {
 	if err != nil {
 		return fmt.Errorf("DEV_SESSION_TOKEN が不正: %w", err)
 	}
+	// ここに来るのはインメモリ構成のときだけなので、利用者は採番済みのはず。
+	// ゼロ値のまま進むと、誰のものでもないセッションができる。
+	if repos.devUser == (account.UserID{}) {
+		return fmt.Errorf("開発用の利用者が採番されていない")
+	}
 	session, err := account.NewSession(
-		token.Hash(), account.DefaultUserID(), time.Now().Add(account.SessionLifetime))
+		token.Hash(), repos.devUser, time.Now().Add(account.SessionLifetime))
 	if err != nil {
 		return fmt.Errorf("開発用セッションを組めない: %w", err)
 	}
@@ -472,13 +484,18 @@ func openRepositories(ctx context.Context, pool []*exercise.Exercise) (repositor
 	url := os.Getenv("DATABASE_URL")
 	if url == "" {
 		slog.Warn("DATABASE_URL が無いのでインメモリで動く。再起動すると記録は消える")
+
+		devUser, err := account.NewRandomUserID()
+		if err != nil {
+			return repositories{}, fmt.Errorf("開発用の利用者を採番できない: %w", err)
+		}
 		programs := memory.NewProgramRepository()
 		// インメモリのときだけ、既定ユーザーに初期プログラムを入れる。
 		// ログインを通さずに画面を動かせる状態を残すため（開発と検査）。
 		// Postgres 側では入れない。初期プログラムを作るのは初回ログインの
 		// 受け入れ（usecase.SignIn）の仕事で、2箇所に置くと「どちらが
 		// 作ったのか」が読めなくなる。
-		if err := seedProgramIfMissing(ctx, programs, pool); err != nil {
+		if err := seedProgramIfMissing(ctx, programs, pool, devUser); err != nil {
 			return repositories{}, err
 		}
 		return repositories{
@@ -488,6 +505,7 @@ func openRepositories(ctx context.Context, pool []*exercise.Exercise) (repositor
 			programs:   programs,
 			accounts:   memory.NewAccountRepository(),
 			sessions:   memory.NewSessionRepository(),
+			devUser:    devUser,
 			ping:       func(context.Context) error { return nil },
 			close:      func() {},
 		}, nil
@@ -529,8 +547,9 @@ func seedProgramIfMissing(
 	ctx context.Context,
 	programs programStore,
 	pool []*exercise.Exercise,
+	user account.UserID,
 ) error {
-	switch _, err := programs.Get(ctx, account.DefaultUserID()); {
+	switch _, err := programs.Get(ctx, user); {
 	case err == nil:
 		return nil
 	case !errors.Is(err, program.ErrProgramNotConfigured):
@@ -541,7 +560,7 @@ func seedProgramIfMissing(
 	if err != nil {
 		return err
 	}
-	if err := programs.Save(ctx, account.DefaultUserID(), prog); err != nil {
+	if err := programs.Save(ctx, user, prog); err != nil {
 		return fmt.Errorf("初期プログラムを保存できない: %w", err)
 	}
 	slog.Info("初期プログラムを保存した", "per_week", prog.Frequency().PerWeek())

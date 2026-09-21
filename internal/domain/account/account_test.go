@@ -70,7 +70,7 @@ func TestProvider_ComparesByValue(t *testing.T) {
 }
 
 func TestNewAccount(t *testing.T) {
-	uid := account.DefaultUserID()
+	uid := testUser
 
 	cases := []struct {
 		name        string

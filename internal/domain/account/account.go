@@ -40,7 +40,7 @@ const (
 
 // GitHub は GitHub でログインしたことを表す Provider を返す。
 //
-// var で公開すると誰でも書き換えられる（DefaultUserID と同じ理由）。
+// var で公開すると誰でも書き換えられる。
 func GitHub() Provider { return Provider{v: providerGitHubText} }
 
 // Google は Google でログインしたことを表す Provider を返す。

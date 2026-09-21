@@ -71,31 +71,3 @@ func isHexDigit(c byte) bool {
 
 // String は UUID の文字列を返す。ゼロ値では空文字になる。
 func (id UserID) String() string { return id.v }
-
-// defaultUserIDText はマイグレーション 0007 が既存の行に埋めた UUID。
-//
-// マルチユーザー化より前の記録には持ち主が無い。誰のものでもない状態を
-// 作らないために、1人分の UUID を決めて全行をそこに寄せている。
-//
-// **この定数は仮の足場である。**OAuth を入れたら、本人のアカウントを
-// この UUID に結ぶ1行を流し（手順は docs/deploy.md）、認証が本物の UserID を
-// 渡すようになる。そうなれば DefaultUserID を呼ぶ場所は無くなるので、
-// このファイルから消す。いま呼んでいるのは認証ミドルウェア
-// （httpapi.RequireBearerToken）と起動時の初期プログラム投入
-// （cmd/api の seedProgramIfMissing）の2箇所だけ。
-const defaultUserIDText = "8d5e743e-f1b0-4430-9998-89d313e89da8"
-
-// DefaultUserID は既定ユーザー。マイグレーション 0007 の既定値と同じ値を返す。
-//
-// 値オブジェクトなので定数にはできない。var で公開すると誰でも書き換えられ、
-// 「既定ユーザーが実行時に変わる」という説明のつかない状態を作れてしまう。
-// 関数にして、返した値の書き換えが呼び手に閉じるようにする。
-func DefaultUserID() UserID {
-	// ここで失敗しうるのは、上の定数を壊したときだけ。壊れたまま
-	// 起動して「誰のものでもない記録」を作るより、その場で落ちるほうがよい。
-	id, err := NewUserID(defaultUserIDText)
-	if err != nil {
-		panic(fmt.Sprintf("既定ユーザーの UUID が不正: %v", err))
-	}
-	return id
-}
