@@ -278,6 +278,45 @@ GitHub のシークレットは40文字。`41` なら改行が混ざっている
 `deploy.yml` がそちらから引く。同じ URL を指す変数が2つあると、片方だけ更新した日に
 コールバックが黙って合わなくなる。
 
+### 2.5 シークレットを読む権限を付ける
+
+**作っただけでは Cloud Run から読めない。**付け忘れるとデプロイの最後で落ちる。
+
+```
+ERROR: (gcloud.run.deploy) Permission denied on secret:
+  .../secrets/liftplan-github-client-secret/versions/latest
+  for Revision service account 385680444543-compute@developer.gserviceaccount.com
+```
+
+```bash
+for s in liftplan-github-client-secret liftplan-google-client-secret; do
+  gcloud secrets add-iam-policy-binding "$s" \
+    --project=liftplan-85309 \
+    --member=serviceAccount:385680444543-compute@developer.gserviceaccount.com \
+    --role=roles/secretmanager.secretAccessor
+done
+```
+
+サービスアカウントは Cloud Run のリビジョンが使うもので、既定では
+`<プロジェクト番号>-compute@developer.gserviceaccount.com`。相手が分からなく
+なったら、既に動いている `DATABASE_URL` のシークレットを見れば分かる。
+
+```bash
+gcloud secrets get-iam-policy liftplan-database-url --project=liftplan-85309
+```
+
+**デプロイを走らせる前に確かめられる。**
+
+```bash
+for s in liftplan-database-url liftplan-github-client-secret liftplan-google-client-secret; do
+  printf '%s: ' "$s"
+  gcloud secrets get-iam-policy "$s" --project=liftplan-85309 \
+    --format='value(bindings.members)' | tr ';' '\n' | grep -c compute@ || echo 0
+done
+```
+
+3本とも `1` なら揃っている。
+
 ### 3. これまでの記録を自分のアカウントに結ぶ
 
 **デプロイしたら、最初にログインする前にこれを流す。**
