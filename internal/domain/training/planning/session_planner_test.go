@@ -609,9 +609,9 @@ func TestSessionPlanner_ResidualCarriesOverWithinTheWeek(t *testing.T) {
 // その日の計画は、その日の始まりに確定する。
 //
 // セッション中に記録を足しながら開き直しても、種目の並びと数が変わらない
-// こと。これが今回の受け入れ条件で、ここが守られていれば「終えた種目が
-// 消える」「並びが入れ替わる」「枠が補充されて終わらない」は原理的に
-// 起きなくなる（D-021・D-087・D-088 はすべてこの1点の派生だった）。
+// こと。これが受け入れ条件で、ここが守られていれば「終えた種目が消える」
+// 「並びが入れ替わる」「枠が補充されて終わらない」は原理的に起きなくなる。
+// かつて別々に手当てしていた不具合は、すべてこの1点の派生だった（D-116）。
 func TestSessionPlanner_PlanIsFixedForTheWholeDay(t *testing.T) {
 	req := planRequest(t)
 	base := planHistory(t)

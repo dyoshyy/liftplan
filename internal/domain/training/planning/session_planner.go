@@ -299,7 +299,7 @@ func (p SessionPlanner) prescribe(
 		return set
 	}
 
-	// 当日の記録は使わない（D-086）。含めると、1セット目を記録した瞬間に
+	// 当日の記録は使わない（D-116）。含めると、1セット目を記録した瞬間に
 	// 推定1RMが動いて2セット目の提示重量が変わる。しかも RIR を守って
 	// きついセットをこなすほど推定が上がるので、**追い込むほど次が重くなる**。
 	// その日にやることは、その日が始まる前に分かっていたことから決める。
@@ -346,9 +346,12 @@ func (p SessionPlanner) planAccessory(
 
 // historyBefore は当日より前の履歴。重量の推定に使う。
 //
-// 週内カバレッジ（D-021）は当日を含めるが、重量の推定は含めない。
-// 前者は「今日どれだけ埋めたか」で当日が本質、後者は「今日いくつで
-// やるか」で、当日の結果が入ると同じセッションの中で目標が動く。
+// 残差も推定も当日を含めない。今日の計画はその日の始まりに確定させると
+// 決めてある（D-116）。当日の結果が入ると、1セット記録するたびに目標も
+// リストも自分の下で動く。
+//
+// 当日を含めるのは画面の「今週の充足」だけで、あれは query 側の別経路。
+// 表示は「今週どれだけやったか」、計画は「今日やると決めたこと」。
 func historyBefore(req PlanRequest) setlog.History {
 	return req.History.Before(req.Date)
 }
@@ -465,7 +468,7 @@ func primaryIn(candidates []*exercise.Exercise, s program.Split) []*exercise.Exe
 // 同じ入力から同じ種目が返る。
 //
 // 渡す履歴は前日まで（historyBefore）。当日を含めると、ジムで1セット記録した
-// 瞬間に「最も古い」が入れ替わり、今日のメニューが自分の下で変わる（D-086）。
+// 瞬間に「最も古い」が入れ替わり、今日のメニューが自分の下で変わる（D-116）。
 func stalest(h setlog.History, candidates []*exercise.Exercise) *exercise.Exercise {
 	var best *exercise.Exercise
 	var bestDate training.Date
@@ -577,7 +580,7 @@ func variationsOf(pool []*exercise.Exercise, focus exercise.ExerciseID) []*exerc
 //
 // 渡す履歴は前日まで。当日を含めると、今日ラーセンを1セット記録して
 // 開き直した瞬間に系統が「最近やった」になり、バリエーションが自分の下で
-// 消える（D-086 系）。
+// 消える（D-116 系）。
 func recentlyPerformed(h setlog.History, family []*exercise.Exercise, date training.Date) bool {
 	inFamily := make(map[exercise.ExerciseID]bool, len(family))
 	for _, e := range family {

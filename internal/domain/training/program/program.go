@@ -158,7 +158,7 @@ func (p *Program) Cycle() []Split {
 // 周期の位置は「これまでの出席回数」で決まる。暦では進めない。
 // 休んだ日に周期が飛ぶと、通っていないのに分割だけが回る。
 //
-// sessionsBefore はその日より前のセッション数。当日は数えない（D-086）。
+// sessionsBefore はその日より前のセッション数。当日は数えない（D-116）。
 func (p *Program) SplitOn(sessionsBefore int) (Split, bool) {
 	if len(p.cycle) == 0 {
 		return Split{}, false

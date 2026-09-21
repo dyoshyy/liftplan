@@ -370,7 +370,7 @@ func TestSessionPlanner_VariationWithoutRecordHasNoWeight(t *testing.T) {
 // 当日バリエーションを記録しても、今日のリストは変わらない。
 //
 // req.History をそのまま使うと、1セット記録した瞬間に系統が「最近やった」に
-// なってバリエーションが自分の下で消える。D-086 系の再発。
+// なってバリエーションが自分の下で消える。D-116 が消した失敗の形そのもの。
 func TestSessionPlanner_TodaysLogDoesNotRemoveTheVariation(t *testing.T) {
 	base := historyWithLastPerformed(t,
 		map[exercise.ExerciseID]int{"bench": -3, "squat": -7, "deadlift": -7})
