@@ -471,20 +471,40 @@ func TestConditionAnalyzer_ZeroDateIsSafe(t *testing.T) {
 // 別のデータ型・別のタイミングで入るので、これは通常の経路。
 func TestNewConditionLog_MergesPartialRecordsOfTheSameDay(t *testing.T) {
 	date := condDate(0)
-	log := condition.NewConditionLog([]condition.DailyCondition{
-		condition.NewDailyCondition(date).WithSleepHours(4),
-		condition.NewDailyCondition(date).WithBodyWeight(75),
-	})
+	sleep := condition.NewDailyCondition(date).WithSleepHours(4)
+	weight := condition.NewDailyCondition(date).WithBodyWeight(75)
 
-	got, ok := log.On(date)
-	if !ok {
-		t.Fatal("記録が取れない")
+	// どちらが先に届くかは日によって違う。Merge は取り込む側のフィールドごとに
+	// 分岐しているので、片方の順序だけでは分岐の半分しか通らない。
+	cases := []struct {
+		name  string
+		items []condition.DailyCondition
+	}{
+		{
+			// 後着の体重を取り込む分岐を通る。
+			name:  "睡眠が先、体重が後",
+			items: []condition.DailyCondition{sleep, weight},
+		},
+		{
+			// 後着の睡眠を取り込む分岐を通る。先に体重計に乗ってから
+			// 睡眠が同期された日に、睡眠が黙って捨てられないこと。
+			name:  "体重が先、睡眠が後",
+			items: []condition.DailyCondition{weight, sleep},
+		},
 	}
-	if h, ok := got.SleepHours(); !ok || h != 4 {
-		t.Errorf("睡眠が消えている: %v %v", h, ok)
-	}
-	if kg, ok := got.BodyWeightKg(); !ok || kg != 75 {
-		t.Errorf("体重が消えている: %v %v", kg, ok)
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			got, ok := condition.NewConditionLog(c.items).On(date)
+			if !ok {
+				t.Fatal("記録が取れない")
+			}
+			if h, ok := got.SleepHours(); !ok || h != 4 {
+				t.Errorf("睡眠が消えている: %v %v", h, ok)
+			}
+			if kg, ok := got.BodyWeightKg(); !ok || kg != 75 {
+				t.Errorf("体重が消えている: %v %v", kg, ok)
+			}
+		})
 	}
 
 	// 同じフィールドが二度来たら後のものを採用する。

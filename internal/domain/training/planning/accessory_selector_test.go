@@ -514,16 +514,42 @@ func TestAccessorySelector_AllowsSecondaryInvolvementOfRecoveringRegions(t *test
 		training.TrapMid: 1.0, training.Biceps: 0.3,
 	})
 
+	calfRaise := mkAccessory(t, "calf_raise", map[training.MuscleRegion]float64{training.Calf: 1.0})
+
+	// 昨日カールをやったので、二頭は回復期間中。
 	h := setlog.NewHistory([]*setlog.SetLog{
 		mkLog(t, "y", 15, "curl", 20, 10, 2),
 	})
 
-	got := s.Select(
-		map[training.MuscleRegion]float64{training.TrapMid: 3},
-		[]*exercise.Exercise{curl, row}, h, today(), nil,
-	)
-	if len(got) != 1 || got[0] != exercise.ExerciseID("row") {
-		t.Errorf("補助的な関与まで避けている: %v", got)
+	cases := []struct {
+		name     string
+		residual map[training.MuscleRegion]float64
+		want     exercise.ExerciseID
+	}{
+		{
+			// 僧帽筋中部を埋めるためのロウ。二頭への 0.3 は巻き添えなので許す。
+			name:     "別の区分を埋める種目が、回復中の区分に副次的に効くのは許す",
+			residual: map[training.MuscleRegion]float64{training.TrapMid: 3},
+			want:     "row",
+		},
+		{
+			// 許すのは巻き添えまで。回復中の二頭そのものを狙いに行くと、
+			// 主働筋の回避をすり抜けるロウ（二頭 0.3）が二頭のために選ばれる。
+			// 回復中の区分を残差から外していなければ、カーフレイズの後に
+			// ロウが足されて2種目になる。
+			name:     "回復中の区分そのものは、副次的に効く種目でも埋めに行かない",
+			residual: map[training.MuscleRegion]float64{training.Biceps: 3, training.Calf: 3},
+			want:     "calf_raise",
+		},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			got := s.Select(c.residual, []*exercise.Exercise{curl, row, calfRaise}, h, today(), nil)
+
+			if len(got) != 1 || got[0] != c.want {
+				t.Errorf("選ばれたのは %v。%v だけのはず", got, c.want)
+			}
+		})
 	}
 }
 
@@ -639,18 +665,42 @@ func TestAccessorySelector_PrefersLeastRecentlyStimulatedRegion(t *testing.T) {
 		mkAccessory(t, "for_biceps", map[training.MuscleRegion]float64{training.Biceps: 1.0}),
 		mkAccessory(t, "for_calf", map[training.MuscleRegion]float64{training.Calf: 1.0}),
 	}
-	// 二頭は3日前、カーフは10日前。残差は二頭の方が大きい。
-	h := setlog.NewHistory([]*setlog.SetLog{
-		mkLog(t, "b", 13, "for_biceps", 20, 10, 2),
-		mkLog(t, "c", 6, "for_calf", 40, 15, 2),
-	})
+	// どのケースも、残差は二頭の方が大きい。日数を見なければ二頭が選ばれる。
+	residual := map[training.MuscleRegion]float64{training.Biceps: 9, training.Calf: 3}
 
-	got := s.Select(
-		map[training.MuscleRegion]float64{training.Biceps: 9, training.Calf: 3},
-		pool, h, today(), nil,
-	)
-	if len(got) != 1 || got[0] != exercise.ExerciseID("for_calf") {
-		t.Errorf("最も長く放置している区分が選ばれていない: %v", got)
+	cases := []struct {
+		name string
+		logs []*setlog.SetLog
+	}{
+		{
+			// 二頭は3日前、カーフは10日前。
+			name: "長く放置している区分を先に埋める",
+			logs: []*setlog.SetLog{
+				mkLog(t, "b", 13, "for_biceps", 20, 10, 2),
+				mkLog(t, "c", 6, "for_calf", 40, 15, 2),
+			},
+		},
+		{
+			// 二頭は15日前と3日前、カーフは10日前。
+			// 「最後に刺激してから」なので二頭は3日で、カーフ（10日）が先。
+			// 古い方の15日で測ると、3日前にやったばかりの二頭が
+			// カーフより放置されていることになって先に選ばれる。
+			name: "同じ区分に記録が複数あれば、最も新しい記録から数える",
+			logs: []*setlog.SetLog{
+				mkLog(t, "b_old", 1, "for_biceps", 20, 10, 2),
+				mkLog(t, "b_new", 13, "for_biceps", 20, 10, 2),
+				mkLog(t, "c", 6, "for_calf", 40, 15, 2),
+			},
+		},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			got := s.Select(residual, pool, setlog.NewHistory(c.logs), today(), nil)
+
+			if len(got) != 1 || got[0] != exercise.ExerciseID("for_calf") {
+				t.Errorf("最も長く放置している区分が選ばれていない: %v", got)
+			}
+		})
 	}
 }
 
