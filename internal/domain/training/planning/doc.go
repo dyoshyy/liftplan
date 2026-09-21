@@ -6,5 +6,5 @@
 // 作れず、StimulusCoverage は残差計算からしか出てこない。
 //
 // ファイル名は役割を表す名詞で終わる（_planner / _selector / _policy /
-// _analyzer / _estimator / _catalog）。それ以外は型で、ファイル名は型に揃える。
+// _analyzer / _estimator）。それ以外は型で、ファイル名は型に揃える。
 package planning
