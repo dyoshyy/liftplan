@@ -10,9 +10,10 @@ import "golang.org/x/oauth2"
 // NewGitHub / NewGoogle の3引数のままで、偽プロバイダも指せる。
 
 // NewGitHubAt は GitHub のプロバイダを、指定したエンドポイントで作る。
-func NewGitHubAt(clientID, clientSecret, redirectURL, authURL, tokenURL, userInfoURL string) *Provider {
+func NewGitHubAt(clientID, clientSecret, redirectURL, authURL, tokenURL, userInfoURL, emailsURL string) *Provider {
 	p := NewGitHub(clientID, clientSecret, redirectURL)
 	overrideEndpoints(p, authURL, tokenURL, userInfoURL)
+	p.emailsURL = emailsURL
 	return p
 }
 
