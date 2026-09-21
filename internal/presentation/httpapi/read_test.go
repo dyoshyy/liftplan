@@ -7,6 +7,12 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/dyoshyy/liftplan/internal/application/query"
+	"github.com/dyoshyy/liftplan/internal/application/usecase"
+	"github.com/dyoshyy/liftplan/internal/domain/training/planning"
+	"github.com/dyoshyy/liftplan/internal/infrastructure/memory"
+	"github.com/dyoshyy/liftplan/internal/presentation/httpapi"
 )
 
 // 種目が日本語で引けること。
@@ -284,6 +290,94 @@ func TestReadEndpoints_DefaultThePeriod(t *testing.T) {
 		if rec := do(t, mux, http.MethodGet, path, ""); rec.Code != http.StatusOK {
 			t.Errorf("%s が既定の期間で引けない: %d body=%s", path, rec.Code, rec.Body.String())
 		}
+	}
+}
+
+// 読み取りの口も、失敗を分類して返すこと。
+//
+// 翻訳（apperror.Classify）は usecase の出口にしか無く、query を通る
+// 読み取りは一時障害も未設定も 500 で返していた（#129）。500 は
+// 「調べるべき障害」として鳴るので、DB が一瞬応えなかっただけで警報が汚れる。
+//
+// TestGetSession_UnavailableIsNot500 は usecase 経由の1本しか見ていない。
+// 分類を消しても 500 で緑になるので、読み取りは読み取りで独立に見る。
+func TestReadEndpoints_ClassifyFailures(t *testing.T) {
+	// 種目マスタに届かないサーバー。読み取りの口はどれも種目を引くので、
+	// 差し替えるのはここ1つで足りる。
+	logs := memory.NewSetLogRepository()
+	conditions := memory.NewConditionRepository()
+	programs := memory.NewProgramRepository()
+	unavailable := authed(t, httpapi.NewHandler(
+		usecase.NewGetSession(unavailableExercises{}, logs, conditions, programs, planning.DefaultSessionPlanner()),
+		usecase.NewRecordSets(logs, unavailableExercises{}),
+		usecase.NewRecordConditions(conditions),
+		usecase.NewConfigureProgram(unavailableExercises{}, programs),
+		usecase.NewSetFocusExercise(programs, programs),
+		usecase.NewSetDeclaredExercises(programs, programs),
+		usecase.NewSetFrequency(programs, programs),
+		usecase.NewSetSelectedExercises(unavailableExercises{}, programs, programs),
+		usecase.NewSetWeeklyTarget(unavailableExercises{}, programs, programs),
+		usecase.NewSetSplitCycle(unavailableExercises{}, programs, programs),
+		usecase.NewGetProgram(programs),
+		usecase.NewDeleteSetLog(logs),
+		query.NewExercises(unavailableExercises{}),
+		query.NewHistory(logs, unavailableExercises{}),
+		query.NewStats(logs, unavailableExercises{}, programs, planning.DefaultOneRepMaxEstimator()),
+	).Routes())
+
+	cases := []struct {
+		name     string
+		mux      http.Handler
+		path     string
+		want     int
+		wantCode string
+	}{
+		{
+			name: "種目一覧は保存先に届かなければ 503",
+			mux:  unavailable, path: "/api/exercises",
+			want: http.StatusServiceUnavailable, wantCode: "UNAVAILABLE",
+		},
+		{
+			name: "履歴は保存先に届かなければ 503",
+			mux:  unavailable, path: "/api/set-logs?from=2026-08-01&to=2026-08-17",
+			want: http.StatusServiceUnavailable, wantCode: "UNAVAILABLE",
+		},
+		{
+			name: "推移は保存先に届かなければ 503",
+			mux:  unavailable, path: "/api/stats?from=2026-08-01&to=2026-08-17",
+			want: http.StatusServiceUnavailable, wantCode: "UNAVAILABLE",
+		},
+		{
+			// 404 ではなく 409。推移と週の達成度はプログラム（選択と週目標）
+			// から導くもので、無いのは「前提が満たされていない」。
+			// セッション導出と同じ側で、404 にするのは取得の対象が
+			// プログラムそのものである GET /api/program だけ（D-042）。
+			name: "推移はプログラムが未設定なら 409",
+			mux:  newServer(t, false), path: "/api/stats?from=2026-08-01&to=2026-08-17",
+			want: http.StatusConflict, wantCode: "NOT_CONFIGURED",
+		},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			rec := do(t, c.mux, http.MethodGet, c.path, "")
+			if rec.Code != c.want {
+				t.Errorf("ステータスが %d。%d のはず: %s", rec.Code, c.want, rec.Body.String())
+			}
+			var body struct {
+				Code string `json:"code"`
+			}
+			if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+				t.Fatalf("応答を解釈できない: %v", err)
+			}
+			if body.Code != c.wantCode {
+				t.Errorf("コードが %q。%q のはず", body.Code, c.wantCode)
+			}
+			// 接続文字列は外に出さない。
+			if strings.Contains(rec.Body.String(), "10.0.0.1") {
+				t.Errorf("接続先が漏れている: %s", rec.Body.String())
+			}
+		})
 	}
 }
 

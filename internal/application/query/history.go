@@ -24,6 +24,7 @@ import (
 	"fmt"
 	"sort"
 
+	"github.com/dyoshyy/liftplan/internal/application/apperror"
 	"github.com/dyoshyy/liftplan/internal/domain/account"
 	"github.com/dyoshyy/liftplan/internal/domain/training"
 	"github.com/dyoshyy/liftplan/internal/domain/training/exercise"
@@ -81,7 +82,10 @@ func NewHistory(
 }
 
 // Days は期間内の実績を、新しい日から順に返す。
-func (q *History) Days(ctx context.Context, user account.UserID, from, to training.Date) ([]Day, error) {
+func (q *History) Days(ctx context.Context, user account.UserID, from, to training.Date) (_ []Day, err error) {
+	// 出口で1度だけ翻訳する。usecase と同じ形。ここを通らない公開メソッドは、
+	// 一時障害を 500 で返す（#129）。
+	defer func() { err = apperror.Classify(err) }()
 	if from.IsZero() || to.IsZero() {
 		return nil, fmt.Errorf("期間が指定されていない")
 	}
@@ -146,7 +150,8 @@ func (q *History) LastPerformances(
 	ctx context.Context,
 	user account.UserID,
 	asOf training.Date,
-) (map[exercise.ExerciseID]LastPerformance, error) {
+) (_ map[exercise.ExerciseID]LastPerformance, err error) {
+	defer func() { err = apperror.Classify(err) }()
 	if asOf.IsZero() {
 		return nil, fmt.Errorf("基準日が指定されていない")
 	}
