@@ -1,0 +1,118 @@
+package memory
+
+import (
+	"context"
+	"fmt"
+	"sync"
+	"time"
+
+	"github.com/dyoshyy/liftplan/internal/domain/account"
+)
+
+// accountKey は (provider, subject) の組。map の鍵にできる形。
+//
+// 文字列を連結した鍵にしないのは、区切り文字を含む subject で
+// 別の組と同じ鍵になりうるため。構造体なら連結の事故が起きない。
+type accountKey struct {
+	provider account.Provider
+	subject  string
+}
+
+// AccountRepository はアカウントを (provider, subject) キーで保持する。
+// 鍵が重複しないことが、Postgres 側の一意制約に対応する。
+type AccountRepository struct {
+	mu    sync.RWMutex
+	byKey map[accountKey]*account.Account
+}
+
+func NewAccountRepository() *AccountRepository {
+	return &AccountRepository{byKey: map[accountKey]*account.Account{}}
+}
+
+// Find は (provider, subject) のアカウントを返す。
+func (r *AccountRepository) Find(
+	_ context.Context, provider account.Provider, subject string,
+) (*account.Account, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	a, ok := r.byKey[accountKey{provider: provider, subject: subject}]
+	if !ok {
+		return nil, fmt.Errorf("%w: %s/%s", account.ErrAccountNotFound, provider, subject)
+	}
+	return a, nil
+}
+
+// Create はアカウントを作る。既にあれば ErrAccountAlreadyExists を返す。
+//
+// 上書きしないのは、上書きすると同じ人の UserID が入れ替わり、
+// これまでの記録が見えなくなるため。
+func (r *AccountRepository) Create(_ context.Context, a *account.Account) error {
+	if a == nil {
+		return fmt.Errorf("アカウントが nil である")
+	}
+
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	key := accountKey{provider: a.Provider(), subject: a.Subject()}
+	if _, ok := r.byKey[key]; ok {
+		return fmt.Errorf("%w: %s/%s",
+			account.ErrAccountAlreadyExists, a.Provider(), a.Subject())
+	}
+	r.byKey[key] = a
+	return nil
+}
+
+// SessionRepository はセッションをトークンのハッシュをキーに保持する。
+type SessionRepository struct {
+	mu     sync.RWMutex
+	byHash map[account.TokenHash]*account.Session
+}
+
+func NewSessionRepository() *SessionRepository {
+	return &SessionRepository{byHash: map[account.TokenHash]*account.Session{}}
+}
+
+// Find は now の時点で有効なセッションを返す。
+//
+// 期限の判定は Session.IsExpired に任せる。ここで now.After(...) と
+// 書き直すと、規則が Postgres 実装と合わせて3箇所になる。
+func (r *SessionRepository) Find(
+	_ context.Context, hash account.TokenHash, now time.Time,
+) (*account.Session, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	s, ok := r.byHash[hash]
+	if !ok || s.IsExpired(now) {
+		return nil, account.ErrSessionNotFound
+	}
+	return s, nil
+}
+
+// Create はセッションを保存する。
+func (r *SessionRepository) Create(_ context.Context, s *account.Session) error {
+	if s == nil {
+		return fmt.Errorf("セッションが nil である")
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.byHash[s.TokenHash()] = s
+	return nil
+}
+
+// Delete はセッションを消す。無いハッシュでも成功として扱う。
+func (r *SessionRepository) Delete(_ context.Context, hash account.TokenHash) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	delete(r.byHash, hash)
+	return nil
+}
+
+var (
+	_ account.AccountReader = (*AccountRepository)(nil)
+	_ account.AccountWriter = (*AccountRepository)(nil)
+	_ account.SessionReader = (*SessionRepository)(nil)
+	_ account.SessionWriter = (*SessionRepository)(nil)
+)
