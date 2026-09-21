@@ -90,7 +90,12 @@ func scanCondition(rows pgx.Rows) (condition.DailyCondition, error) {
 // EXCLUDED が NULL のときに既存値を残す COALESCE が「項目ごとの上書き」。
 func (r *ConditionRepository) Save(
 	ctx context.Context, userID account.UserID, items []condition.DailyCondition,
-) error {
+) (err error) {
+	// 出口で1度だけ包む。return ごとに包むと、経路が増えたときに包み忘れた
+	// 1本だけが 500 で返る。中では wrapUnavailable を呼ばない（文言と
+	// ErrRepositoryUnavailable が二重になる）。
+	defer func() { err = wrapUnavailable(err, "コンディションを保存できない") }()
+
 	if len(items) == 0 {
 		return nil
 	}
@@ -116,7 +121,7 @@ func (r *ConditionRepository) Save(
 
 	tx, err := r.pool.Begin(ctx)
 	if err != nil {
-		return wrapUnavailable(err, "トランザクションを開始できない")
+		return fmt.Errorf("トランザクションを開始できない: %w", err)
 	}
 	defer func() { _ = tx.Rollback(context.WithoutCancel(ctx)) }()
 
@@ -135,7 +140,7 @@ func (r *ConditionRepository) Save(
 			optional(c.BodyWeightKg()), optional(c.SleepHours()))
 	}
 	if err := tx.SendBatch(ctx, batch).Close(); err != nil {
-		return fmt.Errorf("コンディションを保存できない: %w", err)
+		return fmt.Errorf("コンディションを書き込めない: %w", err)
 	}
 
 	if err := tx.Commit(ctx); err != nil {

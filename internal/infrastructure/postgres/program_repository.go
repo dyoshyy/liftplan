@@ -115,7 +115,12 @@ func (r *ProgramRepository) Get(
 // 「1人につき1行」はスキーマが保つ。
 func (r *ProgramRepository) Save(
 	ctx context.Context, userID account.UserID, p *program.Program,
-) error {
+) (err error) {
+	// 出口で1度だけ包む。return ごとに包むと、経路が増えたときに包み忘れた
+	// 1本だけが 500 で返る。中では wrapUnavailable を呼ばない（文言と
+	// ErrRepositoryUnavailable が二重になる）。
+	defer func() { err = wrapUnavailable(err, "プログラムを保存できない") }()
+
 	if p == nil {
 		return fmt.Errorf("プログラムが nil である")
 	}
@@ -170,7 +175,7 @@ func (r *ProgramRepository) Save(
 			split_cycle   = EXCLUDED.split_cycle`,
 		userID.String(), p.Frequency().PerWeek(),
 		rawTarget, rawSelected, rawDeclared, rawFocus, rawCycle); err != nil {
-		return fmt.Errorf("プログラムを保存できない: %w", err)
+		return fmt.Errorf("プログラムを書き込めない: %w", err)
 	}
 	return nil
 }
