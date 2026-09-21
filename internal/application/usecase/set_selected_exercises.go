@@ -34,7 +34,7 @@ func (u *SetSelectedExercises) Execute(ctx context.Context, ids []exercise.Exerc
 	// 包み忘れた1本だけが 500 で返る。
 	defer func() { err = classify(err) }()
 
-	prog, err := u.reader.Get(ctx)
+	prog, err := u.reader.Get(ctx, currentUser())
 	if err != nil {
 		return err
 	}
@@ -56,5 +56,5 @@ func (u *SetSelectedExercises) Execute(ctx context.Context, ids []exercise.Exerc
 		return err
 	}
 
-	return u.writer.Save(ctx, next)
+	return u.writer.Save(ctx, currentUser(), next)
 }

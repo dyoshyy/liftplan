@@ -32,7 +32,7 @@ func (u *RecordConditions) Execute(ctx context.Context, items []condition.DailyC
 		return fmt.Errorf("保存が中断された: %w", err)
 	}
 
-	if err := u.repo.Save(ctx, items); err != nil {
+	if err := u.repo.Save(ctx, currentUser(), items); err != nil {
 		return fmt.Errorf("コンディションの保存に失敗: %w", err)
 	}
 	return nil

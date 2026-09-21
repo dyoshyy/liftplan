@@ -32,7 +32,7 @@ func (u *DeleteSetLog) Execute(ctx context.Context, id setlog.SetLogID) (err err
 	if err := ctx.Err(); err != nil {
 		return fmt.Errorf("取り消しが中断された: %w", err)
 	}
-	if err := u.repo.Delete(ctx, id); err != nil {
+	if err := u.repo.Delete(ctx, currentUser(), id); err != nil {
 		return fmt.Errorf("実績の取り消しに失敗: %w", err)
 	}
 	return nil

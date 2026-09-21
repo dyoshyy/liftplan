@@ -39,7 +39,7 @@ func (u *SetWeeklyTarget) Execute(ctx context.Context, sets map[training.MuscleR
 		return fmt.Errorf("%w: 週目標: %w", apperror.ErrInvalidInput, err)
 	}
 
-	prog, err := u.reader.Get(ctx)
+	prog, err := u.reader.Get(ctx, currentUser())
 	if err != nil {
 		return err
 	}
@@ -61,5 +61,5 @@ func (u *SetWeeklyTarget) Execute(ctx context.Context, sets map[training.MuscleR
 		return err
 	}
 
-	return u.writer.Save(ctx, next)
+	return u.writer.Save(ctx, currentUser(), next)
 }

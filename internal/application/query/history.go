@@ -197,7 +197,7 @@ func (q *History) load(ctx context.Context) (
 		return setlog.History{}, nil, fmt.Errorf("読み取りが中断された: %w", err)
 	}
 
-	h, err := q.logs.FindAll(ctx)
+	h, err := q.logs.FindAll(ctx, currentUser())
 	if err != nil {
 		return setlog.History{}, nil, fmt.Errorf("実績の取得に失敗: %w", err)
 	}

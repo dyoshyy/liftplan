@@ -6,26 +6,29 @@ import (
 	"slices"
 	"testing"
 
+	"github.com/dyoshyy/liftplan/internal/domain/account"
 	"github.com/dyoshyy/liftplan/internal/domain/training/setlog"
 )
 
 // Reader と Writer の両方を満たす最小実装。
 type stubRepo struct{}
 
-func (stubRepo) FindAll(context.Context) (setlog.History, error) {
+func (stubRepo) FindAll(context.Context, account.UserID) (setlog.History, error) {
 	return setlog.NewHistory(nil), nil
 }
-func (stubRepo) Save(context.Context, []*setlog.SetLog) error  { return nil }
-func (stubRepo) Delete(context.Context, setlog.SetLogID) error { return nil }
+func (stubRepo) Save(context.Context, account.UserID, []*setlog.SetLog) error { return nil }
+func (stubRepo) Delete(context.Context, account.UserID, setlog.SetLogID) error {
+	return nil
+}
 
 func TestRepository_KeepsItsShape(t *testing.T) {
 	var r setlog.Reader = stubRepo{}
 	var w setlog.Writer = stubRepo{}
 
 	var (
-		_ func(context.Context) (setlog.History, error) = r.FindAll
-		_ func(context.Context, []*setlog.SetLog) error = w.Save
-		_ func(context.Context, setlog.SetLogID) error  = w.Delete
+		_ func(context.Context, account.UserID) (setlog.History, error) = r.FindAll
+		_ func(context.Context, account.UserID, []*setlog.SetLog) error = w.Save
+		_ func(context.Context, account.UserID, setlog.SetLogID) error  = w.Delete
 	)
 }
 

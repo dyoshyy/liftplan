@@ -76,7 +76,7 @@ func (u *ConfigureProgram) Execute(ctx context.Context, in ConfigureProgramInput
 		return err
 	}
 
-	if err := u.programs.Save(ctx, prog); err != nil {
+	if err := u.programs.Save(ctx, currentUser(), prog); err != nil {
 		return fmt.Errorf("プログラムの保存に失敗: %w", err)
 	}
 	return nil

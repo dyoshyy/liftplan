@@ -70,7 +70,7 @@ func (u *RecordSets) Execute(ctx context.Context, logs []*setlog.SetLog) (err er
 		}
 	}
 
-	if err := u.repo.Save(ctx, logs); err != nil {
+	if err := u.repo.Save(ctx, currentUser(), logs); err != nil {
 		return fmt.Errorf("実績の保存に失敗: %w", err)
 	}
 	return nil

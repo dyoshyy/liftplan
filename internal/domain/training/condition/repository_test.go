@@ -6,24 +6,27 @@ import (
 	"slices"
 	"testing"
 
+	"github.com/dyoshyy/liftplan/internal/domain/account"
 	"github.com/dyoshyy/liftplan/internal/domain/training/condition"
 )
 
 // Reader と Writer の両方を満たす最小実装。
 type stubRepo struct{}
 
-func (stubRepo) FindAll(context.Context) (condition.ConditionLog, error) {
+func (stubRepo) FindAll(context.Context, account.UserID) (condition.ConditionLog, error) {
 	return condition.NewConditionLog(nil), nil
 }
-func (stubRepo) Save(context.Context, []condition.DailyCondition) error { return nil }
+func (stubRepo) Save(context.Context, account.UserID, []condition.DailyCondition) error {
+	return nil
+}
 
 func TestRepository_KeepsItsShape(t *testing.T) {
 	var r condition.Reader = stubRepo{}
 	var w condition.Writer = stubRepo{}
 
 	var (
-		_ func(context.Context) (condition.ConditionLog, error)   = r.FindAll
-		_ func(context.Context, []condition.DailyCondition) error = w.Save
+		_ func(context.Context, account.UserID) (condition.ConditionLog, error)   = r.FindAll
+		_ func(context.Context, account.UserID, []condition.DailyCondition) error = w.Save
 	)
 }
 

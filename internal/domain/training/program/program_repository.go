@@ -2,7 +2,9 @@ package program
 
 import (
 	"context"
+
 	"errors"
+	"github.com/dyoshyy/liftplan/internal/domain/account"
 )
 
 // ErrProgramNotConfigured はユーザーがまだプログラムを設定していないことを表す。
@@ -21,13 +23,17 @@ var ErrProgramNotConfigured = errors.New("プログラムが未設定である")
 // 宣言を Program が持つようになって、集約が自分で守れるようになった（D-117）。
 var ErrNoDeclaredExercise = errors.New("伸ばしたい種目が1つも選ばれていない")
 
+// 所有者は引数で受け取る。理由は setlog.Reader と同じ。
+// まだ設定していない利用者には ErrProgramNotConfigured を返すこと。
+// 他人の設定が見えてはいけない。
+
 // Reader はユーザー設定の取得口。
 //
 // Get は未設定の場合 ErrProgramNotConfigured を返す。(nil, nil) を
 // 返してはならない。呼び出し側が nil を「未設定」と「取得成功」の
 // どちらとも解釈できてしまう。
 type Reader interface {
-	Get(ctx context.Context) (*Program, error)
+	Get(ctx context.Context, userID account.UserID) (*Program, error)
 }
 
 // Writer はユーザー設定の保存口。
@@ -35,5 +41,5 @@ type Reader interface {
 // Save は冪等であること。プログラムはユーザーごとに1つで、
 // 保存は常に全体の置き換えになる。
 type Writer interface {
-	Save(ctx context.Context, p *Program) error
+	Save(ctx context.Context, userID account.UserID, p *Program) error
 }

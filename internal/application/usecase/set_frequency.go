@@ -45,7 +45,7 @@ func (u *SetFrequency) Execute(ctx context.Context, perWeek int) (err error) {
 		return fmt.Errorf("%w: 週目標: %w", apperror.ErrInvalidInput, err)
 	}
 
-	prog, err := u.reader.Get(ctx)
+	prog, err := u.reader.Get(ctx, currentUser())
 	if err != nil {
 		return err
 	}
@@ -58,5 +58,5 @@ func (u *SetFrequency) Execute(ctx context.Context, perWeek int) (err error) {
 	if err := ctx.Err(); err != nil {
 		return fmt.Errorf("頻度の保存が中断された: %w", err)
 	}
-	return u.writer.Save(ctx, next)
+	return u.writer.Save(ctx, currentUser(), next)
 }

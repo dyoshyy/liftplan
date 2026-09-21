@@ -4,6 +4,8 @@ import (
 	"context"
 	"testing"
 
+	"github.com/dyoshyy/liftplan/internal/domain/account"
+
 	"github.com/dyoshyy/liftplan/internal/application/query"
 	"github.com/dyoshyy/liftplan/internal/domain/training"
 	"github.com/dyoshyy/liftplan/internal/domain/training/exercise"
@@ -17,8 +19,10 @@ type stubProgram struct {
 	err  error
 }
 
-func (s *stubProgram) Get(context.Context) (*program.Program, error) { return s.prog, s.err }
-func (s *stubProgram) Save(context.Context, *program.Program) error  { return nil }
+func (s *stubProgram) Get(context.Context, account.UserID) (*program.Program, error) {
+	return s.prog, s.err
+}
+func (s *stubProgram) Save(context.Context, account.UserID, *program.Program) error { return nil }
 
 func newProgram(t *testing.T, sets map[training.MuscleRegion]float64, selected []exercise.ExerciseID) *program.Program {
 	t.Helper()

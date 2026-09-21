@@ -20,6 +20,7 @@ import (
 
 	"github.com/dyoshyy/liftplan/internal/application/query"
 	"github.com/dyoshyy/liftplan/internal/application/usecase"
+	"github.com/dyoshyy/liftplan/internal/domain/account"
 	"github.com/dyoshyy/liftplan/internal/domain/training/seed"
 	"github.com/dyoshyy/liftplan/internal/infrastructure/memory"
 	"github.com/dyoshyy/liftplan/internal/infrastructure/postgres"
@@ -337,15 +338,15 @@ func openRepositories(ctx context.Context, pool []*exercise.Exercise) (repositor
 	url := os.Getenv("DATABASE_URL")
 	if url == "" {
 		slog.Warn("DATABASE_URL が無いのでインメモリで動く。再起動すると記録は消える")
-		prog, err := defaultProgram(pool)
-		if err != nil {
+		programs := memory.NewProgramRepository()
+		if err := seedProgramIfMissing(ctx, programs, pool); err != nil {
 			return repositories{}, err
 		}
 		return repositories{
 			exercises:  exercises,
 			logs:       memory.NewSetLogRepository(),
 			conditions: memory.NewConditionRepository(),
-			programs:   memory.NewProgramRepository(prog),
+			programs:   programs,
 			ping:       func(context.Context) error { return nil },
 			close:      func() {},
 		}, nil
@@ -383,12 +384,16 @@ func openRepositories(ctx context.Context, pool []*exercise.Exercise) (repositor
 //
 // 空のデータベースから始めたユーザーが、PUT /api/program を叩かないと
 // 何も使えない状態を避ける。すでに設定があれば触らない。
+//
+// 入れる先は既定ユーザー。認証がまだ「誰が」を言えないので、起動時に
+// 1人分だけ用意する形は変えていない。利用者ごとに用意する話になるのは、
+// 初回ログインを受け入れるようになってから。
 func seedProgramIfMissing(
 	ctx context.Context,
 	programs programStore,
 	pool []*exercise.Exercise,
 ) error {
-	switch _, err := programs.Get(ctx); {
+	switch _, err := programs.Get(ctx, account.DefaultUserID()); {
 	case err == nil:
 		return nil
 	case !errors.Is(err, program.ErrProgramNotConfigured):
@@ -399,7 +404,7 @@ func seedProgramIfMissing(
 	if err != nil {
 		return err
 	}
-	if err := programs.Save(ctx, prog); err != nil {
+	if err := programs.Save(ctx, account.DefaultUserID(), prog); err != nil {
 		return fmt.Errorf("初期プログラムを保存できない: %w", err)
 	}
 	slog.Info("初期プログラムを保存した", "per_week", prog.Frequency().PerWeek())
