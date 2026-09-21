@@ -1641,9 +1641,9 @@ func TestDecodeError_DoesNotLeakGoTypes(t *testing.T) {
 
 // 元は「画面の殻は認証なしで開ける」ことを検査していた。
 // やめた理由: 画面を Cloudflare Workers に移し、別オリジンから CORS で
-// この API を叩く形にした。バイナリに同居させていたのは
-// docs/plans/07-client.md の判断で、覆した経緯は
-// docs/superpowers/specs/2026-09-07-pwa-client-design.md にある。
+// この API を叩く形にした。バイナリに同居させていた頃の判断を覆した経緯は
+// docs/decisions.md の D-119 と
+// docs/specs/2026-09-07-pwa-client-design.md にある。
 //
 // 「配らなくなった」を検査に残すのは、embed を戻したときに気づくため。
 func TestStatic_ShellIsNoLongerServed(t *testing.T) {

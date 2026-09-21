@@ -3,7 +3,7 @@
 React 19 + TypeScript + Vite + Tailwind CSS v4。Cloudflare Workers から配る。
 API は別オリジン（Cloud Run）にあり、CORS で叩く。
 
-設計は `../docs/superpowers/specs/2026-09-07-pwa-client-design.md`、
+設計は `../docs/specs/2026-09-07-pwa-client-design.md`、
 サーバーと分けた理由は `../docs/decisions.md` の D-119。
 
 ## 動かす

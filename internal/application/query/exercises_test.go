@@ -15,7 +15,7 @@ import (
 //
 // 支配区分（PrimaryRegion）はドメインに作らない。あれは「その種目がどの日に
 // 出るか」を決めるためのもので、分割法と一緒に入れると決めてある
-// （docs/superpowers/specs/2026-09-06-training-goals-design.md）。
+// （docs/specs/2026-09-06-training-goals-design.md）。
 // infrastructure のリポジトリは使わない。application 層のテストが外側の層に
 // 依存すると、architecture_test が依存の向きの違反として弾く。
 // 同じパッケージの history_test.go にある stubExercises を使う。

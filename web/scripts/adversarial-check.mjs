@@ -88,7 +88,7 @@ const record = async (setIndex, weight, reps) => {
   await page.waitForTimeout(900);
 };
 
-// 同期の状態はナビの点に畳まれた（D-128 / PR #78）。見た目の文字ではなく
+// 同期の状態はナビの点に畳まれた（PR #78）。見た目の文字ではなく
 // aria-label を読む。読み上げに出る文言そのものなので、表示を変えても
 // 意味が変わらない限り壊れない。
 const syncLabel = () => page.locator('nav button[aria-label]').first().getAttribute('aria-label');

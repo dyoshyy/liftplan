@@ -8,7 +8,7 @@ Cloud Run（コンテナ）+ Neon（Postgres）。どちらもスケールゼロ
 - **リージョンはシンガポール**（`asia-southeast1`）。Neon に東京が無いので、DB と同居させる。1リクエストで DB を4本叩くため、ユーザーに近づけるより DB に近づけるほうが速い（東京 CR + シンガポール DB は約290ms、シンガポール同居は約74ms）
 - **Neon**: Postgres そのもの。開発中の Docker Postgres と接続文字列の形が同じで、検証したものがそのまま動く
 
-Cloudflare Workers を選ばなかった理由は `docs/plans/06-auth-and-deploy.md` に書いた。要点は、Go の WASM ターゲットで `net` パッケージが使えず pgx が動かないこと。
+Cloudflare Workers を選ばなかった理由は `docs/decisions.md` の D-067 に書いた。要点は、Go の WASM ターゲットで `net` パッケージが使えず pgx が動かないこと。
 
 ## 1. Neon のプロジェクトを作る
 
