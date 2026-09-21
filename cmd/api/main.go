@@ -18,6 +18,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/dyoshyy/liftplan/internal/application/devsim"
 	"github.com/dyoshyy/liftplan/internal/application/query"
 	"github.com/dyoshyy/liftplan/internal/application/usecase"
 	"github.com/dyoshyy/liftplan/internal/domain/account"
@@ -267,6 +268,11 @@ func buildHandler(ctx context.Context) (http.Handler, func(), error) {
 	auth.Register(mux)
 
 	guarded, err := withAuth(ctx, mux, repos)
+	if err != nil {
+		repos.close()
+		return nil, nil, err
+	}
+	guarded, err = withDevSimulation(guarded, pool)
 	if err != nil {
 		repos.close()
 		return nil, nil, err
@@ -565,4 +571,35 @@ func seedProgramIfMissing(
 	}
 	slog.Info("初期プログラムを保存した", "per_week", prog.Frequency().PerWeek())
 	return nil
+}
+
+// devSimulationEnv は開発用シミュレーションを取り付けるかを決める環境変数。
+const devSimulationEnv = "DEV_SIMULATION"
+
+// withDevSimulation は開発用シミュレーションの口を前に置く。
+//
+// 環境変数が "1" のときだけ取り付ける。既定は取り付けない側で、設定漏れが
+// 公開につながらない向きに倒してある（AUTH_TOKEN と逆で、こちらは
+// 「無ければ無い」が安全）。
+//
+// **認証の外側に置く。**捏造した設定で計画を作るだけで、保存先も利用者の
+// 記録も触らない。開発中にトークンを用意させると、画面を1枚開くために
+// 本番の認証の話が要ることになる。
+func withDevSimulation(next http.Handler, pool []*exercise.Exercise) (http.Handler, error) {
+	if os.Getenv(devSimulationEnv) != "1" {
+		return next, nil
+	}
+
+	sim, err := devsim.NewSimulator(pool)
+	if err != nil {
+		return nil, fmt.Errorf("シミュレーションの組み立てに失敗: %w", err)
+	}
+
+	mux := http.NewServeMux()
+	httpapi.NewDevSimulation(sim).Mount(mux)
+	mux.Handle("/", next)
+
+	slog.Warn("開発用シミュレーションを有効にした。本番では外すこと",
+		"path", httpapi.DevSimulatePath)
+	return mux, nil
 }
