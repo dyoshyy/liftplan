@@ -395,39 +395,6 @@ func findExercise(pool []*exercise.Exercise, id exercise.ExerciseID) *exercise.E
 	return nil
 }
 
-// CoverageBetween は期間内に埋めた刺激量を数える。両端を含む。
-//
-// 記録1件を1セットとして数える。SetLog は「確定した実績1セット」なので、
-// 件数がそのままセット数になる。
-//
-// 公開しているのは、週目標の充足を見せる読み取り経路が同じ数え方を
-// 必要とするため。別々に実装すると、画面に出る数字とエンジンが使う数字が
-// ずれる。ずれた瞬間、どちらが正しいのか誰にも分からなくなる。
-func CoverageBetween(h setlog.History, pool []*exercise.Exercise, from, to training.Date) StimulusCoverage {
-	coverage := StimulusCoverage{}
-	one, err := training.NewSetCount(1)
-	if err != nil {
-		return coverage
-	}
-
-	byID := make(map[exercise.ExerciseID]*exercise.Exercise, len(pool))
-	for _, e := range pool {
-		if e == nil {
-			continue
-		}
-		byID[e.ID()] = e
-	}
-
-	for _, l := range h.OnOrAfter(from).OnOrBefore(to).Logs() {
-		e, ok := byID[l.ExerciseID()]
-		if !ok {
-			continue
-		}
-		coverage = coverage.Plus(e.Stimulus(), one)
-	}
-	return coverage
-}
-
 // axis は今日の軸と、その強度を返す。
 //
 // 重点種目の番に来たときだけ一巡する。3レップ相当 → 6レップ相当 → 派生。
