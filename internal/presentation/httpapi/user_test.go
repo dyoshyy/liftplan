@@ -21,7 +21,7 @@ import (
 // 何度やっても通らない。
 func TestRoutes_RefusesRequestWithoutUser(t *testing.T) {
 	routes := buildRoutes(t, true) // ミドルウェアを被せない
-	server := authed(routes)       // 同じリポジトリを認証経由で覗く用
+	server := authed(t, routes)    // 同じリポジトリを認証経由で覗く用
 
 	payload := `{"logs":[` +
 		`{"id":"01J-A","date":"2026-08-17","exercise_id":"bench",` +

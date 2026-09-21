@@ -14,31 +14,104 @@ import (
 	"testing"
 	"time"
 
+	"github.com/dyoshyy/liftplan/internal/application/usecase"
+	"github.com/dyoshyy/liftplan/internal/domain/account"
 	"github.com/dyoshyy/liftplan/internal/domain/training/seed"
+	"github.com/dyoshyy/liftplan/internal/infrastructure/memory"
+	"github.com/dyoshyy/liftplan/internal/infrastructure/postgres"
 	"github.com/dyoshyy/liftplan/internal/presentation/httpapi"
 )
 
-// testAuthToken はテスト用の認証トークン。本番と同じ経路を通すために、
+// testSessionToken はテスト用の認証トークン。本番と同じ経路を通すために、
 // テストでも必ず認証を通す。素通しする抜け道を作ると、認証が壊れても
 // 他のテストが気づかない。
-const testAuthToken = "test-token-0123456789abcdef0123456789ab"
+// testSessionToken は開発用セッションのトークン。
+//
+// account.NewSessionToken が返すのと同じ形（base64url 43文字）でなければ
+// ミドルウェアが引く前に弾く。
+const testSessionToken = "test-token-0123456789abcdef0123456789abcdef"
 
-// authed は認証ヘッダを付けたリクエストを作る。
+// authed は開発用セッションのトークンを付けたリクエストを作る。
 func authed(method, target string, body io.Reader) *http.Request {
+	return authedWith(testSessionToken, method, target, body)
+}
+
+// authedWith は任意のトークンを付けたリクエストを作る。
+//
+// Postgres を使うテストは、開発用セッションが効かない（構造で塞いである）
+// ので、本物のログインを1回通して得たトークンを使う。
+func authedWith(token, method, target string, body io.Reader) *http.Request {
 	r := httptest.NewRequest(method, target, body)
-	r.Header.Set("Authorization", "Bearer "+testAuthToken)
+	r.Header.Set("Authorization", "Bearer "+token)
 	if body != nil {
 		r.Header.Set("Content-Type", "application/json")
 	}
 	return r
 }
 
+// signInAgainst は保存先に対してログインを1回通し、そのトークンを返す。
+//
+// **本物の受け入れ経路（usecase.SignIn）を通す。**セッションだけを
+// 手で差し込むと、初回ログインが初期プログラムを作ることを誰も
+// 確かめないまま、テストだけが通る状態になる。
+func signInAgainst(t *testing.T, url string) string {
+	t.Helper()
+
+	ctx := context.Background()
+	db, err := postgres.Open(ctx, url)
+	if err != nil {
+		t.Fatalf("接続できない: %v", err)
+	}
+	t.Cleanup(db.Close)
+
+	pool, err := seed.Exercises()
+	if err != nil {
+		t.Fatalf("シードが不正: %v", err)
+	}
+	accounts := postgres.NewAccountRepository(db)
+	sessions := postgres.NewSessionRepository(db)
+	programs := postgres.NewProgramRepository(db)
+
+	token, err := usecase.NewSignIn(
+		accounts, accounts, sessions, programs, programs,
+		memory.NewExerciseRepository(pool),
+	).Execute(ctx, account.GitHub(), "tester", time.Now())
+	if err != nil {
+		t.Fatalf("ログインできない: %v", err)
+	}
+	return token.String()
+}
+
 // testAllowedOrigin は画面のオリジン。CORS の許可一覧に入れないと起動しない。
 const testAllowedOrigin = "https://liftplan-web.example.workers.dev"
 
+// setAuthEnv は起動に要る設定を全部入れる。
+//
+// どれか1つでも欠けたら起動しない（buildAuthHandler）。その検査は
+// TestBuildHandler_RefusesToStartWithoutOAuthConfig が1つずつ外して見る。
+//
+// DEV_SESSION_TOKEN を入れるのは、テストが本物の OAuth を通せないため。
+// これはインメモリ構成でしか効かない（seedDevSession）。
+func setAuthEnv(t *testing.T) {
+	t.Helper()
+	for k, v := range map[string]string{
+		"GITHUB_CLIENT_ID":     "github-client",
+		"GITHUB_CLIENT_SECRET": "github-secret",
+		"GOOGLE_CLIENT_ID":     "google-client",
+		"GOOGLE_CLIENT_SECRET": "google-secret",
+		"API_ORIGIN":           "https://liftplan-api.example.run.app",
+		"WEB_ORIGIN":           testAllowedOrigin,
+		"ALLOWED_ORIGINS":      testAllowedOrigin,
+		"DEV_SESSION_TOKEN":    testSessionToken,
+		// 旧い設定が残っていたら起動しない。テストの間は確実に空にする。
+		"AUTH_TOKEN": "",
+	} {
+		t.Setenv(k, v)
+	}
+}
+
 func TestBuildHandler_ServesSession(t *testing.T) {
-	t.Setenv("AUTH_TOKEN", testAuthToken)
-	t.Setenv("ALLOWED_ORIGINS", testAllowedOrigin)
+	setAuthEnv(t)
 	handler, closeRepos, err := buildHandler(context.Background())
 	if err != nil {
 		t.Fatalf("組み立てに失敗: %v", err)
@@ -54,8 +127,7 @@ func TestBuildHandler_ServesSession(t *testing.T) {
 }
 
 func TestBuildHandler_Healthz(t *testing.T) {
-	t.Setenv("AUTH_TOKEN", testAuthToken)
-	t.Setenv("ALLOWED_ORIGINS", testAllowedOrigin)
+	setAuthEnv(t)
 	handler, closeRepos, err := buildHandler(context.Background())
 	if err != nil {
 		t.Fatalf("組み立てに失敗: %v", err)
@@ -71,8 +143,7 @@ func TestBuildHandler_Healthz(t *testing.T) {
 // 初期プログラムでセッションが導出できること。
 // 起動直後に PUT /api/program を叩かないと何も使えない状態を避ける。
 func TestBuildHandler_WorksOutOfTheBox(t *testing.T) {
-	t.Setenv("AUTH_TOKEN", testAuthToken)
-	t.Setenv("ALLOWED_ORIGINS", testAllowedOrigin)
+	setAuthEnv(t)
 	handler, closeRepos, err := buildHandler(context.Background())
 	if err != nil {
 		t.Fatalf("組み立てに失敗: %v", err)
@@ -103,8 +174,7 @@ func TestBuildHandler_WorksOutOfTheBox(t *testing.T) {
 // 実績を記録してから計画を取り直すと重量が確定すること。
 // 層をまたいだ往復がここで初めて通る。
 func TestBuildHandler_RecordThenPlan(t *testing.T) {
-	t.Setenv("AUTH_TOKEN", testAuthToken)
-	t.Setenv("ALLOWED_ORIGINS", testAllowedOrigin)
+	setAuthEnv(t)
 	handler, closeRepos, err := buildHandler(context.Background())
 	if err != nil {
 		t.Fatalf("組み立てに失敗: %v", err)
@@ -333,8 +403,7 @@ func TestRun_WiresTheRequestTimeout(t *testing.T) {
 func TestBuildHandler_FailsFastOnBadSeed(t *testing.T) {
 	// シードが正しいことは他のテストが確かめている。ここでは
 	// 「エラーを握り潰していないか」を型で担保する。
-	t.Setenv("AUTH_TOKEN", testAuthToken)
-	t.Setenv("ALLOWED_ORIGINS", testAllowedOrigin)
+	setAuthEnv(t)
 	handler, closeRepos, err := buildHandler(context.Background())
 	if err != nil {
 		t.Fatalf("シードが正しいのに失敗: %v", err)
@@ -365,9 +434,19 @@ func TestBuildHandler_UsesPostgresWhenConfigured(t *testing.T) {
 	}
 	t.Setenv("DATABASE_URL", url)
 
+	// マイグレーションを流してからログインする必要があるので、
+	// 先に一度組み立てて閉じる。
+	setAuthEnv(t)
+	if _, closeRepos, err := buildHandler(context.Background()); err != nil {
+		t.Fatalf("組み立てに失敗: %v", err)
+	} else {
+		closeRepos()
+	}
+	token := signInAgainst(t, url)
+
 	post := func(t *testing.T, h http.Handler, path, body string) int {
 		t.Helper()
-		r := authed(http.MethodPost, path, strings.NewReader(body))
+		r := authedWith(token, http.MethodPost, path, strings.NewReader(body))
 		rec := httptest.NewRecorder()
 		h.ServeHTTP(rec, r)
 		return rec.Code
@@ -375,7 +454,7 @@ func TestBuildHandler_UsesPostgresWhenConfigured(t *testing.T) {
 	heavyWeight := func(t *testing.T, h http.Handler) *float64 {
 		t.Helper()
 		rec := httptest.NewRecorder()
-		h.ServeHTTP(rec, authed(http.MethodGet, "/api/sessions?date=2026-08-17", nil))
+		h.ServeHTTP(rec, authedWith(token, http.MethodGet, "/api/sessions?date=2026-08-17", nil))
 		if rec.Code != http.StatusOK {
 			t.Fatalf("セッションの取得に失敗: %d body=%s", rec.Code, rec.Body.String())
 		}
@@ -394,8 +473,7 @@ func TestBuildHandler_UsesPostgresWhenConfigured(t *testing.T) {
 		return got.Main[0].WeightKg
 	}
 
-	t.Setenv("AUTH_TOKEN", testAuthToken)
-	t.Setenv("ALLOWED_ORIGINS", testAllowedOrigin)
+	setAuthEnv(t)
 	first, closeFirst, err := buildHandler(context.Background())
 	if err != nil {
 		t.Fatalf("組み立てに失敗: %v", err)
@@ -425,8 +503,7 @@ func TestBuildHandler_UsesPostgresWhenConfigured(t *testing.T) {
 	closeFirst()
 
 	// 組み立て直す＝再起動に相当する。
-	t.Setenv("AUTH_TOKEN", testAuthToken)
-	t.Setenv("ALLOWED_ORIGINS", testAllowedOrigin)
+	setAuthEnv(t)
 	second, closeSecond, err := buildHandler(context.Background())
 	if err != nil {
 		t.Fatalf("2度目の組み立てに失敗: %v", err)
@@ -447,8 +524,7 @@ func TestBuildHandler_UsesPostgresWhenConfigured(t *testing.T) {
 func TestBuildHandler_FallsBackToMemory(t *testing.T) {
 	t.Setenv("DATABASE_URL", "")
 
-	t.Setenv("AUTH_TOKEN", testAuthToken)
-	t.Setenv("ALLOWED_ORIGINS", testAllowedOrigin)
+	setAuthEnv(t)
 	handler, closeRepos, err := buildHandler(context.Background())
 	if err != nil {
 		t.Fatalf("組み立てに失敗: %v", err)
@@ -467,8 +543,7 @@ func TestBuildHandler_FallsBackToMemory(t *testing.T) {
 func TestBuildHandler_FailsFastOnBadDatabaseURL(t *testing.T) {
 	t.Setenv("DATABASE_URL", "postgres://nobody:nobody@127.0.0.1:1/nothing")
 
-	t.Setenv("AUTH_TOKEN", testAuthToken)
-	t.Setenv("ALLOWED_ORIGINS", testAllowedOrigin)
+	setAuthEnv(t)
 	if _, _, err := buildHandler(context.Background()); err == nil {
 		t.Error("到達できない接続先で起動した")
 	}
@@ -512,30 +587,65 @@ func TestHealthz_ReflectsTheRepositoryState(t *testing.T) {
 //
 // 「未設定なら認証しない」にすると、環境変数の設定漏れがそのまま
 // 全公開になる。気づかないまま公開されるより、起動しないほうがよい。
-func TestBuildHandler_RefusesToStartWithoutAToken(t *testing.T) {
-	for name, token := range map[string]string{
-		"未設定":    "",
-		"短すぎる":   "short",
-		"境界の1つ下": strings.Repeat("a", minTokenLength-1),
+// 設定が1つでも欠けていたら起動しないこと。
+//
+// 「設定が無ければログインを無効にする」にすると、ログインできない
+// サーバーが健全なふりをして立ち上がる。気づくのは端末からログインを
+// 試したときで、そのころには本番に出ている（D-069 と同じ理由）。
+func TestBuildHandler_RefusesToStartWithoutOAuthConfig(t *testing.T) {
+	for _, missing := range []string{
+		"GITHUB_CLIENT_ID", "GITHUB_CLIENT_SECRET",
+		"GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET",
+		"API_ORIGIN", "WEB_ORIGIN",
 	} {
-		t.Run(name, func(t *testing.T) {
-			t.Setenv("AUTH_TOKEN", token)
-			t.Setenv("ALLOWED_ORIGINS", testAllowedOrigin)
+		t.Run(missing+" が無い", func(t *testing.T) {
+			setAuthEnv(t)
+			t.Setenv(missing, "")
 			if _, _, err := buildHandler(context.Background()); err == nil {
-				t.Error("トークンが不十分なのに起動した")
+				t.Errorf("%s が未設定なのに起動した", missing)
 			}
 		})
 	}
+}
 
-	t.Run("境界ちょうどなら起動する", func(t *testing.T) {
-		t.Setenv("AUTH_TOKEN", strings.Repeat("a", minTokenLength))
-		t.Setenv("ALLOWED_ORIGINS", testAllowedOrigin)
-		_, closeRepos, err := buildHandler(context.Background())
-		if err != nil {
-			t.Fatalf("十分な長さなのに起動しない: %v", err)
-		}
-		closeRepos()
-	})
+// 旧い AUTH_TOKEN が残っていたら起動しないこと。
+//
+// 黙って無視すると、運用者は「まだトークン認証で動いている」と
+// 思ったまま OAuth で公開される。設定を外させるには止めるのが早い。
+func TestBuildHandler_RefusesStaleAuthToken(t *testing.T) {
+	setAuthEnv(t)
+	t.Setenv("AUTH_TOKEN", "0123456789abcdef0123456789abcdef")
+
+	if _, _, err := buildHandler(context.Background()); err == nil {
+		t.Error("AUTH_TOKEN が残っているのに起動した")
+	}
+}
+
+// 開発用セッションは、保存先が Postgres なら効かないこと。
+//
+// **フラグではなく構造で守る。**「本番では立てない」という運用の約束は
+// 必ず破られる日が来る。インメモリは再起動で記録が消える構成なので、
+// そもそも本番では使えない。
+func TestBuildHandler_IgnoresTheDevSessionWhenPersisted(t *testing.T) {
+	url := os.Getenv("TEST_DATABASE_URL")
+	if url == "" {
+		t.Skip("TEST_DATABASE_URL が未設定のため実行しない（make test-db で回せる）")
+	}
+	setAuthEnv(t)
+	t.Setenv("DATABASE_URL", url)
+
+	handler, closeRepos, err := buildHandler(context.Background())
+	if err != nil {
+		t.Fatalf("組み立てに失敗: %v", err)
+	}
+	t.Cleanup(closeRepos)
+
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, authed(http.MethodGet, "/api/program", nil))
+
+	if rec.Code != http.StatusUnauthorized {
+		t.Errorf("状態が %d。401 のはず（開発用トークンが本番の保存先で通っている）", rec.Code)
+	}
 }
 
 // 許可オリジンが未設定なら起動しないこと。
@@ -545,7 +655,7 @@ func TestBuildHandler_RefusesToStartWithoutAToken(t *testing.T) {
 // 既定で何も許さないほうは「画面が動かない」として静かに出るだけで、
 // 原因に辿り着くまで時間がかかる。起動しないのが一番早く気づく。
 func TestBuildHandler_RefusesToStartWithoutAllowedOrigins(t *testing.T) {
-	t.Setenv("AUTH_TOKEN", testAuthToken)
+	setAuthEnv(t)
 	t.Setenv("ALLOWED_ORIGINS", "")
 	if _, _, err := buildHandler(context.Background()); err == nil {
 		t.Error("許可オリジンが未設定なのに起動した")
@@ -557,8 +667,7 @@ func TestBuildHandler_RefusesToStartWithoutAllowedOrigins(t *testing.T) {
 // ミドルウェアを書いても重ね順を間違えれば、ブラウザからは
 // 原因の分からない 401 になる。配線そのものを検査する。
 func TestBuildHandler_AnswersPreflightWithoutCredentials(t *testing.T) {
-	t.Setenv("AUTH_TOKEN", testAuthToken)
-	t.Setenv("ALLOWED_ORIGINS", testAllowedOrigin)
+	setAuthEnv(t)
 	handler, closeRepos, err := buildHandler(context.Background())
 	if err != nil {
 		t.Fatalf("組み立てに失敗: %v", err)
@@ -582,8 +691,7 @@ func TestBuildHandler_AnswersPreflightWithoutCredentials(t *testing.T) {
 // 組み立てたハンドラが実際に認証を要求すること。
 // ミドルウェアを書いても配線を忘れれば意味がない。
 func TestBuildHandler_RequiresAuthentication(t *testing.T) {
-	t.Setenv("AUTH_TOKEN", testAuthToken)
-	t.Setenv("ALLOWED_ORIGINS", testAllowedOrigin)
+	setAuthEnv(t)
 	handler, closeRepos, err := buildHandler(context.Background())
 	if err != nil {
 		t.Fatalf("組み立てに失敗: %v", err)
@@ -623,8 +731,7 @@ func TestBuildHandler_RequiresAuthentication(t *testing.T) {
 // /healthz の持ち主は cmd だけ（ルータには無い）。被せ忘れると
 // 404 になり、Cloud Run の起動プローブが通らなくなる。
 func TestBuildHandler_ServesHealthCheck(t *testing.T) {
-	t.Setenv("AUTH_TOKEN", testAuthToken)
-	t.Setenv("ALLOWED_ORIGINS", testAllowedOrigin)
+	setAuthEnv(t)
 	handler, closeRepos, err := buildHandler(context.Background())
 	if err != nil {
 		t.Fatalf("組み立てに失敗: %v", err)

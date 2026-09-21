@@ -73,7 +73,8 @@ gcloud run deploy liftplan-server \
   --min-instances=0 \
   --max-instances=2 \
   --cpu=1 --memory=512Mi \
-  --set-secrets=DATABASE_URL=liftplan-database-url:latest,AUTH_TOKEN=liftplan-auth-token:latest \
+  --set-secrets=DATABASE_URL=liftplan-database-url:latest,GITHUB_CLIENT_SECRET=liftplan-github-client-secret:latest,GOOGLE_CLIENT_SECRET=liftplan-google-client-secret:latest \
+  --set-env-vars="ALLOWED_ORIGINS=<画面のオリジン>,WEB_ORIGIN=<画面のオリジン>,API_ORIGIN=<このサービスのURL>,GITHUB_CLIENT_ID=<...>,GOOGLE_CLIENT_ID=<...>" \
   --allow-unauthenticated
 ```
 
@@ -223,3 +224,66 @@ gcloud iam service-accounts add-iam-policy-binding \
 ```bash
 make docker-run
 ```
+
+
+## OAuth に切り替える（一度だけ）
+
+`AUTH_TOKEN` は廃止した。**残っていると起動を拒む**（設定を外させるには止めるのが早い）。
+
+### 1. 認可先を登録する
+
+| | 作る場所 | コールバックURL |
+|---|---|---|
+| GitHub | Settings → Developer settings → OAuth Apps | `<API_ORIGIN>/auth/github/callback` |
+| Google | Google Cloud → APIs & Services → 認証情報 → OAuth クライアントID（ウェブ） | `<API_ORIGIN>/auth/google/callback` |
+
+**1文字でも違うと認可は通らない。**`API_ORIGIN` は Cloud Run が払い出した URL。
+
+### 2. シークレットを置く
+
+クライアントIDは秘密ではないのでリポジトリ変数、シークレットだけ Secret Manager に置く。
+
+```bash
+printf '%s' '<GitHub のシークレット>' | \
+  gcloud secrets create liftplan-github-client-secret --data-file=-
+printf '%s' '<Google のシークレット>' | \
+  gcloud secrets create liftplan-google-client-secret --data-file=-
+
+gh variable set GITHUB_CLIENT_ID --body '<...>'
+gh variable set GOOGLE_CLIENT_ID --body '<...>'
+gh variable set API_ORIGIN --body 'https://liftplan-server-<ハッシュ>.asia-southeast1.run.app'
+gh variable set WEB_ORIGIN --body 'https://liftplan-web.<サブドメイン>.workers.dev'
+```
+
+### 3. これまでの記録を自分のアカウントに結ぶ
+
+**デプロイしたら、最初にログインする前にこれを流す。**
+
+マルチユーザー化より前の記録は、マイグレーション `0007` が既定ユーザー
+`8d5e743e-f1b0-4430-9998-89d313e89da8` に寄せてある。この行を入れておくと、
+初回ログインがその利用者に結びつく。
+
+```sql
+INSERT INTO accounts (provider, subject, user_id)
+VALUES ('github', '<自分の GitHub の数値ID>', '8d5e743e-f1b0-4430-9998-89d313e89da8');
+```
+
+数値IDは `curl -s https://api.github.com/users/<ユーザー名> | jq .id` で取れる
+（`login` ではなく `id`。改名しても変わらないのはこちら）。Google なら
+`provider` を `'google'`、`subject` を userinfo の `sub` にする。
+
+**流す前にログインすると、空の利用者が新しく作られる。**これまでの記録は
+消えないが、そのアカウントからは見えない。そうなったら `accounts` の
+`user_id` を上の UUID に更新すれば戻る（作られたほうの行は消してよい）。
+
+「最初にログインした人が既存の記録を引き継ぐ」にはしていない。デプロイ直後に
+見知らぬ人が先にログインしただけで記録を持っていかれるため。
+
+### 4. 順序
+
+```
+シークレットと変数を置く → サーバーをデプロイ → 上の INSERT を流す
+  → 自分でログインして記録が見えることを確かめる → 画面をデプロイ
+```
+
+画面を先に出すと、ログインボタンの飛び先がまだ無い。
