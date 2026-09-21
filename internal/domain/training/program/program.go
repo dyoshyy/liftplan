@@ -74,25 +74,55 @@ type Program struct {
 	cycle     []Split               // 分割の周期。空なら分割なし（全身法）
 }
 
+// programParams は Program を組み立てる材料。Program と同じ6つを持つ。
+//
+// フィールドを足すときに触るのは、Program とここ、newProgram と params。
+// ほかの With* は触らない。With* がそれぞれ全フィールドを手で並べ直して
+// いたときは、1本でも書き忘れるとコンパイルもテストも通ったまま、その
+// 設定だけが黙って消えた（declared と focus で D-127、cycle で #122）。
+type programParams struct {
+	frequency Frequency
+	target    WeeklyVolumeTarget
+	selected  []exercise.ExerciseID
+	declared  []exercise.ExerciseID
+	focus     exercise.ExerciseID
+	cycle     []Split
+}
+
+// NewProgram は分割なしのプログラムを組み立てる。分割は WithCycle で足す。
 func NewProgram(freq Frequency, target WeeklyVolumeTarget, selected, declared []exercise.ExerciseID, focus exercise.ExerciseID) (*Program, error) {
-	if freq.IsZero() {
+	return newProgram(programParams{
+		frequency: freq,
+		target:    target,
+		selected:  selected,
+		declared:  declared,
+		focus:     focus,
+	})
+}
+
+// newProgram は不変条件を検証して Program を組み立てる。検証はここだけ。
+//
+// スライスは必ず写してから持つ（normalizeExerciseIDs と normalizeCycle が
+// 新しいスライスを作る）。params が中身を写さずに渡せるのはこのため。
+func newProgram(x programParams) (*Program, error) {
+	if x.frequency.IsZero() {
 		return nil, errors.New("週の頻度が設定されていない")
 	}
-	if target.IsEmpty() {
+	if x.target.IsEmpty() {
 		return nil, errors.New("週目標が設定されていない")
 	}
-	if len(selected) == 0 {
+	if len(x.selected) == 0 {
 		return nil, errors.New("使用する種目が1つも選ばれていない")
 	}
-	if len(declared) == 0 {
+	if len(x.declared) == 0 {
 		return nil, ErrNoDeclaredExercise
 	}
 
-	selected, err := normalizeExerciseIDs(selected)
+	selected, err := normalizeExerciseIDs(x.selected)
 	if err != nil {
 		return nil, fmt.Errorf("選択種目が不正: %w", err)
 	}
-	declared, err = normalizeExerciseIDs(declared)
+	declared, err := normalizeExerciseIDs(x.declared)
 	if err != nil {
 		return nil, fmt.Errorf("伸ばしたい種目が不正: %w", err)
 	}
@@ -111,6 +141,7 @@ func NewProgram(freq Frequency, target WeeklyVolumeTarget, selected, declared []
 	//
 	// 空は素通しする。指定なしが正当な既定値で、ここで NewExerciseID に
 	// 渡すと全プログラムが「種目IDが空である」で落ちる。
+	focus := x.focus
 	if focus != "" {
 		id, err := exercise.NewExerciseID(string(focus))
 		if err != nil {
@@ -122,7 +153,41 @@ func NewProgram(freq Frequency, target WeeklyVolumeTarget, selected, declared []
 		focus = id
 	}
 
-	return &Program{frequency: freq, target: target, selected: selected, declared: declared, focus: focus}, nil
+	cycle, err := normalizeCycle(x.cycle)
+	if err != nil {
+		return nil, err
+	}
+
+	return &Program{
+		frequency: x.frequency,
+		target:    x.target,
+		selected:  selected,
+		declared:  declared,
+		focus:     focus,
+		cycle:     cycle,
+	}, nil
+}
+
+// params は全フィールドを写す。写す場所はここだけ。
+//
+// スライスの中身は写さない。newProgram が必ず新しいスライスを作るので、
+// 元の Program と共有されたまま残ることがない。
+func (p *Program) params() programParams {
+	return programParams{
+		frequency: p.frequency,
+		target:    p.target,
+		selected:  p.selected,
+		declared:  p.declared,
+		focus:     p.focus,
+		cycle:     p.cycle,
+	}
+}
+
+// with は「写して、1つだけ変えて、検証する」を行う。With* は全部ここを通る。
+func (p *Program) with(change func(*programParams)) (*Program, error) {
+	x := p.params()
+	change(&x)
+	return newProgram(x)
 }
 
 // WithCycle は分割の周期だけを差し替えた新しいプログラムを返す。
@@ -133,17 +198,7 @@ func NewProgram(freq Frequency, target WeeklyVolumeTarget, selected, declared []
 // 集約が「いま何日目か」を覚える必要がない。覚えると、記録を消した
 // ときに周期だけが進んだままになる。
 func (p *Program) WithCycle(cycle []Split) (*Program, error) {
-	normalized, err := normalizeCycle(cycle)
-	if err != nil {
-		return nil, err
-	}
-	next, err := NewProgram(p.frequency, p.target,
-		p.SelectedExercises(), p.DeclaredExercises(), p.focus)
-	if err != nil {
-		return nil, err
-	}
-	next.cycle = normalized
-	return next, nil
+	return p.with(func(x *programParams) { x.cycle = cycle })
 }
 
 // Cycle は分割の周期。空なら分割なし。
@@ -171,23 +226,13 @@ func (p *Program) SplitOn(sessionsBefore int) (Split, bool) {
 
 // WithFocus は重点種目だけを差し替えた新しいプログラムを返す。元は変えない。
 //
-// 空の ID を渡すと「指定なし」に戻る。NewProgram が空を素通しするので、
+// 空の ID を渡すと「指定なし」に戻る。newProgram が空を素通しするので、
 // 解除のための分岐は要らない。
 //
-// NewProgram に委譲するのは、focus ⊂ declared の検証を2箇所に書かない
+// with に委譲するのは、focus ⊂ declared の検証を2箇所に書かない
 // ため。ここで自前に検査すると、片方だけ直したときに黙ってずれる。
-//
-// cycle は NewProgram が受け取らないので、ここで引き継ぐ。ほかの With* も
-// 同じ。忘れると、重点種目を変えただけで分割が黙って消える（#122）。
-// スライスを写さずに渡してよいのは、WithCycle が正規化して作ったものを
-// 誰も書き換えないから（Cycle は写しを返す）。
 func (p *Program) WithFocus(id exercise.ExerciseID) (*Program, error) {
-	next, err := NewProgram(p.frequency, p.target, p.SelectedExercises(), p.DeclaredExercises(), id)
-	if err != nil {
-		return nil, err
-	}
-	next.cycle = p.cycle
-	return next, nil
+	return p.with(func(x *programParams) { x.focus = id })
 }
 
 // WithDeclared は伸ばしたい種目だけを差し替えた新しいプログラムを返す。
@@ -196,12 +241,7 @@ func (p *Program) WithFocus(id exercise.ExerciseID) (*Program, error) {
 // しない。解除するかどうかは本人が決めることで、宣言を変えた副作用として
 // 重点が消えると、次に画面を開くまで気づけない。
 func (p *Program) WithDeclared(ids []exercise.ExerciseID) (*Program, error) {
-	next, err := NewProgram(p.frequency, p.target, p.SelectedExercises(), ids, p.focus)
-	if err != nil {
-		return nil, err
-	}
-	next.cycle = p.cycle
-	return next, nil
+	return p.with(func(x *programParams) { x.declared = ids })
 }
 
 // WithFrequency は週の頻度と週目標を差し替えた新しいプログラムを返す。
@@ -214,12 +254,10 @@ func (p *Program) WithDeclared(ids []exercise.ExerciseID) (*Program, error) {
 // 対になる週目標をここで計算しないのは、既定値が seed の持ち物だから。
 // 集約が初期データを知ると、プリセットを変えるだけでドメインが動く。
 func (p *Program) WithFrequency(freq Frequency, target WeeklyVolumeTarget) (*Program, error) {
-	next, err := NewProgram(freq, target, p.SelectedExercises(), p.DeclaredExercises(), p.focus)
-	if err != nil {
-		return nil, err
-	}
-	next.cycle = p.cycle
-	return next, nil
+	return p.with(func(x *programParams) {
+		x.frequency = freq
+		x.target = target
+	})
 }
 
 // WithSelected は使う種目だけを差し替えた新しいプログラムを返す。
@@ -231,12 +269,7 @@ func (p *Program) WithFrequency(freq Frequency, target WeeklyVolumeTarget) (*Pro
 // 種目がマスタに実在するかはここでは見ない。集約は種目マスタを持たない。
 // 確認はユースケースの verifySelection が行う。
 func (p *Program) WithSelected(ids []exercise.ExerciseID) (*Program, error) {
-	next, err := NewProgram(p.frequency, p.target, ids, p.DeclaredExercises(), p.focus)
-	if err != nil {
-		return nil, err
-	}
-	next.cycle = p.cycle
-	return next, nil
+	return p.with(func(x *programParams) { x.selected = ids })
 }
 
 // WithTarget は週目標だけを差し替えた新しいプログラムを返す。
@@ -245,12 +278,7 @@ func (p *Program) WithSelected(ids []exercise.ExerciseID) (*Program, error) {
 // 向きが違う。頻度を変えたら供給量が変わるので目標も置き直る一方、
 // 目標を手で動かすのは「供給量はそのままで狙いを変える」ことだから。
 func (p *Program) WithTarget(target WeeklyVolumeTarget) (*Program, error) {
-	next, err := NewProgram(p.frequency, target, p.SelectedExercises(), p.DeclaredExercises(), p.focus)
-	if err != nil {
-		return nil, err
-	}
-	next.cycle = p.cycle
-	return next, nil
+	return p.with(func(x *programParams) { x.target = target })
 }
 
 func (p *Program) Frequency() Frequency             { return p.frequency }
