@@ -576,8 +576,9 @@ func TestPutProgramDeclared_Rejects(t *testing.T) {
 //
 // シードとプリセットだけで踏める。ケーブルクランチの主働は腹直筋（1.0）で、
 // 腹直筋と腹斜筋はどのプリセットのどの日にも入っていない。プリセットは
-// 手で書き写さず GET /api/split-presets から取る。書き写すと、プリセットに
-// 腹を足して踏めなくなったあともこのテストだけが古い周期で赤いまま残る。
+// 手で書き写さず GET /api/split-presets から取る。書き写すと、テストが
+// 自前の周期だけで完結し、プリセットを変えても緑のままになる。取って
+// くれば、プリセットに腹を足した日にここが赤くなり、種目を選び直せる。
 func TestPutProgramDeclared_RejectsExerciseWithoutADay(t *testing.T) {
 	mux := newServer(t, true)
 
