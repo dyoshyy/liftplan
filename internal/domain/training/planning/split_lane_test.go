@@ -378,3 +378,105 @@ func TestSessionPlanner_VariationSurvivesAnEmptyAxis(t *testing.T) {
 		t.Errorf("軸が空でない: %v", got.Main())
 	}
 }
+
+// 分割があれば、重点種目の主働が今日の集合に含まれる日だけバリエーションが出る。
+//
+// 止めないと、型が「今日は脚の日」と言いながらベンチの派生が出る。
+func TestSessionPlanner_VariationStaysInsideTheSplit(t *testing.T) {
+	pool, ids := variationSplitPool(t)
+	lower := mkSplit(t, "下", training.Quad)
+	upper := mkSplit(t, "上", training.ChestMid, training.Lat)
+
+	// ベンチを3日前にやっておく。分割が無いときの軸がスクワットになる。
+	logs := []*setlog.SetLog{
+		mkLogOn(t, "b0", planMonday.AddDays(-3), "bench", 60, 8, 2),
+		mkLogOn(t, "r0", planMonday.AddDays(-2), "row", 60, 8, 2),
+	}
+
+	req := splitRequest(t, variationProgram(t, ids, lower, upper))
+	req.Pool = pool
+	req.History = setlog.NewHistory(logs)
+
+	onLower := mustPlan(t, req)
+	if len(onLower.Main()) != 1 || onLower.Main()[0].ExerciseID() != "squat" {
+		t.Fatalf("前提: 下の日であること: %v", onLower.Main())
+	}
+	if len(onLower.Variation()) != 0 {
+		t.Errorf("下の日にベンチの派生が出ている: %v", onLower.Variation())
+	}
+
+	// 分割が無ければ、同じ状況でも出る。止めているのが分割だと分かる。
+	req.Program = variationProgram(t, ids)
+	noSplit := mustPlan(t, req)
+	if len(noSplit.Main()) != 1 || noSplit.Main()[0].ExerciseID() != "squat" {
+		t.Fatalf("前提: 軸がスクワットであること: %v", noSplit.Main())
+	}
+	if len(noSplit.Variation()) != 1 {
+		t.Errorf("分割なしでバリエーションが出ていない: %v", noSplit.Variation())
+	}
+}
+
+// 重点種目の日にはバリエーションが出ること。止めすぎていないことを見る。
+//
+// 上の日の軸がベンチだとバリエーションは元々出ない（同じ系統が1日に
+// 二度来る）。軸が別の上半身種目になる日を作る。
+func TestSessionPlanner_VariationAppearsOnItsOwnDay(t *testing.T) {
+	pool, ids := variationSplitPool(t)
+	upper := mkSplit(t, "上", training.ChestMid, training.Lat)
+
+	req := splitRequest(t, variationProgram(t, ids, upper))
+	req.Pool = pool
+	// ベンチを3日前、ロウを9日前。軸はロウになる。
+	req.History = setlog.NewHistory([]*setlog.SetLog{
+		mkLogOn(t, "r0", planMonday.AddDays(-9), "row", 60, 8, 2),
+		mkLogOn(t, "b0", planMonday.AddDays(-3), "bench", 60, 8, 2),
+	})
+
+	got := mustPlan(t, req)
+	if len(got.Main()) != 1 || got.Main()[0].ExerciseID() != "row" {
+		t.Fatalf("前提: 軸がロウであること: %v", got.Main())
+	}
+	if len(got.Variation()) != 1 {
+		t.Error("重点種目の日にバリエーションが出ていない")
+	}
+}
+
+// variationSplitPool はバリエーションの検査用に、上半身の宣言を2つ持つ
+// プールと選択IDを返す。
+func variationSplitPool(t *testing.T) ([]*exercise.Exercise, []exercise.ExerciseID) {
+	t.Helper()
+	pool := append(splitPool(t),
+		mainExercise(t, "row", map[training.MuscleRegion]float64{training.Lat: 1.0}),
+		mustExercise(t, exercise.ExerciseParams{
+			ID: "larsen", Name: "larsen",
+			Stimulus:    map[training.MuscleRegion]float64{training.ChestMid: 1.0},
+			IncrementKg: 2.5, DerivedFrom: "bench",
+		}))
+	ids := []exercise.ExerciseID{"bench", "squat", "row", "larsen"}
+	for i := range 6 {
+		ids = append(ids, exercise.ExerciseID(fmt.Sprintf("up_%d", i)),
+			exercise.ExerciseID(fmt.Sprintf("lo_%d", i)))
+	}
+	return pool, ids
+}
+
+// variationProgram は重点をベンチにしたプログラムを返す。
+func variationProgram(t *testing.T, ids []exercise.ExerciseID, cycle ...program.Split) *program.Program {
+	t.Helper()
+	p, err := program.NewProgram(mustFrequency(t, 2),
+		mustTarget(t, map[training.MuscleRegion]float64{
+			training.ChestMid: 24, training.Quad: 24, training.Lat: 18,
+		}),
+		ids, []exercise.ExerciseID{"bench", "squat", "row"}, "bench")
+	if err != nil {
+		t.Fatalf("プログラムの生成に失敗: %v", err)
+	}
+	if len(cycle) == 0 {
+		return p
+	}
+	p, err = p.WithCycle(cycle)
+	if err != nil {
+		t.Fatalf("WithCycle: %v", err)
+	}
+	return p
+}

@@ -167,7 +167,7 @@ func (p SessionPlanner) Plan(req PlanRequest) (PlannedSession, error) {
 
 	variation := make([]PlannedSet, 0, 1)
 	exclude := accessoryExcluded(pool, req.Program)
-	if v := p.variationLift(req, pool, heavy); v != nil {
+	if v := p.variationLift(req, pool, heavy, today, hasSplit); v != nil {
 		vs := p.planVariation(req, estHistory, v, rirBump)
 		variation = append(variation, vs)
 		thisSession = thisSession.Plus(v.Stimulus(), vs.Sets())
@@ -447,15 +447,22 @@ func (p SessionPlanner) activeCount(req PlanRequest) ActiveCount {
 func primaryIn(candidates []*exercise.Exercise, s program.Split) []*exercise.Exercise {
 	out := make([]*exercise.Exercise, 0, len(candidates))
 	for _, e := range candidates {
-		for _, r := range e.Stimulus().Regions() {
-			c, ok := e.Stimulus().Contribution(r)
-			if ok && c.Float() >= primaryContribution && s.Includes(r) {
-				out = append(out, e)
-				break
-			}
+		if isPrimaryIn(e, s) {
+			out = append(out, e)
 		}
 	}
 	return out
+}
+
+// isPrimaryIn はその種目の主働区分が分割に含まれるか。
+func isPrimaryIn(e *exercise.Exercise, s program.Split) bool {
+	for _, r := range e.Stimulus().Regions() {
+		c, ok := e.Stimulus().Contribution(r)
+		if ok && c.Float() >= primaryContribution && s.Includes(r) {
+			return true
+		}
+	}
+	return false
 }
 
 // stalest は候補のうち、最後に実施したのが最も古い種目を返す。候補が空なら nil。
@@ -489,10 +496,28 @@ func stalest(h setlog.History, candidates []*exercise.Exercise) *exercise.Exerci
 //
 // 出さないのは、重点種目が未指定・軸が系統に含まれる・前回やってから十分に日数がアイていない・派生が選択されていない
 // のいずれか。
-func (p SessionPlanner) variationLift(req PlanRequest, pool []*exercise.Exercise, heavy *exercise.Exercise) *exercise.Exercise {
+func (p SessionPlanner) variationLift(
+	req PlanRequest, pool []*exercise.Exercise, heavy *exercise.Exercise,
+	today program.Split, hasSplit bool,
+) *exercise.Exercise {
 	focus, ok := req.Program.FocusExercise()
 	if !ok {
 		return nil
+	}
+
+	// 分割があれば、重点種目の主働が今日の集合に含まれる日だけ出す。
+	//
+	// 止めないと、型が「今日は脚の日」と言いながらベンチの派生が出る。
+	// 型の意味を自分で否定することになる。
+	//
+	// 代償は系統の頻度が下がること。重点ベンチ＋上下2分割なら、上の日の
+	// 数がそのまま上限になる。ベンチを週3回やりたいなら上の日を3つ置く
+	// 周期を組む、が正しい答えで、順序付きの周期ならそれができる。
+	if hasSplit {
+		e := findExercise(pool, focus)
+		if e == nil || !isPrimaryIn(e, today) {
+			return nil
+		}
 	}
 
 	// 今日の軸が重点種目の系統に含まれる場合、バリエーションは出さない。
