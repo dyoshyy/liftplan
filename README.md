@@ -62,7 +62,6 @@ curl -H 'Authorization: Bearer <トークン>' 'http://localhost:8080/api/sessio
 | POST | `/api/set-logs` | 実績ログを保存する（冪等） |
 | POST | `/api/conditions` | 日次コンディションを保存する（冪等） |
 | GET | `/api/program` | プログラム（頻度・週目標・選択種目）を取得する。未設定なら 404 |
-| PUT | `/api/program` | プログラムを設定する（冪等） |
 | GET | `/api/exercises` | 種目マスタ（IDと日本語名） |
 | GET | `/api/set-logs?from=&to=` | 実績と、種目ごとの前回の実績。既定は直近56日 |
 | DELETE | `/api/set-logs/{id}` | 打ち間違いの取り消し |
@@ -107,13 +106,6 @@ curl -X POST http://localhost:8080/api/set-logs \
 保存は全か無か。1件でも不正なら1件も書かない。
 
 ### プログラムの設定
-
-```bash
-curl -X PUT http://localhost:8080/api/program \
-  -H 'Content-Type: application/json' \
-  -d '{"per_week":3,"weekly_target":{"CHEST_MID":14,"QUAD":16},
-       "selected_exercises":["bench","squat","deadlift","incline_db_press"]}'
-```
 
 起動時はシードの初期プログラム（週3回・36種目からバリエーションを除いた全部）が入っているので、設定しなくても使える。
 

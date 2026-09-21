@@ -92,7 +92,6 @@ func buildRoutes(t *testing.T, configured bool) http.Handler {
 		usecase.NewGetSession(exercises, logs, conditions, programs, planning.DefaultSessionPlanner()),
 		usecase.NewRecordSets(logs, exercises),
 		usecase.NewRecordConditions(conditions),
-		usecase.NewConfigureProgram(exercises, programs),
 		usecase.NewSetFocusExercise(programs, programs),
 		usecase.NewSetDeclaredExercises(programs, programs),
 		usecase.NewSetFrequency(programs, programs),
@@ -164,11 +163,18 @@ func TestGetSession_HasThreeLanes(t *testing.T) {
 	mux := newServer(t, true)
 
 	// 重点種目をベンチにする。指定しないとバリエーションレーンは出ない。
-	body := `{"per_week":3,"weekly_target":{"CHEST_MID":10,"QUAD":12},` +
-		`"selected_exercises":["bench","squat","deadlift","larsen_press","tempo_bench"],` +
-		`"declared_exercises":["bench","squat","deadlift"],"focus_exercise":"bench"}`
-	if rec := do(t, mux, http.MethodPut, "/api/program", body); rec.Code != http.StatusNoContent {
-		t.Fatalf("プログラムの保存に失敗: %d body=%s", rec.Code, rec.Body.String())
+	//
+	// 元は全置換の PUT /api/program で1度に組んでいた（#123 で消した）。
+	// 狭い口で同じ状態を組む。頻度と宣言は newServer の既定（週3・BIG3）が
+	// 元の前提と同じなので送らない。
+	for _, step := range []struct{ path, body string }{
+		{"/api/program/target", `{"weekly_target":{"CHEST_MID":10,"QUAD":12}}`},
+		{"/api/program/selected", `{"selected_exercises":["bench","squat","deadlift","larsen_press","tempo_bench"]}`},
+		{"/api/program/focus", `{"focus_exercise":"bench"}`},
+	} {
+		if rec := do(t, mux, http.MethodPut, step.path, step.body); rec.Code != http.StatusNoContent {
+			t.Fatalf("%s の保存に失敗: %d body=%s", step.path, rec.Code, rec.Body.String())
+		}
 	}
 
 	// ベンチを3日前にやって軸を他へ移す。当日と前日は「中1日」の門に
@@ -1071,39 +1077,6 @@ func do(t *testing.T, mux http.Handler, method, path, body string) *httptest.Res
 	return rec
 }
 
-// 入力の不正は 400、I/O の失敗は 500。区別できないと、
-// クライアントは自分の入力を直さずリトライを繰り返す。
-func TestPutProgram_ClassifiesFailures(t *testing.T) {
-	valid := `{"per_week":3,"weekly_target":{"CHEST_MID":12,"QUAD":12},` +
-		`"selected_exercises":["bench","squat","deadlift"],` +
-		`"declared_exercises":["bench","squat","deadlift"]}`
-
-	cases := map[string]struct {
-		body string
-		want int
-	}{
-		"正常":         {valid, http.StatusNoContent},
-		"頻度が範囲外":     {`{"per_week":99,"weekly_target":{"QUAD":12},"selected_exercises":["squat"],"declared_exercises":["squat"]}`, http.StatusBadRequest},
-		"週目標が空":      {`{"per_week":3,"weekly_target":{},"selected_exercises":["squat"],"declared_exercises":["squat"]}`, http.StatusBadRequest},
-		"未知の筋区分":     {`{"per_week":3,"weekly_target":{"膝の皿":8},"selected_exercises":["squat"],"declared_exercises":["squat"]}`, http.StatusBadRequest},
-		"実在しない種目":    {`{"per_week":3,"weekly_target":{"QUAD":12},"selected_exercises":["無い種目"],"declared_exercises":["無い種目"]}`, http.StatusBadRequest},
-		"宣言ゼロ":       {`{"per_week":3,"weekly_target":{"BICEPS":9},"selected_exercises":["barbell_curl"],"declared_exercises":[]}`, http.StatusBadRequest},
-		"宣言が選択にない":   {`{"per_week":3,"weekly_target":{"QUAD":12},"selected_exercises":["squat"],"declared_exercises":["bench"]}`, http.StatusBadRequest},
-		"重点種目が宣言にない": {`{"per_week":3,"weekly_target":{"QUAD":12},"selected_exercises":["squat","bench"],"declared_exercises":["squat"],"focus_exercise":"bench"}`, http.StatusBadRequest},
-		"選択が空":       {`{"per_week":3,"weekly_target":{"QUAD":12},"selected_exercises":[],"declared_exercises":[]}`, http.StatusBadRequest},
-		"JSONが壊れている": {`{`, http.StatusBadRequest},
-		"未知のフィールド":   {`{"per_week":3,"weekly_target":{"QUAD":12},"selected_exercises":["squat"],"declared_exercises":["squat"],"謎":1}`, http.StatusBadRequest},
-	}
-	for name, c := range cases {
-		t.Run(name, func(t *testing.T) {
-			rec := do(t, newServer(t, false), http.MethodPut, "/api/program", c.body)
-			if rec.Code != c.want {
-				t.Errorf("ステータスが誤り: %d（期待 %d）body=%s", rec.Code, c.want, rec.Body.String())
-			}
-		})
-	}
-}
-
 // 保存先に到達できないときは 503。500 と混ぜない。
 //
 // 後で送り直せば通るものを 500 で返すと、待ち行列が「送り直しても無駄」と
@@ -1142,7 +1115,6 @@ func TestGetSession_UnavailableIsNot500(t *testing.T) {
 		usecase.NewGetSession(unavailableExercises{}, logs, conditions, programs, planning.DefaultSessionPlanner()),
 		usecase.NewRecordSets(logs, unavailableExercises{}),
 		usecase.NewRecordConditions(conditions),
-		usecase.NewConfigureProgram(unavailableExercises{}, programs),
 		usecase.NewSetFocusExercise(programs, programs),
 		usecase.NewSetDeclaredExercises(programs, programs),
 		usecase.NewSetFrequency(programs, programs),
@@ -1173,9 +1145,9 @@ func TestGetSession_UnavailableIsNot500(t *testing.T) {
 // 500 のときに内部のエラー文を返さないこと。
 // ドメインのエラーには種目IDや閾値が載っており、外に出す理由がない。
 func TestErrors_DoNotLeakInternals(t *testing.T) {
-	mux := newServer(t, false)
-	rec := do(t, mux, http.MethodPut, "/api/program",
-		`{"per_week":3,"weekly_target":{"QUAD":12},"selected_exercises":["無い種目"],"declared_exercises":["無い種目"]}`)
+	mux := newServer(t, true)
+	rec := do(t, mux, http.MethodPut, "/api/program/selected",
+		`{"selected_exercises":["bench","squat","deadlift","無い種目"]}`)
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("ステータスが誤り: %d", rec.Code)
 	}
@@ -1193,12 +1165,22 @@ func TestProgram_RoundTrips(t *testing.T) {
 		t.Errorf("未設定なのに 404 でない: %d", rec.Code)
 	}
 
-	body := `{"per_week":2,"weekly_target":{"CHEST_MID":12,"QUAD":12},` +
-		`"selected_exercises":["bench","squat","deadlift","incline_db_press"],` +
-		`"declared_exercises":["bench","squat","deadlift"],` +
-		`"focus_exercise":"bench"}`
-	if rec := do(t, mux, http.MethodPut, "/api/program", body); rec.Code != http.StatusNoContent {
-		t.Fatalf("設定に失敗: %d body=%s", rec.Code, rec.Body.String())
+	// 元は全置換の PUT /api/program で1度に設定していた（#123 で消した）。
+	// 未設定から設定する口はもう無い（初期プログラムはサインイン時に入る）
+	// ので、設定済みのサーバーに狭い口を順に当てて同じ状態を組む。
+	//
+	// 頻度が先。WithFrequency は週目標を置き直すので、後にすると
+	// 送った週目標が消える。
+	mux = newServer(t, true)
+	for _, step := range []struct{ path, body string }{
+		{"/api/program/frequency", `{"per_week":2}`},
+		{"/api/program/target", `{"weekly_target":{"CHEST_MID":12,"QUAD":12}}`},
+		{"/api/program/selected", `{"selected_exercises":["bench","squat","deadlift","incline_db_press"]}`},
+		{"/api/program/focus", `{"focus_exercise":"bench"}`},
+	} {
+		if rec := do(t, mux, http.MethodPut, step.path, step.body); rec.Code != http.StatusNoContent {
+			t.Fatalf("%s の設定に失敗: %d body=%s", step.path, rec.Code, rec.Body.String())
+		}
 	}
 
 	rec := do(t, mux, http.MethodGet, "/api/program", "")
@@ -1284,6 +1266,9 @@ func TestRoutes_RejectWrongMethod(t *testing.T) {
 		{http.MethodPut, "/api/set-logs"},
 		{http.MethodGet, "/api/conditions"},
 		{http.MethodPost, "/api/program"},
+		// 全置換の口は消した（#123）。splits を黙って落とすので、
+		// GET の応答をそのまま投げ返すと分割が消えていた。
+		{http.MethodPut, "/api/program"},
 		{http.MethodPost, "/api/program/focus"},
 		{http.MethodPost, "/api/program/declared"},
 		{http.MethodPost, "/api/program/frequency"},
@@ -1347,7 +1332,6 @@ func TestGetSession_InternalErrorDoesNotLeak(t *testing.T) {
 		usecase.NewGetSession(brokenExercises{}, logs, conditions, programs, planning.DefaultSessionPlanner()),
 		usecase.NewRecordSets(logs, brokenExercises{}),
 		usecase.NewRecordConditions(conditions),
-		usecase.NewConfigureProgram(brokenExercises{}, programs),
 		usecase.NewSetFocusExercise(programs, programs),
 		usecase.NewSetDeclaredExercises(programs, programs),
 		usecase.NewSetFrequency(programs, programs),
@@ -1649,7 +1633,6 @@ func TestWrites_StopOnClientDisconnect(t *testing.T) {
 	for name, c := range map[string]struct{ method, path, body string }{
 		"set-logs":   {http.MethodPost, "/api/set-logs", `{"logs":[{"id":"d","date":"2026-08-17","exercise_id":"bench","weight_kg":85,"reps":8,"rir":2}]}`},
 		"conditions": {http.MethodPost, "/api/conditions", `{"conditions":[{"date":"2026-08-17","body_weight_kg":75}]}`},
-		"program":    {http.MethodPut, "/api/program", `{"per_week":3,"weekly_target":{"QUAD":12},"selected_exercises":["squat"],"declared_exercises":["squat"]}`},
 		"focus":      {http.MethodPut, "/api/program/focus", `{"focus_exercise":"bench"}`},
 		"declared":   {http.MethodPut, "/api/program/declared", `{"declared_exercises":["bench"]}`},
 		"frequency":  {http.MethodPut, "/api/program/frequency", `{"per_week":4}`},

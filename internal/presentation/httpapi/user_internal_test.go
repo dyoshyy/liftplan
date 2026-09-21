@@ -96,7 +96,6 @@ func routesForUserTest(t *testing.T) (http.Handler, *memory.ProgramRepository) {
 		usecase.NewGetSession(exercises, logs, conditions, programs, planning.DefaultSessionPlanner()),
 		usecase.NewRecordSets(logs, exercises),
 		usecase.NewRecordConditions(conditions),
-		usecase.NewConfigureProgram(exercises, programs),
 		usecase.NewSetFocusExercise(programs, programs),
 		usecase.NewSetDeclaredExercises(programs, programs),
 		usecase.NewSetFrequency(programs, programs),
