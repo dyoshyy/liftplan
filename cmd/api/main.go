@@ -23,6 +23,7 @@ import (
 	"github.com/dyoshyy/liftplan/internal/domain/account"
 	"github.com/dyoshyy/liftplan/internal/domain/training/seed"
 	"github.com/dyoshyy/liftplan/internal/infrastructure/memory"
+	"github.com/dyoshyy/liftplan/internal/infrastructure/oauth"
 	"github.com/dyoshyy/liftplan/internal/infrastructure/postgres"
 	"github.com/dyoshyy/liftplan/internal/presentation/httpapi"
 
@@ -183,6 +184,16 @@ type programStore interface {
 	program.Writer
 }
 
+type accountStore interface {
+	account.AccountReader
+	account.AccountWriter
+}
+
+type sessionStore interface {
+	account.SessionReader
+	account.SessionWriter
+}
+
 // repositories は差し替えの対象になる口の集まり。
 //
 // この構造体があるのは、インメモリと Postgres の選択を1箇所に閉じるため。
@@ -193,6 +204,8 @@ type repositories struct {
 	logs       setLogStore
 	conditions conditionStore
 	programs   programStore
+	accounts   accountStore
+	sessions   sessionStore
 	// ping は保存先に到達できるかを確かめる。インメモリなら常に成功する。
 	ping  func(context.Context) error
 	close func()
@@ -234,7 +247,19 @@ func buildHandler(ctx context.Context) (http.Handler, func(), error) {
 		query.NewHistory(logs, exercises),
 		query.NewStats(logs, exercises, programs, planning.DefaultOneRepMaxEstimator()),
 	)
-	guarded, err := withAuth(handler.Routes())
+	mux := handler.Routes()
+
+	// /auth をルータに載せる。認証の外側ではなく内側（同じルータ）に
+	// 置くのは、ログアウトが認証を要るため。通す経路は
+	// httpapi.unauthenticatedPaths が1つずつ並べている。
+	auth, err := buildAuthHandler(repos, exercises)
+	if err != nil {
+		repos.close()
+		return nil, nil, err
+	}
+	auth.Register(mux)
+
+	guarded, err := withAuth(ctx, mux, repos)
 	if err != nil {
 		repos.close()
 		return nil, nil, err
@@ -247,28 +272,139 @@ func buildHandler(ctx context.Context) (http.Handler, func(), error) {
 	return withHealthCheck(shared, repos.ping), repos.close, nil
 }
 
-// minTokenLength は認証トークンの最短の長さ。
+// buildAuthHandler は OAuth の経路を組む。
 //
-// 短いトークンは総当たりで破れる。32文字は 128bit 相当を16進で書いた長さで、
-// `openssl rand -hex 16` の出力がちょうどこれになる。
-const minTokenLength = 32
+// 設定が1つでも欠けていたら起動しない。「設定が無ければログインを
+// 無効にする」にすると、ログインできないサーバーが健全なふりをして
+// 立ち上がり、気づくのは端末からログインを試したときになる（D-069 と
+// D-119 が AUTH_TOKEN と ALLOWED_ORIGINS でやっているのと同じ）。
+func buildAuthHandler(repos repositories, exercises exercise.Reader) (*httpapi.AuthHandler, error) {
+	// 旧い設定が残っていたら止める。黙って無視すると、運用者は
+	// 「まだトークン認証で動いている」と思ったまま OAuth で公開される。
+	if os.Getenv("AUTH_TOKEN") != "" {
+		return nil, fmt.Errorf(
+			"AUTH_TOKEN はもう使わない。OAuth に差し替えたので設定から外すこと")
+	}
+
+	apiOrigin, err := requiredEnv("API_ORIGIN",
+		"このサーバー自身のオリジン（例 https://liftplan-api.example.run.app）。"+
+			"認可先に登録したコールバックURLと一致させること")
+	if err != nil {
+		return nil, err
+	}
+	webOrigin, err := requiredEnv("WEB_ORIGIN",
+		"画面のオリジン（例 https://liftplan-web.example.workers.dev）。ログイン後の戻り先")
+	if err != nil {
+		return nil, err
+	}
+
+	providers, err := buildProviders(apiOrigin)
+	if err != nil {
+		return nil, err
+	}
+
+	return httpapi.NewAuthHandler(httpapi.AuthConfig{
+		Providers: providers,
+		SignIn: usecase.NewSignIn(
+			repos.accounts, repos.accounts, repos.sessions,
+			repos.programs, repos.programs, exercises),
+		Sessions:  repos.sessions,
+		WebOrigin: webOrigin,
+		Now:       time.Now,
+	})
+}
+
+// buildProviders は認可先を組む。
+//
+// コールバックURLはここで組み立てる。要求の Host から作らないのは、
+// 前段が付け替えられるヘッダを信じることになるため。認可先に登録した
+// URLと1文字でも違えば認可は通らないので、設定として持つ。
+func buildProviders(apiOrigin string) ([]httpapi.IdentityProvider, error) {
+	githubID, err := requiredEnv("GITHUB_CLIENT_ID", "GitHub の OAuth App のクライアントID")
+	if err != nil {
+		return nil, err
+	}
+	githubSecret, err := requiredEnv("GITHUB_CLIENT_SECRET", "GitHub の OAuth App のシークレット")
+	if err != nil {
+		return nil, err
+	}
+	googleID, err := requiredEnv("GOOGLE_CLIENT_ID", "Google の OAuth クライアントID")
+	if err != nil {
+		return nil, err
+	}
+	googleSecret, err := requiredEnv("GOOGLE_CLIENT_SECRET", "Google の OAuth クライアントシークレット")
+	if err != nil {
+		return nil, err
+	}
+
+	callback := func(provider account.Provider) string {
+		return apiOrigin + "/auth/" + provider.String() + "/callback"
+	}
+	return []httpapi.IdentityProvider{
+		newIdentityProvider(account.GitHub(),
+			oauth.NewGitHub(githubID, githubSecret, callback(account.GitHub()))),
+		newIdentityProvider(account.Google(),
+			oauth.NewGoogle(googleID, googleSecret, callback(account.Google()))),
+	}, nil
+}
+
+// requiredEnv は未設定なら起動を止める。
+func requiredEnv(name, what string) (string, error) {
+	v := os.Getenv(name)
+	if v == "" {
+		return "", fmt.Errorf("%s が設定されていない。%s", name, what)
+	}
+	return v, nil
+}
 
 // withAuth は認証を要求する。
 //
-// トークンが未設定なら起動しない。「未設定なら認証しない」にすると、
-// 環境変数の設定漏れがそのまま全公開になる。起動しないほうが、
-// 気づかないまま公開されるよりずっとよい。
-func withAuth(next http.Handler) (http.Handler, error) {
-	token := os.Getenv("AUTH_TOKEN")
-	switch {
-	case token == "":
-		return nil, fmt.Errorf(
-			"AUTH_TOKEN が設定されていない。`openssl rand -hex 32` などで生成すること")
-	case len(token) < minTokenLength:
-		return nil, fmt.Errorf(
-			"AUTH_TOKEN が短すぎる: %d文字（最低 %d文字）", len(token), minTokenLength)
+// セッションを引いて「誰が」を決める。以前は AUTH_TOKEN 1本を
+// 定数時間で比べていた（D-068/D-069）が、あれは本人かどうかしか
+// 言えず誰かを言えなかった。**差し替えたのはミドルウェア1枚で、
+// 内側の形は変わっていない。**
+func withAuth(ctx context.Context, next http.Handler, repos repositories) (http.Handler, error) {
+	if err := seedDevSession(ctx, repos); err != nil {
+		return nil, err
 	}
-	return httpapi.RequireBearerToken(token)(next), nil
+	return httpapi.RequireSession(repos.sessions, time.Now)(next), nil
+}
+
+// seedDevSession は開発用のセッションを1件だけ入れる。
+//
+// 画面の検査スクリプト（web/scripts/*-check.mjs）は、固定のトークンで
+// ログイン済みの状態を作って画面を動かす。本物の OAuth を通させると、
+// 検査のたびに GitHub の同意画面を人が押すことになり、検査が回らない。
+//
+// **効くのは DATABASE_URL が無いとき（インメモリ）だけ。**フラグで
+// 守ると、そのフラグが本番で立った瞬間に固定トークンで入れる穴になる。
+// インメモリは再起動で記録が消える構成で、そもそも本番では使えない。
+// 「使える状況が構造的に限られている」ほうが、設定の書き間違いで
+// 破られない。
+func seedDevSession(ctx context.Context, repos repositories) error {
+	raw := os.Getenv("DEV_SESSION_TOKEN")
+	if raw == "" {
+		return nil
+	}
+	if os.Getenv("DATABASE_URL") != "" {
+		slog.Warn("DEV_SESSION_TOKEN は DATABASE_URL があるときは無視する")
+		return nil
+	}
+
+	token, err := account.ParseSessionToken(raw)
+	if err != nil {
+		return fmt.Errorf("DEV_SESSION_TOKEN が不正: %w", err)
+	}
+	session, err := account.NewSession(
+		token.Hash(), account.DefaultUserID(), time.Now().Add(account.SessionLifetime))
+	if err != nil {
+		return fmt.Errorf("開発用セッションを組めない: %w", err)
+	}
+	if err := repos.sessions.Create(ctx, session); err != nil {
+		return fmt.Errorf("開発用セッションを保存できない: %w", err)
+	}
+	slog.Warn("開発用セッションを入れた。インメモリ構成でのみ効く")
+	return nil
 }
 
 // withCORS は画面のオリジンからのクロスオリジン要求を許す。
@@ -337,6 +473,11 @@ func openRepositories(ctx context.Context, pool []*exercise.Exercise) (repositor
 	if url == "" {
 		slog.Warn("DATABASE_URL が無いのでインメモリで動く。再起動すると記録は消える")
 		programs := memory.NewProgramRepository()
+		// インメモリのときだけ、既定ユーザーに初期プログラムを入れる。
+		// ログインを通さずに画面を動かせる状態を残すため（開発と検査）。
+		// Postgres 側では入れない。初期プログラムを作るのは初回ログインの
+		// 受け入れ（usecase.SignIn）の仕事で、2箇所に置くと「どちらが
+		// 作ったのか」が読めなくなる。
 		if err := seedProgramIfMissing(ctx, programs, pool); err != nil {
 			return repositories{}, err
 		}
@@ -345,6 +486,8 @@ func openRepositories(ctx context.Context, pool []*exercise.Exercise) (repositor
 			logs:       memory.NewSetLogRepository(),
 			conditions: memory.NewConditionRepository(),
 			programs:   programs,
+			accounts:   memory.NewAccountRepository(),
+			sessions:   memory.NewSessionRepository(),
 			ping:       func(context.Context) error { return nil },
 			close:      func() {},
 		}, nil
@@ -361,18 +504,14 @@ func openRepositories(ctx context.Context, pool []*exercise.Exercise) (repositor
 		return repositories{}, err
 	}
 
-	programs := postgres.NewProgramRepository(db)
-	if err := seedProgramIfMissing(ctx, programs, pool); err != nil {
-		db.Close()
-		return repositories{}, err
-	}
-
 	slog.Info("Postgres に接続した")
 	return repositories{
 		exercises:  exercises,
 		logs:       postgres.NewSetLogRepository(db),
 		conditions: postgres.NewConditionRepository(db),
-		programs:   programs,
+		programs:   postgres.NewProgramRepository(db),
+		accounts:   postgres.NewAccountRepository(db),
+		sessions:   postgres.NewSessionRepository(db),
 		ping:       db.Ping,
 		close:      db.Close,
 	}, nil
@@ -380,12 +519,12 @@ func openRepositories(ctx context.Context, pool []*exercise.Exercise) (repositor
 
 // seedProgramIfMissing は未設定なら初期プログラムを入れる。
 //
-// 空のデータベースから始めたユーザーが、PUT /api/program を叩かないと
-// 何も使えない状態を避ける。すでに設定があれば触らない。
+// **インメモリ構成でしか呼ばない。**ログインを通さずに画面を動かせる
+// 状態を残すためにある（開発と、画面の検査スクリプト）。
 //
-// 入れる先は既定ユーザー。認証がまだ「誰が」を言えないので、起動時に
-// 1人分だけ用意する形は変えていない。利用者ごとに用意する話になるのは、
-// 初回ログインを受け入れるようになってから。
+// Postgres 側では呼ばない。初期プログラムを作るのは初回ログインの
+// 受け入れ（usecase.SignIn）の仕事で、2箇所に置くと「どちらが作ったのか」
+// が読めなくなる。片方だけ直した日に、設定が黙って初期値へ戻る。
 func seedProgramIfMissing(
 	ctx context.Context,
 	programs programStore,
