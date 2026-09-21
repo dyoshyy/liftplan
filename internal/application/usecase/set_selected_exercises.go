@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"github.com/dyoshyy/liftplan/internal/application/apperror"
+	"github.com/dyoshyy/liftplan/internal/domain/account"
 
 	"github.com/dyoshyy/liftplan/internal/domain/training/exercise"
 	"github.com/dyoshyy/liftplan/internal/domain/training/program"
@@ -29,12 +30,12 @@ func NewSetSelectedExercises(
 	return &SetSelectedExercises{exercises: exercises, reader: reader, writer: writer}
 }
 
-func (u *SetSelectedExercises) Execute(ctx context.Context, ids []exercise.ExerciseID) (err error) {
+func (u *SetSelectedExercises) Execute(ctx context.Context, user account.UserID, ids []exercise.ExerciseID) (err error) {
 	// 出口で1度だけ翻訳する。return ごとに書くと、経路が増えたときに
 	// 包み忘れた1本だけが 500 で返る。
 	defer func() { err = classify(err) }()
 
-	prog, err := u.reader.Get(ctx, currentUser())
+	prog, err := u.reader.Get(ctx, user)
 	if err != nil {
 		return err
 	}
@@ -56,5 +57,5 @@ func (u *SetSelectedExercises) Execute(ctx context.Context, ids []exercise.Exerc
 		return err
 	}
 
-	return u.writer.Save(ctx, currentUser(), next)
+	return u.writer.Save(ctx, user, next)
 }

@@ -143,6 +143,10 @@ func invalidInput(message string) error {
 }
 
 func (h *Handler) handleGetSession(w http.ResponseWriter, r *http.Request) {
+	user, ok := requireUser(w, r)
+	if !ok {
+		return
+	}
 	raw := r.URL.Query().Get("date")
 	if raw == "" {
 		writeError(w, http.StatusBadRequest, "date クエリパラメータが必要である")
@@ -154,7 +158,7 @@ func (h *Handler) handleGetSession(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	session, err := h.getSession.Execute(r.Context(), usecase.GetSessionInput{Date: date})
+	session, err := h.getSession.Execute(r.Context(), user, usecase.GetSessionInput{Date: date})
 	if err != nil {
 		respondError(w, err)
 		return
@@ -164,6 +168,10 @@ func (h *Handler) handleGetSession(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) handlePostSetLogs(w http.ResponseWriter, r *http.Request) {
+	user, ok := requireUser(w, r)
+	if !ok {
+		return
+	}
 	var req setLogsRequest
 	if err := decodeJSON(r, &req); err != nil {
 		respondError(w, err)
@@ -197,7 +205,7 @@ func (h *Handler) handlePostSetLogs(w http.ResponseWriter, r *http.Request) {
 		logs = append(logs, log)
 	}
 
-	if err := h.recordSets.Execute(r.Context(), logs); err != nil {
+	if err := h.recordSets.Execute(r.Context(), user, logs); err != nil {
 		respondError(w, err)
 		return
 	}
@@ -205,6 +213,10 @@ func (h *Handler) handlePostSetLogs(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) handlePostConditions(w http.ResponseWriter, r *http.Request) {
+	user, ok := requireUser(w, r)
+	if !ok {
+		return
+	}
 	var req conditionsRequest
 	if err := decodeJSON(r, &req); err != nil {
 		respondError(w, err)
@@ -247,7 +259,7 @@ func (h *Handler) handlePostConditions(w http.ResponseWriter, r *http.Request) {
 		items = append(items, c)
 	}
 
-	if err := h.recordConditions.Execute(r.Context(), items); err != nil {
+	if err := h.recordConditions.Execute(r.Context(), user, items); err != nil {
 		respondError(w, err)
 		return
 	}
@@ -255,7 +267,11 @@ func (h *Handler) handlePostConditions(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) handleGetProgram(w http.ResponseWriter, r *http.Request) {
-	prog, err := h.getProgram.Execute(r.Context())
+	user, ok := requireUser(w, r)
+	if !ok {
+		return
+	}
+	prog, err := h.getProgram.Execute(r.Context(), user)
 	if err != nil {
 		respondError(w, err)
 		return
@@ -264,12 +280,16 @@ func (h *Handler) handleGetProgram(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) handlePutProgram(w http.ResponseWriter, r *http.Request) {
+	user, ok := requireUser(w, r)
+	if !ok {
+		return
+	}
 	var req programDTO
 	if err := decodeJSON(r, &req); err != nil {
 		respondError(w, err)
 		return
 	}
-	if err := h.configureProgram.Execute(r.Context(), req.toInput()); err != nil {
+	if err := h.configureProgram.Execute(r.Context(), user, req.toInput()); err != nil {
 		respondError(w, err)
 		return
 	}
@@ -285,6 +305,10 @@ func (h *Handler) handlePutProgram(w http.ResponseWriter, r *http.Request) {
 // 未設定は 409。GET /api/program の 404 と違い、ここは「前提が満たされて
 // いない」という状態の衝突なので（D-042 の分類）。
 func (h *Handler) handlePutProgramFocus(w http.ResponseWriter, r *http.Request) {
+	user, ok := requireUser(w, r)
+	if !ok {
+		return
+	}
 	var req focusDTO
 	if err := decodeJSON(r, &req); err != nil {
 		respondError(w, err)
@@ -297,7 +321,7 @@ func (h *Handler) handlePutProgramFocus(w http.ResponseWriter, r *http.Request) 
 		focus = exercise.ExerciseID(*req.Focus)
 	}
 
-	if err := h.setFocus.Execute(r.Context(), focus); err != nil {
+	if err := h.setFocus.Execute(r.Context(), user, focus); err != nil {
 		respondError(w, err)
 		return
 	}
@@ -309,6 +333,10 @@ func (h *Handler) handlePutProgramFocus(w http.ResponseWriter, r *http.Request) 
 // 重点種目が新しい宣言から外れる場合は 400。黙って重点を解除すると、
 // 口を分けた意味（他のフィールドを触らない）が自分で崩れる。
 func (h *Handler) handlePutProgramDeclared(w http.ResponseWriter, r *http.Request) {
+	user, ok := requireUser(w, r)
+	if !ok {
+		return
+	}
 	var req declaredDTO
 	if err := decodeJSON(r, &req); err != nil {
 		respondError(w, err)
@@ -320,7 +348,7 @@ func (h *Handler) handlePutProgramDeclared(w http.ResponseWriter, r *http.Reques
 		ids = append(ids, exercise.ExerciseID(id))
 	}
 
-	if err := h.setDeclared.Execute(r.Context(), ids); err != nil {
+	if err := h.setDeclared.Execute(r.Context(), user, ids); err != nil {
 		respondError(w, err)
 		return
 	}
@@ -331,12 +359,16 @@ func (h *Handler) handlePutProgramDeclared(w http.ResponseWriter, r *http.Reques
 // 置き直る。他の口と違って2フィールド動くので、名前を frequency のままに
 // せず応答でも隠さない（GET で両方見える）。
 func (h *Handler) handlePutProgramFrequency(w http.ResponseWriter, r *http.Request) {
+	user, ok := requireUser(w, r)
+	if !ok {
+		return
+	}
 	var req frequencyDTO
 	if err := decodeJSON(r, &req); err != nil {
 		respondError(w, err)
 		return
 	}
-	if err := h.setFrequency.Execute(r.Context(), req.PerWeek); err != nil {
+	if err := h.setFrequency.Execute(r.Context(), user, req.PerWeek); err != nil {
 		respondError(w, err)
 		return
 	}
@@ -348,6 +380,10 @@ func (h *Handler) handlePutProgramFrequency(w http.ResponseWriter, r *http.Reque
 // 伸ばしたい種目が外れる選択は 400。黙って宣言を削ると、軸の顔ぶれが
 // 変わったことに次のセッションまで気づけない。
 func (h *Handler) handlePutProgramSelected(w http.ResponseWriter, r *http.Request) {
+	user, ok := requireUser(w, r)
+	if !ok {
+		return
+	}
 	var req selectedDTO
 	if err := decodeJSON(r, &req); err != nil {
 		respondError(w, err)
@@ -359,7 +395,7 @@ func (h *Handler) handlePutProgramSelected(w http.ResponseWriter, r *http.Reques
 		ids = append(ids, exercise.ExerciseID(id))
 	}
 
-	if err := h.setSelected.Execute(r.Context(), ids); err != nil {
+	if err := h.setSelected.Execute(r.Context(), user, ids); err != nil {
 		respondError(w, err)
 		return
 	}
@@ -368,6 +404,10 @@ func (h *Handler) handlePutProgramSelected(w http.ResponseWriter, r *http.Reques
 
 // handlePutProgramTarget は週目標だけを差し替える。
 func (h *Handler) handlePutProgramTarget(w http.ResponseWriter, r *http.Request) {
+	user, ok := requireUser(w, r)
+	if !ok {
+		return
+	}
 	var req targetDTO
 	if err := decodeJSON(r, &req); err != nil {
 		respondError(w, err)
@@ -379,7 +419,7 @@ func (h *Handler) handlePutProgramTarget(w http.ResponseWriter, r *http.Request)
 		sets[training.MuscleRegion(k)] = v
 	}
 
-	if err := h.setTarget.Execute(r.Context(), sets); err != nil {
+	if err := h.setTarget.Execute(r.Context(), user, sets); err != nil {
 		respondError(w, err)
 		return
 	}
@@ -388,6 +428,10 @@ func (h *Handler) handlePutProgramTarget(w http.ResponseWriter, r *http.Request)
 
 // handlePutProgramSplit は分割の周期を差し替える。空なら分割なし。
 func (h *Handler) handlePutProgramSplit(w http.ResponseWriter, r *http.Request) {
+	user, ok := requireUser(w, r)
+	if !ok {
+		return
+	}
 	var req splitCycleDTO
 	if err := decodeJSON(r, &req); err != nil {
 		respondError(w, err)
@@ -408,7 +452,7 @@ func (h *Handler) handlePutProgramSplit(w http.ResponseWriter, r *http.Request) 
 		cycle = append(cycle, s)
 	}
 
-	if err := h.setSplit.Execute(r.Context(), cycle); err != nil {
+	if err := h.setSplit.Execute(r.Context(), user, cycle); err != nil {
 		respondError(w, err)
 		return
 	}

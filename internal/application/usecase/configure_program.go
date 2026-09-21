@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"github.com/dyoshyy/liftplan/internal/application/apperror"
+	"github.com/dyoshyy/liftplan/internal/domain/account"
 	"sort"
 
 	"github.com/dyoshyy/liftplan/internal/domain/training"
@@ -43,7 +44,7 @@ func NewConfigureProgram(
 	return &ConfigureProgram{exercises: exercises, programs: programs}
 }
 
-func (u *ConfigureProgram) Execute(ctx context.Context, in ConfigureProgramInput) (err error) {
+func (u *ConfigureProgram) Execute(ctx context.Context, user account.UserID, in ConfigureProgramInput) (err error) {
 	// 出口で1度だけ翻訳する。return ごとに書くと、経路が増えたときに
 	// 包み忘れた1本だけが 500 で返る。
 	defer func() { err = classify(err) }()
@@ -76,7 +77,7 @@ func (u *ConfigureProgram) Execute(ctx context.Context, in ConfigureProgramInput
 		return err
 	}
 
-	if err := u.programs.Save(ctx, currentUser(), prog); err != nil {
+	if err := u.programs.Save(ctx, user, prog); err != nil {
 		return fmt.Errorf("プログラムの保存に失敗: %w", err)
 	}
 	return nil

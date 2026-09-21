@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"github.com/dyoshyy/liftplan/internal/application/apperror"
+	"github.com/dyoshyy/liftplan/internal/domain/account"
 
 	"github.com/dyoshyy/liftplan/internal/domain/training/setlog"
 )
@@ -21,7 +22,7 @@ func NewDeleteSetLog(repo setlog.Writer) *DeleteSetLog {
 	return &DeleteSetLog{repo: repo}
 }
 
-func (u *DeleteSetLog) Execute(ctx context.Context, id setlog.SetLogID) (err error) {
+func (u *DeleteSetLog) Execute(ctx context.Context, user account.UserID, id setlog.SetLogID) (err error) {
 	// 出口で1度だけ翻訳する。return ごとに書くと、経路が増えたときに
 	// 包み忘れた1本だけが 500 で返る。
 	defer func() { err = classify(err) }()
@@ -32,7 +33,7 @@ func (u *DeleteSetLog) Execute(ctx context.Context, id setlog.SetLogID) (err err
 	if err := ctx.Err(); err != nil {
 		return fmt.Errorf("取り消しが中断された: %w", err)
 	}
-	if err := u.repo.Delete(ctx, currentUser(), id); err != nil {
+	if err := u.repo.Delete(ctx, user, id); err != nil {
 		return fmt.Errorf("実績の取り消しに失敗: %w", err)
 	}
 	return nil

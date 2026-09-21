@@ -27,7 +27,30 @@ import (
 	"github.com/dyoshyy/liftplan/internal/domain/training/program"
 )
 
+// newServer は認証を通したうえでルータを叩ける形にして返す。
+//
+// 認証ミドルウェアを噛ませるのは、そこが利用者を決める場所だから。
+// 外すと、全てのハンドラテストが「利用者が届いていなくても緑」に
+// なってしまう。ここを通しておけば、届かなくなった瞬間に全部が赤くなる。
 func newServer(t *testing.T, configured bool) http.Handler {
+	t.Helper()
+	return authed(buildRoutes(t, configured))
+}
+
+// authed は各テストに Authorization を書かせずに認証を通す。
+//
+// トークンの検査そのものは auth_test.go が見ている。ここで個々の
+// テストにヘッダを書かせると、検査したいこと（ハンドラの応答）から遠くなる。
+func authed(routes http.Handler) http.Handler {
+	guarded := httpapi.RequireBearerToken(testToken)(routes)
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		r.Header.Set("Authorization", "Bearer "+testToken)
+		guarded.ServeHTTP(w, r)
+	})
+}
+
+// buildRoutes はミドルウェアを被せる前の生のルータを返す。
+func buildRoutes(t *testing.T, configured bool) http.Handler {
 	t.Helper()
 
 	pool, err := seed.Exercises()
@@ -1089,7 +1112,7 @@ func TestGetSession_UnavailableIsNot500(t *testing.T) {
 
 	logs := memory.NewSetLogRepository()
 	conditions := memory.NewConditionRepository()
-	mux := httpapi.NewHandler(
+	var mux http.Handler = httpapi.NewHandler(
 		usecase.NewGetSession(unavailableExercises{}, logs, conditions, programs, planning.DefaultSessionPlanner()),
 		usecase.NewRecordSets(logs, unavailableExercises{}),
 		usecase.NewRecordConditions(conditions),
@@ -1106,6 +1129,10 @@ func TestGetSession_UnavailableIsNot500(t *testing.T) {
 		query.NewHistory(logs, unavailableExercises{}),
 		query.NewStats(logs, unavailableExercises{}, programs, planning.DefaultOneRepMaxEstimator()),
 	).Routes()
+	// 認証を通す。利用者を決めるのはミドルウェアなので、
+	// 生のルータを叩くと「利用者が無い」で 500 になり、
+	// ここで見たい分類が見えない。
+	mux = authed(mux)
 
 	rec := do(t, mux, http.MethodGet, "/api/sessions?date=2026-08-17", "")
 	if rec.Code != http.StatusServiceUnavailable {
@@ -1290,7 +1317,7 @@ func TestGetSession_InternalErrorDoesNotLeak(t *testing.T) {
 	logs := memory.NewSetLogRepository()
 	conditions := memory.NewConditionRepository()
 
-	mux := httpapi.NewHandler(
+	var mux http.Handler = httpapi.NewHandler(
 		usecase.NewGetSession(brokenExercises{}, logs, conditions, programs, planning.DefaultSessionPlanner()),
 		usecase.NewRecordSets(logs, brokenExercises{}),
 		usecase.NewRecordConditions(conditions),
@@ -1307,6 +1334,10 @@ func TestGetSession_InternalErrorDoesNotLeak(t *testing.T) {
 		query.NewHistory(logs, brokenExercises{}),
 		query.NewStats(logs, brokenExercises{}, programs, planning.DefaultOneRepMaxEstimator()),
 	).Routes()
+	// 認証を通す。利用者を決めるのはミドルウェアなので、
+	// 生のルータを叩くと「利用者が無い」で 500 になり、
+	// ここで見たい分類が見えない。
+	mux = authed(mux)
 
 	rec := do(t, mux, http.MethodGet, "/api/sessions?date=2026-08-17", "")
 	if rec.Code != http.StatusInternalServerError {
