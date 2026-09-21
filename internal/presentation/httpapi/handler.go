@@ -132,7 +132,7 @@ const clientClosedRequest = 499
 //
 // 見るのは apperror.Error 1つだけ。ドメインのセンチネルをここで並べると、
 // センチネルを足すたびに presentation が動き、拾い漏らした分類が黙って
-// 500 になる。翻訳はユースケース層の classify が持つ。
+// 500 になる。翻訳は apperror.Classify が持つ。
 //
 // context の2つだけは別扱い。ユースケースを通らずに決まる転送層の事情で、
 // 応答の形も違う（切断はボディを返さない）。

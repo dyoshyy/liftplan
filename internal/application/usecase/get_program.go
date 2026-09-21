@@ -26,7 +26,7 @@ func NewGetProgram(programs program.Reader) *GetProgram {
 func (u *GetProgram) Execute(ctx context.Context, user account.UserID) (_ *program.Program, err error) {
 	// 出口で1度だけ翻訳する。return ごとに書くと、経路が増えたときに
 	// 包み忘れた1本だけが 500 で返る。
-	defer func() { err = classify(err) }()
+	defer func() { err = apperror.Classify(err) }()
 
 	if err := ctx.Err(); err != nil {
 		return nil, fmt.Errorf("プログラムの取得が中断された: %w", err)

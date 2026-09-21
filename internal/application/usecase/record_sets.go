@@ -32,7 +32,7 @@ func NewRecordSets(
 func (u *RecordSets) Execute(ctx context.Context, user account.UserID, logs []*setlog.SetLog) (err error) {
 	// 出口で1度だけ翻訳する。return ごとに書くと、経路が増えたときに
 	// 包み忘れた1本だけが 500 で返る。
-	defer func() { err = classify(err) }()
+	defer func() { err = apperror.Classify(err) }()
 
 	// 空は成功として扱う。クライアントは同期のたびに送ってくるので、
 	// 送るものが無い回に I/O を起こす理由がない。「空を送ってきた」ことを

@@ -32,7 +32,7 @@ func NewSetSplitCycle(
 }
 
 func (u *SetSplitCycle) Execute(ctx context.Context, user account.UserID, cycle []program.Split) (err error) {
-	defer func() { err = classify(err) }()
+	defer func() { err = apperror.Classify(err) }()
 
 	prog, err := u.reader.Get(ctx, user)
 	if err != nil {
