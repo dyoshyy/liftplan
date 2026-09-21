@@ -238,22 +238,26 @@ func buildHandler(ctx context.Context) (http.Handler, func(), error) {
 
 	planner := planning.DefaultSessionPlanner()
 
-	handler := httpapi.NewHandler(
-		usecase.NewGetSession(exercises, logs, conditions, programs, planner),
-		usecase.NewRecordSets(logs, exercises),
-		usecase.NewRecordConditions(conditions),
-		usecase.NewSetFocusExercise(programs, programs),
-		usecase.NewSetDeclaredExercises(programs, programs),
-		usecase.NewSetFrequency(programs, programs),
-		usecase.NewSetSelectedExercises(exercises, programs, programs),
-		usecase.NewSetWeeklyTarget(exercises, programs, programs),
-		usecase.NewSetSplitCycle(exercises, programs, programs),
-		usecase.NewGetProgram(programs),
-		usecase.NewDeleteSetLog(logs),
-		query.NewExercises(exercises),
-		query.NewHistory(logs, exercises),
-		query.NewStats(logs, exercises, programs, planning.DefaultOneRepMaxEstimator()),
-	)
+	handler, err := httpapi.NewHandler(httpapi.Dependencies{
+		GetSession:       usecase.NewGetSession(exercises, logs, conditions, programs, planner),
+		RecordSets:       usecase.NewRecordSets(logs, exercises),
+		RecordConditions: usecase.NewRecordConditions(conditions),
+		SetFocus:         usecase.NewSetFocusExercise(programs, programs),
+		SetDeclared:      usecase.NewSetDeclaredExercises(programs, programs),
+		SetFrequency:     usecase.NewSetFrequency(programs, programs),
+		SetSelected:      usecase.NewSetSelectedExercises(exercises, programs, programs),
+		SetTarget:        usecase.NewSetWeeklyTarget(exercises, programs, programs),
+		SetSplit:         usecase.NewSetSplitCycle(exercises, programs, programs),
+		GetProgram:       usecase.NewGetProgram(programs),
+		DeleteSetLog:     usecase.NewDeleteSetLog(logs),
+		Exercises:        query.NewExercises(exercises),
+		History:          query.NewHistory(logs, exercises),
+		Stats:            query.NewStats(logs, exercises, programs, planning.DefaultOneRepMaxEstimator()),
+	})
+	if err != nil {
+		repos.close()
+		return nil, nil, err
+	}
 	mux := handler.Routes()
 
 	// /auth をルータに載せる。認証の外側ではなく内側（同じルータ）に

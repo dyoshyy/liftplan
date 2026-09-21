@@ -92,22 +92,25 @@ func routesForUserTest(t *testing.T) (http.Handler, *memory.ProgramRepository) {
 	conditions := memory.NewConditionRepository()
 	programs := memory.NewProgramRepository()
 
-	h := NewHandler(
-		usecase.NewGetSession(exercises, logs, conditions, programs, planning.DefaultSessionPlanner()),
-		usecase.NewRecordSets(logs, exercises),
-		usecase.NewRecordConditions(conditions),
-		usecase.NewSetFocusExercise(programs, programs),
-		usecase.NewSetDeclaredExercises(programs, programs),
-		usecase.NewSetFrequency(programs, programs),
-		usecase.NewSetSelectedExercises(exercises, programs, programs),
-		usecase.NewSetWeeklyTarget(exercises, programs, programs),
-		usecase.NewSetSplitCycle(exercises, programs, programs),
-		usecase.NewGetProgram(programs),
-		usecase.NewDeleteSetLog(logs),
-		query.NewExercises(exercises),
-		query.NewHistory(logs, exercises),
-		query.NewStats(logs, exercises, programs, planning.DefaultOneRepMaxEstimator()),
-	)
+	h, err := NewHandler(Dependencies{
+		GetSession:       usecase.NewGetSession(exercises, logs, conditions, programs, planning.DefaultSessionPlanner()),
+		RecordSets:       usecase.NewRecordSets(logs, exercises),
+		RecordConditions: usecase.NewRecordConditions(conditions),
+		SetFocus:         usecase.NewSetFocusExercise(programs, programs),
+		SetDeclared:      usecase.NewSetDeclaredExercises(programs, programs),
+		SetFrequency:     usecase.NewSetFrequency(programs, programs),
+		SetSelected:      usecase.NewSetSelectedExercises(exercises, programs, programs),
+		SetTarget:        usecase.NewSetWeeklyTarget(exercises, programs, programs),
+		SetSplit:         usecase.NewSetSplitCycle(exercises, programs, programs),
+		GetProgram:       usecase.NewGetProgram(programs),
+		DeleteSetLog:     usecase.NewDeleteSetLog(logs),
+		Exercises:        query.NewExercises(exercises),
+		History:          query.NewHistory(logs, exercises),
+		Stats:            query.NewStats(logs, exercises, programs, planning.DefaultOneRepMaxEstimator()),
+	})
+	if err != nil {
+		t.Fatalf("ハンドラが組めない: %v", err)
+	}
 	return h.Routes(), programs
 }
 
