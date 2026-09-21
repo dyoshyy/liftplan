@@ -475,13 +475,16 @@ func TestPutProgramDeclared_TouchesNothingElse(t *testing.T) {
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			mux := newServer(t, true)
+			// 分割が先、重点が後。逆だと、分割の口が重点を落としたときに
+			// before が「重点なし」になり、前後が一致して通る（#132）。
+			// この順で逆に分割が落ちる場合は、重点の口のテストが見る。
+			putUpperLowerSplit(t, mux)
 			if c.setFocus != "" {
 				if rec := do(t, mux, http.MethodPut, "/api/program/focus",
 					`{"focus_exercise":"`+c.setFocus+`"}`); rec.Code != http.StatusNoContent {
 					t.Fatalf("重点種目の保存に失敗: %d", rec.Code)
 				}
 			}
-			putUpperLowerSplit(t, mux)
 
 			before := do(t, mux, http.MethodGet, "/api/program", "")
 			if rec := do(t, mux, http.MethodPut, "/api/program/declared",

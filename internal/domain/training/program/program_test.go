@@ -1,7 +1,9 @@
 package program_test
 
 import (
+	"fmt"
 	"math"
+	"slices"
 	"sort"
 	"strconv"
 	"testing"
@@ -252,6 +254,140 @@ func TestProgram_IsImmutableAgainstInputMutation(t *testing.T) {
 	input[0] = "tampered"
 	if !p.Includes("bench") || p.Includes("tampered") {
 		t.Error("入力スライスの書き換えが集約に波及している")
+	}
+}
+
+// fieldsOf は Program の6フィールドを、名前つきの文字列に写す。
+//
+// 長さではなく中身を写す。分割が1日ぶんだけ残る、並びが変わる、といった
+// 壊れ方でも周期は狂う。
+func fieldsOf(p *program.Program) map[string]string {
+	target := ""
+	for _, r := range p.WeeklyTarget().Regions() {
+		target += fmt.Sprintf("%s=%v ", r, p.WeeklyTarget().Sets(r))
+	}
+	focus, _ := p.FocusExercise()
+	cycle := ""
+	for _, s := range p.Cycle() {
+		cycle += fmt.Sprintf("%s%v ", s.Name(), s.Regions())
+	}
+	return map[string]string{
+		"frequency": strconv.Itoa(p.Frequency().PerWeek()),
+		"target":    target,
+		"selected":  fmt.Sprint(p.SelectedExercises()),
+		"declared":  fmt.Sprint(p.DeclaredExercises()),
+		"focus":     string(focus),
+		"cycle":     cycle,
+	}
+}
+
+// With* は、自分が差し替えるフィールド以外を全部引き継ぐこと。
+//
+// 引き継がないと、分割を設定した人が頻度を変えただけで分割が黙って消えて
+// 全身法に戻る（#122）。重点種目も同じで、消えると変化種目の日が出なく
+// なる（#132）。どちらもあとから足されたフィールドで、D-127（全置換の口が
+// declared と focus を落とす）と同じ形の事故。
+//
+// 重点と分割を両方立てたプログラムから始める。この2つは空が正当な値
+// なので、落ちても newProgram の検証では止まらない。ほかの4つは落ちれば
+// 検証がエラーにするが、focus と cycle はこのテストだけが守りになる。
+// シードのプログラムのように片方が空だと、前後とも空で一致して空振りする。
+//
+// 分割だけを見ていた TestProgram_WithKeepsCycle（#136）はここに含めた。
+func TestProgram_WithKeepsOtherFields(t *testing.T) {
+	quadOnly := map[training.MuscleRegion]float64{training.Quad: 10}
+
+	cases := []struct {
+		name string
+		// changed は、その With* が動かしてよいフィールド。ほかは動かない。
+		changed []string
+		apply   func(*program.Program) (*program.Program, error)
+	}{
+		{
+			name: "WithFocus", changed: []string{"focus"},
+			apply: func(p *program.Program) (*program.Program, error) {
+				return p.WithFocus("squat")
+			},
+		},
+		{
+			// 重点の bench は宣言に残す。外すと検証で弾かれる。
+			name: "WithDeclared", changed: []string{"declared"},
+			apply: func(p *program.Program) (*program.Program, error) {
+				return p.WithDeclared([]exercise.ExerciseID{"bench", "deadlift"})
+			},
+		},
+		{
+			// 頻度は週目標を道連れにするが、それ以外は道連れにしない。
+			name: "WithFrequency", changed: []string{"frequency", "target"},
+			apply: func(p *program.Program) (*program.Program, error) {
+				return p.WithFrequency(mustFrequency(t, 4), mustTarget(t, quadOnly))
+			},
+		},
+		{
+			// 宣言の2種目は選択に残す。外すと検証で弾かれる。
+			name: "WithSelected", changed: []string{"selected"},
+			apply: func(p *program.Program) (*program.Program, error) {
+				return p.WithSelected([]exercise.ExerciseID{"bench", "squat"})
+			},
+		},
+		{
+			name: "WithTarget", changed: []string{"target"},
+			apply: func(p *program.Program) (*program.Program, error) {
+				return p.WithTarget(mustTarget(t, quadOnly))
+			},
+		},
+		{
+			name: "WithCycle", changed: []string{"cycle"},
+			apply: func(p *program.Program) (*program.Program, error) {
+				return p.WithCycle([]program.Split{mustSplit(t, "脚", training.Quad)})
+			},
+		},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			base, err := program.NewProgram(mustFrequency(t, 3), simpleTarget(t),
+				big3(), []exercise.ExerciseID{"bench", "squat"}, "bench")
+			if err != nil {
+				t.Fatalf("NewProgram: %v", err)
+			}
+			base, err = base.WithCycle([]program.Split{
+				mustSplit(t, "上半身", training.ChestMid, training.Lat),
+				mustSplit(t, "下半身", training.Quad, training.Hamstring),
+			})
+			if err != nil {
+				t.Fatalf("WithCycle: %v", err)
+			}
+
+			next, err := c.apply(base)
+			if err != nil {
+				t.Fatalf("差し替えに失敗: %v", err)
+			}
+
+			before, after := fieldsOf(base), fieldsOf(next)
+
+			// 分割は WithCycle でしか立てられないので、出発点も With* を
+			// 1回通っている。そこで重点が落ちると、前後とも「重点なし」で
+			// 一致して全ケースが緑になる（実際に一度そうなった）。
+			for field, got := range before {
+				if got == "" {
+					t.Fatalf("出発点の %s が空。NewProgram か WithCycle が落としている", field)
+				}
+			}
+
+			for field, want := range before {
+				if slices.Contains(c.changed, field) {
+					// 何もせず元を返す実装だと、「ほかを保つ」は全部通る。
+					if after[field] == want {
+						t.Errorf("%s が動いていない: %s", field, want)
+					}
+					continue
+				}
+				if after[field] != want {
+					t.Errorf("%s が変わった: %s → %s", field, want, after[field])
+				}
+			}
+		})
 	}
 }
 
