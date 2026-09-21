@@ -17,8 +17,13 @@ import (
 
 // ProgramRepository はユーザー設定の Postgres 実装。
 //
-// テーブルは1行に固定されている（id boolean PRIMARY KEY CHECK (id)）。
-// 単一ユーザー前提を型で表しているので、2行目は作れない。
+// 主キーは user_id。行は利用者の数だけあり、読みも書きも必ず
+// user_id で絞る。絞り忘れると他人の設定が返る。
+//
+// 「テーブル全体で1行」に固定していた id boolean PRIMARY KEY CHECK (id) は
+// もう無い（0007 で主キーを user_id に移し、0009 で列ごと落とした）。
+// 0001 と 0007 の SQL コメントには当時の説明が残っているが、適用済みの
+// マイグレーションはチェックサムで照合しているので書き換えられない。
 type ProgramRepository struct {
 	pool *pgxpool.Pool
 }

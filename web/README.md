@@ -42,7 +42,8 @@ node scripts/nav-check.mjs          # 画面の行き来と戻るジェスチャ
 node scripts/settings-check.mjs     # 設定の保存（週目標の置き直しを含む）
 ```
 
-**検査でのログインはフラグメントで済ませる。**`#token=<AUTH_TOKEN>` で開く。
+**検査でのログインはフラグメントで済ませる。**`#token=<DEV_SESSION_TOKEN>` で開く
+（サーバーを `DEV_SESSION_TOKEN` 付きのインメモリ構成で起動しておく。手順は `scripts/ui-check.mjs` の冒頭）。
 `/auth/*` を通すとプロバイダの画面が挟まり、自動では抜けられない。これは
 サーバーがコールバックで戻してくる形そのものなので、取り込みの配線も
 一緒に検査できる。
