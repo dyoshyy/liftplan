@@ -34,6 +34,8 @@ func TestSessionRepository_Contract(t *testing.T) {
 //
 // UserID が UUID として往復することも見る。uuid 列を経由すると表記が
 // 変わりうる（大文字で書き戻すなど）ので、値そのものを確かめる。
+// メールアドレスを同じ理由で見る。読み戻しでアカウントを組み直すので、
+// 渡し忘れると黙って消える。
 func TestAccountRepository_SurvivesReconnect(t *testing.T) {
 	pool := migratedDB(t)
 	ctx := context.Background()
@@ -42,7 +44,8 @@ func TestAccountRepository_SurvivesReconnect(t *testing.T) {
 	if err != nil {
 		t.Fatalf("UserID を作れない: %v", err)
 	}
-	a, err := account.NewAccount(account.GitHub(), "12345", uid)
+	email := account.NewEmail("gym@example.com")
+	a, err := account.NewAccount(account.GitHub(), "12345", uid, email)
 	if err != nil {
 		t.Fatalf("アカウントを作れない: %v", err)
 	}
@@ -57,5 +60,8 @@ func TestAccountRepository_SurvivesReconnect(t *testing.T) {
 	}
 	if got.UserID() != uid {
 		t.Errorf("利用者が %q。%q のはず（UUID が往復していない）", got.UserID(), uid)
+	}
+	if got.Email() != email {
+		t.Errorf("メールアドレスが %q。%q のはず（往復していない）", got.Email(), email)
 	}
 }

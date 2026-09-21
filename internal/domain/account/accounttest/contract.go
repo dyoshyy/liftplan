@@ -47,6 +47,11 @@ var (
 
 	userA = mustUserID("11111111-1111-4111-8111-111111111111")
 	userB = mustUserID("22222222-2222-4222-8222-222222222222")
+
+	// 契約で使うアドレス。noEmail は「取れなかった」を表す正当な値。
+	emailA  = account.NewEmail("gym@example.com")
+	emailB  = account.NewEmail("other@example.com")
+	noEmail = account.Email{}
 )
 
 func mustUserID(s string) account.UserID {
@@ -70,9 +75,14 @@ func RunAccountContract(t *testing.T, newRepos func(t *testing.T) Repos) {
 	//
 	// ここで値まで見るのは、Find が常に nil を返す実装でも「存在しない
 	// ものが引けない」側のケースは緑になるため。
+	//
+	// メールアドレスも見る。Postgres は読み戻しでアカウントを組み直す
+	// （列から NewAccount へ渡し直す）ので、渡し忘れるとアドレスが
+	// 黙って消える。アドレスから引くほうのテストは書き込みの経路しか
+	// 通っておらず、読みの経路はここでしか守られない。
 	t.Run("作ったものを引ける", func(t *testing.T) {
 		repos := newRepos(t)
-		a := mustAccount(t, account.GitHub(), "12345", userA)
+		a := mustAccount(t, account.GitHub(), "12345", userA, emailA)
 
 		if err := repos.Accounts.Create(ctx, a); err != nil {
 			t.Fatalf("作成に失敗: %v", err)
@@ -91,6 +101,9 @@ func RunAccountContract(t *testing.T, newRepos func(t *testing.T) Repos) {
 		if got.Subject() != "12345" {
 			t.Errorf("識別子が %q。12345 のはず", got.Subject())
 		}
+		if got.Email() != emailA {
+			t.Errorf("メールアドレスが %q。%q のはず", got.Email(), emailA)
+		}
 	})
 
 	// 同じ (provider, subject) は2つ作れない。
@@ -102,12 +115,12 @@ func RunAccountContract(t *testing.T, newRepos func(t *testing.T) Repos) {
 		repos := newRepos(t)
 
 		if err := repos.Accounts.Create(
-			ctx, mustAccount(t, account.GitHub(), "12345", userA)); err != nil {
+			ctx, mustAccount(t, account.GitHub(), "12345", userA, noEmail)); err != nil {
 			t.Fatalf("1件目の作成に失敗: %v", err)
 		}
 
 		err := repos.Accounts.Create(
-			ctx, mustAccount(t, account.GitHub(), "12345", userB))
+			ctx, mustAccount(t, account.GitHub(), "12345", userB, noEmail))
 		if !errors.Is(err, account.ErrAccountAlreadyExists) {
 			t.Fatalf("2件目のエラーが %v。ErrAccountAlreadyExists のはず", err)
 		}
@@ -132,11 +145,11 @@ func RunAccountContract(t *testing.T, newRepos func(t *testing.T) Repos) {
 		repos := newRepos(t)
 
 		if err := repos.Accounts.Create(
-			ctx, mustAccount(t, account.GitHub(), "1", userA)); err != nil {
+			ctx, mustAccount(t, account.GitHub(), "1", userA, noEmail)); err != nil {
 			t.Fatalf("GitHub 側の作成に失敗: %v", err)
 		}
 		if err := repos.Accounts.Create(
-			ctx, mustAccount(t, account.Google(), "1", userB)); err != nil {
+			ctx, mustAccount(t, account.Google(), "1", userB, noEmail)); err != nil {
 			t.Fatalf("Google 側の作成に失敗: %v", err)
 		}
 
@@ -167,7 +180,7 @@ func RunAccountContract(t *testing.T, newRepos func(t *testing.T) Repos) {
 		repos := newRepos(t)
 
 		if err := repos.Accounts.Create(
-			ctx, mustAccount(t, account.GitHub(), "12345", userA)); err != nil {
+			ctx, mustAccount(t, account.GitHub(), "12345", userA, noEmail)); err != nil {
 			t.Fatalf("作成に失敗: %v", err)
 		}
 
@@ -191,6 +204,159 @@ func RunAccountContract(t *testing.T, newRepos func(t *testing.T) Repos) {
 			})
 		}
 	})
+
+	runFindUserByEmailContract(t, newRepos)
+}
+
+// runFindUserByEmailContract はメールアドレスから利用者を引く口の契約。
+//
+// この口は「GitHub で入った人と Google で入った人が同じ人か」を判断する
+// ための材料を返すだけで、結ぶ判断そのものは別に置く。ここで守るのは、
+// **間違った材料を返さないこと**。
+func runFindUserByEmailContract(t *testing.T, newRepos func(t *testing.T) Repos) {
+	t.Helper()
+
+	ctx := context.Background()
+
+	// 保存したアドレスで、その利用者を引けること。
+	//
+	// 値まで見る。「引けた」だけを見ると、誰で引いても同じ利用者を
+	// 返す実装が緑になる。
+	t.Run("保存したアドレスで引ける", func(t *testing.T) {
+		repos := newRepos(t)
+		createAll(t, repos,
+			mustAccount(t, account.GitHub(), "1", userA, emailA),
+			mustAccount(t, account.Google(), "2", userB, emailB))
+
+		cases := []struct {
+			email account.Email
+			want  account.UserID
+		}{
+			{emailA, userA},
+			{emailB, userB},
+		}
+		for _, c := range cases {
+			got, err := repos.Accounts.FindUserByEmail(ctx, c.email)
+			if err != nil {
+				t.Fatalf("%q の取得に失敗: %v", c.email, err)
+			}
+			if got != c.want {
+				t.Errorf("%q の利用者が %q。%q のはず", c.email, got, c.want)
+			}
+		}
+	})
+
+	// 大文字小文字が違っても同じ人に当たること。
+	//
+	// GitHub が "Gym@Example.com"、Google が "gym@example.com" を返す
+	// ことがある。揃えないと、同じアドレスなのに別人のままになる。
+	// 保存する側と引く側の両方で確かめる。
+	t.Run("大文字小文字が違っても引ける", func(t *testing.T) {
+		repos := newRepos(t)
+		createAll(t, repos,
+			mustAccount(t, account.GitHub(), "1", userA,
+				account.NewEmail("GYM@EXAMPLE.COM")))
+
+		got, err := repos.Accounts.FindUserByEmail(ctx, account.NewEmail("gym@example.com"))
+		if err != nil {
+			t.Fatalf("取得に失敗: %v", err)
+		}
+		if got != userA {
+			t.Errorf("利用者が %q。%q のはず", got, userA)
+		}
+	})
+
+	// 空のアドレスでは必ず見つからないこと。
+	//
+	// 空で全件（あるいはアドレスを持たない行）に当たると、アドレスを
+	// 持たない利用者が全員同一人物になり、結ぶ判断が他人の記録へ
+	// 結びつく。アドレスを持つ行と持たない行の両方を入れておくのは、
+	// 空の保存先だと「常に見つからない」実装でも緑になるため。
+	t.Run("空のアドレスでは引けない", func(t *testing.T) {
+		repos := newRepos(t)
+		createAll(t, repos,
+			mustAccount(t, account.GitHub(), "1", userA, emailA),
+			mustAccount(t, account.Google(), "2", userB, noEmail))
+
+		got, err := repos.Accounts.FindUserByEmail(ctx, noEmail)
+		if !errors.Is(err, account.ErrAccountNotFound) {
+			t.Fatalf("エラーが %v。ErrAccountNotFound のはず", err)
+		}
+		if got != (account.UserID{}) {
+			t.Errorf("利用者が返った: %q", got)
+		}
+	})
+
+	// 知らないアドレスでは見つからないこと。
+	//
+	// アドレスを持たない行がここで返らないことも併せて見る。返ると、
+	// 「まだアドレスを取っていない誰か」が問い合わせたアドレスの
+	// 持ち主として扱われる。
+	t.Run("知らないアドレスでは引けない", func(t *testing.T) {
+		repos := newRepos(t)
+		createAll(t, repos,
+			mustAccount(t, account.GitHub(), "1", userA, emailA),
+			mustAccount(t, account.Google(), "2", userB, noEmail))
+
+		got, err := repos.Accounts.FindUserByEmail(ctx,
+			account.NewEmail("nobody@example.com"))
+		if !errors.Is(err, account.ErrAccountNotFound) {
+			t.Fatalf("エラーが %v。ErrAccountNotFound のはず", err)
+		}
+		if got != (account.UserID{}) {
+			t.Errorf("利用者が返った: %q", got)
+		}
+	})
+
+	// 同じアドレスに別の利用者が2人いたら、どちらも返さないこと。
+	//
+	// 黙ってどちらかを選ぶと、選び方（保存順・索引の走査順）次第で
+	// 他人の記録に結びつく。呼び出し側が「分からないので結ばない」と
+	// 判断できるように、専用のエラーで返す。
+	t.Run("同じアドレスに別の利用者が2人いたら曖昧", func(t *testing.T) {
+		repos := newRepos(t)
+		createAll(t, repos,
+			mustAccount(t, account.GitHub(), "1", userA, emailA),
+			mustAccount(t, account.Google(), "2", userB, emailA))
+
+		got, err := repos.Accounts.FindUserByEmail(ctx, emailA)
+		if !errors.Is(err, account.ErrAmbiguousEmail) {
+			t.Fatalf("エラーが %v。ErrAmbiguousEmail のはず", err)
+		}
+		if got != (account.UserID{}) {
+			t.Errorf("曖昧なのに利用者が返った: %q", got)
+		}
+	})
+
+	// 同じ人が GitHub と Google の両方で入っていても、曖昧にしないこと。
+	//
+	// 一意制約を付けない理由がここ。同じアドレスの行が2つあるのは正常な
+	// 形で、行数を数える実装だとこれが曖昧になり、結べるはずの2つが
+	// 永久に結ばれない。数えるのは行ではなく利用者の種類。
+	t.Run("同じ人が2つのプロバイダで入っていても引ける", func(t *testing.T) {
+		repos := newRepos(t)
+		createAll(t, repos,
+			mustAccount(t, account.GitHub(), "1", userA, emailA),
+			mustAccount(t, account.Google(), "2", userA, emailA))
+
+		got, err := repos.Accounts.FindUserByEmail(ctx, emailA)
+		if err != nil {
+			t.Fatalf("取得に失敗: %v", err)
+		}
+		if got != userA {
+			t.Errorf("利用者が %q。%q のはず", got, userA)
+		}
+	})
+}
+
+// createAll はアカウントをまとめて作る。
+func createAll(t *testing.T, repos Repos, accounts ...*account.Account) {
+	t.Helper()
+	for _, a := range accounts {
+		if err := repos.Accounts.Create(context.Background(), a); err != nil {
+			t.Fatalf("%s/%s の作成に失敗: %v", a.Provider(), a.Subject(), err)
+		}
+	}
 }
 
 // RunSessionContract はセッションの口の契約を検査する。
@@ -355,10 +521,11 @@ func RunSessionContract(t *testing.T, newRepos func(t *testing.T) Repos) {
 }
 
 func mustAccount(
-	t *testing.T, p account.Provider, subject string, uid account.UserID,
+	t *testing.T, p account.Provider, subject string,
+	uid account.UserID, email account.Email,
 ) *account.Account {
 	t.Helper()
-	a, err := account.NewAccount(p, subject, uid)
+	a, err := account.NewAccount(p, subject, uid, email)
 	if err != nil {
 		t.Fatalf("アカウントを作れない: %v", err)
 	}
