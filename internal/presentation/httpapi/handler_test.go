@@ -108,7 +108,7 @@ func dependencies(
 		RecordSets:       usecase.NewRecordSets(logs, exercises),
 		RecordConditions: usecase.NewRecordConditions(conditions),
 		SetFocus:         usecase.NewSetFocusExercise(programs, programs),
-		SetDeclared:      usecase.NewSetDeclaredExercises(programs, programs),
+		SetDeclared:      usecase.NewSetDeclaredExercises(exercises, programs, programs),
 		SetFrequency:     usecase.NewSetFrequency(programs, programs),
 		SetSelected:      usecase.NewSetSelectedExercises(exercises, programs, programs),
 		SetTarget:        usecase.NewSetWeeklyTarget(exercises, programs, programs),
@@ -564,6 +564,71 @@ func TestPutProgramDeclared_Rejects(t *testing.T) {
 				t.Errorf("ステータスが %d。%d のはず: %s", rec.Code, c.want, rec.Body.String())
 			}
 		})
+	}
+}
+
+// 分割を設定したあとで、どの日にも出られない種目を宣言に足せないこと。
+//
+// 分割の口（PUT /api/program/split）は同じ状態を弾いている。宣言の口が
+// 見ていないと、順序を入れ替えるだけで同じ状態を作れる（#140）。出られない
+// 宣言種目は毎日「今日の候補ではない」と判定され、エラーも立たないまま
+// 二度と軸に出ない。
+//
+// シードとプリセットだけで踏める。ケーブルクランチの主働は腹直筋（1.0）で、
+// 腹直筋と腹斜筋はどのプリセットのどの日にも入っていない。プリセットは
+// 手で書き写さず GET /api/split-presets から取る。書き写すと、プリセットに
+// 腹を足して踏めなくなったあともこのテストだけが古い周期で赤いまま残る。
+func TestPutProgramDeclared_RejectsExerciseWithoutADay(t *testing.T) {
+	mux := newServer(t, true)
+
+	rec := do(t, mux, http.MethodGet, "/api/split-presets", "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("プリセットの取得に失敗: %d body=%s", rec.Code, rec.Body.String())
+	}
+	var presets struct {
+		Presets []struct {
+			Key    string          `json:"key"`
+			Splits json.RawMessage `json:"splits"`
+		} `json:"presets"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &presets); err != nil {
+		t.Fatalf("JSONが壊れている: %v", err)
+	}
+
+	for _, p := range presets.Presets {
+		t.Run(p.Key, func(t *testing.T) {
+			mux := newServer(t, true)
+			if rec := do(t, mux, http.MethodPut, "/api/program/split",
+				`{"splits":`+string(p.Splits)+`}`); rec.Code != http.StatusNoContent {
+				t.Fatalf("分割の保存に失敗: %d body=%s", rec.Code, rec.Body.String())
+			}
+
+			rec := do(t, mux, http.MethodPut, "/api/program/declared",
+				`{"declared_exercises":["bench","squat","deadlift","cable_crunch"]}`)
+			if rec.Code != http.StatusBadRequest {
+				t.Errorf("ステータスが %d。400 のはず: %s", rec.Code, rec.Body.String())
+			}
+
+			// 弾いたなら保存もされていないこと。400 を返しつつ保存していると、
+			// 画面はエラーを出すのに設定は壊れた状態になる。
+			var got struct {
+				Declared []string `json:"declared_exercises"`
+			}
+			after := do(t, mux, http.MethodGet, "/api/program", "")
+			if err := json.Unmarshal(after.Body.Bytes(), &got); err != nil {
+				t.Fatalf("JSONが壊れている: %v", err)
+			}
+			if slices.Contains(got.Declared, "cable_crunch") {
+				t.Errorf("出られない種目が宣言に入った: %v", got.Declared)
+			}
+		})
+	}
+
+	// 分割なしなら通る。分割で候補を絞らないので、出られない種目が無い。
+	// ここが 400 になるなら、分割と無関係にこの種目を弾いている。
+	if rec := do(t, mux, http.MethodPut, "/api/program/declared",
+		`{"declared_exercises":["bench","squat","deadlift","cable_crunch"]}`); rec.Code != http.StatusNoContent {
+		t.Errorf("分割なしで通らない: %d %s", rec.Code, rec.Body.String())
 	}
 }
 
