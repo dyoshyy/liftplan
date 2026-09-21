@@ -2,14 +2,18 @@ package condition
 
 import (
 	"context"
+
+	"github.com/dyoshyy/liftplan/internal/domain/account"
 )
+
+// 所有者は引数で受け取る。理由は setlog.Reader と同じ。
 
 // Reader は日次コンディションの取得口。
 //
 // FindAll が返す ConditionLog は、リポジトリ内部の可変状態を
 // エイリアスしてはならない。
 type Reader interface {
-	FindAll(ctx context.Context) (ConditionLog, error)
+	FindAll(ctx context.Context, userID account.UserID) (ConditionLog, error)
 }
 
 // Writer は日次コンディションの書き込み口。
@@ -20,5 +24,5 @@ type Reader interface {
 //
 // 全か無かで書くこと。
 type Writer interface {
-	Save(ctx context.Context, items []DailyCondition) error
+	Save(ctx context.Context, userID account.UserID, items []DailyCondition) error
 }

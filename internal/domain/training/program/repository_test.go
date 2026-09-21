@@ -7,24 +7,25 @@ import (
 	"slices"
 	"testing"
 
+	"github.com/dyoshyy/liftplan/internal/domain/account"
 	"github.com/dyoshyy/liftplan/internal/domain/training/program"
 )
 
 // Reader と Writer の両方を満たす最小実装。
 type stubRepo struct{}
 
-func (stubRepo) Get(context.Context) (*program.Program, error) {
+func (stubRepo) Get(context.Context, account.UserID) (*program.Program, error) {
 	return nil, program.ErrProgramNotConfigured
 }
-func (stubRepo) Save(context.Context, *program.Program) error { return nil }
+func (stubRepo) Save(context.Context, account.UserID, *program.Program) error { return nil }
 
 func TestRepository_KeepsItsShape(t *testing.T) {
 	var r program.Reader = stubRepo{}
 	var w program.Writer = stubRepo{}
 
 	var (
-		_ func(context.Context) (*program.Program, error) = r.Get
-		_ func(context.Context, *program.Program) error   = w.Save
+		_ func(context.Context, account.UserID) (*program.Program, error) = r.Get
+		_ func(context.Context, account.UserID, *program.Program) error   = w.Save
 	)
 }
 
@@ -55,7 +56,7 @@ func TestRepository_ReadAndWriteStaySeparate(t *testing.T) {
 // Get は未設定のとき (nil, nil) を返してはならない。
 // nil を「未設定」と「取得成功」のどちらとも解釈できてしまう。
 func TestReader_ReportsMissingProgramAsAnError(t *testing.T) {
-	p, err := stubRepo{}.Get(context.Background())
+	p, err := stubRepo{}.Get(context.Background(), account.UserID{})
 	if p == nil && err == nil {
 		t.Fatal("未設定を (nil, nil) で返している")
 	}

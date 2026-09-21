@@ -31,7 +31,7 @@ func (u *GetProgram) Execute(ctx context.Context) (_ *program.Program, err error
 		return nil, fmt.Errorf("プログラムの取得が中断された: %w", err)
 	}
 
-	prog, err := u.programs.Get(ctx)
+	prog, err := u.programs.Get(ctx, currentUser())
 	if err != nil {
 		// 取得の文脈では 404。まだ存在しないという意味であって、状態の
 		// 衝突ではない。classify は分類済みのものを素通しするので、

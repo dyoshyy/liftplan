@@ -9,6 +9,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/dyoshyy/liftplan/internal/domain/account"
 	"github.com/dyoshyy/liftplan/internal/domain/training"
 	"github.com/dyoshyy/liftplan/internal/domain/training/exercise"
 	"github.com/dyoshyy/liftplan/internal/domain/training/program"
@@ -30,7 +31,9 @@ func NewProgramRepository(pool *pgxpool.Pool) *ProgramRepository {
 //
 // (nil, nil) を返さない。返すと、呼び出し側が nil を「未設定」と
 // 「取得成功」のどちらとも解釈できてしまう。
-func (r *ProgramRepository) Get(ctx context.Context) (*program.Program, error) {
+func (r *ProgramRepository) Get(
+	ctx context.Context, userID account.UserID,
+) (*program.Program, error) {
 	var (
 		perWeek                             int
 		rawTarget, rawSelected, rawDeclared []byte
@@ -41,7 +44,7 @@ func (r *ProgramRepository) Get(ctx context.Context) (*program.Program, error) {
 	)
 	err := r.pool.QueryRow(ctx, `
 		SELECT per_week, weekly_target, selected, declared, focus, split_cycle
-		FROM program WHERE id`).
+		FROM program WHERE user_id = $1`, userID.String()).
 		Scan(&perWeek, &rawTarget, &rawSelected, &rawDeclared, &rawFocus, &rawCycle)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, program.ErrProgramNotConfigured
@@ -108,8 +111,11 @@ func (r *ProgramRepository) Get(ctx context.Context) (*program.Program, error) {
 }
 
 // Save はプログラムを保存する。プログラムはユーザーごとに1つなので、
-// 保存は常に全体の置き換えになる。
-func (r *ProgramRepository) Save(ctx context.Context, p *program.Program) error {
+// 保存は常に全体の置き換えになる。主キーが user_id なので、
+// 「1人につき1行」はスキーマが保つ。
+func (r *ProgramRepository) Save(
+	ctx context.Context, userID account.UserID, p *program.Program,
+) error {
 	if p == nil {
 		return fmt.Errorf("プログラムが nil である")
 	}
@@ -153,16 +159,17 @@ func (r *ProgramRepository) Save(ctx context.Context, p *program.Program) error 
 	}
 
 	if _, err := r.pool.Exec(ctx, `
-		INSERT INTO program (id, per_week, weekly_target, selected, declared, focus, split_cycle)
-		VALUES (true, $1, $2, $3, $4, $5, $6)
-		ON CONFLICT (id) DO UPDATE SET
+		INSERT INTO program (user_id, per_week, weekly_target, selected, declared, focus, split_cycle)
+		VALUES ($1, $2, $3, $4, $5, $6, $7)
+		ON CONFLICT (user_id) DO UPDATE SET
 			per_week      = EXCLUDED.per_week,
 			weekly_target = EXCLUDED.weekly_target,
 			selected      = EXCLUDED.selected,
 			declared      = EXCLUDED.declared,
 			focus         = EXCLUDED.focus,
 			split_cycle   = EXCLUDED.split_cycle`,
-		p.Frequency().PerWeek(), rawTarget, rawSelected, rawDeclared, rawFocus, rawCycle); err != nil {
+		userID.String(), p.Frequency().PerWeek(),
+		rawTarget, rawSelected, rawDeclared, rawFocus, rawCycle); err != nil {
 		return fmt.Errorf("プログラムを保存できない: %w", err)
 	}
 	return nil

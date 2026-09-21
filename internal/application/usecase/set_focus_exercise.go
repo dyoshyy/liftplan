@@ -37,7 +37,7 @@ func (u *SetFocusExercise) Execute(ctx context.Context, focus exercise.ExerciseI
 	// 包み忘れた1本だけが 500 で返る。
 	defer func() { err = classify(err) }()
 
-	prog, err := u.reader.Get(ctx)
+	prog, err := u.reader.Get(ctx, currentUser())
 	if err != nil {
 		return err
 	}
@@ -50,5 +50,5 @@ func (u *SetFocusExercise) Execute(ctx context.Context, focus exercise.ExerciseI
 	if err := ctx.Err(); err != nil {
 		return fmt.Errorf("重点種目の保存が中断された: %w", err)
 	}
-	return u.writer.Save(ctx, next)
+	return u.writer.Save(ctx, currentUser(), next)
 }

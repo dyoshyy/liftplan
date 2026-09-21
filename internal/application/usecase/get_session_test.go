@@ -5,6 +5,8 @@ import (
 	"errors"
 	"sync"
 	"testing"
+
+	"github.com/dyoshyy/liftplan/internal/domain/account"
 	"time"
 
 	"github.com/dyoshyy/liftplan/internal/application/usecase"
@@ -53,7 +55,7 @@ type fakeLogs struct {
 	err     error
 }
 
-func (f *fakeLogs) FindAll(context.Context) (setlog.History, error) {
+func (f *fakeLogs) FindAll(context.Context, account.UserID) (setlog.History, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.finds++
@@ -64,7 +66,7 @@ func (f *fakeLogs) findCount() int {
 	defer f.mu.Unlock()
 	return f.finds
 }
-func (f *fakeLogs) Save(_ context.Context, logs []*setlog.SetLog) error {
+func (f *fakeLogs) Save(_ context.Context, _ account.UserID, logs []*setlog.SetLog) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.calls++
@@ -74,7 +76,7 @@ func (f *fakeLogs) Save(_ context.Context, logs []*setlog.SetLog) error {
 	f.saved = append(f.saved, logs...)
 	return nil
 }
-func (f *fakeLogs) Delete(_ context.Context, id setlog.SetLogID) error {
+func (f *fakeLogs) Delete(_ context.Context, _ account.UserID, id setlog.SetLogID) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.deleted = append(f.deleted, id)
@@ -94,12 +96,14 @@ type fakeConditions struct {
 	err   error
 }
 
-func (f *fakeConditions) FindAll(context.Context) (condition.ConditionLog, error) {
+func (f *fakeConditions) FindAll(context.Context, account.UserID) (condition.ConditionLog, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return f.log, f.err
 }
-func (f *fakeConditions) Save(_ context.Context, items []condition.DailyCondition) error {
+func (f *fakeConditions) Save(
+	_ context.Context, _ account.UserID, items []condition.DailyCondition,
+) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.calls++
@@ -123,13 +127,13 @@ type fakeProgram struct {
 	err     error
 }
 
-func (f *fakeProgram) Get(context.Context) (*program.Program, error) {
+func (f *fakeProgram) Get(context.Context, account.UserID) (*program.Program, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.calls++
 	return f.program, f.err
 }
-func (f *fakeProgram) Save(_ context.Context, p *program.Program) error {
+func (f *fakeProgram) Save(_ context.Context, _ account.UserID, p *program.Program) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if f.err != nil {

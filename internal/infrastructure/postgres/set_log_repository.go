@@ -12,6 +12,7 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/dyoshyy/liftplan/internal/domain/account"
 	"github.com/dyoshyy/liftplan/internal/domain/training"
 	"github.com/dyoshyy/liftplan/internal/domain/training/setlog"
 )
@@ -29,14 +30,17 @@ func NewSetLogRepository(pool *pgxpool.Pool) *SetLogRepository {
 //
 // 順序を固定するのは、揺れると History の重複解決や推定1RMの畳み込みが
 // 呼び出しごとに変わり、同じ入力から違う計画が出るため。
-func (r *SetLogRepository) FindAll(ctx context.Context) (setlog.History, error) {
+func (r *SetLogRepository) FindAll(
+	ctx context.Context, userID account.UserID,
+) (setlog.History, error) {
 	rows, err := r.pool.Query(ctx, `
 		SELECT id, performed_on, exercise_id, weight_kg, reps, rir
 		FROM set_logs
+		WHERE user_id = $1
 		-- 照合順序を "C" に固定する。DB の既定に委ねると、ICU 照合の
 		-- 環境で大小文字混在のIDの順序が変わり、インメモリ実装と
 		-- 食い違う。順序が揺れると同じ入力から違う計画が出る。
-		ORDER BY id COLLATE "C"`)
+		ORDER BY id COLLATE "C"`, userID.String())
 	if err != nil {
 		return setlog.History{}, wrapUnavailable(err, "実績を読めない")
 	}
@@ -100,7 +104,9 @@ const maxSaveAttempts = 3
 // 再送はこの設計が日常的に起こると想定しているものなので、これは致命的。
 //
 // トランザクションで包むことが、そのまま「全か無か」の実装になる。
-func (r *SetLogRepository) Save(ctx context.Context, logs []*setlog.SetLog) error {
+func (r *SetLogRepository) Save(
+	ctx context.Context, userID account.UserID, logs []*setlog.SetLog,
+) error {
 	if len(logs) == 0 {
 		return nil
 	}
@@ -112,7 +118,7 @@ func (r *SetLogRepository) Save(ctx context.Context, logs []*setlog.SetLog) erro
 
 	var lastErr error
 	for attempt := range maxSaveAttempts {
-		err := r.saveOnce(ctx, staged, ids)
+		err := r.saveOnce(ctx, userID, staged, ids)
 		if err == nil {
 			return nil
 		}
@@ -155,6 +161,7 @@ func stageSetLogs(logs []*setlog.SetLog) (map[setlog.SetLogID]*setlog.SetLog, []
 
 func (r *SetLogRepository) saveOnce(
 	ctx context.Context,
+	userID account.UserID,
 	staged map[setlog.SetLogID]*setlog.SetLog,
 	ids []string,
 ) error {
@@ -167,11 +174,13 @@ func (r *SetLogRepository) saveOnce(
 	batch := &pgx.Batch{}
 	for _, id := range ids {
 		l := staged[setlog.SetLogID(id)]
+		// ON CONFLICT の列は主キーと同じ (user_id, id)。id 単独にすると、
+		// 別の利用者の同じIDが衝突扱いになる。
 		batch.Queue(`
-			INSERT INTO set_logs (id, performed_on, exercise_id, weight_kg, reps, rir)
-			VALUES ($1, $2, $3, $4, $5, $6)
-			ON CONFLICT (id) DO NOTHING`,
-			string(l.ID()), toTime(l.PerformedOn()), string(l.ExerciseID()),
+			INSERT INTO set_logs (user_id, id, performed_on, exercise_id, weight_kg, reps, rir)
+			VALUES ($1, $2, $3, $4, $5, $6, $7)
+			ON CONFLICT (user_id, id) DO NOTHING`,
+			userID.String(), string(l.ID()), toTime(l.PerformedOn()), string(l.ExerciseID()),
 			l.Weight().Kg(), l.Reps().Int(), l.RIR().Int())
 	}
 	if err := tx.SendBatch(ctx, batch).Close(); err != nil {
@@ -180,10 +189,12 @@ func (r *SetLogRepository) saveOnce(
 
 	// 入らなかった行が「同じ内容だから」なのか「衝突だから」なのかを
 	// ここで判別する。同じ内容なら黙って受け入れる。
+	// 読み直しも所有者で絞る。絞らないと、他人が同じIDを持っているときに
+	// その内容と比べてしまい、同一内容の再送が衝突として弾かれる。
 	rows, err := tx.Query(ctx, `
 		SELECT id, performed_on, exercise_id, weight_kg, reps, rir
 		FROM set_logs
-		WHERE id = ANY($1)`, ids)
+		WHERE user_id = $1 AND id = ANY($2)`, userID.String(), ids)
 	if err != nil {
 		return fmt.Errorf("保存後の実績を読めない: %w", err)
 	}
@@ -232,9 +243,14 @@ func isRetryable(err error) bool {
 //
 // 影響行数を見ないのは、再送で二度目が来たときにエラーにしないため。
 // 「消えているのに消せない」という状態を作らない。
-func (r *SetLogRepository) Delete(ctx context.Context, id setlog.SetLogID) error {
+// 所有者で絞るので、他人の同じIDには届かない。絞らないと、IDを知って
+// いる誰もが他人の記録を消せる。
+func (r *SetLogRepository) Delete(
+	ctx context.Context, userID account.UserID, id setlog.SetLogID,
+) error {
 	if _, err := r.pool.Exec(ctx,
-		"DELETE FROM set_logs WHERE id = $1", string(id)); err != nil {
+		"DELETE FROM set_logs WHERE user_id = $1 AND id = $2",
+		userID.String(), string(id)); err != nil {
 		return wrapUnavailable(err, "実績を削除できない")
 	}
 	return nil

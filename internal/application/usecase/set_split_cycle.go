@@ -40,7 +40,7 @@ func NewSetSplitCycle(
 func (u *SetSplitCycle) Execute(ctx context.Context, cycle []program.Split) (err error) {
 	defer func() { err = classify(err) }()
 
-	prog, err := u.reader.Get(ctx)
+	prog, err := u.reader.Get(ctx, currentUser())
 	if err != nil {
 		return err
 	}
@@ -62,7 +62,7 @@ func (u *SetSplitCycle) Execute(ctx context.Context, cycle []program.Split) (err
 		return err
 	}
 
-	return u.writer.Save(ctx, next)
+	return u.writer.Save(ctx, currentUser(), next)
 }
 
 // verifyDeclaredHaveADay は、どの分割にも出られない宣言種目が無いことを確かめる。

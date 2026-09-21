@@ -8,6 +8,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/dyoshyy/liftplan/internal/domain/account"
 	"github.com/dyoshyy/liftplan/internal/domain/training"
 	"github.com/dyoshyy/liftplan/internal/domain/training/condition"
 )
@@ -26,9 +27,13 @@ func NewConditionRepository(pool *pgxpool.Pool) *ConditionRepository {
 // 並べ替えないのは NewConditionLog が日付で整列するため。ここで
 // 並べても結果は変わらず、意味のある処理に見えて実は何もしていない
 // コードが残るだけになる。
-func (r *ConditionRepository) FindAll(ctx context.Context) (condition.ConditionLog, error) {
+func (r *ConditionRepository) FindAll(
+	ctx context.Context, userID account.UserID,
+) (condition.ConditionLog, error) {
 	rows, err := r.pool.Query(ctx, `
-		SELECT date, body_weight_kg, sleep_hours FROM daily_conditions`)
+		SELECT date, body_weight_kg, sleep_hours
+		FROM daily_conditions
+		WHERE user_id = $1`, userID.String())
 	if err != nil {
 		return condition.ConditionLog{}, wrapUnavailable(err, "コンディションを読めない")
 	}
@@ -83,7 +88,9 @@ func scanCondition(rows pgx.Rows) (condition.DailyCondition, error) {
 // 記録するので、これは日常的に起きる。
 //
 // EXCLUDED が NULL のときに既存値を残す COALESCE が「項目ごとの上書き」。
-func (r *ConditionRepository) Save(ctx context.Context, items []condition.DailyCondition) error {
+func (r *ConditionRepository) Save(
+	ctx context.Context, userID account.UserID, items []condition.DailyCondition,
+) error {
 	if len(items) == 0 {
 		return nil
 	}
@@ -116,13 +123,16 @@ func (r *ConditionRepository) Save(ctx context.Context, items []condition.DailyC
 	batch := &pgx.Batch{}
 	for _, date := range order {
 		c := staged[date]
+		// ON CONFLICT の列は主キーと同じ (user_id, date)。date 単独にすると、
+		// 同じ日に記録した他人の行を上書きする。
 		batch.Queue(`
-			INSERT INTO daily_conditions (date, body_weight_kg, sleep_hours)
-			VALUES ($1, $2, $3)
-			ON CONFLICT (date) DO UPDATE SET
+			INSERT INTO daily_conditions (user_id, date, body_weight_kg, sleep_hours)
+			VALUES ($1, $2, $3, $4)
+			ON CONFLICT (user_id, date) DO UPDATE SET
 				body_weight_kg = COALESCE(EXCLUDED.body_weight_kg, daily_conditions.body_weight_kg),
 				sleep_hours    = COALESCE(EXCLUDED.sleep_hours, daily_conditions.sleep_hours)`,
-			toTime(date), optional(c.BodyWeightKg()), optional(c.SleepHours()))
+			userID.String(), toTime(date),
+			optional(c.BodyWeightKg()), optional(c.SleepHours()))
 	}
 	if err := tx.SendBatch(ctx, batch).Close(); err != nil {
 		return fmt.Errorf("コンディションを保存できない: %w", err)

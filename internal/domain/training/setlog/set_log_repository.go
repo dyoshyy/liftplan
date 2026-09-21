@@ -2,7 +2,9 @@ package setlog
 
 import (
 	"context"
+
 	"errors"
+	"github.com/dyoshyy/liftplan/internal/domain/account"
 )
 
 // ErrConflictingSetLog は同じIDで内容の異なるログが送られたことを表す。
@@ -17,8 +19,12 @@ var ErrConflictingSetLog = errors.New("同じIDで内容の異なるセットロ
 //
 // FindAll が返す History は、リポジトリ内部の可変状態を
 // エイリアスしてはならない。Save と並行に呼ばれる。
+//
+// 所有者は引数で受け取る。context に入れないのは、口の形を見ても
+// 「誰のデータか」が読めなくなるため。渡し忘れがコンパイルで落ちず、
+// 実行時に他人のデータを返す形で出る。
 type Reader interface {
-	FindAll(ctx context.Context) (History, error)
+	FindAll(ctx context.Context, userID account.UserID) (History, error)
 }
 
 // Writer は実績ログの書き込み口。
@@ -47,7 +53,15 @@ type Reader interface {
 //
 // 存在しないIDの削除は成功として扱う。再送で二度目が来ることがあり、
 // そこでエラーにすると「消えているのに消せない」という状態になる。
+//
+// # 所有者
+//
+// IDはクライアントが採番するので、利用者をまたぐと衝突しうる。実装は
+// 次の2つを守ること。破ると、他人の記録の存在が分かり、他人の記録を消せる。
+//
+//   - 別の利用者が同じIDを使っても ErrConflictingSetLog にしない
+//   - Delete は自分の記録にしか届かない
 type Writer interface {
-	Save(ctx context.Context, logs []*SetLog) error
-	Delete(ctx context.Context, id SetLogID) error
+	Save(ctx context.Context, userID account.UserID, logs []*SetLog) error
+	Delete(ctx context.Context, userID account.UserID, id SetLogID) error
 }

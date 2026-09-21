@@ -5,6 +5,8 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/dyoshyy/liftplan/internal/domain/account"
+
 	"github.com/dyoshyy/liftplan/internal/application/query"
 	"github.com/dyoshyy/liftplan/internal/domain/training"
 	"github.com/dyoshyy/liftplan/internal/domain/training/exercise"
@@ -16,9 +18,13 @@ type stubLogs struct {
 	err     error
 }
 
-func (s *stubLogs) FindAll(context.Context) (setlog.History, error) { return s.history, s.err }
-func (s *stubLogs) Save(context.Context, []*setlog.SetLog) error    { return nil }
-func (s *stubLogs) Delete(context.Context, setlog.SetLogID) error   { return nil }
+func (s *stubLogs) FindAll(context.Context, account.UserID) (setlog.History, error) {
+	return s.history, s.err
+}
+func (s *stubLogs) Save(context.Context, account.UserID, []*setlog.SetLog) error { return nil }
+func (s *stubLogs) Delete(context.Context, account.UserID, setlog.SetLogID) error {
+	return nil
+}
 
 type stubExercises struct {
 	all []*exercise.Exercise

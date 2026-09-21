@@ -52,7 +52,7 @@ func (u *GetSession) Execute(ctx context.Context, in GetSessionInput) (_ plannin
 		return planning.PlannedSession{}, errors.New("対象日が指定されていない")
 	}
 
-	prog, err := u.programs.Get(ctx)
+	prog, err := u.programs.Get(ctx, currentUser())
 	if err != nil {
 		return planning.PlannedSession{}, fmt.Errorf("プログラムの取得に失敗: %w", err)
 	}
@@ -72,7 +72,7 @@ func (u *GetSession) Execute(ctx context.Context, in GetSessionInput) (_ plannin
 	if err != nil {
 		return planning.PlannedSession{}, fmt.Errorf("種目の取得に失敗: %w", err)
 	}
-	history, err := u.logs.FindAll(ctx)
+	history, err := u.logs.FindAll(ctx, currentUser())
 	if err != nil {
 		return planning.PlannedSession{}, fmt.Errorf("実績の取得に失敗: %w", err)
 	}
@@ -80,7 +80,7 @@ func (u *GetSession) Execute(ctx context.Context, in GetSessionInput) (_ plannin
 		return planning.PlannedSession{}, fmt.Errorf("セッションの導出が中断された: %w", err)
 	}
 
-	conditions, err := u.conditions.FindAll(ctx)
+	conditions, err := u.conditions.FindAll(ctx, currentUser())
 	if err != nil {
 		return planning.PlannedSession{}, fmt.Errorf("コンディションの取得に失敗: %w", err)
 	}

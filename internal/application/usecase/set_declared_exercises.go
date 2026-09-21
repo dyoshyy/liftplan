@@ -33,7 +33,7 @@ func (u *SetDeclaredExercises) Execute(ctx context.Context, ids []exercise.Exerc
 	// 包み忘れた1本だけが 500 で返る。
 	defer func() { err = classify(err) }()
 
-	prog, err := u.reader.Get(ctx)
+	prog, err := u.reader.Get(ctx, currentUser())
 	if err != nil {
 		return err
 	}
@@ -46,5 +46,5 @@ func (u *SetDeclaredExercises) Execute(ctx context.Context, ids []exercise.Exerc
 	if err := ctx.Err(); err != nil {
 		return fmt.Errorf("伸ばしたい種目の保存が中断された: %w", err)
 	}
-	return u.writer.Save(ctx, next)
+	return u.writer.Save(ctx, currentUser(), next)
 }
