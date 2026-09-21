@@ -87,3 +87,27 @@
 ## 補助の処方だけ `prescribe` に合流していない
 
 3レーンのうち補助だけ、セット数が定数ではなく `AccessorySelector.SetsPerAccessory()` から来る（D-126）。対称にするなら、セット数の出どころを揃えるところから。急がない。
+
+---
+
+## userinfo の応答を無制限に読んでいる
+
+`internal/infrastructure/oauth` の `fetchUserInfo` が `io.ReadAll` で応答を
+最後まで読む。相手は GitHub と Google なので**いま壊れてはいない**。
+
+信頼境界の1行なので、`io.LimitReader` を1枚挟むだけで塞がる。サーバーは
+Cloud Run で、1リクエストあたりの確保が既に大きい（D-134）。
+
+**来てから直す**でよいが、直すなら1行。
+
+---
+
+## マイグレーションのテストが表名を列挙している
+
+`TestMigrate_IsSafeForConcurrentStartup` の掃除が `DROP TABLE` に表名を
+書き並べている。**表を足すたびに書き足さないと「既にある」で落ちる。**
+`0008` を足したときに実際に踏んだ。
+
+スキーマごと作り直す形にすれば、表が増えても書き足さずに済む。
+`testdb_test.go` は既にスキーマで分離しているので、同じやり方に寄せられる。
+
