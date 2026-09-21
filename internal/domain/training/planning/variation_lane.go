@@ -13,11 +13,14 @@ import (
 //
 // 出さないのは、重点種目が未指定・軸が系統に含まれる・前回やってから十分に日数がアイていない・派生が選択されていない
 // のいずれか。
-func (p SessionPlanner) variationLift(
-	req PlanRequest, pool []*exercise.Exercise, heavy *exercise.Exercise,
+//
+// history は前日まで（Plan が切る）。
+func variationLift(
+	history setlog.History, prog *program.Program, pool []*exercise.Exercise,
+	heavy *exercise.Exercise, date training.Date,
 	today program.Split, hasSplit bool,
 ) *exercise.Exercise {
-	focus, ok := req.Program.FocusExercise()
+	focus, ok := prog.FocusExercise()
 	if !ok {
 		return nil
 	}
@@ -47,12 +50,11 @@ func (p SessionPlanner) variationLift(
 	}
 
 	// 前回やってから十分に日数が空いていない場合、バリエーションは出さない。
-	h := historyBefore(req)
-	if recentlyPerformed(h, family, req.Date) {
+	if recentlyPerformed(history, family, date) {
 		return nil
 	}
 
-	return stalest(h, variationsOf(pool, focus))
+	return stalest(history, variationsOf(pool, focus))
 }
 
 // accessoryExcluded は補助の候補から外す種目を返す。
@@ -120,9 +122,7 @@ func variationsOf(pool []*exercise.Exercise, focus exercise.ExerciseID) []*exerc
 // AccessorySelector.recovering と同じ開区間 (date - N, date)。区分ではなく
 // 系統で見る点だけが違う。
 //
-// 渡す履歴は前日まで。当日を含めると、今日ラーセンを1セット記録して
-// 開き直した瞬間に系統が「最近やった」になり、バリエーションが自分の下で
-// 消える（D-116 系）。
+// 渡す履歴は前日まで。理由は Plan に書いた。
 func recentlyPerformed(h setlog.History, family []*exercise.Exercise, date training.Date) bool {
 	inFamily := make(map[exercise.ExerciseID]bool, len(family))
 	for _, e := range family {

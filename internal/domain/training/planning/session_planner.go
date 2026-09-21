@@ -72,12 +72,49 @@ func (p SessionPlanner) Plan(req PlanRequest) (PlannedSession, error) {
 		return PlannedSession{}, errors.New("対象日が指定されていない")
 	}
 
-	pool := p.usablePool(req)
-	estHistory := effectiveHistory(historyBefore(req), pool, req.Conditions)
+	pool := usablePool(req.Pool, req.Program)
+
+	// 当日の記録を落とすのはここ1箇所。これより下で req.History と書かない。
+	//
+	// 今日の計画はその日の始まりに確定させると決めてある（D-116）。重量の
+	// 推定も、残差も、軸も、補助の選択も、全て前日までの履歴から決める。
+	// 以前は使う側が毎回「前日までに切る」を書いていて、1箇所でも忘れると
+	// ジムで1セット記録するたびに計画が自分の下で動く。どこで忘れても別の
+	// 形で出るので、症状から原因に辿りにくい。実際に出た・出うる形：
+	//
+	//   - 残差：1セット記録するたびに残差が動いて、選ばれる補助と並びが
+	//     変わる。消化している最中にリストが入れ替わる
+	//   - 重量の推定：1セット目を記録した瞬間に推定1RMが動いて、2セット目の
+	//     提示重量が変わる。しかも RIR を守ってきついセットをこなすほど
+	//     推定が上がるので、**追い込むほど次が重くなる**
+	//   - 軸（stalest）：1セット記録した瞬間に「最後にやったのが最も古い
+	//     種目」が入れ替わり、今日の軸が別の種目になる
+	//   - バリエーション（recentlyPerformed）：今日ラーセンを1セット記録して
+	//     開き直した瞬間に系統が「最近やった」になり、バリエーションが消える
+	//   - 分割：周期は出席回数で進むので、1セット記録した瞬間に今日が1回に
+	//     数えられ、上の日が下の日に変わる。1回ぶんの天井（activeCount）の
+	//     起点も1つずれる
+	//   - 重点種目の一巡：今日のセッションが1回に数えられて位置が進み、
+	//     軸の強度か種目が変わる
+	//
+	// かつて別々に手当てしていた不具合（終えた補助が再提示される、記録すると
+	// 種目が消える、並びが入れ替わる、枠が補充されて終わらない）は、すべて
+	// この1点の派生だった。
+	//
+	// 当日を含めるのは画面の「今週の充足」だけで、あれは query 側の別経路。
+	// 表示は「今週どれだけやったか」、計画は「今日やると決めたこと」。
+	//
+	// 受け入れ条件は TestSessionPlanner_PlanIsFixedForTheWholeDay。
+	//
+	// 履歴は2種類ある。history は記録のまま（数える・日付を見る）。
+	// estimable は実効負荷（体重込み）に直したもので、推定にだけ渡す。
+	// 重量が違うので、数える・日付を見る・記録を見せる経路には渡さない。
+	history := req.History.Before(req.Date)
+	estimable := effectiveHistory(history, pool, req.Conditions)
 
 	// 今日の分割。周期は暦ではなく出席回数で進む。休んだ日に飛ぶと、
 	// 通っていないのに分割だけが回る。
-	today, hasSplit := req.Program.SplitOn(historyBefore(req).SessionCount())
+	today, hasSplit := req.Program.SplitOn(history.SessionCount())
 
 	// 宣言がプールに1つも残っていないのは設定の破れ。分割で絞られて
 	// ゼロになるのとは別物で、こちらは計画を出さずに止める。
@@ -93,7 +130,7 @@ func (p SessionPlanner) Plan(req PlanRequest) (PlannedSession, error) {
 	// 該当が無ければ軸は空。5分割の肩・腕には BIG3 の中に主働を持つ
 	// 種目が無く、そういう日が実際にできる。0.88 のスクワットを肩の日に
 	// 出すより、軸の枠が無いほうが正直（2026-09-19 の仕様書）。
-	heavy, heavyPct := p.axis(req, pool, declared, today, hasSplit)
+	heavy, heavyPct := axis(history, req.Program, pool, declared, today, hasSplit)
 
 	rirBump := p.analyzer.RIRAdjustment(req.Conditions, req.Date)
 
@@ -106,29 +143,29 @@ func (p SessionPlanner) Plan(req PlanRequest) (PlannedSession, error) {
 	// セッションが短くなり（実測18セット）、週明けに全区分の不足が
 	// 最大になって一日で使い尽くしていた。
 	//
-	// 当日の記録は見ない。
-	// 当日を含めると、1セット記録するたびに残差が動いて選ばれる種目と並びが
-	// 変わり、ジムで消化している最中にリストが自分の下で入れ替わる。
+	// 当日の記録は見ない。history が前日までなのに加えて、窓の上端も
+	// 前日で切る。CoverageBetween は画面の「今週の充足」が当日込みで使う
+	// 公開関数なので、当日を外すのは呼ぶ側の窓で言う。
 	//
 	// 数えるのはマスタ全件（req.Pool）で、選択された種目だけではない。
 	// やったセットは、いま選択しているかに関係なく、やったセット。pool で
 	// 数えると、種目を選択から外した瞬間にその記録が読み飛ばされ、区分の
 	// 残差が最大1週間ふくらむ。画面の「今週の充足」もマスタ全件で数えて
 	// いるので、そちらとも食い違う（#133）。
-	coverage := CoverageBetween(req.History, req.Pool, req.Date.AddDays(-6), req.Date.AddDays(-1))
+	coverage := CoverageBetween(history, req.Pool, req.Date.AddDays(-6), req.Date.AddDays(-1))
 
 	main := make([]PlannedSet, 0, 1)
 	thisSession := StimulusCoverage{}
 	if heavy != nil {
-		set := p.planHeavy(req, estHistory, heavy, heavyPct, rirBump)
+		set := p.planHeavy(estimable, req.Conditions, req.Date, heavy, heavyPct, rirBump)
 		main = append(main, set)
 		thisSession = thisSession.Plus(heavy.Stimulus(), set.Sets())
 	}
 
 	variation := make([]PlannedSet, 0, 1)
 	exclude := accessoryExcluded(pool, req.Program)
-	if v := p.variationLift(req, pool, heavy, today, hasSplit); v != nil {
-		vs := p.planVariation(req, estHistory, v, rirBump)
+	if v := variationLift(history, req.Program, pool, heavy, req.Date, today, hasSplit); v != nil {
+		vs := p.planVariation(estimable, req.Conditions, req.Date, v, rirBump)
 		variation = append(variation, vs)
 		thisSession = thisSession.Plus(v.Stimulus(), vs.Sets())
 		exclude = append(exclude, v.ID())
@@ -137,7 +174,7 @@ func (p SessionPlanner) Plan(req PlanRequest) (PlannedSession, error) {
 	// 分割があるときだけ天井を掛ける。理由は SessionResidual に書いた。
 	var active ActiveCount
 	if hasSplit {
-		active = p.activeCount(req)
+		active = activeCount(history, req.Program)
 	}
 	gaps := SessionResidual(req.Program.WeeklyTarget(), coverage, thisSession, active)
 
@@ -169,10 +206,10 @@ func (p SessionPlanner) Plan(req PlanRequest) (PlannedSession, error) {
 			exclude = append(exclude, e.ID())
 		}
 	}
-	chosen := p.accessory.Select(gaps, req.Pool, historyBefore(req), req.Date, exclude)
+	chosen := p.accessory.Select(gaps, req.Pool, history, req.Date, exclude)
 	accessories := make([]PlannedSet, 0, len(chosen))
 	for _, id := range chosen {
-		accessories = append(accessories, p.planAccessory(req, pool, estHistory, id, rirBump))
+		accessories = append(accessories, p.planAccessory(pool, estimable, req.Conditions, req.Date, id, rirBump))
 	}
 
 	return PlannedSession{
@@ -191,13 +228,13 @@ func (p SessionPlanner) Plan(req PlanRequest) (PlannedSession, error) {
 //
 // 並びを固定するのは、同じ入力から同じ計画が出るようにするため。軸の選定が
 // 同点のときにここの順序で決まる。
-func (p SessionPlanner) usablePool(req PlanRequest) []*exercise.Exercise {
-	out := make([]*exercise.Exercise, 0, len(req.Pool))
-	for _, e := range req.Pool {
+func usablePool(pool []*exercise.Exercise, prog *program.Program) []*exercise.Exercise {
+	out := make([]*exercise.Exercise, 0, len(pool))
+	for _, e := range pool {
 		if e == nil {
 			continue
 		}
-		if req.Program.Includes(e.ID()) {
+		if prog.Includes(e.ID()) {
 			out = append(out, e)
 		}
 	}
@@ -214,18 +251,6 @@ func declaredExercises(pool []*exercise.Exercise, prog *program.Program) []*exer
 		}
 	}
 	return out
-}
-
-// historyBefore は当日より前の履歴。重量の推定に使う。
-//
-// 残差も推定も当日を含めない。今日の計画はその日の始まりに確定させると
-// 決めてある（D-116）。当日の結果が入ると、1セット記録するたびに目標も
-// リストも自分の下で動く。
-//
-// 当日を含めるのは画面の「今週の充足」だけで、あれは query 側の別経路。
-// 表示は「今週どれだけやったか」、計画は「今日やると決めたこと」。
-func historyBefore(req PlanRequest) setlog.History {
-	return req.History.Before(req.Date)
 }
 
 func findExercise(pool []*exercise.Exercise, id exercise.ExerciseID) *exercise.Exercise {

@@ -2,6 +2,7 @@ package planning
 
 import (
 	"github.com/dyoshyy/liftplan/internal/domain/training"
+	"github.com/dyoshyy/liftplan/internal/domain/training/condition"
 	"github.com/dyoshyy/liftplan/internal/domain/training/exercise"
 	"github.com/dyoshyy/liftplan/internal/domain/training/setlog"
 )
@@ -64,13 +65,12 @@ const (
 // やめた時点（D-114）から target は引数そのものに固定されている。表のほうも
 // D-117 で宣言種目が順に回るようになった時点で意味を失っていた（D-126）。
 func (p SessionPlanner) planHeavy(
-	req PlanRequest,
-	historyBefore setlog.History,
+	estimable setlog.History, conditions condition.ConditionLog, date training.Date,
 	target *exercise.Exercise,
 	intensityPct float64,
 	rirBump int,
 ) PlannedSet {
-	return p.prescribe(req, historyBefore, target,
+	return p.prescribe(estimable, conditions, date, target,
 		intensityPct, heavySets, heavyTargetRIR, rirBump)
 }
 
@@ -79,12 +79,11 @@ func (p SessionPlanner) planHeavy(
 // 強度・セット数・RIR は定数。軸と同じく、週の何本目かでは変えない。派生は
 // それぞれ自分の推定1RMを持つので、種目が違えば重量は自然に違う。
 func (p SessionPlanner) planVariation(
-	req PlanRequest,
-	historyBefore setlog.History,
+	estimable setlog.History, conditions condition.ConditionLog, date training.Date,
 	target *exercise.Exercise,
 	rirBump int,
 ) PlannedSet {
-	return p.prescribe(req, historyBefore, target,
+	return p.prescribe(estimable, conditions, date, target,
 		variationIntensityPct, variationSets, variationTargetRIR, rirBump)
 }
 
@@ -94,9 +93,11 @@ func (p SessionPlanner) planVariation(
 // 定数を値オブジェクトへ通すのは実行時で、失敗しても種目だけの set に
 // 落とす。重量が付かなければ本人が決める。定数が正しい限り発火しないが、
 // panic は使わない（TestDomain_PanickingFunctionsStayWhereTheyBelong）。
+//
+// estimable は前日まで・実効負荷の履歴（Plan が作る）。記録のままの履歴を
+// 渡すと自重種目の重量がずれる。
 func (p SessionPlanner) prescribe(
-	req PlanRequest,
-	historyBefore setlog.History,
+	estimable setlog.History, conditions condition.ConditionLog, date training.Date,
 	target *exercise.Exercise,
 	intensityPct float64, sets, rir, rirBump int,
 ) PlannedSet {
@@ -118,22 +119,19 @@ func (p SessionPlanner) prescribe(
 		return set
 	}
 
-	// 当日の記録は使わない（D-116）。含めると、1セット目を記録した瞬間に
-	// 推定1RMが動いて2セット目の提示重量が変わる。しかも RIR を守って
-	// きついセットをこなすほど推定が上がるので、**追い込むほど次が重くなる**。
-	// その日にやることは、その日が始まる前に分かっていたことから決める。
-	if orm, ok := p.estimator.Estimate(historyBefore, target.ID(), req.Date); ok {
+	if orm, ok := p.estimator.Estimate(estimable, target.ID(), date); ok {
 		if w, err := orm.WorkWeight(intensity, target.Increment()); err == nil {
 			// 推定も処方も実効負荷（体重込み）で通し、出口で加重に戻す。
-			set.weight, set.hasWeight = AddedWeight(w, target, req.Conditions, req.Date), true
+			set.weight, set.hasWeight = AddedWeight(w, target, conditions, date), true
 		}
 	}
 	return set
 }
 
 func (p SessionPlanner) planAccessory(
-	req PlanRequest,
-	pool []*exercise.Exercise, historyBefore setlog.History, id exercise.ExerciseID, rirBump int,
+	pool []*exercise.Exercise, estimable setlog.History,
+	conditions condition.ConditionLog, date training.Date,
+	id exercise.ExerciseID, rirBump int,
 ) PlannedSet {
 	baseRIR, err := training.NewRIR(accessoryTargetRIR)
 	if err != nil {
@@ -155,9 +153,9 @@ func (p SessionPlanner) planAccessory(
 		return set
 	}
 
-	if orm, ok := p.estimator.Estimate(historyBefore, id, req.Date); ok {
+	if orm, ok := p.estimator.Estimate(estimable, id, date); ok {
 		if w, err := orm.WorkWeight(intensity, exercise.Increment()); err == nil {
-			set.weight, set.hasWeight = AddedWeight(w, exercise, req.Conditions, req.Date), true
+			set.weight, set.hasWeight = AddedWeight(w, exercise, conditions, date), true
 		}
 	}
 	return set
