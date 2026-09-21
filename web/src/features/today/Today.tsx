@@ -1,6 +1,9 @@
+import { useCallback, useState } from 'react';
 import type { RecordedSet } from '../../api/types';
 import type { Data } from '../../app/useLiftplan';
 import { ExerciseCard, type CardPlan } from './ExerciseCard';
+import { PRCelebration } from './PRCelebration';
+import type { PersonalRecord } from './pr';
 import { leftovers } from './leftovers';
 import { RecordSheet } from './RecordSheet';
 import { useRecordOrchestrator } from './useRecordOrchestrator';
@@ -24,15 +27,30 @@ type Props = {
 
 export function Today(props: Props) {
   const { data, enqueue, onRecorded } = props;
+
+  // 祝いは「いま出ているもの」だけを持つ。seq は再生し直すための採番。
+  // 1セット目と2セット目で続けて更新したとき、同じ要素のままだと
+  // アニメーションが走り直さず、2回目が無音で終わる。
+  const [celebration, setCelebration] = useState<{ pr: PersonalRecord; seq: number } | null>(null);
+  const celebrate = useCallback(
+    (pr: PersonalRecord) => setCelebration((c) => ({ pr, seq: (c?.seq ?? 0) + 1 })),
+    [],
+  );
+  const dismiss = useCallback(() => setCelebration(null), []);
+
+  const nameOf = useCallback((id: string) => data.names.get(id) ?? id, [data.names]);
+
   // 記録の手順はオーケストレーターが持つ。この部品は描画だけをする。
   const sheet = useRecordOrchestrator({
     enqueue,
     onRecordLocally: props.onRecordLocally,
     onForgetLocally: props.onForgetLocally,
     onRestStart: onRecorded,
+    history: { days: data.days, doneToday: data.doneToday },
+    nameOf,
+    onPersonalRecord: celebrate,
   });
 
-  const nameOf = (id: string) => data.names.get(id) ?? id;
   const doneOf = (id: string) => data.doneToday.get(id) ?? [];
 
   const main = data.session?.main ?? [];
@@ -91,6 +109,10 @@ export function Today(props: Props) {
           onUndo={() => void sheet.undo()}
           onClose={sheet.close}
         />
+      )}
+
+      {celebration && (
+        <PRCelebration key={celebration.seq} pr={celebration.pr} onDone={dismiss} />
       )}
     </div>
   );
