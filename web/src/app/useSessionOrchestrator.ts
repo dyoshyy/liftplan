@@ -139,7 +139,6 @@ export function useSessionOrchestrator() {
     };
   }, [flush, reload]);
 
-  const signIn = useCallback(() => dispatch({ type: 'SIGNED_IN' }), []);
   const signOut = useCallback(() => dispatch({ type: 'SIGNED_OUT' }), []);
 
   return {
@@ -151,7 +150,6 @@ export function useSessionOrchestrator() {
     loadToday,
     recordLocally,
     forgetLocally,
-    signIn,
     signOut,
   };
 }
