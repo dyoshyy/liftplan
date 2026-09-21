@@ -279,150 +279,31 @@ func TestConditionAnalyzer_NoAdjustmentWhenTodaysSleepIsMissing(t *testing.T) {
 	}
 }
 
-func TestConditionAnalyzer_TrendDetectsCutting(t *testing.T) {
-	a := planning.DefaultConditionAnalyzer()
-	// 過去ほど重い＝減量中。
-	log := weightLog(21, func(daysAgo int) float64 { return 75 + float64(daysAgo)*0.05 })
-
-	got, ok := a.BodyWeightTrendKgPerWeek(log, condDate(0))
-	if !ok {
-		t.Fatal("トレンドが取れない")
-	}
-	if got >= -0.1 {
-		t.Errorf("減量中と判定されていない: %v", got)
-	}
-	// 1日 -0.05kg なら週 -0.35kg。
-	if math.Abs(got-(-0.35)) > 0.01 {
-		t.Errorf("傾きが誤り: %v", got)
-	}
-}
-
-func TestConditionAnalyzer_TrendDetectsBulking(t *testing.T) {
-	a := planning.DefaultConditionAnalyzer()
-	log := weightLog(21, func(daysAgo int) float64 { return 75 - float64(daysAgo)*0.05 })
-
-	got, ok := a.BodyWeightTrendKgPerWeek(log, condDate(0))
-	if !ok {
-		t.Fatal("トレンドが取れない")
-	}
-	if got <= 0.1 {
-		t.Errorf("増量中と判定されていない: %v", got)
-	}
-}
-
-func TestConditionAnalyzer_TrendFlat(t *testing.T) {
-	a := planning.DefaultConditionAnalyzer()
-	got, ok := a.BodyWeightTrendKgPerWeek(weightLog(21, func(int) float64 { return 75 }), condDate(0))
-	if !ok {
-		t.Fatal("トレンドが取れない")
-	}
-	if math.Abs(got) > 0.01 {
-		t.Errorf("横ばいと判定されていない: %v", got)
-	}
-}
-
-func TestConditionAnalyzer_TrendNeedsEnoughSamples(t *testing.T) {
-	a := planning.DefaultConditionAnalyzer()
-
-	for _, days := range []int{0, 1, 4} {
-		if _, ok := a.BodyWeightTrendKgPerWeek(weightLog(days, func(int) float64 { return 75 }), condDate(0)); ok {
-			t.Errorf("%d日ぶんのサンプルでトレンドが返る", days)
-		}
-	}
-	if _, ok := a.BodyWeightTrendKgPerWeek(weightLog(5, func(int) float64 { return 75 }), condDate(0)); !ok {
-		t.Error("最低サンプル数でトレンドが取れない")
-	}
-}
-
-func TestConditionAnalyzer_TrendIgnoresMissingWeight(t *testing.T) {
-	a := planning.DefaultConditionAnalyzer()
-	if _, ok := a.BodyWeightTrendKgPerWeek(sleepLog(21, func(int) float64 { return 7 }), condDate(0)); ok {
-		t.Error("体重が無いのにトレンドが返る")
-	}
-}
-
-// 窓の外の記録を使わないこと。
-// 使うと、2ヶ月前の減量期の傾きが今の判定に混ざる。
-func TestConditionAnalyzer_TrendRespectsTheWindow(t *testing.T) {
-	a := planning.DefaultConditionAnalyzer()
-
-	// 直近21日は横ばい、それ以前は急激に減っている。
-	log := weightLog(60, func(daysAgo int) float64 {
-		if daysAgo <= 21 {
-			return 75
-		}
-		return 75 + float64(daysAgo-21)*0.5
-	})
-
-	got, ok := a.BodyWeightTrendKgPerWeek(log, condDate(0))
-	if !ok {
-		t.Fatal("トレンドが取れない")
-	}
-	if math.Abs(got) > 0.05 {
-		t.Errorf("窓の外の記録が混ざっている: %v", got)
-	}
-}
-
-// 未来の記録を使わないこと。
-func TestConditionAnalyzer_TrendIgnoresFutureRecords(t *testing.T) {
-	a := planning.DefaultConditionAnalyzer()
-
-	items := make([]condition.DailyCondition, 0, 30)
-	for i := range 21 {
-		items = append(items, condition.NewDailyCondition(condDate(i)).WithBodyWeight(75))
-	}
-	// 基準日より後に急激な増加を置く。
-	for i := 1; i <= 5; i++ {
-		items = append(items, condition.NewDailyCondition(condDate(-i)).WithBodyWeight(75+float64(i)*2))
-	}
-
-	got, ok := a.BodyWeightTrendKgPerWeek(condition.NewConditionLog(items), condDate(0))
-	if !ok {
-		t.Fatal("トレンドが取れない")
-	}
-	if math.Abs(got) > 0.05 {
-		t.Errorf("未来の記録が混ざっている: %v", got)
-	}
-}
-
-func TestConditionAnalyzer_TrendIsQuantized(t *testing.T) {
-	a := planning.DefaultConditionAnalyzer()
-	log := weightLog(21, func(daysAgo int) float64 { return 75 + float64(daysAgo)*0.037 })
-
-	got, _ := a.BodyWeightTrendKgPerWeek(log, condDate(0))
-	if n := decimalPlaces(strconv.FormatFloat(got, 'f', -1, 64)); n > 6 {
-		t.Errorf("端数が残っている: %v", got)
-	}
-}
-
 func TestNewConditionAnalyzer_RejectsBadParams(t *testing.T) {
 	cases := []struct {
 		baselineDays      int
 		sleepDeficitHours float64
-		trendWindowDays   int
 	}{
-		{0, 1.5, 21}, {-1, 1.5, 21},
-		{14, 0, 21}, {14, -1, 21}, {14, math.NaN(), 21}, {14, math.Inf(1), 21},
-		{14, 25, 21}, // 睡眠不足の閾値が1日を超える
-		{14, 1.5, 0}, {14, 1.5, -1},
+		{0, 1.5}, {-1, 1.5},
+		{14, 0}, {14, -1}, {14, math.NaN()}, {14, math.Inf(1)},
+		{14, 25}, // 睡眠不足の閾値が1日を超える
 		// 窓が最低サンプル数を下回る設定は、通っても機能が黙って死ぬ。
-		{4, 1.5, 21}, {14, 1.5, 4},
+		{4, 1.5},
 		// 桁を間違えた設定で巨大な確保を試みない。
-		{366, 1.5, 21}, {14, 1.5, 366}, {1 << 30, 1.5, 21},
+		{366, 1.5}, {1 << 30, 1.5},
 	}
 	for _, c := range cases {
-		if _, err := planning.NewConditionAnalyzer(c.baselineDays, c.sleepDeficitHours, c.trendWindowDays); err == nil {
+		if _, err := planning.NewConditionAnalyzer(c.baselineDays, c.sleepDeficitHours); err == nil {
 			t.Errorf("不正なパラメータが通ってしまう: %+v", c)
 		}
 	}
 	for _, c := range []struct {
 		baselineDays      int
 		sleepDeficitHours float64
-		trendWindowDays   int
 	}{
-		{5, 0.1, 5}, {365, 24, 365},
+		{5, 0.1}, {365, 24},
 	} {
-		if _, err := planning.NewConditionAnalyzer(c.baselineDays, c.sleepDeficitHours, c.trendWindowDays); err != nil {
+		if _, err := planning.NewConditionAnalyzer(c.baselineDays, c.sleepDeficitHours); err != nil {
 			t.Errorf("境界値が弾かれた: %+v (%v)", c, err)
 		}
 	}
@@ -436,9 +317,6 @@ func TestDefaultConditionAnalyzer_Constants(t *testing.T) {
 	if math.Abs(a.SleepDeficitHours()-1.5) > 1e-9 {
 		t.Errorf("睡眠不足の閾値が誤り: %v", a.SleepDeficitHours())
 	}
-	if a.TrendWindowDays() != 21 {
-		t.Errorf("トレンド窓が誤り: %d", a.TrendWindowDays())
-	}
 }
 
 func TestConditionAnalyzer_ZeroValueIsSafe(t *testing.T) {
@@ -448,9 +326,6 @@ func TestConditionAnalyzer_ZeroValueIsSafe(t *testing.T) {
 	if got := a.RIRAdjustment(log, condDate(0)); got != 0 {
 		t.Errorf("ゼロ値の分析器が補正した: %d", got)
 	}
-	if _, ok := a.BodyWeightTrendKgPerWeek(weightLog(21, func(int) float64 { return 75 }), condDate(0)); ok {
-		t.Error("ゼロ値の分析器がトレンドを返した")
-	}
 }
 
 func TestConditionAnalyzer_ZeroDateIsSafe(t *testing.T) {
@@ -458,9 +333,6 @@ func TestConditionAnalyzer_ZeroDateIsSafe(t *testing.T) {
 
 	if got := a.RIRAdjustment(sleepLog(15, func(int) float64 { return 7 }), training.Date{}); got != 0 {
 		t.Errorf("基準日が無いのに補正された: %d", got)
-	}
-	if _, ok := a.BodyWeightTrendKgPerWeek(weightLog(21, func(int) float64 { return 75 }), training.Date{}); ok {
-		t.Error("基準日が無いのにトレンドが返る")
 	}
 }
 
@@ -517,61 +389,10 @@ func TestConditionAnalyzer_AdjustsWhenSleepArrivesSeparately(t *testing.T) {
 	}
 }
 
-// 体重の傾きが計測ノイズで反転しないこと。
-//
-// 最小二乗法だと、食後や着衣による 0.4kg 程度のずれ1点で傾きが
-// 0.1kg/週 以上動き、「減量中かどうか」の判定が反転する。
-// 減量中と誤判定されると、本物のオーバーリーチによる停滞で
-// デロードが永久に出なくなる。
-func TestConditionAnalyzer_TrendResistsMeasurementNoise(t *testing.T) {
-	a := planning.DefaultConditionAnalyzer()
-
-	// 体重は完全に横ばい。週2回計測で、最も古い1点だけ +0.4kg。
-	items := []condition.DailyCondition{}
-	for _, daysAgo := range []int{0, 5, 10, 15, 20} {
-		kg := 75.0
-		if daysAgo == 20 {
-			kg = 75.4
-		}
-		items = append(items, condition.NewDailyCondition(condDate(daysAgo)).WithBodyWeight(kg))
-	}
-
-	got, ok := a.BodyWeightTrendKgPerWeek(condition.NewConditionLog(items), condDate(0))
-	if !ok {
-		t.Fatal("トレンドが取れない")
-	}
-	if got < -0.1 {
-		t.Errorf("計測ノイズで減量中と誤判定される: %v kg/週", got)
-	}
-}
-
-// 本当に減量しているとき、当日1点のノイズで判定が消えないこと。
-func TestConditionAnalyzer_TrendSurvivesASingleOutlier(t *testing.T) {
-	a := planning.DefaultConditionAnalyzer()
-
-	// 週 -0.3kg で減量中。今日だけ服を着たまま測って +1kg。
-	items := []condition.DailyCondition{}
-	for daysAgo := 0; daysAgo <= 20; daysAgo++ {
-		kg := 75 + float64(daysAgo)*0.3/7
-		if daysAgo == 0 {
-			kg += 1
-		}
-		items = append(items, condition.NewDailyCondition(condDate(daysAgo)).WithBodyWeight(kg))
-	}
-
-	got, ok := a.BodyWeightTrendKgPerWeek(condition.NewConditionLog(items), condDate(0))
-	if !ok {
-		t.Fatal("トレンドが取れない")
-	}
-	if got >= -0.1 {
-		t.Errorf("1点の外れ値で減量判定が消えた: %v kg/週", got)
-	}
-}
-
 // 基準日数が実際に窓幅として使われていること。
 // ゲッターの値だけ見ても、窓に使われているかは分からない。
 func TestConditionAnalyzer_BaselineDaysIsUsedAsTheWindow(t *testing.T) {
-	narrow, err := planning.NewConditionAnalyzer(5, 1.5, 21)
+	narrow, err := planning.NewConditionAnalyzer(5, 1.5)
 	if err != nil {
 		t.Fatalf("NewConditionAnalyzer: %v", err)
 	}
@@ -596,35 +417,5 @@ func TestConditionAnalyzer_BaselineDaysIsUsedAsTheWindow(t *testing.T) {
 	}
 	if got := wide.RIRAdjustment(log, condDate(0)); got != 1 {
 		t.Errorf("14日窓が狭く取られている: %d", got)
-	}
-}
-
-// トレンド窓はちょうど N 日ぶんであること。
-//
-// 下限と上限の扱いが非対称だと、同じ設定で21日窓と22日窓が混在し、
-// 「先週と同じデータのはずなのに傾きが違う」という再現しにくい挙動になる。
-//
-// 窓の内外は、サンプル数が最低値に届くかどうかで判定する。
-// Theil-Sen は外れ値に強いので、値の変化では境界を検出できない。
-func TestConditionAnalyzer_TrendWindowIsExactlyNDays(t *testing.T) {
-	a := planning.DefaultConditionAnalyzer()
-
-	// 窓の内側に4点だけ置く。最低サンプル数は5なので、
-	// 5点目が窓に入るかどうかで ok が切り替わる。
-	build := func(fifthDaysAgo int) condition.ConditionLog {
-		items := []condition.DailyCondition{}
-		for _, daysAgo := range []int{0, 5, 10, 15} {
-			items = append(items, condition.NewDailyCondition(condDate(daysAgo)).WithBodyWeight(75))
-		}
-		items = append(items, condition.NewDailyCondition(condDate(fifthDaysAgo)).WithBodyWeight(75))
-		return condition.NewConditionLog(items)
-	}
-
-	// 既定の窓は21日。0〜20日前が内側。
-	if _, ok := a.BodyWeightTrendKgPerWeek(build(20), condDate(0)); !ok {
-		t.Error("20日前が窓の外になっている")
-	}
-	if _, ok := a.BodyWeightTrendKgPerWeek(build(21), condDate(0)); ok {
-		t.Error("21日前が窓の内側になっている。窓が22日ぶんある")
 	}
 }
