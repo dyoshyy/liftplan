@@ -25,13 +25,11 @@ postgres://<user>:<password>@ep-xxxx.ap-southeast-1.aws.neon.tech/neondb?sslmode
 
 pooler でもアプリ自体は動く。ただしテストは `search_path` でスキーマを分離しており、pooler はそれを拒否する。**本番とテストで同じ経路を通す**ためにも直接接続で揃える。
 
-## 2. 認証トークンを作る
+## 2. OAuth の認可先を登録する
 
-```bash
-openssl rand -hex 32
-```
-
-32文字未満だとサーバーが起動しない。
+認証は GitHub と Google の OAuth（D-136）。固定の認証トークンは作らない
+（`AUTH_TOKEN` は廃止していて、残っているとサーバーが起動を拒む）。
+登録の手順は下の「OAuth に切り替える」の 1 にある。
 
 ## 3. GCP プロジェクトと課金
 
@@ -60,9 +58,9 @@ gcloud services enable run.googleapis.com secretmanager.googleapis.com \
 
 printf '%s' '<Neon の接続文字列>' | \
   gcloud secrets create liftplan-database-url --data-file=-
-printf '%s' '<生成したトークン>' | \
-  gcloud secrets create liftplan-auth-token --data-file=-
 ```
+
+OAuth のクライアントシークレット2つも Secret Manager に置く（下の「OAuth に切り替える」の 2）。
 
 ## 5. デプロイ
 
@@ -80,7 +78,7 @@ gcloud run deploy liftplan-server \
 
 `--allow-unauthenticated` は **Cloud Run 側の IAM 認証を切る**という意味で、アプリの認証は別に効いている。ここを閉じると Google のアカウントが要るようになり、Android から叩けない。
 
-`--max-instances=2` にしているのは、単一ユーザーで台数が増える理由が無いのと、Neon の接続数を使い切らないため。1インスタンスあたり最大8接続を張る。
+`--max-instances=2` にしているのは、Neon の接続数を使い切らないため。1インスタンスあたり最大8接続を張るので、全体で16本に収まる。決めているのは利用者の数ではなく DB 側の接続数の上限で、`internal/infrastructure/postgres/pool.go` の `maxConns` と組になっている。片方を動かすなら、もう片方も見ること。
 
 ## 6. 確認
 
@@ -205,7 +203,7 @@ gcloud iam service-accounts add-iam-policy-binding \
 
 - **コールドスタート**: `--min-instances=0` なので、しばらく使わないと初回が数秒かかる。ジムで最初に開くときだけ効く。気になるなら `--min-instances=1` にする（常時課金になる）
 - **ログ**: `gcloud run services logs read liftplan-server --region asia-southeast1`
-- **トークンの入れ替え**: `printf '%s' '<新しいトークン>' | gcloud secrets versions add liftplan-auth-token --data-file=-` してから再デプロイ。クライアント側も同時に変える必要があるので、切り替え中は 401 になる
+- **OAuth のシークレットの入れ替え**: `printf '%s' '<新しいシークレット>' | gcloud secrets versions add liftplan-github-client-secret --data-file=-`（Google は `liftplan-google-client-secret`）してから再デプロイ
 - **ロールバック**: Cloud Run はリビジョンを保持するので、トラフィックを前のリビジョンに戻せる
 
   ```bash
