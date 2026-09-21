@@ -12,7 +12,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/dyoshyy/liftplan/internal/domain/account"
 	"time"
 
 	"github.com/dyoshyy/liftplan/internal/application/query"
@@ -84,7 +83,7 @@ func buildRoutes(t *testing.T, configured bool) http.Handler {
 		}
 		// 保存先は既定ユーザー。ユースケースがいま使っているのと同じ
 		// 利用者でないと、設定したはずのプログラムが読めない。
-		if err := programs.Save(context.Background(), account.DefaultUserID(), program); err != nil {
+		if err := programs.Save(context.Background(), testUser, program); err != nil {
 			t.Fatalf("プログラムの保存に失敗: %v", err)
 		}
 	}
@@ -1112,7 +1111,7 @@ func TestGetSession_UnavailableIsNot500(t *testing.T) {
 		t.Fatalf("プログラムが不正: %v", err)
 	}
 	programs := memory.NewProgramRepository()
-	if err := programs.Save(context.Background(), account.DefaultUserID(), prog); err != nil {
+	if err := programs.Save(context.Background(), testUser, prog); err != nil {
 		t.Fatalf("プログラムの保存に失敗: %v", err)
 	}
 
@@ -1317,7 +1316,7 @@ func TestGetSession_InternalErrorDoesNotLeak(t *testing.T) {
 		t.Fatalf("プログラムが不正: %v", err)
 	}
 	programs := memory.NewProgramRepository()
-	if err := programs.Save(context.Background(), account.DefaultUserID(), program); err != nil {
+	if err := programs.Save(context.Background(), testUser, program); err != nil {
 		t.Fatalf("プログラムの保存に失敗: %v", err)
 	}
 	logs := memory.NewSetLogRepository()

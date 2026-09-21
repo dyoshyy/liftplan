@@ -61,7 +61,7 @@ func TestSession_IsExpired(t *testing.T) {
 
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			_, s, err := account.IssueSession(account.DefaultUserID(), at)
+			_, s, err := account.IssueSession(testUser, at)
 			if err != nil {
 				t.Fatalf("発行に失敗: %v", err)
 			}
@@ -75,7 +75,7 @@ func TestSession_IsExpired(t *testing.T) {
 
 // 発行したセッションの期限が「現在時刻＋90日」であること。
 func TestIssueSession_ExpiresIn90Days(t *testing.T) {
-	_, s, err := account.IssueSession(account.DefaultUserID(), at)
+	_, s, err := account.IssueSession(testUser, at)
 	if err != nil {
 		t.Fatalf("発行に失敗: %v", err)
 	}
@@ -84,8 +84,8 @@ func TestIssueSession_ExpiresIn90Days(t *testing.T) {
 	if !s.ExpiresAt().Equal(want) {
 		t.Errorf("期限が %v。%v のはず", s.ExpiresAt(), want)
 	}
-	if s.UserID() != account.DefaultUserID() {
-		t.Errorf("持ち主が %q。%q のはず", s.UserID(), account.DefaultUserID())
+	if s.UserID() != testUser {
+		t.Errorf("持ち主が %q。%q のはず", s.UserID(), testUser)
 	}
 }
 
@@ -94,7 +94,7 @@ func TestIssueSession_ExpiresIn90Days(t *testing.T) {
 // Session がトークンそのものを持つと、DB へ書く実装がいつか素通しで
 // 保存しうる。持たない形にしておけば、保存しようにも取り出せない。
 func TestIssueSession_KeepsOnlyTheHash(t *testing.T) {
-	token, s, err := account.IssueSession(account.DefaultUserID(), at)
+	token, s, err := account.IssueSession(testUser, at)
 	if err != nil {
 		t.Fatalf("発行に失敗: %v", err)
 	}
@@ -247,7 +247,7 @@ func TestNewTokenHash(t *testing.T) {
 //
 // ここが等しくないと、リポジトリが自分で保存した行を引けない。
 func TestNewSession_RoundTripsTheHash(t *testing.T) {
-	token, issued, err := account.IssueSession(account.DefaultUserID(), at)
+	token, issued, err := account.IssueSession(testUser, at)
 	if err != nil {
 		t.Fatalf("発行に失敗: %v", err)
 	}
@@ -287,7 +287,7 @@ func TestNewSession_RejectsIncompleteValues(t *testing.T) {
 		{
 			// ゼロ値のハッシュを許すと、空文字で引ける行ができる。
 			name:   "ハッシュがゼロ値なら作れない",
-			userID: account.DefaultUserID(), expiresAt: at,
+			userID: testUser, expiresAt: at,
 		},
 		{
 			name: "利用者の識別子がゼロ値なら作れない",
@@ -297,7 +297,7 @@ func TestNewSession_RejectsIncompleteValues(t *testing.T) {
 			// 期限ゼロ値は「切れている」側に倒れるので害は小さいが、
 			// 期限を渡し忘れた発行が通る形を残さない。
 			name: "期限がゼロ値なら作れない",
-			hash: hash, userID: account.DefaultUserID(),
+			hash: hash, userID: testUser,
 		},
 	}
 

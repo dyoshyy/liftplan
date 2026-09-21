@@ -194,7 +194,7 @@ func TestGetSession_ReturnsPlannedSession(t *testing.T) {
 		&fakeProgram{program: buildProgram(t, pool)},
 	)
 
-	got, err := uc.Execute(context.Background(), account.DefaultUserID(), usecase.GetSessionInput{Date: testDate})
+	got, err := uc.Execute(context.Background(), testUser, usecase.GetSessionInput{Date: testDate})
 	if err != nil {
 		t.Fatalf("実行に失敗: %v", err)
 	}
@@ -213,7 +213,7 @@ func TestGetSession_PropagatesProgramNotConfigured(t *testing.T) {
 		&fakeProgram{err: program.ErrProgramNotConfigured},
 	)
 
-	_, err := uc.Execute(context.Background(), account.DefaultUserID(), usecase.GetSessionInput{Date: testDate})
+	_, err := uc.Execute(context.Background(), testUser, usecase.GetSessionInput{Date: testDate})
 	if !errors.Is(err, program.ErrProgramNotConfigured) {
 		t.Errorf("未設定エラーが伝播していない: %v", err)
 	}
@@ -228,7 +228,7 @@ func TestGetSession_PropagatesRepositoryError(t *testing.T) {
 		&fakeProgram{program: buildProgram(t, pool)},
 	)
 
-	if _, err := uc.Execute(context.Background(), account.DefaultUserID(), usecase.GetSessionInput{Date: testDate}); !errors.Is(err, boom) {
+	if _, err := uc.Execute(context.Background(), testUser, usecase.GetSessionInput{Date: testDate}); !errors.Is(err, boom) {
 		t.Errorf("リポジトリのエラーが伝播していない: %v", err)
 	}
 }
@@ -241,7 +241,7 @@ func TestGetSession_RejectsZeroDate(t *testing.T) {
 		&fakeProgram{program: buildProgram(t, pool)},
 	)
 
-	if _, err := uc.Execute(context.Background(), account.DefaultUserID(), usecase.GetSessionInput{}); err == nil {
+	if _, err := uc.Execute(context.Background(), testUser, usecase.GetSessionInput{}); err == nil {
 		t.Error("日付無しが通ってしまう")
 	}
 }
@@ -253,7 +253,7 @@ func TestGetSession_RejectsZeroDateBeforeTouchingRepositories(t *testing.T) {
 	programs := &fakeProgram{}
 	uc := newGetSession(t, logs, conditions, programs)
 
-	if _, err := uc.Execute(context.Background(), account.DefaultUserID(), usecase.GetSessionInput{}); err == nil {
+	if _, err := uc.Execute(context.Background(), testUser, usecase.GetSessionInput{}); err == nil {
 		t.Error("対象日が未指定なのに通った")
 	}
 	// 「エラーが返ること」だけを見ると、ガードを消しても
@@ -271,7 +271,7 @@ func TestGetSession_KeepsProgramNotConfiguredIdentifiable(t *testing.T) {
 		&fakeConditions{log: condition.NewConditionLog(nil)},
 		&fakeProgram{err: program.ErrProgramNotConfigured})
 
-	_, err := uc.Execute(context.Background(), account.DefaultUserID(), usecase.GetSessionInput{Date: testDate})
+	_, err := uc.Execute(context.Background(), testUser, usecase.GetSessionInput{Date: testDate})
 	if !errors.Is(err, program.ErrProgramNotConfigured) {
 		t.Errorf("未設定が判別できない形になっている: %v", err)
 	}
@@ -299,7 +299,7 @@ func TestGetSession_ConditionsReachTheDomain(t *testing.T) {
 			&fakeLogs{history: setlog.NewHistory(nil)},
 			conditions,
 			&fakeProgram{program: buildProgram(t, pool)})
-		s, err := uc.Execute(context.Background(), account.DefaultUserID(), usecase.GetSessionInput{Date: testDate})
+		s, err := uc.Execute(context.Background(), testUser, usecase.GetSessionInput{Date: testDate})
 		if err != nil {
 			t.Fatalf("実行に失敗: %v", err)
 		}
@@ -328,7 +328,7 @@ func TestGetSession_PropagatesConditionError(t *testing.T) {
 		&fakeConditions{log: condition.NewConditionLog(nil), err: boom},
 		&fakeProgram{program: buildProgram(t, pool)})
 
-	if _, err := uc.Execute(context.Background(), account.DefaultUserID(), usecase.GetSessionInput{Date: testDate}); !errors.Is(err, boom) {
+	if _, err := uc.Execute(context.Background(), testUser, usecase.GetSessionInput{Date: testDate}); !errors.Is(err, boom) {
 		t.Errorf("コンディションのエラーが伝播していない: %v", err)
 	}
 }
@@ -340,7 +340,7 @@ func TestGetSession_TreatsNilProgramAsNotConfigured(t *testing.T) {
 		&fakeConditions{log: condition.NewConditionLog(nil)},
 		&fakeProgram{})
 
-	_, err := uc.Execute(context.Background(), account.DefaultUserID(), usecase.GetSessionInput{Date: testDate})
+	_, err := uc.Execute(context.Background(), testUser, usecase.GetSessionInput{Date: testDate})
 	if !errors.Is(err, program.ErrProgramNotConfigured) {
 		t.Errorf("nil のプログラムが未設定として扱われていない: %v", err)
 	}
@@ -360,7 +360,7 @@ func TestGetSession_StopsOnCancelledContext(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	if _, err := uc.Execute(ctx, account.DefaultUserID(), usecase.GetSessionInput{Date: testDate}); !errors.Is(err, context.Canceled) {
+	if _, err := uc.Execute(ctx, testUser, usecase.GetSessionInput{Date: testDate}); !errors.Is(err, context.Canceled) {
 		t.Errorf("キャンセルが伝わっていない: %v", err)
 	}
 	// 履歴の全件読み込みは最も高くつく。切断済みなら払わない。
