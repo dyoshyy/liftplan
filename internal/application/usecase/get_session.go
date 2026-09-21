@@ -2,6 +2,13 @@
 //
 // ユースケースはデータを集めてドメインに渡すだけで、判断は一切しない。
 // 判断がここに漏れ出したら、それはドメイン層に置くべきもの。
+//
+// **利用者は ctx の直後、第2引数で受け取る。**入力の構造体
+// （ConfigureProgramInput など）に混ぜない。あの構造体はリクエストの
+// ボディから組み立てられるので、所有者をそこに置くと、送り主が名乗った
+// 名前で他人の記録を読み書きできる形が1回のミスで作れる。所有者は
+// 認証から来るもので、入力から来るものではない。位置を全ての口で
+// 揃えているのは、呼び出し側が並びを覚えずに済むようにするため。
 package usecase
 
 import (
@@ -9,6 +16,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/dyoshyy/liftplan/internal/domain/account"
 	"github.com/dyoshyy/liftplan/internal/domain/training"
 	"github.com/dyoshyy/liftplan/internal/domain/training/condition"
 	"github.com/dyoshyy/liftplan/internal/domain/training/exercise"
@@ -43,7 +51,7 @@ func NewGetSession(
 	}
 }
 
-func (u *GetSession) Execute(ctx context.Context, in GetSessionInput) (_ planning.PlannedSession, err error) {
+func (u *GetSession) Execute(ctx context.Context, user account.UserID, in GetSessionInput) (_ planning.PlannedSession, err error) {
 	// 出口で1度だけ翻訳する。return ごとに書くと、経路が増えたときに
 	// 包み忘れた1本だけが 500 で返る。
 	defer func() { err = classify(err) }()
@@ -52,7 +60,7 @@ func (u *GetSession) Execute(ctx context.Context, in GetSessionInput) (_ plannin
 		return planning.PlannedSession{}, errors.New("対象日が指定されていない")
 	}
 
-	prog, err := u.programs.Get(ctx, currentUser())
+	prog, err := u.programs.Get(ctx, user)
 	if err != nil {
 		return planning.PlannedSession{}, fmt.Errorf("プログラムの取得に失敗: %w", err)
 	}
@@ -72,7 +80,7 @@ func (u *GetSession) Execute(ctx context.Context, in GetSessionInput) (_ plannin
 	if err != nil {
 		return planning.PlannedSession{}, fmt.Errorf("種目の取得に失敗: %w", err)
 	}
-	history, err := u.logs.FindAll(ctx, currentUser())
+	history, err := u.logs.FindAll(ctx, user)
 	if err != nil {
 		return planning.PlannedSession{}, fmt.Errorf("実績の取得に失敗: %w", err)
 	}
@@ -80,7 +88,7 @@ func (u *GetSession) Execute(ctx context.Context, in GetSessionInput) (_ plannin
 		return planning.PlannedSession{}, fmt.Errorf("セッションの導出が中断された: %w", err)
 	}
 
-	conditions, err := u.conditions.FindAll(ctx, currentUser())
+	conditions, err := u.conditions.FindAll(ctx, user)
 	if err != nil {
 		return planning.PlannedSession{}, fmt.Errorf("コンディションの取得に失敗: %w", err)
 	}
