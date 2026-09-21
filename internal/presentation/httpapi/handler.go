@@ -59,7 +59,46 @@ type Dependencies struct {
 }
 
 // NewHandler は依存を受け取って Handler を組む。
+//
+// 欠けた依存があれば、ここで止める。位置引数なら渡し忘れはコンパイル
+// エラーだったが、構造体はゼロ値で通る。検査しないと、起動は成功して、
+// 欠けた口が初めて叩かれたときに nil 参照で落ちる。
+//
+// リフレクションで回さず1行ずつ並べているのは、将来「無くてもよい依存」が
+// 入ったときに、その行を書かないだけで済むようにするため。並べ忘れは
+// TestNewHandler_RejectsMissingDependency が全フィールドを回して捕まえる。
 func NewHandler(d Dependencies) (*Handler, error) {
+	switch {
+	case d.GetSession == nil:
+		return nil, errMissingDependency("GetSession")
+	case d.RecordSets == nil:
+		return nil, errMissingDependency("RecordSets")
+	case d.RecordConditions == nil:
+		return nil, errMissingDependency("RecordConditions")
+	case d.SetFocus == nil:
+		return nil, errMissingDependency("SetFocus")
+	case d.SetDeclared == nil:
+		return nil, errMissingDependency("SetDeclared")
+	case d.SetFrequency == nil:
+		return nil, errMissingDependency("SetFrequency")
+	case d.SetSelected == nil:
+		return nil, errMissingDependency("SetSelected")
+	case d.SetTarget == nil:
+		return nil, errMissingDependency("SetTarget")
+	case d.SetSplit == nil:
+		return nil, errMissingDependency("SetSplit")
+	case d.GetProgram == nil:
+		return nil, errMissingDependency("GetProgram")
+	case d.DeleteSetLog == nil:
+		return nil, errMissingDependency("DeleteSetLog")
+	case d.Exercises == nil:
+		return nil, errMissingDependency("Exercises")
+	case d.History == nil:
+		return nil, errMissingDependency("History")
+	case d.Stats == nil:
+		return nil, errMissingDependency("Stats")
+	}
+
 	return &Handler{
 		getSession:       d.GetSession,
 		recordSets:       d.RecordSets,
@@ -76,6 +115,12 @@ func NewHandler(d Dependencies) (*Handler, error) {
 		history:          d.History,
 		stats:            d.Stats,
 	}, nil
+}
+
+// errMissingDependency は欠けた依存の名前をエラーに載せる。
+// 名前が無いと、14個のどれを直せばよいかが分からない。
+func errMissingDependency(field string) error {
+	return fmt.Errorf("httpapi.Dependencies.%s が設定されていない", field)
 }
 
 // clientClosedRequest はクライアントが応答を待たずに切断したことを表す。

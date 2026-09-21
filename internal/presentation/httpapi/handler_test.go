@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
@@ -129,6 +130,49 @@ func routesFrom(t *testing.T, d httpapi.Dependencies) http.Handler {
 		t.Fatalf("ハンドラが組めない: %v", err)
 	}
 	return handler.Routes()
+}
+
+// 依存が1つでも欠けていたら、組み立ての時点で止める。
+//
+// 位置引数で受けていたときは、渡し忘れはコンパイルエラーだった。
+// 構造体はゼロ値で通るので、検査が無いと、欠けた口が初めて叩かれた
+// ときに nil 参照で落ちる。起動は成功しているので、気づくのは利用者になる。
+//
+// フィールドをリフレクションで回すのは、Dependencies に口を足したときに
+// この検査が自動で付いてくるようにするため。手で並べると、足した人が
+// NewHandler の検査とこの表の両方を忘れても緑のままになる。
+//
+// 名前がエラーに載ることまで見るのは、「何かが欠けている」だけでは
+// 14個のどれを直せばよいか分からないから。
+func TestNewHandler_RejectsMissingDependency(t *testing.T) {
+	complete := dependencies(
+		memory.NewExerciseRepository(nil),
+		memory.NewSetLogRepository(),
+		memory.NewConditionRepository(),
+		memory.NewProgramRepository(),
+	)
+	// 揃っていれば通ること。これが無いと、常にエラーを返す実装でも
+	// 下の検査が全部緑になる。
+	if _, err := httpapi.NewHandler(complete); err != nil {
+		t.Fatalf("全部揃っているのに組めない: %v", err)
+	}
+
+	fields := reflect.TypeOf(complete)
+	for i := range fields.NumField() {
+		field := fields.Field(i)
+		t.Run(field.Name+" が欠けている", func(t *testing.T) {
+			d := complete
+			reflect.ValueOf(&d).Elem().Field(i).Set(reflect.Zero(field.Type))
+
+			_, err := httpapi.NewHandler(d)
+			if err == nil {
+				t.Fatalf("%s が nil なのにエラーにならない", field.Name)
+			}
+			if !strings.Contains(err.Error(), field.Name) {
+				t.Errorf("エラーに欠けた名前 %s が載っていない: %v", field.Name, err)
+			}
+		})
+	}
 }
 
 func TestGetSession_Success(t *testing.T) {
