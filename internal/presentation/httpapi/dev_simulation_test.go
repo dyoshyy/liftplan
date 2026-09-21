@@ -107,8 +107,19 @@ func TestDevSimulation_RejectsBadInput(t *testing.T) {
 		"/api/dev/simulate?declared=bench&split=nope",
 	} {
 		t.Run(path, func(t *testing.T) {
-			if code := devGet(t, path).Code; code != http.StatusBadRequest {
+			rec := devGet(t, path)
+			if code := rec.Code; code != http.StatusBadRequest {
 				t.Errorf("%d が返った。400 のはず", code)
+			}
+			// 本体の口と同じ形で返す。400 の形が口によって違わないこと。
+			var body struct {
+				Code string `json:"code"`
+			}
+			if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+				t.Fatalf("JSONが壊れている: %v", err)
+			}
+			if body.Code != "INVALID_INPUT" {
+				t.Errorf("code が %q。INVALID_INPUT のはず: %s", body.Code, rec.Body.String())
 			}
 		})
 	}

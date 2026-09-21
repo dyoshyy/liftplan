@@ -109,7 +109,7 @@ func (d *DevSimulation) handleOptions(w http.ResponseWriter, _ *http.Request) {
 func (d *DevSimulation) handleSimulate(w http.ResponseWriter, r *http.Request) {
 	req, err := parseDevRequest(r)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		respondError(w, invalidInput(err.Error()))
 		return
 	}
 
@@ -117,7 +117,7 @@ func (d *DevSimulation) handleSimulate(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		// 入力の組み合わせが成り立たないことは開発中の日常なので、
 		// 500 ではなく 400 で理由をそのまま返す。
-		writeError(w, http.StatusBadRequest, err.Error())
+		respondError(w, invalidInput(err.Error()))
 		return
 	}
 	writeJSON(w, http.StatusOK, toDevResultDTO(got))
