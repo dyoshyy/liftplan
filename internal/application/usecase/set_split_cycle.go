@@ -7,16 +7,9 @@ import (
 	"github.com/dyoshyy/liftplan/internal/application/apperror"
 	"github.com/dyoshyy/liftplan/internal/domain/account"
 	"github.com/dyoshyy/liftplan/internal/domain/training/exercise"
+	"github.com/dyoshyy/liftplan/internal/domain/training/planning"
 	"github.com/dyoshyy/liftplan/internal/domain/training/program"
 )
-
-// primaryContribution は「主働」とみなす寄与の下限。
-//
-// AccessorySelector と同じ値。最大値を取る方式にしないのは、デッドリフトが
-// ハムストリングと脊柱起立筋のどちらも 1.0 で、並びのアルファベット順に
-// 落ちてしまうため。閾値なら「両方の日の候補」になり、どちらに出るかは
-// 最終実施日が決める。
-const primaryContribution = 1.0
 
 // SetSplitCycle は分割の周期を差し替える。
 //
@@ -67,45 +60,20 @@ func (u *SetSplitCycle) Execute(ctx context.Context, user account.UserID, cycle 
 }
 
 // verifyDeclaredHaveADay は、どの分割にも出られない宣言種目が無いことを確かめる。
+//
+// 出られるかどうかの判断は planning が持つ。ここに写しを置くと、計画の側と
+// 閾値がずれたときに「保存は通るのに軸に出ない」が黙って起きる。
+//
+// pool に無い宣言種目は planning が返さないので、そのまま通る。選択との
+// 突合は ConfigureProgram が済ませていて、ここで見つからないのは保存済みの
+// 不整合であり、分割の問題ではない。
 func verifyDeclaredHaveADay(pool []*exercise.Exercise, prog *program.Program) error {
-	cycle := prog.Cycle()
-	if len(cycle) == 0 {
+	without := planning.DeclaredWithoutADay(pool, prog)
+	if len(without) == 0 {
 		return nil
 	}
-
-	byID := make(map[exercise.ExerciseID]*exercise.Exercise, len(pool))
-	for _, e := range pool {
-		if e != nil {
-			byID[e.ID()] = e
-		}
-	}
-
-	for _, id := range prog.DeclaredExercises() {
-		e, ok := byID[id]
-		if !ok {
-			// 選択との突合は ConfigureProgram が済ませている。ここで
-			// 見つからないのは保存済みの不整合なので、分割の問題として
-			// 扱わずそのまま通す。
-			continue
-		}
-		if !hasADay(e, cycle) {
-			return fmt.Errorf(
-				"%w: 伸ばしたい種目 %q が出られる日が無い。主働の筋区分をどれかの分割に入れること",
-				apperror.ErrInvalidInput, id)
-		}
-	}
-	return nil
-}
-
-// hasADay はその種目の主働区分を含む分割が周期にあるか。
-func hasADay(e *exercise.Exercise, cycle []program.Split) bool {
-	for _, s := range cycle {
-		for _, r := range e.Stimulus().Regions() {
-			c, ok := e.Stimulus().Contribution(r)
-			if ok && c.Float() >= primaryContribution && s.Includes(r) {
-				return true
-			}
-		}
-	}
-	return false
+	// 1件ずつ直してもらう。宣言の順なので、同じ入力なら同じ種目を指す。
+	return fmt.Errorf(
+		"%w: 伸ばしたい種目 %q が出られる日が無い。主働の筋区分をどれかの分割に入れること",
+		apperror.ErrInvalidInput, without[0])
 }
