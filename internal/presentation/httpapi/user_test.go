@@ -42,6 +42,12 @@ func TestRoutes_RefusesRequestWithoutUser(t *testing.T) {
 	server.ServeHTTP(got, httptest.NewRequest(
 		http.MethodGet, "/api/set-logs?from=2026-08-01&to=2026-08-31", nil))
 
+	// 200 を先に確かめる。エラー応答でも Days は空で読めてしまい、
+	// 下の走査が1度も回らないまま緑になる。
+	if got.Code != http.StatusOK {
+		t.Fatalf("記録の取得に失敗した: %d body=%s", got.Code, got.Body.String())
+	}
+
 	var body struct {
 		Days []struct {
 			TotalSets int `json:"total_sets"`
