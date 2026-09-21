@@ -106,7 +106,12 @@ const maxSaveAttempts = 3
 // トランザクションで包むことが、そのまま「全か無か」の実装になる。
 func (r *SetLogRepository) Save(
 	ctx context.Context, userID account.UserID, logs []*setlog.SetLog,
-) error {
+) (err error) {
+	// 出口で1度だけ包む。return ごとに包むと、経路が増えたときに包み忘れた
+	// 1本だけが 500 で返る。中では wrapUnavailable を呼ばない（文言と
+	// ErrRepositoryUnavailable が二重になる）。
+	defer func() { err = wrapUnavailable(err, "実績を保存できない") }()
+
 	if len(logs) == 0 {
 		return nil
 	}
@@ -167,7 +172,7 @@ func (r *SetLogRepository) saveOnce(
 ) error {
 	tx, err := r.pool.Begin(ctx)
 	if err != nil {
-		return wrapUnavailable(err, "トランザクションを開始できない")
+		return fmt.Errorf("トランザクションを開始できない: %w", err)
 	}
 	defer func() { _ = tx.Rollback(context.WithoutCancel(ctx)) }()
 
@@ -184,7 +189,7 @@ func (r *SetLogRepository) saveOnce(
 			l.Weight().Kg(), l.Reps().Int(), l.RIR().Int())
 	}
 	if err := tx.SendBatch(ctx, batch).Close(); err != nil {
-		return fmt.Errorf("実績を保存できない: %w", err)
+		return fmt.Errorf("実績を書き込めない: %w", err)
 	}
 
 	// 入らなかった行が「同じ内容だから」なのか「衝突だから」なのかを
