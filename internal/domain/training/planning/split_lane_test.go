@@ -189,10 +189,20 @@ func TestSessionPlanner_AxisIsEmptyWhenNoDeclaredFitsTheDay(t *testing.T) {
 	if len(got.Accessories()) == 0 {
 		t.Error("補助が1件も出ていない")
 	}
-	for _, a := range got.Accessories() {
-		if a.ExerciseID() != "curl" {
-			t.Errorf("腕の日に腕以外が出ている: %v", accessoryIDs(got))
-		}
+	if !containsAccessory(got, "curl") {
+		t.Errorf("腕の日に腕の補助が出ていない: %v", accessoryIDs(got))
+	}
+
+	// 元は「腕の日には curl しか出ない」を検査していた。やめた理由は、
+	// この周期が1日しか無く、胸と脚が**どの日にも属さない**区分になる
+	// ため。属さない区分は毎日活きるので、ここに出るのが正しい
+	// （出ないほうが壊れている。腹が永久に埋まらないのと同じ形）。
+	//
+	// 「その日の分割に属する区分だけを狙う」は
+	// TestSessionPlanner_AffiliatedRegionsStayInsideTheirDay が守る。
+	// あちらは周期が2日あり、胸も脚もどこかの日に属している。
+	if !containsAccessory(got, "up_0") {
+		t.Errorf("どの日にも属さない区分が落ちている: %v", accessoryIDs(got))
 	}
 }
 
@@ -479,4 +489,103 @@ func variationProgram(t *testing.T, ids []exercise.ExerciseID, cycle ...program.
 		t.Fatalf("WithCycle: %v", err)
 	}
 	return p
+}
+
+// どの日にも属さない区分は、分割を設定していても毎日活きること。
+//
+// 腹はどの日にやってもよい部位で、どのプリセットにも入っていない。
+// 「今日の分割に無い区分は狙わない」を素直に適用すると、腹は永久に
+// 埋まらない（実測で腹斜筋の達成率が全プリセット・全頻度で 0%）。
+//
+// 全部の集合に区分を書かせる案は採らない。書き忘れた区分が黙って
+// 死ぬので、書き忘れが仕様違反ではなく事故になる（2026-09-19 の仕様）。
+func TestSessionPlanner_UnaffiliatedRegionsStayActive(t *testing.T) {
+	upper := mkSplit(t, "上", training.ChestMid)
+	lower := mkSplit(t, "下", training.Quad)
+
+	req := unaffiliatedRequest(t, upper, lower)
+	for i, want := range []string{"上", "下"} {
+		req.Date = planMonday.AddDays(i * 2)
+		req.History = setlog.NewHistory(sessionsBefore(t, i))
+
+		got := mustPlan(t, req)
+		abs := 0
+		for _, a := range got.Accessories() {
+			if a.ExerciseID() == "crunch" {
+				abs++
+			}
+		}
+		if abs == 0 {
+			t.Errorf("%sの日に腹が1つも出ていない: %v", want, accessoryIDs(got))
+		}
+	}
+}
+
+// 分割に属する区分は、その日以外では狙わないこと。
+//
+// 上のテストだけだと「全部の区分を毎日活かす」実装でも緑になる。
+func TestSessionPlanner_AffiliatedRegionsStayInsideTheirDay(t *testing.T) {
+	upper := mkSplit(t, "上", training.ChestMid)
+	lower := mkSplit(t, "下", training.Quad)
+
+	req := unaffiliatedRequest(t, upper, lower)
+	req.Date = planMonday.AddDays(2)
+	req.History = setlog.NewHistory(sessionsBefore(t, 1)) // 下の日
+
+	for _, a := range mustPlan(t, req).Accessories() {
+		if id := string(a.ExerciseID()); len(id) >= 2 && id[:2] == "up" {
+			t.Errorf("下の日に上半身の補助が出ている: %s", id)
+		}
+	}
+}
+
+// sessionsBefore は出席 n 回ぶんの履歴。周期を進めるためだけのもの。
+func sessionsBefore(t *testing.T, n int) []*setlog.SetLog {
+	t.Helper()
+
+	logs := make([]*setlog.SetLog, 0, n)
+	for i := range n {
+		logs = append(logs, mkLogOn(t, fmt.Sprintf("s-%d", i),
+			planMonday.AddDays(i*2-14), "bench", 80, 8, 2))
+	}
+	return logs
+}
+
+// unaffiliatedRequest は、どの日にも属さない区分（腹）を持つ入力。
+func unaffiliatedRequest(t *testing.T, cycle ...program.Split) planning.PlanRequest {
+	t.Helper()
+
+	pool := splitPool(t)
+	pool = append(pool, mkAccessory(t, "crunch",
+		map[training.MuscleRegion]float64{training.Abs: 1.0}))
+
+	ids := make([]exercise.ExerciseID, 0, len(pool))
+	for _, e := range pool {
+		ids = append(ids, e.ID())
+	}
+	prog, err := program.NewProgram(mustFrequency(t, 2),
+		mustTarget(t, map[training.MuscleRegion]float64{
+			training.ChestMid: 24, training.Quad: 24, training.Abs: 12,
+		}),
+		ids, []exercise.ExerciseID{"bench", "squat"}, "")
+	if err != nil {
+		t.Fatalf("プログラムの生成に失敗: %v", err)
+	}
+	if prog, err = prog.WithCycle(cycle); err != nil {
+		t.Fatalf("WithCycle: %v", err)
+	}
+
+	req := splitRequest(t, prog)
+	req.Pool = pool
+	return req
+}
+
+// containsAccessory は補助にその種目が含まれるか。
+func containsAccessory(s planning.PlannedSession, id exercise.ExerciseID) bool {
+	for _, a := range s.Accessories() {
+		if a.ExerciseID() == id {
+			return true
+		}
+	}
+	return false
 }
