@@ -8,11 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/dyoshyy/liftplan/internal/application/query"
-	"github.com/dyoshyy/liftplan/internal/application/usecase"
-	"github.com/dyoshyy/liftplan/internal/domain/training/planning"
 	"github.com/dyoshyy/liftplan/internal/infrastructure/memory"
-	"github.com/dyoshyy/liftplan/internal/presentation/httpapi"
 )
 
 // 種目が日本語で引けること。
@@ -307,23 +303,7 @@ func TestReadEndpoints_ClassifyFailures(t *testing.T) {
 	logs := memory.NewSetLogRepository()
 	conditions := memory.NewConditionRepository()
 	programs := memory.NewProgramRepository()
-	unavailable := authed(t, httpapi.NewHandler(
-		usecase.NewGetSession(unavailableExercises{}, logs, conditions, programs, planning.DefaultSessionPlanner()),
-		usecase.NewRecordSets(logs, unavailableExercises{}),
-		usecase.NewRecordConditions(conditions),
-		usecase.NewConfigureProgram(unavailableExercises{}, programs),
-		usecase.NewSetFocusExercise(programs, programs),
-		usecase.NewSetDeclaredExercises(programs, programs),
-		usecase.NewSetFrequency(programs, programs),
-		usecase.NewSetSelectedExercises(unavailableExercises{}, programs, programs),
-		usecase.NewSetWeeklyTarget(unavailableExercises{}, programs, programs),
-		usecase.NewSetSplitCycle(unavailableExercises{}, programs, programs),
-		usecase.NewGetProgram(programs),
-		usecase.NewDeleteSetLog(logs),
-		query.NewExercises(unavailableExercises{}),
-		query.NewHistory(logs, unavailableExercises{}),
-		query.NewStats(logs, unavailableExercises{}, programs, planning.DefaultOneRepMaxEstimator()),
-	).Routes())
+	unavailable := authed(t, routesFrom(t, dependencies(unavailableExercises{}, logs, conditions, programs)))
 
 	cases := []struct {
 		name     string
