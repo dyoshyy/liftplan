@@ -37,38 +37,45 @@ type Handler struct {
 	stats            *query.Stats
 }
 
-func NewHandler(
-	getSession *usecase.GetSession,
-	recordSets *usecase.RecordSets,
-	recordConditions *usecase.RecordConditions,
-	setFocus *usecase.SetFocusExercise,
-	setDeclared *usecase.SetDeclaredExercises,
-	setFrequency *usecase.SetFrequency,
-	setSelected *usecase.SetSelectedExercises,
-	setTarget *usecase.SetWeeklyTarget,
-	setSplit *usecase.SetSplitCycle,
-	getProgram *usecase.GetProgram,
-	deleteSetLog *usecase.DeleteSetLog,
-	exercises *query.Exercises,
-	history *query.History,
-	stats *query.Stats,
-) *Handler {
+// Dependencies は Handler を組むための材料。
+//
+// 位置引数で受けていたときは、口を足す・消すたびに呼び出し5箇所の
+// 並びを書き直していた。名前で渡せば、触るのは足した1行だけで済む。
+type Dependencies struct {
+	GetSession       *usecase.GetSession
+	RecordSets       *usecase.RecordSets
+	RecordConditions *usecase.RecordConditions
+	SetFocus         *usecase.SetFocusExercise
+	SetDeclared      *usecase.SetDeclaredExercises
+	SetFrequency     *usecase.SetFrequency
+	SetSelected      *usecase.SetSelectedExercises
+	SetTarget        *usecase.SetWeeklyTarget
+	SetSplit         *usecase.SetSplitCycle
+	GetProgram       *usecase.GetProgram
+	DeleteSetLog     *usecase.DeleteSetLog
+	Exercises        *query.Exercises
+	History          *query.History
+	Stats            *query.Stats
+}
+
+// NewHandler は依存を受け取って Handler を組む。
+func NewHandler(d Dependencies) (*Handler, error) {
 	return &Handler{
-		getSession:       getSession,
-		recordSets:       recordSets,
-		recordConditions: recordConditions,
-		setFocus:         setFocus,
-		setDeclared:      setDeclared,
-		setFrequency:     setFrequency,
-		setSelected:      setSelected,
-		setTarget:        setTarget,
-		setSplit:         setSplit,
-		getProgram:       getProgram,
-		deleteSetLog:     deleteSetLog,
-		exercises:        exercises,
-		history:          history,
-		stats:            stats,
-	}
+		getSession:       d.GetSession,
+		recordSets:       d.RecordSets,
+		recordConditions: d.RecordConditions,
+		setFocus:         d.SetFocus,
+		setDeclared:      d.SetDeclared,
+		setFrequency:     d.SetFrequency,
+		setSelected:      d.SetSelected,
+		setTarget:        d.SetTarget,
+		setSplit:         d.SetSplit,
+		getProgram:       d.GetProgram,
+		deleteSetLog:     d.DeleteSetLog,
+		exercises:        d.Exercises,
+		history:          d.History,
+		stats:            d.Stats,
+	}, nil
 }
 
 // clientClosedRequest はクライアントが応答を待たずに切断したことを表す。

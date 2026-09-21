@@ -88,22 +88,46 @@ func buildRoutes(t *testing.T, configured bool) http.Handler {
 		}
 	}
 
-	handler := httpapi.NewHandler(
-		usecase.NewGetSession(exercises, logs, conditions, programs, planning.DefaultSessionPlanner()),
-		usecase.NewRecordSets(logs, exercises),
-		usecase.NewRecordConditions(conditions),
-		usecase.NewSetFocusExercise(programs, programs),
-		usecase.NewSetDeclaredExercises(programs, programs),
-		usecase.NewSetFrequency(programs, programs),
-		usecase.NewSetSelectedExercises(exercises, programs, programs),
-		usecase.NewSetWeeklyTarget(exercises, programs, programs),
-		usecase.NewSetSplitCycle(exercises, programs, programs),
-		usecase.NewGetProgram(programs),
-		usecase.NewDeleteSetLog(logs),
-		query.NewExercises(exercises),
-		query.NewHistory(logs, exercises),
-		query.NewStats(logs, exercises, programs, planning.DefaultOneRepMaxEstimator()),
-	)
+	return routesFrom(t, dependencies(exercises, logs, conditions, programs))
+}
+
+// dependencies はリポジトリ一式から Dependencies を組む。
+//
+// 種目の読み口だけインターフェースで受けるのは、障害のテストが
+// そこだけを壊れた実装に差し替えるため。差し替える1つが配線の8箇所に
+// 現れるので、ここに寄せておかないと差し替えるたびに全部を書き写すことになる。
+func dependencies(
+	exercises exercise.Reader,
+	logs *memory.SetLogRepository,
+	conditions *memory.ConditionRepository,
+	programs *memory.ProgramRepository,
+) httpapi.Dependencies {
+	return httpapi.Dependencies{
+		GetSession:       usecase.NewGetSession(exercises, logs, conditions, programs, planning.DefaultSessionPlanner()),
+		RecordSets:       usecase.NewRecordSets(logs, exercises),
+		RecordConditions: usecase.NewRecordConditions(conditions),
+		SetFocus:         usecase.NewSetFocusExercise(programs, programs),
+		SetDeclared:      usecase.NewSetDeclaredExercises(programs, programs),
+		SetFrequency:     usecase.NewSetFrequency(programs, programs),
+		SetSelected:      usecase.NewSetSelectedExercises(exercises, programs, programs),
+		SetTarget:        usecase.NewSetWeeklyTarget(exercises, programs, programs),
+		SetSplit:         usecase.NewSetSplitCycle(exercises, programs, programs),
+		GetProgram:       usecase.NewGetProgram(programs),
+		DeleteSetLog:     usecase.NewDeleteSetLog(logs),
+		Exercises:        query.NewExercises(exercises),
+		History:          query.NewHistory(logs, exercises),
+		Stats:            query.NewStats(logs, exercises, programs, planning.DefaultOneRepMaxEstimator()),
+	}
+}
+
+// routesFrom は Dependencies からミドルウェアを被せる前の生のルータを組む。
+func routesFrom(t *testing.T, d httpapi.Dependencies) http.Handler {
+	t.Helper()
+
+	handler, err := httpapi.NewHandler(d)
+	if err != nil {
+		t.Fatalf("ハンドラが組めない: %v", err)
+	}
 	return handler.Routes()
 }
 
@@ -1090,22 +1114,7 @@ func TestGetSession_UnavailableIsNot500(t *testing.T) {
 
 	logs := memory.NewSetLogRepository()
 	conditions := memory.NewConditionRepository()
-	var mux http.Handler = httpapi.NewHandler(
-		usecase.NewGetSession(unavailableExercises{}, logs, conditions, programs, planning.DefaultSessionPlanner()),
-		usecase.NewRecordSets(logs, unavailableExercises{}),
-		usecase.NewRecordConditions(conditions),
-		usecase.NewSetFocusExercise(programs, programs),
-		usecase.NewSetDeclaredExercises(programs, programs),
-		usecase.NewSetFrequency(programs, programs),
-		usecase.NewSetSelectedExercises(unavailableExercises{}, programs, programs),
-		usecase.NewSetWeeklyTarget(unavailableExercises{}, programs, programs),
-		usecase.NewSetSplitCycle(unavailableExercises{}, programs, programs),
-		usecase.NewGetProgram(programs),
-		usecase.NewDeleteSetLog(logs),
-		query.NewExercises(unavailableExercises{}),
-		query.NewHistory(logs, unavailableExercises{}),
-		query.NewStats(logs, unavailableExercises{}, programs, planning.DefaultOneRepMaxEstimator()),
-	).Routes()
+	mux := routesFrom(t, dependencies(unavailableExercises{}, logs, conditions, programs))
 	// 認証を通す。利用者を決めるのはミドルウェアなので、
 	// 生のルータを叩くと「利用者が無い」で 500 になり、
 	// ここで見たい分類が見えない。
@@ -1307,22 +1316,7 @@ func TestGetSession_InternalErrorDoesNotLeak(t *testing.T) {
 	logs := memory.NewSetLogRepository()
 	conditions := memory.NewConditionRepository()
 
-	var mux http.Handler = httpapi.NewHandler(
-		usecase.NewGetSession(brokenExercises{}, logs, conditions, programs, planning.DefaultSessionPlanner()),
-		usecase.NewRecordSets(logs, brokenExercises{}),
-		usecase.NewRecordConditions(conditions),
-		usecase.NewSetFocusExercise(programs, programs),
-		usecase.NewSetDeclaredExercises(programs, programs),
-		usecase.NewSetFrequency(programs, programs),
-		usecase.NewSetSelectedExercises(brokenExercises{}, programs, programs),
-		usecase.NewSetWeeklyTarget(brokenExercises{}, programs, programs),
-		usecase.NewSetSplitCycle(brokenExercises{}, programs, programs),
-		usecase.NewGetProgram(programs),
-		usecase.NewDeleteSetLog(logs),
-		query.NewExercises(brokenExercises{}),
-		query.NewHistory(logs, brokenExercises{}),
-		query.NewStats(logs, brokenExercises{}, programs, planning.DefaultOneRepMaxEstimator()),
-	).Routes()
+	mux := routesFrom(t, dependencies(brokenExercises{}, logs, conditions, programs))
 	// 認証を通す。利用者を決めるのはミドルウェアなので、
 	// 生のルータを叩くと「利用者が無い」で 500 になり、
 	// ここで見たい分類が見えない。
