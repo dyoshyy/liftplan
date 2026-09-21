@@ -120,6 +120,9 @@ func (u *SignIn) findOrCreateAccount(
 	if err != nil {
 		return nil, fmt.Errorf("利用者の識別子を採番できない: %w", err)
 	}
+	// アドレスはまだ取っていない。プロバイダから取る処理も、それで
+	// GitHub と Google を結ぶ判断も別PR。空は正当な値なので、ここは
+	// 「取れなかった」を素直に渡す。
 	created, err := account.NewAccount(provider, subject, userID, account.Email{})
 	if err != nil {
 		return nil, fmt.Errorf("アカウントを組めない: %w", err)

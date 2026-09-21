@@ -75,9 +75,14 @@ func RunAccountContract(t *testing.T, newRepos func(t *testing.T) Repos) {
 	//
 	// ここで値まで見るのは、Find が常に nil を返す実装でも「存在しない
 	// ものが引けない」側のケースは緑になるため。
+	//
+	// メールアドレスも見る。Postgres は読み戻しでアカウントを組み直す
+	// （列から NewAccount へ渡し直す）ので、渡し忘れるとアドレスが
+	// 黙って消える。アドレスから引くほうのテストは書き込みの経路しか
+	// 通っておらず、読みの経路はここでしか守られない。
 	t.Run("作ったものを引ける", func(t *testing.T) {
 		repos := newRepos(t)
-		a := mustAccount(t, account.GitHub(), "12345", userA, noEmail)
+		a := mustAccount(t, account.GitHub(), "12345", userA, emailA)
 
 		if err := repos.Accounts.Create(ctx, a); err != nil {
 			t.Fatalf("作成に失敗: %v", err)
@@ -95,6 +100,9 @@ func RunAccountContract(t *testing.T, newRepos func(t *testing.T) Repos) {
 		}
 		if got.Subject() != "12345" {
 			t.Errorf("識別子が %q。12345 のはず", got.Subject())
+		}
+		if got.Email() != emailA {
+			t.Errorf("メールアドレスが %q。%q のはず", got.Email(), emailA)
 		}
 	})
 
