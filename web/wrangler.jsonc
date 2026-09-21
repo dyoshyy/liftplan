@@ -7,8 +7,9 @@
   // API は Cloud Run 側にあり、クロスオリジンで叩く。
   "assets": {
     "directory": "./dist",
-    // 実体のあるパス（/dev.html）はそのまま配る。未知のパスは
-    // index.html を返す。メインの画面はルーターを持たないため。
+    // 実体のあるパスが先に当たるので、/dev.html はその中身が返る。
+    // 当たらなかったパスだけ index.html に落ちる（メインの画面は
+    // ルーターを持たないため）。この順序が /dev.html を成り立たせている。
     "not_found_handling": "single-page-application"
   },
 

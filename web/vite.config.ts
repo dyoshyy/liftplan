@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { defineConfig, loadEnv } from 'vite';
 import react from '@vitejs/plugin-react';
 import tailwindcss from '@tailwindcss/vite';
@@ -8,6 +9,39 @@ import { VitePWA } from 'vite-plugin-pwa';
 // /api を proxy で手元に見せると、ブラウザから見て同一オリジンになり、
 // CORS を一度も通らないまま開発が終わる。設定漏れが本番で初めて出る。
 // 本番と同じくクロスオリジンで叩き、手元で落ちるようにする。
+/** devAssetDir はシミュレーション画面の入口を置く棚。precache の除外と対。 */
+const devAssetDir = 'assets/dev';
+
+/** swMustNotPrecacheDev は Service Worker にシミュレーション画面が混ざって
+ *  いないかをビルドで見る。
+ *
+ *  除外の指定はパターンなので、入力名や出力先を動かした日に黙って外れる。
+ *  外れても画面は動く（precache が1つ増えるだけ）ので、気づく機会が無い。
+ *  **配る前に落とす**のがいちばん早い。
+ *
+ *  VitePWA が sw.js を書いた後に回す必要がある。closeBundle は並行フック
+ *  なので、並び順ではなく sequential + post で順序を付ける。 */
+function swMustNotPrecacheDev() {
+  return {
+    name: 'sw-must-not-precache-dev',
+    apply: 'build' as const,
+    closeBundle: {
+      sequential: true,
+      order: 'post' as const,
+      handler() {
+        const sw = readFileSync('dist/sw.js', 'utf8');
+        const leaked = ['dev.html', devAssetDir].filter((p) => sw.includes(p));
+        if (leaked.length > 0) {
+          throw new Error(
+            `Service Worker にシミュレーション画面が入っている: ${leaked.join(', ')}\n` +
+              'injectManifest.globIgnores と build.rollupOptions.output.entryFileNames を見直すこと。',
+          );
+        }
+      },
+    },
+  };
+}
+
 /** isLocal はその URL が開発機のものかを見る。配ってはいけない値の判定に使う。 */
 const isLocal = (url: string): boolean =>
   /^https?:\/\/(localhost|127\.0\.0\.1|0\.0\.0\.0|\[::1\])(:|\/|$)/i.test(url.trim());
@@ -60,14 +94,19 @@ export default defineConfig(({ command, mode }) => {
           globPatterns: ['**/*.{js,css,html,svg,webmanifest}'],
           // シミュレーション画面は precache に入れない。
           //
-          // 殻をキャッシュするのはジムで圏外になっても記録できるようにする
-          // ため。あれは設定を眺める道具で、圏外で開く理由が無い。入れると
-          // 全端末の更新のたびに要らない資産が配られ、しかも更新の合図を
-          // 押すまで古い版が出続ける。
-          globIgnores: ['dev.html', 'assets/dev-*'],
+          // 殻をキャッシュするのはジムで圏外になっても記録できるように
+          // するため。あれは設定を眺める道具で、圏外で開く理由が無い。
+          // 入れると全端末の更新のたびに要らない資産が配られ、しかも
+          // 更新の合図を押すまで古い版が出続ける。
+          //
+          // 除外する先は下の entryFileNames が自分で決めた棚。ハッシュ
+          // 付きの名前を当てにいかないのは、命名が変わった日に黙って
+          // 外れるため。外れても画面は動くので、誰も気づかない。
+          globIgnores: ['dev.html', `${devAssetDir}/**`],
         },
         devOptions: { enabled: false },
       }),
+      swMustNotPrecacheDev(),
     ],
     build: {
       // 資産のハッシュはそのまま。index.html だけが更新の起点になる。
@@ -77,6 +116,15 @@ export default defineConfig(({ command, mode }) => {
       // 隠していた）。
       rollupOptions: {
         input: { main: 'index.html', dev: 'dev.html' },
+        output: {
+          // シミュレーション画面の入口だけ別の棚に置く。precache から
+          // 外す指定が、生成された名前への当て推量にならないようにする。
+          //
+          // 共有チャンク（メインも読むもの）はここに来ない。あちらは
+          // メイン側の都合で precache に入るのが正しい。
+          entryFileNames: (chunk) =>
+            chunk.name === 'dev' ? `${devAssetDir}/[name]-[hash].js` : 'assets/[name]-[hash].js',
+        },
       },
     },
     test: {
