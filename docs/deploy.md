@@ -254,7 +254,11 @@ printf '%s' '<Google のシークレット>' | \
   gcloud secrets create liftplan-google-client-secret \
     --project=liftplan-85309 --data-file=-
 
-gh variable set GITHUB_CLIENT_ID --body '<...>'
+# 変数名が GH_ なのは、GitHub が GITHUB_ で始まるリポジトリ変数を
+# 作らせないため（予約接頭辞。作ろうとすると HTTP 422）。
+# サーバーが読む環境変数は GITHUB_CLIENT_ID のままで、読み替えは
+# deploy.yml の1箇所に閉じている。
+gh variable set GH_CLIENT_ID --body '<...>'
 gh variable set GOOGLE_CLIENT_ID --body '<...>'
 gh variable set WEB_ORIGIN --body 'https://liftplan-web.<サブドメイン>.workers.dev'
 ```
