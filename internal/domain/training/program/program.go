@@ -176,8 +176,18 @@ func (p *Program) SplitOn(sessionsBefore int) (Split, bool) {
 //
 // NewProgram に委譲するのは、focus ⊂ declared の検証を2箇所に書かない
 // ため。ここで自前に検査すると、片方だけ直したときに黙ってずれる。
+//
+// cycle は NewProgram が受け取らないので、ここで引き継ぐ。ほかの With* も
+// 同じ。忘れると、重点種目を変えただけで分割が黙って消える（#122）。
+// スライスを写さずに渡してよいのは、WithCycle が正規化して作ったものを
+// 誰も書き換えないから（Cycle は写しを返す）。
 func (p *Program) WithFocus(id exercise.ExerciseID) (*Program, error) {
-	return NewProgram(p.frequency, p.target, p.SelectedExercises(), p.DeclaredExercises(), id)
+	next, err := NewProgram(p.frequency, p.target, p.SelectedExercises(), p.DeclaredExercises(), id)
+	if err != nil {
+		return nil, err
+	}
+	next.cycle = p.cycle
+	return next, nil
 }
 
 // WithDeclared は伸ばしたい種目だけを差し替えた新しいプログラムを返す。
@@ -186,7 +196,12 @@ func (p *Program) WithFocus(id exercise.ExerciseID) (*Program, error) {
 // しない。解除するかどうかは本人が決めることで、宣言を変えた副作用として
 // 重点が消えると、次に画面を開くまで気づけない。
 func (p *Program) WithDeclared(ids []exercise.ExerciseID) (*Program, error) {
-	return NewProgram(p.frequency, p.target, p.SelectedExercises(), ids, p.focus)
+	next, err := NewProgram(p.frequency, p.target, p.SelectedExercises(), ids, p.focus)
+	if err != nil {
+		return nil, err
+	}
+	next.cycle = p.cycle
+	return next, nil
 }
 
 // WithFrequency は週の頻度と週目標を差し替えた新しいプログラムを返す。
@@ -199,7 +214,12 @@ func (p *Program) WithDeclared(ids []exercise.ExerciseID) (*Program, error) {
 // 対になる週目標をここで計算しないのは、既定値が seed の持ち物だから。
 // 集約が初期データを知ると、プリセットを変えるだけでドメインが動く。
 func (p *Program) WithFrequency(freq Frequency, target WeeklyVolumeTarget) (*Program, error) {
-	return NewProgram(freq, target, p.SelectedExercises(), p.DeclaredExercises(), p.focus)
+	next, err := NewProgram(freq, target, p.SelectedExercises(), p.DeclaredExercises(), p.focus)
+	if err != nil {
+		return nil, err
+	}
+	next.cycle = p.cycle
+	return next, nil
 }
 
 // WithSelected は使う種目だけを差し替えた新しいプログラムを返す。
@@ -211,7 +231,12 @@ func (p *Program) WithFrequency(freq Frequency, target WeeklyVolumeTarget) (*Pro
 // 種目がマスタに実在するかはここでは見ない。集約は種目マスタを持たない。
 // 確認はユースケースの verifySelection が行う。
 func (p *Program) WithSelected(ids []exercise.ExerciseID) (*Program, error) {
-	return NewProgram(p.frequency, p.target, ids, p.DeclaredExercises(), p.focus)
+	next, err := NewProgram(p.frequency, p.target, ids, p.DeclaredExercises(), p.focus)
+	if err != nil {
+		return nil, err
+	}
+	next.cycle = p.cycle
+	return next, nil
 }
 
 // WithTarget は週目標だけを差し替えた新しいプログラムを返す。
@@ -220,7 +245,12 @@ func (p *Program) WithSelected(ids []exercise.ExerciseID) (*Program, error) {
 // 向きが違う。頻度を変えたら供給量が変わるので目標も置き直る一方、
 // 目標を手で動かすのは「供給量はそのままで狙いを変える」ことだから。
 func (p *Program) WithTarget(target WeeklyVolumeTarget) (*Program, error) {
-	return NewProgram(p.frequency, target, p.SelectedExercises(), p.DeclaredExercises(), p.focus)
+	next, err := NewProgram(p.frequency, target, p.SelectedExercises(), p.DeclaredExercises(), p.focus)
+	if err != nil {
+		return nil, err
+	}
+	next.cycle = p.cycle
+	return next, nil
 }
 
 func (p *Program) Frequency() Frequency             { return p.frequency }

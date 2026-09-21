@@ -237,6 +237,22 @@ func TestGetSession_HasThreeLanes(t *testing.T) {
 	}
 }
 
+// putUpperLowerSplit は上下2分割を保存する。
+//
+// 「ほかを動かさない」を検査するテストは、これを呼んでから始める。
+// シードのプログラムは分割なしなので、呼ばないと splits が前後とも []
+// で一致し、分割が消えても緑のまま通る（#122 はそれで見逃した）。
+func putUpperLowerSplit(t *testing.T, mux http.Handler) {
+	t.Helper()
+	body := `{"splits":[` +
+		`{"name":"上半身","regions":["CHEST_MID","LAT","FRONT_DELT","TRICEPS_LATERAL","BICEPS"]},` +
+		`{"name":"下半身","regions":["QUAD","HAMSTRING","GLUTE","ERECTOR"]}` +
+		`]}`
+	if rec := do(t, mux, http.MethodPut, "/api/program/split", body); rec.Code != http.StatusNoContent {
+		t.Fatalf("分割の保存に失敗: %d body=%s", rec.Code, rec.Body.String())
+	}
+}
+
 // 重点種目だけの口は、本当に重点種目だけを動かすこと。
 //
 // この口を足した理由そのもの（D-127）。全置換の PUT /api/program を
@@ -244,6 +260,7 @@ func TestGetSession_HasThreeLanes(t *testing.T) {
 // ためなので、ここが守られていないと分けた意味が消える。
 func TestPutProgramFocus_TouchesNothingElse(t *testing.T) {
 	mux := newServer(t, true)
+	putUpperLowerSplit(t, mux)
 
 	before := do(t, mux, http.MethodGet, "/api/program", "")
 	if before.Code != http.StatusOK {
@@ -390,6 +407,7 @@ func TestPutProgramDeclared_TouchesNothingElse(t *testing.T) {
 					t.Fatalf("重点種目の保存に失敗: %d", rec.Code)
 				}
 			}
+			putUpperLowerSplit(t, mux)
 
 			before := do(t, mux, http.MethodGet, "/api/program", "")
 			if rec := do(t, mux, http.MethodPut, "/api/program/declared",
@@ -481,6 +499,7 @@ func TestPutProgramDeclared_Rejects(t *testing.T) {
 // 頻度に比例するので、片方だけ動かすと目標が実際の挙動を説明しなくなる。
 func TestPutProgramFrequency_MovesTargetWithIt(t *testing.T) {
 	mux := newServer(t, true)
+	putUpperLowerSplit(t, mux)
 
 	before := do(t, mux, http.MethodGet, "/api/program", "")
 	if rec := do(t, mux, http.MethodPut, "/api/program/frequency",
@@ -567,6 +586,7 @@ func TestPutProgramFrequency_Rejects(t *testing.T) {
 // 使う種目の口は、それだけを動かすこと。
 func TestPutProgramSelected_TouchesNothingElse(t *testing.T) {
 	mux := newServer(t, true)
+	putUpperLowerSplit(t, mux)
 
 	before := do(t, mux, http.MethodGet, "/api/program", "")
 	// 宣言の3種目は残したまま、それ以外を絞る。脚のプレスを1つ残すのは
@@ -653,6 +673,7 @@ func TestPutProgramSelected_Rejects(t *testing.T) {
 // 「供給量はそのままで狙いを変える」ことなので頻度は据え置く。
 func TestPutProgramTarget_TouchesNothingElse(t *testing.T) {
 	mux := newServer(t, true)
+	putUpperLowerSplit(t, mux)
 
 	before := do(t, mux, http.MethodGet, "/api/program", "")
 	body := `{"weekly_target":{"CHEST_MID":12,"QUAD":14,"GLUTE":16}}`
