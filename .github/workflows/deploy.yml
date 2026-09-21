@@ -26,7 +26,12 @@ env:
   # どこにも出ない。画面のビルドが使っているのと同じ1本にする。
   API_ORIGIN: ${{ vars.API_BASE }}
   # クライアントIDは秘密ではない。シークレットだけ Secret Manager に置く。
-  GITHUB_CLIENT_ID: ${{ vars.GITHUB_CLIENT_ID }}
+  #
+  # **リポジトリ変数の名前は GH_CLIENT_ID。**GitHub は GITHUB_ で始まる名前の
+  # リポジトリ変数を作らせない（予約接頭辞。作ろうとすると HTTP 422）。
+  # サーバーが読む環境変数の名前は GITHUB_CLIENT_ID のままでよいので、
+  # 読み替えはここ1箇所に閉じる。
+  GITHUB_CLIENT_ID: ${{ vars.GH_CLIENT_ID }}
   GOOGLE_CLIENT_ID: ${{ vars.GOOGLE_CLIENT_ID }}
   API_BASE: ${{ vars.API_BASE }}
   REGION: asia-southeast1
@@ -96,11 +101,18 @@ jobs:
       # 出してから気づくより、出す前に止めるほうが速い。
       - name: 許可オリジンが設定されているか確かめる
         run: |
-          # ${!v} は bash の間接展開。eval を通すより読みやすく、
+          # 左がリポジトリ変数の名前、右がこの workflow での環境変数の名前。
+          # 2つは GH_CLIENT_ID と API_BASE でずれる（前者は GitHub の予約接頭辞、
+          # 後者は画面のビルドと同じ1本を使い回しているため）。**人が直す先は
+          # 左の名前**なので、メッセージには左を出す。
+          #
+          # ${!name} は bash の間接展開。eval を通すより読みやすく、
           # 変数名に妙な文字が来ても実行にならない。
-          for v in WEB_ORIGIN API_BASE GITHUB_CLIENT_ID GOOGLE_CLIENT_ID; do
-            if [ -z "${!v}" ]; then
-              echo "リポジトリ変数 $v が未設定。サーバーは起動を拒む"
+          for pair in WEB_ORIGIN:WEB_ORIGIN API_BASE:API_ORIGIN \
+                      GH_CLIENT_ID:GITHUB_CLIENT_ID GOOGLE_CLIENT_ID:GOOGLE_CLIENT_ID; do
+            name="${pair##*:}"
+            if [ -z "${!name}" ]; then
+              echo "リポジトリ変数 ${pair%%:*} が未設定。サーバーは起動を拒む"
               exit 1
             fi
           done
