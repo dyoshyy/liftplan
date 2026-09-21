@@ -80,7 +80,9 @@ func (id UserID) String() string { return id.v }
 // **この定数は仮の足場である。**OAuth を入れたら、本人のアカウントを
 // この UUID に結ぶ1行を流し（手順は docs/deploy.md）、認証が本物の UserID を
 // 渡すようになる。そうなれば DefaultUserID を呼ぶ場所は無くなるので、
-// このファイルから消す。
+// このファイルから消す。いま呼んでいるのは認証ミドルウェア
+// （httpapi.RequireBearerToken）と起動時の初期プログラム投入
+// （cmd/api の seedProgramIfMissing）の2箇所だけ。
 const defaultUserIDText = "8d5e743e-f1b0-4430-9998-89d313e89da8"
 
 // DefaultUserID は既定ユーザー。マイグレーション 0007 の既定値と同じ値を返す。
