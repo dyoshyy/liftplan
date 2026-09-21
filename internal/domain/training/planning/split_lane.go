@@ -4,6 +4,7 @@ import (
 	"github.com/dyoshyy/liftplan/internal/domain/training"
 	"github.com/dyoshyy/liftplan/internal/domain/training/exercise"
 	"github.com/dyoshyy/liftplan/internal/domain/training/program"
+	"github.com/dyoshyy/liftplan/internal/domain/training/setlog"
 )
 
 // activeCount は今日から数えて1週ぶんのセッションのうち、その区分が
@@ -12,10 +13,12 @@ import (
 // 周期を今日の位置から頻度ぶん歩いて数える。式で出すと、周期の長さと
 // 頻度が割り切れないとき（周期2・週5）に 2.5 のような値になり、実際の
 // 週（上3日・下2日と上2日・下3日が交互）とずれる。
-func (p SessionPlanner) activeCount(req PlanRequest) ActiveCount {
-	cycle := req.Program.Cycle()
-	perWeek := req.Program.Frequency().PerWeek()
-	from := historyBefore(req).SessionCount()
+//
+// history は前日まで（Plan が切る）。
+func activeCount(history setlog.History, prog *program.Program) ActiveCount {
+	cycle := prog.Cycle()
+	perWeek := prog.Frequency().PerWeek()
+	from := history.SessionCount()
 
 	return func(r training.MuscleRegion) int {
 		// どの日にも属さない区分は毎日活きるので、頻度そのもの。

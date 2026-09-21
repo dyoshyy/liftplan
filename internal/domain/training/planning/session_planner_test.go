@@ -613,33 +613,97 @@ func TestSessionPlanner_ResidualCarriesOverWithinTheWeek(t *testing.T) {
 // 「並びが入れ替わる」「枠が補充されて終わらない」は原理的に起きなくなる。
 // かつて別々に手当てしていた不具合は、すべてこの1点の派生だった（D-116）。
 func TestSessionPlanner_PlanIsFixedForTheWholeDay(t *testing.T) {
-	req := planRequest(t)
-	base := planHistory(t)
-	req.History = setlog.NewHistory(base)
-
-	first := mustPlan(t, req)
-	want := lineup(first)
-	if len(want) == 0 {
-		t.Fatal("前提: 種目が1つも出ていない")
+	cases := []struct {
+		name string
+		req  func(t *testing.T) planning.PlanRequest
+	}{
+		{
+			name: "分割も重点種目も無い",
+			req:  planRequest,
+		},
+		{
+			// 周期の位置を当日込みの出席回数で数えると、1セット記録した瞬間に
+			// 今日がセッションになって周期が1つ進む。守っているのは2箇所。
+			//
+			//   - 今日の分割（SplitOn）：上の日が下の日に変わり、軸がベンチから
+			//     スクワットに入れ替わる
+			//   - 1回ぶんの天井（activeCount）：胸が来る回数が 上下上＝2 から
+			//     下上下＝1 になり、天井が 24/2 から 24/1 に上がって補助が増える
+			//
+			// 週3回にするのは後者のため。周期の長さ（2）で頻度が割り切れると、
+			// どこから歩いても各区分の回数が同じになって差が出ない。
+			name: "分割がある（周期は出席回数で進む）",
+			req:  fixedDaySplitRequest,
+		},
+		{
+			// 一巡の位置を当日込みで数えると、派生の番（位置2）で1セット記録した
+			// 瞬間に位置が0へ進み、軸が派生から本体に入れ替わる。派生を選ぶ
+			// 「最も古いもの」も、当日の記録で入れ替わる。守っているのは axis。
+			name: "重点種目の一巡が派生の番",
+			req: func(t *testing.T) planning.PlanRequest {
+				return rotationRequest(t, 5)
+			},
+		},
 	}
 
-	// 提示されたとおりに1セットずつ記録しては、開き直す。
-	logs := append([]*setlog.SetLog{}, base...)
-	n := 0
-	for _, set := range append(first.Main(), first.Accessories()...) {
-		for range set.Sets().Int() {
-			n++
-			logs = append(logs, mkLogOn(t, fmt.Sprintf("d%03d", n), req.Date,
-				string(set.ExerciseID()), 40, 8, 2))
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			req := c.req(t)
+			base := req.History.Logs()
 
-			req.History = setlog.NewHistory(logs)
-			got := lineup(mustPlan(t, req))
-			if !slices.Equal(got, want) {
-				t.Fatalf("%dセット記録した時点で計画が変わった\n  最初: %v\n  いま: %v",
-					n, want, got)
+			first := mustPlan(t, req)
+			want := lineup(first)
+			if len(want) == 0 {
+				t.Fatal("前提: 種目が1つも出ていない")
 			}
-		}
+
+			// 提示されたとおりに1セットずつ記録しては、開き直す。
+			logs := append([]*setlog.SetLog{}, base...)
+			n := 0
+			for _, set := range append(first.Main(), first.Accessories()...) {
+				for range set.Sets().Int() {
+					n++
+					logs = append(logs, mkLogOn(t, fmt.Sprintf("d%03d", n), req.Date,
+						string(set.ExerciseID()), 40, 8, 2))
+
+					req.History = setlog.NewHistory(logs)
+					got := lineup(mustPlan(t, req))
+					if !slices.Equal(got, want) {
+						t.Fatalf("%dセット記録した時点で計画が変わった\n  最初: %v\n  いま: %v",
+							n, want, got)
+					}
+				}
+			}
+		})
 	}
+}
+
+// fixedDaySplitRequest は上下2分割・週3回で、まだ1度も通っていない入力。
+// 周期の先頭＝上の日で、軸はベンチ。
+func fixedDaySplitRequest(t *testing.T) planning.PlanRequest {
+	t.Helper()
+
+	pool := splitPool(t)
+	ids := make([]exercise.ExerciseID, 0, len(pool))
+	for _, e := range pool {
+		ids = append(ids, e.ID())
+	}
+	prog, err := program.NewProgram(mustFrequency(t, 3),
+		mustTarget(t, map[training.MuscleRegion]float64{
+			training.ChestMid: 24, training.Quad: 24,
+		}),
+		ids, []exercise.ExerciseID{"bench", "squat"}, "")
+	if err != nil {
+		t.Fatalf("プログラムの生成に失敗: %v", err)
+	}
+	prog, err = prog.WithCycle([]program.Split{
+		mkSplit(t, "上", training.ChestMid),
+		mkSplit(t, "下", training.Quad),
+	})
+	if err != nil {
+		t.Fatalf("WithCycle: %v", err)
+	}
+	return splitRequest(t, prog)
 }
 
 // lineup は提示された種目を並び順のまま返す。
