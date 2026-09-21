@@ -1115,7 +1115,7 @@ func TestSessionPlanner_ExtraSessionsStillGetAccessories(t *testing.T) {
 // RIR 補正は注入したコンディション分析器を使う。
 // 既定値を直接呼ぶと、注入した設定（睡眠不足のしきい値など）が無視される。
 func TestSessionPlanner_UsesInjectedConditionAnalyzer(t *testing.T) {
-	analyzer, err := planning.NewConditionAnalyzer(14, 0.05, 21)
+	analyzer, err := planning.NewConditionAnalyzer(14, 0.05)
 	if err != nil {
 		t.Fatalf("分析器の生成に失敗: %v", err)
 	}
