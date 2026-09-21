@@ -17,7 +17,10 @@ func TestMigrate_CreatesEverySchemaObject(t *testing.T) {
 		t.Fatalf("マイグレーションに失敗: %v", err)
 	}
 
-	for _, table := range []string{"set_logs", "daily_conditions", "program", "schema_migrations"} {
+	for _, table := range []string{
+		"set_logs", "daily_conditions", "program",
+		"accounts", "sessions", "schema_migrations",
+	} {
 		var exists bool
 		if err := pool.QueryRow(ctx,
 			"SELECT to_regclass($1) IS NOT NULL", table).Scan(&exists); err != nil {
@@ -72,7 +75,9 @@ func TestMigrate_IsSafeForConcurrentStartup(t *testing.T) {
 
 	// 一度掃除してから、同時に流す。
 	if _, err := pool.Exec(ctx, `
-		DROP TABLE IF EXISTS set_logs, daily_conditions, program, schema_migrations CASCADE`); err != nil {
+		DROP TABLE IF EXISTS
+			set_logs, daily_conditions, program,
+			accounts, sessions, schema_migrations CASCADE`); err != nil {
 		t.Fatalf("掃除できない: %v", err)
 	}
 
