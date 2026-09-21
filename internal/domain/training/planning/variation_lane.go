@@ -55,13 +55,6 @@ func (p SessionPlanner) variationLift(
 	return stalest(h, variationsOf(pool, focus))
 }
 
-// lineage は重点種目とその派生のうち、pool にあるものを返す。
-//
-// 重点種目自身を含める。含めないと、軸でベンチをやった翌日にラーセンが出る。
-//
-// 根まで辿らない。辿ると、重点種目に RDL を指定したとき「RDL の系統」に
-// 床引きデッドリフトが入り、バリエーションとして出てしまう。床引きは
-// 宣言しなければ出ない（D-117）。
 // accessoryExcluded は補助の候補から外す種目を返す。
 //
 // 宣言種目そのものを外す理由は D-125 のとおり。これに重点種目の派生を
@@ -90,6 +83,13 @@ func accessoryExcluded(pool []*exercise.Exercise, prog *program.Program) []exerc
 	return out
 }
 
+// lineage は重点種目とその派生のうち、pool にあるものを返す。
+//
+// 重点種目自身を含める。含めないと、軸でベンチをやった翌日にラーセンが出る。
+//
+// 根まで辿らない。辿ると、重点種目に RDL を指定したとき「RDL の系統」に
+// 床引きデッドリフトが入り、バリエーションとして出てしまう。床引きは
+// 宣言しなければ出ない（D-117）。
 func lineage(pool []*exercise.Exercise, focus exercise.ExerciseID) []*exercise.Exercise {
 	out := make([]*exercise.Exercise, 0, 4)
 	for _, e := range pool {
