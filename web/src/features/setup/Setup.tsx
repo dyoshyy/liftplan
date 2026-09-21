@@ -1,47 +1,35 @@
-import { useState } from 'react';
-import { setToken } from '../../storage/local';
-import { Button } from '../../ui/Button';
+import { API_BASE } from '../../api/client';
 import { Card, Note } from '../../ui/Card';
-import { Field, Input } from '../../ui/Field';
+import { buttonStyles } from '../../ui/Button';
+import { loginUrl, type Provider } from './auth';
 
-const MIN_TOKEN_LENGTH = 32;
+// ログイン画面。判断は auth.ts にあり、ここは描画だけをする。
+//
+// **素の <a> であることに意味がある。**fetch で叩くと、認可画面へのリダイレクトを
+// 追いかけることになり、CORS で落ちるうえ、そもそも認可画面を人に見せられない。
+// トップレベル遷移でプロバイダへ渡し、サーバーが #token= を付けて戻してくる。
+const PROVIDERS: readonly { provider: Provider; label: string }[] = [
+  { provider: 'github', label: 'GitHub でログイン' },
+  { provider: 'google', label: 'Google でログイン' },
+];
 
-export function Setup({ pending, onSaved }: { pending: number; onSaved: () => void }) {
-  const [value, setValue] = useState('');
-  const [error, setError] = useState('');
-
-  const save = () => {
-    const v = value.trim();
-    if (v.length < MIN_TOKEN_LENGTH) {
-      setError('トークンが短すぎます');
-      return;
-    }
-    setToken(v);
-    setValue('');
-    setError('');
-    onSaved();
-  };
-
+export function Setup({ pending }: { pending: number }) {
   return (
-    <Card title="最初の設定">
-      <Note className="mb-3">サーバーの認証トークンを入れてください。この端末にだけ保存します。</Note>
-      <Field>
-        <Input
-          type="password"
-          autoComplete="off"
-          placeholder="トークン"
-          value={value}
-          onChange={(e) => setValue(e.target.value)}
-        />
-      </Field>
-      <Button className="mt-3" onClick={save}>
-        保存する
-      </Button>
-      {error && <Note className="text-red">{error}</Note>}
+    <Card title="ログイン">
+      <Note className="mb-3">
+        記録はアカウントに紐づきます。この端末には、送るための印だけを保存します。
+      </Note>
+      <div className="grid gap-2">
+        {PROVIDERS.map(({ provider, label }) => (
+          <a key={provider} href={loginUrl(API_BASE, provider)} className={buttonStyles({ variant: 'quiet' })}>
+            {label}
+          </a>
+        ))}
+      </div>
       {/* 溜まっているものは消えない。ここで言わないと、記録ごと消えたと
-          思われる。トークンが変わったのは送り先の話で、記録の話ではない。 */}
+          思われる。ログインし直すのは送り先の話で、記録の話ではない。 */}
       {pending > 0 && (
-        <Note>未送信の記録が {pending} 件あります。トークンを入れ直せば送られます。</Note>
+        <Note className="mt-3">未送信の記録が {pending} 件あります。ログインすれば送られます。</Note>
       )}
     </Card>
   );

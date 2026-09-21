@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useReducer, useRef } from 'react';
-import { getToken } from '../storage/local';
+import { getToken, setToken } from '../storage/local';
+import { applyTokenIntake, planTokenIntake } from '../features/setup/auth';
 import { useLiftplan } from './useLiftplan';
 import { useOutbox } from './useOutbox';
 
@@ -97,6 +98,19 @@ export function useSessionOrchestrator() {
     if (state.hasToken) void reload();
   }, [state.hasToken, reload]);
 
+  // ログインから戻ってきたときの取り込み。
+  //
+  // 何をどの順でやるかは planTokenIntake が決めている。ここは順に実行する
+  // だけで、並べ替えない。history.state をそのまま渡し直すのは、
+  // useRoute が積んだ行き先を消さないため（消すと戻るでアプリが閉じる）。
+  useEffect(() => {
+    applyTokenIntake(planTokenIntake(location.hash), {
+      saveToken: setToken,
+      clearHash: () => history.replaceState(history.state, '', location.pathname + location.search),
+      signIn: () => dispatch({ type: 'SIGNED_IN' }),
+    });
+  }, []);
+
   // 復帰したら送るだけでなく、メニューも取り直す。
   //
   // 圏外で開くと「つながりません」だけの画面になる。電波が戻っても送信
@@ -125,7 +139,6 @@ export function useSessionOrchestrator() {
     };
   }, [flush, reload]);
 
-  const signIn = useCallback(() => dispatch({ type: 'SIGNED_IN' }), []);
   const signOut = useCallback(() => dispatch({ type: 'SIGNED_OUT' }), []);
 
   return {
@@ -137,7 +150,6 @@ export function useSessionOrchestrator() {
     loadToday,
     recordLocally,
     forgetLocally,
-    signIn,
     signOut,
   };
 }

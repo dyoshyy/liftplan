@@ -98,8 +98,14 @@ await page.goto(APP);
 // 「SW がまだ入っていないから開けない」を「壊れている」と読み違える。
 await page.evaluate(() => navigator.serviceWorker.ready.then(() => undefined));
 await page.waitForTimeout(1000);
-await page.fill('input[type=password]', TOKEN);
-await page.click('text=保存する');
+// ログインはフラグメントで済ませる。/auth/* を通すとプロバイダの画面が
+// 挟まり、自動では抜けられない。#token= はサーバーがコールバックで戻して
+// くる形そのものなので、取り込みの配線もここで一緒に検査できる。
+await page.goto(`${APP}/#token=${TOKEN}`);
+// ここだけ reload が要る。既に同じ URL を開いているので、フラグメントだけの
+// 移動は同一ドキュメント内の遷移になり、画面が組み直されない（取り込みは
+// 起動時に1回だけ走る）。本番はコールバックからの完全な遷移なので起きない。
+await page.reload();
 await page.waitForTimeout(2000);
 
 const before = (await serverSets(today())).length;
@@ -178,7 +184,7 @@ check('捨てた記録が画面に出る', /送れなかった/.test(await page.
 await page.evaluate(() => localStorage.setItem('liftplan.token', 'x'.repeat(40)));
 await page.reload();
 await page.waitForTimeout(2500);
-check('トークンが無効なら設定画面に戻る', /最初の設定/.test(await page.locator('body').innerText()));
+check('トークンが無効ならログイン画面に戻る', /GitHub でログイン/.test(await page.locator('body').innerText()));
 
 console.log('\n--- コンソールエラー ---');
 console.log(errors.length ? errors.join('\n') : '(なし)');

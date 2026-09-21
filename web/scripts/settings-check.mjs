@@ -22,12 +22,17 @@ const errs = [];
 page.on('pageerror', (e) => errs.push(e.message));
 page.on('console', (m) => { if (m.type() === 'error') errs.push(m.text()); });
 
-await page.goto(APP);
-await page.fill('input[type=password]', TOKEN);
-await page.click('text=保存する');
+// ログインはフラグメントで済ませる。/auth/* を通すとプロバイダの画面が
+// 挟まり、自動では抜けられない。#token= はサーバーがコールバックで戻して
+// くる形そのものなので、取り込みの配線もここで一緒に検査できる。
+await page.goto(`${APP}/#token=${TOKEN}`);
 await page.waitForTimeout(2500);
 await page.click('header button[aria-label="設定"]');
 await page.waitForTimeout(1800);
+
+// 設定の節は畳んである（縦 8.2画面分あったため）。開いてから触る。
+await page.click('text=週に通う回数');
+await page.waitForTimeout(500);
 
 // 週に通う回数を変える（週目標も置き直るので、一番影響が大きい）
 const want = before.per_week === 3 ? 4 : 3;
