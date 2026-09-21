@@ -333,6 +333,14 @@ func (r *signInAccounts) Find(
 	return a, nil
 }
 
+// FindUserByEmail は SignIn がまだ使わない（結ぶ判断は別PR）。口の形を
+// 満たすためだけに置く。常に見つからないので、使い始めたら必ず落ちる。
+func (r *signInAccounts) FindUserByEmail(
+	_ context.Context, email account.Email,
+) (account.UserID, error) {
+	return account.UserID{}, fmt.Errorf("%w: %s", account.ErrAccountNotFound, email)
+}
+
 func (r *signInAccounts) Create(_ context.Context, a *account.Account) error {
 	r.mu.Lock()
 	r.createCnt++
@@ -372,7 +380,7 @@ func (r *signInAccounts) insertOnNextCreate(
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.onCreate = func() {
-		a, err := account.NewAccount(provider, subject, userID)
+		a, err := account.NewAccount(provider, subject, userID, account.Email{})
 		if err != nil {
 			t.Errorf("割り込ませるアカウントが不正: %v", err)
 			return
