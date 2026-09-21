@@ -431,8 +431,16 @@ func (p SessionPlanner) axis(
 	case 1:
 		return lift, focusVolumeIntensityPct
 	case 2:
-		// 選択から外した派生は pool に無い。そのときは本体を重い側で出す。
-		if d := stalest(h, variationsOf(pool, focus)); d != nil {
+		// 派生も分割で絞る。軸の候補（heavyLift）は絞っているのに
+		// ここだけ素通しにすると、胸の日にナローベンチ（主働は三頭）が
+		// 軸として出る。型が「今日は胸の日」と言いながら三頭を主役に据える。
+		//
+		// 該当が無ければ本体を重い側で出す（選択から外した派生も同じ経路）。
+		candidates := variationsOf(pool, focus)
+		if hasSplit {
+			candidates = primaryIn(candidates, today)
+		}
+		if d := stalest(h, candidates); d != nil {
 			return d, heavyIntensityPct
 		}
 	}
