@@ -233,3 +233,109 @@ func assertIntensity(t *testing.T, req planning.PlanRequest, set planning.Planne
 			set.ExerciseID(), got.Kg(), orm.Kg(), want, wantWeight.Kg())
 	}
 }
+
+// 一巡の派生も、今日の分割の区分を主働に含むものだけが軸に立つこと。
+//
+// 軸の候補は `primaryIn` で絞っているのに、一巡の3番目で派生に差し替える
+// ところに同じ絞りが無かった。5分割の胸の日にナローベンチ（主働は三頭、
+// 胸は 0.7）が軸として出ていた。型が「今日は胸の日」と言いながら三頭の
+// 種目を主役に据えることになる。
+func TestSessionPlanner_RotationKeepsTheDerivativeInsideTheSplit(t *testing.T) {
+	chest := mkSplit(t, "胸", training.ChestMid)
+
+	req := splitRotationRequest(t, chest)
+	// 系統が2回来ているので、今日は一巡の3番目＝派生の番。
+	//
+	// 胸の派生だけ記録を持たせる。`stalest` は未着手を先に返すので、
+	// 分割で絞っていなければ三頭のナローベンチが選ばれる。絞りが
+	// 効いていれば、記録のある胸の派生のほうが残る。
+	req.History = setlog.NewHistory([]*setlog.SetLog{
+		mkLogOn(t, "b1", planMonday.AddDays(-14), "bench", 85, 8, 2),
+		mkLogOn(t, "v1", planMonday.AddDays(-14), "chest_variation", 70, 8, 2),
+		mkLogOn(t, "b2", planMonday.AddDays(-7), "bench", 85, 8, 2),
+	})
+
+	got := mustPlan(t, req).Main()
+	if len(got) != 1 {
+		t.Fatalf("軸が %d 件。1件のはず: %v", len(got), got)
+	}
+	if got[0].ExerciseID() == "narrow" {
+		t.Errorf("胸の日に三頭が主働の派生が軸に出ている: %s", got[0].ExerciseID())
+	}
+	if got[0].ExerciseID() != "chest_variation" {
+		t.Errorf("軸が %s。胸を主働に含む派生のはず", got[0].ExerciseID())
+	}
+}
+
+// 今日の区分に該当する派生が1つも無ければ、本体を出すこと。
+//
+// 派生の番だからといって、分割に合わない種目を出すくらいなら本体でよい。
+func TestSessionPlanner_RotationFallsBackToTheFocusInsideTheSplit(t *testing.T) {
+	// 肩の日。ベンチは主働に肩を持つが、どちらの派生も持たない。
+	shoulder := mkSplit(t, "肩", training.FrontDelt)
+
+	req := splitRotationRequest(t, shoulder)
+	req.History = setlog.NewHistory([]*setlog.SetLog{
+		mkLogOn(t, "b1", planMonday.AddDays(-14), "bench", 85, 8, 2),
+		mkLogOn(t, "b2", planMonday.AddDays(-7), "bench", 85, 8, 2),
+	})
+
+	got := mustPlan(t, req).Main()
+	if len(got) != 1 || got[0].ExerciseID() != "bench" {
+		t.Errorf("軸が %v。該当する派生が無いので本体のはず", got)
+	}
+}
+
+// splitRotationRequest は一巡と分割の組み合わせを見るための入力。
+//
+// 派生を2つ置く。胸を主働に含むものと、含まないもの（三頭）。分割で
+// 絞っているかどうかが、どちらが出るかに現れる。
+func splitRotationRequest(t *testing.T, cycle ...program.Split) planning.PlanRequest {
+	t.Helper()
+
+	derived := func(id string, stimulus map[training.MuscleRegion]float64) *exercise.Exercise {
+		t.Helper()
+		return mustExercise(t, exercise.ExerciseParams{
+			ID: id, Name: id, Stimulus: stimulus, IncrementKg: 2.5, DerivedFrom: "bench",
+		})
+	}
+
+	pool := []*exercise.Exercise{
+		mainExercise(t, "bench", map[training.MuscleRegion]float64{
+			training.ChestMid: 1.0, training.TricepsLateral: 1.0, training.FrontDelt: 1.0,
+		}),
+		derived("chest_variation", map[training.MuscleRegion]float64{training.ChestMid: 1.0}),
+		derived("narrow", map[training.MuscleRegion]float64{
+			training.TricepsLateral: 1.0, training.ChestMid: 0.7,
+		}),
+	}
+	for i := range 4 {
+		pool = append(pool, mkAccessory(t, fmt.Sprintf("ch_%d", i),
+			map[training.MuscleRegion]float64{training.ChestMid: 1.0}))
+		pool = append(pool, mkAccessory(t, fmt.Sprintf("tri_%d", i),
+			map[training.MuscleRegion]float64{training.TricepsLateral: 1.0}))
+		pool = append(pool, mkAccessory(t, fmt.Sprintf("sh_%d", i),
+			map[training.MuscleRegion]float64{training.FrontDelt: 1.0}))
+	}
+
+	ids := make([]exercise.ExerciseID, 0, len(pool))
+	for _, e := range pool {
+		ids = append(ids, e.ID())
+	}
+	prog, err := program.NewProgram(mustFrequency(t, 3),
+		mustTarget(t, map[training.MuscleRegion]float64{
+			training.ChestMid: 12, training.TricepsLateral: 12, training.FrontDelt: 12,
+		}),
+		ids, []exercise.ExerciseID{"bench"}, "bench")
+	if err != nil {
+		t.Fatalf("プログラムの生成に失敗: %v", err)
+	}
+	if prog, err = prog.WithCycle(cycle); err != nil {
+		t.Fatalf("WithCycle: %v", err)
+	}
+
+	req := planRequest(t)
+	req.Pool = pool
+	req.Program = prog
+	return req
+}
