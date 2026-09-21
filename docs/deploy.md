@@ -244,16 +244,35 @@ make docker-run
 クライアントIDは秘密ではないのでリポジトリ変数、シークレットだけ Secret Manager に置く。
 
 ```bash
+# --project を付けるのは、gcloud に既定のプロジェクトが入っていないと
+# 「resource is not properly specified」で落ちるため。
+# 毎回書くのが嫌なら gcloud config set project liftplan-85309。
 printf '%s' '<GitHub のシークレット>' | \
-  gcloud secrets create liftplan-github-client-secret --data-file=-
+  gcloud secrets create liftplan-github-client-secret \
+    --project=liftplan-85309 --data-file=-
 printf '%s' '<Google のシークレット>' | \
-  gcloud secrets create liftplan-google-client-secret --data-file=-
+  gcloud secrets create liftplan-google-client-secret \
+    --project=liftplan-85309 --data-file=-
 
 gh variable set GITHUB_CLIENT_ID --body '<...>'
 gh variable set GOOGLE_CLIENT_ID --body '<...>'
-gh variable set API_ORIGIN --body 'https://liftplan-server-<ハッシュ>.asia-southeast1.run.app'
 gh variable set WEB_ORIGIN --body 'https://liftplan-web.<サブドメイン>.workers.dev'
 ```
+
+**`echo` ではなく `printf` を使う。**`echo` は末尾に改行を足すので、シークレットの
+最後に `\n` が付いたまま保存される。認可のときに「クライアントシークレットが違う」と
+だけ言われ、値は合って見えるので原因に辿り着くのに時間がかかる。長さで確かめられる。
+
+```bash
+gcloud secrets versions access latest \
+  --secret=liftplan-github-client-secret --project=liftplan-85309 | wc -c
+```
+
+GitHub のシークレットは40文字。`41` なら改行が混ざっている。
+
+**`API_ORIGIN` は新しく作らない。**画面のビルドが使っている `API_BASE` と同じ URL なので、
+`deploy.yml` がそちらから引く。同じ URL を指す変数が2つあると、片方だけ更新した日に
+コールバックが黙って合わなくなる。
 
 ### 3. これまでの記録を自分のアカウントに結ぶ
 

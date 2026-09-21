@@ -17,9 +17,14 @@ env:
   # ここに直書きすると、URL が変わったときにコードの変更として出る。
   # 未設定なら下のジョブが落ちる（黙って既定値に落ちない）。
   ALLOWED_ORIGINS: ${{ vars.ALLOWED_ORIGINS }}
-  # ログイン後の戻り先（画面）と、認可先に登録したコールバックの元（API 自身）。
+  # ログイン後の戻り先（画面）。
   WEB_ORIGIN: ${{ vars.WEB_ORIGIN }}
-  API_ORIGIN: ${{ vars.API_ORIGIN }}
+  # 認可先に登録したコールバックの元（API 自身のオリジン）。
+  #
+  # **API_BASE から引く。**同じ URL を指す変数を2つ持つと、片方だけ
+  # 更新した日にコールバックが黙って合わなくなり、認可が通らない理由が
+  # どこにも出ない。画面のビルドが使っているのと同じ1本にする。
+  API_ORIGIN: ${{ vars.API_BASE }}
   # クライアントIDは秘密ではない。シークレットだけ Secret Manager に置く。
   GITHUB_CLIENT_ID: ${{ vars.GITHUB_CLIENT_ID }}
   GOOGLE_CLIENT_ID: ${{ vars.GOOGLE_CLIENT_ID }}
@@ -91,8 +96,10 @@ jobs:
       # 出してから気づくより、出す前に止めるほうが速い。
       - name: 許可オリジンが設定されているか確かめる
         run: |
-          for v in WEB_ORIGIN API_ORIGIN GITHUB_CLIENT_ID GOOGLE_CLIENT_ID; do
-            if [ -z "$(eval echo \"\$$v\")" ]; then
+          # ${!v} は bash の間接展開。eval を通すより読みやすく、
+          # 変数名に妙な文字が来ても実行にならない。
+          for v in WEB_ORIGIN API_BASE GITHUB_CLIENT_ID GOOGLE_CLIENT_ID; do
+            if [ -z "${!v}" ]; then
               echo "リポジトリ変数 $v が未設定。サーバーは起動を拒む"
               exit 1
             fi
