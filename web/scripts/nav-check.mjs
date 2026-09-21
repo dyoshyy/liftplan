@@ -34,9 +34,10 @@ const errs = [];
 page.on('pageerror', (e) => errs.push('pageerror: ' + e.message));
 page.on('console', (m) => { if (m.type() === 'error') errs.push(m.text()); });
 
-await page.goto(APP);
-await page.fill('input[type=password]', TOKEN);
-await page.click('text=保存する');
+// ログインはフラグメントで済ませる。/auth/* を通すとプロバイダの画面が
+// 挟まり、自動では抜けられない。#token= はサーバーがコールバックで戻して
+// くる形そのものなので、取り込みの配線もここで一緒に検査できる。
+await page.goto(`${APP}/#token=${TOKEN}`);
 await page.waitForTimeout(2500);
 
 const body = () => page.innerText('body');
@@ -64,9 +65,9 @@ const settings = await body();
 check('歯車で設定が開く', settings.includes('週に通う回数'), settings.replace(/\s+/g,' ').slice(0,80));
 check('休憩の長さが設定にある', settings.includes('休憩の長さ'));
 // 設定の節は畳んである（縦 8.2画面分あったため）。開いてから確かめる。
-await page.click('text=この端末');
+await page.click('text=アカウント');
 await page.waitForTimeout(500);
-check('トークンを消す手段がある', (await body()).includes('トークンを消す'));
+check('ログアウトする手段がある', (await body()).includes('ログアウト'));
 
 // 設定からの戻る
 await page.goBack();

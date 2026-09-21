@@ -9,7 +9,7 @@ import { getToken, clearToken } from '../storage/local';
 // Worker になる。あちらは未知の経路に index.html を 200 で返すので、
 // 待ち行列は「送れた」と判断して記録を消す。記録が黙って消える経路になる。
 // サーバー側が ALLOWED_ORIGINS 無しで起動を拒むのと同じ理由。
-const API_BASE = import.meta.env.VITE_API_BASE;
+export const API_BASE: string = import.meta.env.VITE_API_BASE;
 if (!API_BASE) {
   throw new Error('VITE_API_BASE が設定されていない。API のオリジンを指定すること');
 }
