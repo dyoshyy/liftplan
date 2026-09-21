@@ -4,6 +4,7 @@ import (
 	"github.com/dyoshyy/liftplan/internal/domain/training"
 	"github.com/dyoshyy/liftplan/internal/domain/training/exercise"
 	"github.com/dyoshyy/liftplan/internal/domain/training/program"
+	"github.com/dyoshyy/liftplan/internal/domain/training/setlog"
 )
 
 // StimulusCoverage は各筋区分がすでに何セット分埋まっているか。不変。
@@ -38,6 +39,39 @@ func (c StimulusCoverage) Plus(p exercise.StimulusProfile, sets training.SetCoun
 		out[region] = training.Quantize(out[region] + contribution.TimesSets(sets))
 	}
 	return StimulusCoverage{m: out}
+}
+
+// CoverageBetween は期間内に埋めた刺激量を数える。両端を含む。
+//
+// 記録1件を1セットとして数える。SetLog は「確定した実績1セット」なので、
+// 件数がそのままセット数になる。
+//
+// 公開しているのは、週目標の充足を見せる読み取り経路が同じ数え方を
+// 必要とするため。別々に実装すると、画面に出る数字とエンジンが使う数字が
+// ずれる。ずれた瞬間、どちらが正しいのか誰にも分からなくなる。
+func CoverageBetween(h setlog.History, pool []*exercise.Exercise, from, to training.Date) StimulusCoverage {
+	coverage := StimulusCoverage{}
+	one, err := training.NewSetCount(1)
+	if err != nil {
+		return coverage
+	}
+
+	byID := make(map[exercise.ExerciseID]*exercise.Exercise, len(pool))
+	for _, e := range pool {
+		if e == nil {
+			continue
+		}
+		byID[e.ID()] = e
+	}
+
+	for _, l := range h.OnOrAfter(from).OnOrBefore(to).Logs() {
+		e, ok := byID[l.ExerciseID()]
+		if !ok {
+			continue
+		}
+		coverage = coverage.Plus(e.Stimulus(), one)
+	}
+	return coverage
 }
 
 // SessionResidual はこのセッションで狙うべき、筋区分ごとの不足セット数。
