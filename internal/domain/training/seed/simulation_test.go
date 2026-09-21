@@ -584,6 +584,16 @@ func TestSimulation_SplitAlwaysProducesASession(t *testing.T) {
 // 今日の区分のどれかに寄与があること。補助の条件がゆるいのは、残差を
 // 今日の区分に絞ったうえで「その区分を埋められる種目」を選ぶ実装だから
 // （planning.primaryContribution は軸の側の閾値）。
+//
+// ただし**どの日にも属さない区分を主働に持つ補助は、どの日に出ても正しい**
+// （#113）。腹はどのプリセットにも入っておらず、「その日に無い」ではなく
+// 「二度と来ない」なので毎日活かす、と決めた。ここを例外にしないと、
+// 仕様どおりに出ているクランチとサイドベンドを赤にしてしまう。
+//
+// 例外は**主働**に限る。スクワットやデッドリフトは腹に副次の寄与を持つので、
+// 「どこか1つでも未所属なら通す」にすると胸の日にスクワットが通り、この検査が
+// 何も守らなくなる。周期の所属は planning の非公開関数を借りず、ハーネスが
+// p.Cycle から自分で数える（借りると同じ壊れ方を一緒に間違える）。
 func TestSimulation_SplitKeepsTheDayInsideItsRegions(t *testing.T) {
 	all, err := seed.Exercises()
 	if err != nil {
@@ -610,10 +620,14 @@ func TestSimulation_SplitKeepsTheDayInsideItsRegions(t *testing.T) {
 							}
 						}
 						for _, id := range s.accessories {
-							if !touchesSplit(byID[id], s.split) {
-								t.Errorf("%d本目（%s の日）に無関係な補助 %s が出ている",
-									i+1, s.split.Name(), id)
+							if touchesSplit(byID[id], s.split) {
+								continue
 							}
+							if primaryUnaffiliated(byID[id], p.Cycle) {
+								continue
+							}
+							t.Errorf("%d本目（%s の日）に無関係な補助 %s が出ている",
+								i+1, s.split.Name(), id)
 						}
 					}
 				})
@@ -630,6 +644,37 @@ func primaryInSplit(e *exercise.Exercise, s program.Split) bool {
 	for _, r := range e.Stimulus().Regions() {
 		c, ok := e.Stimulus().Contribution(r)
 		if ok && c.Float() >= 1.0 && s.Includes(r) {
+			return true
+		}
+	}
+	return false
+}
+
+// primaryUnaffiliated はその種目の主働区分（寄与1.0以上）のどれかが、
+// 周期のどの日にも書かれていないか。
+//
+// 未所属の区分は毎日活きる（#113）ので、それを主働に持つ種目はどの日に
+// 出てもよい。副次の寄与では通さない。
+func primaryUnaffiliated(e *exercise.Exercise, cycle []program.Split) bool {
+	if e == nil {
+		return false
+	}
+	for _, r := range e.Stimulus().Regions() {
+		c, ok := e.Stimulus().Contribution(r)
+		if !ok || c.Float() < 1.0 {
+			continue
+		}
+		if !affiliatedInCycle(cycle, r) {
+			return true
+		}
+	}
+	return false
+}
+
+// affiliatedInCycle はその区分が周期のどこかの日に書かれているか。
+func affiliatedInCycle(cycle []program.Split, r training.MuscleRegion) bool {
+	for _, day := range cycle {
+		if day.Includes(r) {
 			return true
 		}
 	}
