@@ -62,8 +62,7 @@ func NewSignIn(
 // 「ログインはできているのに使えない」利用者を作らないため。
 func (u *SignIn) Execute(
 	ctx context.Context,
-	provider account.Provider,
-	subject string,
+	identity account.Identity,
 	now time.Time,
 ) (_ account.SessionToken, err error) {
 	// 出口で1度だけ翻訳する。return ごとに書くと、経路が増えたときに
@@ -74,7 +73,7 @@ func (u *SignIn) Execute(
 		return account.SessionToken{}, fmt.Errorf("ログインが中断された: %w", err)
 	}
 
-	a, err := u.findOrCreateAccount(ctx, provider, subject)
+	a, err := u.findOrCreateAccount(ctx, identity)
 	if err != nil {
 		return account.SessionToken{}, err
 	}
@@ -93,6 +92,48 @@ func (u *SignIn) Execute(
 	return token, nil
 }
 
+// resolveUser は、このアカウントを誰のものにするかを決める。
+//
+// 確認済みアドレスが同じ利用者が既にいれば、その人に結ぶ。これが
+// 「GitHub で入った人が Google を押しても同じ記録が見える」の全部。
+//
+// # 呼ぶのはアカウントを作るときだけ
+//
+// 既にあるアカウントの利用者は決して書き換えない。書き換える経路が
+// あると、**認可先のメールアドレスを他人のものに変えて入り直すだけで、
+// 他人の記録に入れる。**結ぶのは作るときの1回に限る。
+//
+// # 結べないときは結ばない。失敗にはしない
+//
+// アドレスが無い・一致する人がいない・同じアドレスに複数の利用者がいる。
+// どれも「分からない」であって「壊れている」ではないので、新しい利用者を
+// 採番して先へ進む。**複数いるときに片方を選ばない**のが要点で、
+// 選び方次第で他人の記録に結びついてしまう。
+//
+// # 引きが壊れたときだけ失敗させる
+//
+// 保存先に届かなかったときに「見つからなかった」と同じ扱いにすると、
+// DB が一瞬応えなかっただけで**本人の記録から切り離された利用者が
+// 黙って生まれる**。あとから直すには、どの行が誤ってできたかを人が
+// 突き合わせるしかない。ここは素直に失敗させ、押し直してもらう。
+func (u *SignIn) resolveUser(ctx context.Context, email account.Email) (account.UserID, error) {
+	switch linked, err := u.accounts.FindUserByEmail(ctx, email); {
+	case err == nil:
+		return linked, nil
+	case errors.Is(err, account.ErrAccountNotFound),
+		errors.Is(err, account.ErrAmbiguousEmail):
+		// 結べない。新しい利用者として扱う。
+	default:
+		return account.UserID{}, fmt.Errorf("アドレスから利用者を引けない: %w", err)
+	}
+
+	userID, err := account.NewRandomUserID()
+	if err != nil {
+		return account.UserID{}, fmt.Errorf("利用者の識別子を採番できない: %w", err)
+	}
+	return userID, nil
+}
+
 // findOrCreateAccount は (provider, subject) のアカウントを返し、無ければ作る。
 //
 // 作ろうとして「既にある」が返ったら、引き直して続行する。同じ人の
@@ -105,9 +146,9 @@ func (u *SignIn) Execute(
 // リポジトリが「無い」と「既にある」を交互に返す壊れ方をしたときに
 // 回り続ける。
 func (u *SignIn) findOrCreateAccount(
-	ctx context.Context, provider account.Provider, subject string,
+	ctx context.Context, identity account.Identity,
 ) (*account.Account, error) {
-	a, err := u.accounts.Find(ctx, provider, subject)
+	a, err := u.accounts.Find(ctx, identity.Provider(), identity.Subject())
 	switch {
 	case err == nil:
 		return a, nil
@@ -115,15 +156,13 @@ func (u *SignIn) findOrCreateAccount(
 		return nil, fmt.Errorf("アカウントの取得に失敗: %w", err)
 	}
 
-	// ここから初回。新しい UserID を採番する。既定ユーザーには寄せない。
-	userID, err := account.NewRandomUserID()
+	// ここから初回。**この1回だけ**、既にいる利用者に結べるかを見る。
+	userID, err := u.resolveUser(ctx, identity.Email())
 	if err != nil {
-		return nil, fmt.Errorf("利用者の識別子を採番できない: %w", err)
+		return nil, err
 	}
-	// アドレスはまだ取っていない。プロバイダから取る処理も、それで
-	// GitHub と Google を結ぶ判断も別PR。空は正当な値なので、ここは
-	// 「取れなかった」を素直に渡す。
-	created, err := account.NewAccount(provider, subject, userID, account.Email{})
+	created, err := account.NewAccount(
+		identity.Provider(), identity.Subject(), userID, identity.Email())
 	if err != nil {
 		return nil, fmt.Errorf("アカウントを組めない: %w", err)
 	}
@@ -137,7 +176,7 @@ func (u *SignIn) findOrCreateAccount(
 
 	// 先を越された。相手が作ったほうを使う。自分が採番した UserID で
 	// 続けると、同じ人の記録が2人分に割れる。
-	a, err = u.accounts.Find(ctx, provider, subject)
+	a, err = u.accounts.Find(ctx, identity.Provider(), identity.Subject())
 	if err != nil {
 		return nil, fmt.Errorf("先に作られたアカウントを引けない: %w", err)
 	}

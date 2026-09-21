@@ -36,7 +36,7 @@ func (a *identityProvider) AuthCodeURL(state string) string {
 	return a.provider.AuthCodeURL(state)
 }
 
-// Subject はコードを交換し、そのプロバイダにおける本人の識別子を返す。
+// Identity はコードを交換し、そのプロバイダにおける本人を返す。
 //
 // エラーの写し方が、そのまま「送り直す意味があるか」の答えになる。
 //
@@ -45,17 +45,26 @@ func (a *identityProvider) AuthCodeURL(state string) string {
 //
 // 混ぜると、直しようのない失敗にやり直しを促すか、直る失敗を諦めさせるか
 // のどちらかになる。
-func (a *identityProvider) Subject(ctx context.Context, code string) (string, error) {
+func (a *identityProvider) Identity(
+	ctx context.Context, code string,
+) (account.Identity, error) {
 	identity, err := a.provider.Identity(ctx, code)
 	switch {
 	case errors.Is(err, oauth.ErrProvider):
-		return "", fmt.Errorf("%w: %w", apperror.ErrUnavailable, err)
+		return account.Identity{}, fmt.Errorf("%w: %w", apperror.ErrUnavailable, err)
 	case errors.Is(err, oauth.ErrNoIdentity):
-		return "", fmt.Errorf("%w: %w", apperror.ErrInvalidInput, err)
+		return account.Identity{}, fmt.Errorf("%w: %w", apperror.ErrInvalidInput, err)
 	case err != nil:
-		return "", err
+		return account.Identity{}, err
 	}
-	return identity.Subject, nil
+
+	// インフラの形をドメインの形に移す。メールアドレスは
+	// **oauth 側が確認済みと判断したものだけ**が入っている。
+	out, err := account.NewIdentity(a.name, identity.Subject, account.NewEmail(identity.Email))
+	if err != nil {
+		return account.Identity{}, fmt.Errorf("%w: %w", apperror.ErrInvalidInput, err)
+	}
+	return out, nil
 }
 
 var _ httpapi.IdentityProvider = (*identityProvider)(nil)

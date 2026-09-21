@@ -49,6 +49,16 @@ func authedWith(token, method, target string, body io.Reader) *http.Request {
 	return r
 }
 
+// mustIdentity は認可先から来た身元を組む。アドレスは持たせない。
+func mustIdentity(t *testing.T, provider account.Provider, subject string) account.Identity {
+	t.Helper()
+	id, err := account.NewIdentity(provider, subject, account.Email{})
+	if err != nil {
+		t.Fatalf("identity が不正: %v", err)
+	}
+	return id
+}
+
 // signInAgainst は保存先に対してログインを1回通し、そのトークンを返す。
 //
 // **本物の受け入れ経路（usecase.SignIn）を通す。**セッションだけを
@@ -75,7 +85,7 @@ func signInAgainst(t *testing.T, url string) string {
 	token, err := usecase.NewSignIn(
 		accounts, accounts, sessions, programs, programs,
 		memory.NewExerciseRepository(pool),
-	).Execute(ctx, account.GitHub(), "tester", time.Now())
+	).Execute(ctx, mustIdentity(t, account.GitHub(), "tester"), time.Now())
 	if err != nil {
 		t.Fatalf("ログインできない: %v", err)
 	}

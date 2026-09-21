@@ -10,6 +10,7 @@ import (
 
 	"github.com/dyoshyy/liftplan/internal/application/usecase"
 	"github.com/dyoshyy/liftplan/internal/domain/account"
+	"github.com/dyoshyy/liftplan/internal/domain/training"
 	"github.com/dyoshyy/liftplan/internal/domain/training/program"
 	"github.com/dyoshyy/liftplan/internal/domain/training/seed"
 )
@@ -68,6 +69,27 @@ func githubSubject() (account.Provider, string) {
 	return account.GitHub(), "12345678"
 }
 
+// githubIdentity は GitHub から来た identity。アドレスは指定した分だけ入る。
+func githubIdentity(t *testing.T, email string) account.Identity {
+	t.Helper()
+	provider, subject := githubSubject()
+	id, err := account.NewIdentity(provider, subject, account.NewEmail(email))
+	if err != nil {
+		t.Fatalf("identity が不正: %v", err)
+	}
+	return id
+}
+
+// googleIdentity は Google から来た identity。**別のプロバイダ・別の subject**。
+func googleIdentity(t *testing.T, email string) account.Identity {
+	t.Helper()
+	id, err := account.NewIdentity(account.Google(), "google-sub-1", account.NewEmail(email))
+	if err != nil {
+		t.Fatalf("identity が不正: %v", err)
+	}
+	return id
+}
+
 var signInNow = time.Date(2026, 9, 21, 10, 0, 0, 0, time.UTC)
 
 // 初回ログインで、アカウント・初期プログラム・セッションが揃うこと。
@@ -78,7 +100,7 @@ func TestSignIn_FirstTimeCreatesEverything(t *testing.T) {
 	f := newSignInFixture(t)
 	provider, subject := githubSubject()
 
-	token, err := f.signIn.Execute(context.Background(), provider, subject, signInNow)
+	token, err := f.signIn.Execute(context.Background(), githubIdentity(t, ""), signInNow)
 	if err != nil {
 		t.Fatalf("初回ログインに失敗: %v", err)
 	}
@@ -136,14 +158,13 @@ func TestSignIn_FirstTimeCreatesEverything(t *testing.T) {
 // 「昨日までの記録が消えた」ように見える。
 func TestSignIn_SecondTimeReusesTheAccount(t *testing.T) {
 	f := newSignInFixture(t)
-	provider, subject := githubSubject()
 
-	first, err := f.signIn.Execute(context.Background(), provider, subject, signInNow)
+	first, err := f.signIn.Execute(context.Background(), githubIdentity(t, ""), signInNow)
 	if err != nil {
 		t.Fatalf("初回ログインに失敗: %v", err)
 	}
 	second, err := f.signIn.Execute(
-		context.Background(), provider, subject, signInNow.Add(time.Hour))
+		context.Background(), githubIdentity(t, ""), signInNow.Add(time.Hour))
 	if err != nil {
 		t.Fatalf("2回目のログインに失敗: %v", err)
 	}
@@ -181,7 +202,7 @@ func TestSignIn_SecondTimeDoesNotOverwriteTheProgram(t *testing.T) {
 	provider, subject := githubSubject()
 
 	if _, err := f.signIn.Execute(
-		context.Background(), provider, subject, signInNow); err != nil {
+		context.Background(), githubIdentity(t, ""), signInNow); err != nil {
 		t.Fatalf("初回ログインに失敗: %v", err)
 	}
 	a, err := f.accounts.Find(context.Background(), provider, subject)
@@ -193,7 +214,7 @@ func TestSignIn_SecondTimeDoesNotOverwriteTheProgram(t *testing.T) {
 	changed := changeFrequency(t, f, a.UserID())
 
 	if _, err := f.signIn.Execute(
-		context.Background(), provider, subject, signInNow.Add(time.Hour)); err != nil {
+		context.Background(), githubIdentity(t, ""), signInNow.Add(time.Hour)); err != nil {
 		t.Fatalf("2回目のログインに失敗: %v", err)
 	}
 
@@ -251,7 +272,7 @@ func TestSignIn_RecoversWhenTheAccountAppearsFirst(t *testing.T) {
 	winner := mustUserID(t)
 	f.accounts.insertOnNextCreate(t, provider, subject, winner)
 
-	token, err := f.signIn.Execute(context.Background(), provider, subject, signInNow)
+	token, err := f.signIn.Execute(context.Background(), githubIdentity(t, ""), signInNow)
 	if err != nil {
 		t.Fatalf("既にアカウントがある場合にログインが失敗した: %v", err)
 	}
@@ -280,9 +301,8 @@ func TestSignIn_RecoversWhenTheAccountAppearsFirst(t *testing.T) {
 func TestSignIn_IssuesNoSessionWhenTheProgramCannotBeSaved(t *testing.T) {
 	wantErr := errors.New("保存先が落ちている")
 	f := newSignInFixtureWith(t, &failingProgramWriter{err: wantErr})
-	provider, subject := githubSubject()
 
-	_, err := f.signIn.Execute(context.Background(), provider, subject, signInNow)
+	_, err := f.signIn.Execute(context.Background(), githubIdentity(t, ""), signInNow)
 	if err == nil {
 		t.Fatal("プログラムを保存できないのに成功している")
 	}
@@ -314,10 +334,18 @@ type signInAccounts struct {
 	// onCreate は Create の直前に1度だけ走る。同時実行で先を越された
 	// 状況を、goroutine を使わずに作るための仕掛け。
 	onCreate func()
+
+	// byEmail は確認済みアドレス→利用者。emailErr を入れると引きが失敗する。
+	byEmail      map[string]account.UserID
+	emailErr     error
+	emailLookups int
 }
 
 func newSignInAccounts() *signInAccounts {
-	return &signInAccounts{byKey: map[signInAccountKey]*account.Account{}}
+	return &signInAccounts{
+		byKey:   map[signInAccountKey]*account.Account{},
+		byEmail: map[string]account.UserID{},
+	}
 }
 
 func (r *signInAccounts) Find(
@@ -333,12 +361,28 @@ func (r *signInAccounts) Find(
 	return a, nil
 }
 
-// FindUserByEmail は SignIn がまだ使わない（結ぶ判断は別PR）。口の形を
-// 満たすためだけに置く。常に見つからないので、使い始めたら必ず落ちる。
+// FindUserByEmail は確認済みアドレスから利用者を引く。
+//
+// byEmail に無ければ見つからない。emailErr を入れておくと、引き方に
+// 関わらずそのエラーを返す（曖昧・保存先の不調を作るため）。
 func (r *signInAccounts) FindUserByEmail(
 	_ context.Context, email account.Email,
 ) (account.UserID, error) {
-	return account.UserID{}, fmt.Errorf("%w: %s", account.ErrAccountNotFound, email)
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	r.emailLookups++
+	if r.emailErr != nil {
+		return account.UserID{}, r.emailErr
+	}
+	if email.IsZero() {
+		return account.UserID{}, fmt.Errorf("%w: 空のアドレス", account.ErrAccountNotFound)
+	}
+	uid, ok := r.byEmail[email.String()]
+	if !ok {
+		return account.UserID{}, fmt.Errorf("%w: %s", account.ErrAccountNotFound, email)
+	}
+	return uid, nil
 }
 
 func (r *signInAccounts) Create(_ context.Context, a *account.Account) error {
@@ -500,4 +544,181 @@ func mustUserID(t *testing.T) account.UserID {
 // 引き継ぎは初回ログインの前に手で流す INSERT の仕事（docs/deploy.md）。
 func legacyUserID() account.UserID {
 	return mustTestUserID("8d5e743e-f1b0-4430-9998-89d313e89da8")
+}
+
+// ---- プロバイダをまたいで結ぶ ----
+
+// 確認済みアドレスが一致するなら、同じ利用者になること。
+//
+// **これが無いと、GitHub で入った人が Google を押した瞬間に記録が
+// 空になる。**本人から見れば「記録が消えた」で、原因は分からない。
+func TestSignIn_LinksProvidersByVerifiedEmail(t *testing.T) {
+	f := newSignInFixture(t)
+	ctx := context.Background()
+
+	// GitHub で初回ログイン。
+	if _, err := f.signIn.Execute(ctx, githubIdentity(t, "me@example.com"), signInNow); err != nil {
+		t.Fatalf("GitHub のログインに失敗: %v", err)
+	}
+	provider, subject := githubSubject()
+	first, err := f.accounts.Find(ctx, provider, subject)
+	if err != nil {
+		t.Fatalf("GitHub のアカウントが無い: %v", err)
+	}
+
+	// 同じアドレスの利用者として引けるようにしておく（保存先が持つ状態）。
+	f.accounts.byEmail["me@example.com"] = first.UserID()
+
+	// Google で初回ログイン。別のプロバイダ・別の subject。
+	if _, err := f.signIn.Execute(ctx, googleIdentity(t, "me@example.com"), signInNow); err != nil {
+		t.Fatalf("Google のログインに失敗: %v", err)
+	}
+	second, err := f.accounts.Find(ctx, account.Google(), "google-sub-1")
+	if err != nil {
+		t.Fatalf("Google のアカウントが無い: %v", err)
+	}
+
+	if second.UserID() != first.UserID() {
+		t.Errorf("利用者が %q。GitHub と同じ %q のはず",
+			second.UserID(), first.UserID())
+	}
+	// アカウントは2つ。結ぶのは利用者であって、アカウントではない。
+	if f.accounts.created() != 2 {
+		t.Errorf("アカウントが %d 件。2件のはず", f.accounts.created())
+	}
+}
+
+// 結んだ先のプログラムを上書きしないこと。
+//
+// 上書きすると、GitHub で設定を整えた人が Google で入り直した瞬間に
+// 設定が初期値へ戻る。これは記録が消えるのと同じくらい困る。
+func TestSignIn_DoesNotOverwriteTheProgramWhenLinking(t *testing.T) {
+	f := newSignInFixture(t)
+	ctx := context.Background()
+
+	if _, err := f.signIn.Execute(ctx, githubIdentity(t, "me@example.com"), signInNow); err != nil {
+		t.Fatalf("GitHub のログインに失敗: %v", err)
+	}
+	provider, subject := githubSubject()
+	first, _ := f.accounts.Find(ctx, provider, subject)
+	f.accounts.byEmail["me@example.com"] = first.UserID()
+
+	want := changeFrequency(t, f, first.UserID())
+
+	if _, err := f.signIn.Execute(ctx, googleIdentity(t, "me@example.com"), signInNow); err != nil {
+		t.Fatalf("Google のログインに失敗: %v", err)
+	}
+
+	got, err := f.programs.Get(ctx, first.UserID())
+	if err != nil {
+		t.Fatalf("プログラムが読めない: %v", err)
+	}
+	if got.Frequency().PerWeek() != want {
+		t.Errorf("頻度が %d。%d のはず（結んだときに初期値へ戻った）",
+			got.Frequency().PerWeek(), want)
+	}
+}
+
+// 結べないときは、結ばずに新しい利用者を作ること。失敗にはしない。
+func TestSignIn_DoesNotLinkWhenItCannotBeSure(t *testing.T) {
+	cases := []struct {
+		name  string
+		email string
+		// setup は保存先の状態を作る。
+		setup func(*signInFixture)
+	}{
+		{
+			// アドレスが取れていない。結ぶ材料が無い。
+			name: "確認済みアドレスが無い", email: "",
+			setup: func(*signInFixture) {},
+		},
+		{
+			// 同じアドレスに複数の利用者。どちらか分からないまま選ぶと、
+			// 選び方次第で他人の記録に結びつく。
+			name: "同じアドレスに複数の利用者がいる", email: "me@example.com",
+			setup: func(f *signInFixture) { f.accounts.emailErr = account.ErrAmbiguousEmail },
+		},
+		{
+			// そのアドレスの利用者はまだ居ない。
+			name: "一致する利用者がいない", email: "me@example.com",
+			setup: func(*signInFixture) {},
+		},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			f := newSignInFixture(t)
+			ctx := context.Background()
+			c.setup(f)
+
+			token, err := f.signIn.Execute(ctx, googleIdentity(t, c.email), signInNow)
+			if err != nil {
+				t.Fatalf("ログインに失敗: %v", err)
+			}
+			if token.String() == "" {
+				t.Fatal("トークンが空")
+			}
+
+			a, err := f.accounts.Find(ctx, account.Google(), "google-sub-1")
+			if err != nil {
+				t.Fatalf("アカウントが無い: %v", err)
+			}
+			if a.UserID() == (account.UserID{}) {
+				t.Error("利用者が採番されていない")
+			}
+		})
+	}
+}
+
+// アドレスを引けなかった（保存先の不調）ときは、新しい利用者を作らない。
+//
+// **ここを「見つからなかった」と同じ扱いにしてはいけない。**DB が一瞬
+// 応えなかっただけで、本人の記録から切り離された利用者が黙って生まれる。
+// あとから直すには、どの行が誤って作られたかを人が突き合わせるしかない。
+func TestSignIn_FailsWhenTheEmailLookupBreaks(t *testing.T) {
+	f := newSignInFixture(t)
+	f.accounts.emailErr = fmt.Errorf("%w: 接続できない", training.ErrRepositoryUnavailable)
+
+	_, err := f.signIn.Execute(context.Background(), googleIdentity(t, "me@example.com"), signInNow)
+	if err == nil {
+		t.Fatal("引きが壊れているのにログインが成立した")
+	}
+	if f.accounts.created() != 0 {
+		t.Errorf("アカウントを %d 件作っている。0件のはず", f.accounts.created())
+	}
+}
+
+// 既にあるアカウントの利用者は、決して書き換えないこと。
+//
+// 書き換える経路があると、**メールアドレスを他人のものに変えて
+// 入り直すだけで、他人の記録に入れる。**結ぶのは作るときだけ。
+func TestSignIn_NeverRelinksAnExistingAccount(t *testing.T) {
+	f := newSignInFixture(t)
+	ctx := context.Background()
+
+	if _, err := f.signIn.Execute(ctx, githubIdentity(t, "me@example.com"), signInNow); err != nil {
+		t.Fatalf("初回のログインに失敗: %v", err)
+	}
+	provider, subject := githubSubject()
+	first, _ := f.accounts.Find(ctx, provider, subject)
+
+	// 別人のアドレスが、そのアドレスの持ち主として引けるようにする。
+	other, err := account.NewRandomUserID()
+	if err != nil {
+		t.Fatalf("採番できない: %v", err)
+	}
+	f.accounts.byEmail["someone-else@example.com"] = other
+
+	// 同じ (provider, subject) で、別のアドレスを持って入り直す。
+	if _, err := f.signIn.Execute(ctx, githubIdentity(t, "someone-else@example.com"), signInNow); err != nil {
+		t.Fatalf("2回目のログインに失敗: %v", err)
+	}
+
+	again, _ := f.accounts.Find(ctx, provider, subject)
+	if again.UserID() != first.UserID() {
+		t.Errorf("利用者が %q に変わった。%q のままのはず", again.UserID(), first.UserID())
+	}
+	if f.accounts.emailLookups != 1 {
+		t.Errorf("アドレスを %d 回引いている。作るときの1回だけのはず", f.accounts.emailLookups)
+	}
 }
