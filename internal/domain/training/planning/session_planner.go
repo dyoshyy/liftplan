@@ -112,17 +112,44 @@ func (p SessionPlanner) Plan(req PlanRequest) (PlannedSession, error) {
 	history := req.History.Before(req.Date)
 	estimable := effectiveHistory(history, pool, req.Conditions)
 
+	// 2段。何をやるか（種目と役割）を決めてから、何kgでやるかを付ける。
+	//
+	// 重量の側から種目の側への依存は無い。逆向きは残差に使うセット数だけで、
+	// それは役割の表から引くので処方の結果を待たない。種目の決め方を変える
+	// PR と重量の決め方を変える PR が同じ流れを触らずに済む。
+	lineup, err := p.selectLineup(history, req.Program, pool, req.Pool, req.Date)
+	if err != nil {
+		return PlannedSession{}, err
+	}
+	return p.prescribe(lineup, estimable, req.Conditions, req.Date), nil
+}
+
+// lineupEntry は今日やる種目1つと、その役割。重量はまだ付いていない。
+type lineupEntry struct {
+	exercise *exercise.Exercise
+	role     laneRole
+}
+
+// selectLineup は今日やる種目とその役割の並びを決める。軸 → バリエーション →
+// 補助の順。強度・セット数・RIR はここでは決めない。
+//
+// history は前日まで（Plan が切る）。pool は選択された種目、master は
+// マスタ全件。カバレッジと補助の選択にはマスタ全件を渡す（理由は各所）。
+func (p SessionPlanner) selectLineup(
+	history setlog.History, prog *program.Program,
+	pool, master []*exercise.Exercise, date training.Date,
+) ([]lineupEntry, error) {
 	// 今日の分割。周期は暦ではなく出席回数で進む。休んだ日に飛ぶと、
 	// 通っていないのに分割だけが回る。
-	today, hasSplit := req.Program.SplitOn(history.SessionCount())
+	today, hasSplit := prog.SplitOn(history.SessionCount())
 
 	// 宣言がプールに1つも残っていないのは設定の破れ。分割で絞られて
 	// ゼロになるのとは別物で、こちらは計画を出さずに止める。
-	declared := declaredExercises(pool, req.Program)
+	declared := declaredExercises(pool, prog)
 	if len(declared) == 0 {
 		// 到達しない。NewProgram が宣言ゼロを弾き、declared ⊂ selected なので
 		// pool に必ず1つ以上残る。集約の不変条件が破れたときの最後の砦として残す。
-		return PlannedSession{}, errors.New("伸ばしたい種目が1つも選ばれていない")
+		return nil, errors.New("伸ばしたい種目が1つも選ばれていない")
 	}
 
 	// 軸は宣言のうち、今日の分割の区分を主働に含むもので最も古いもの。
@@ -130,9 +157,8 @@ func (p SessionPlanner) Plan(req PlanRequest) (PlannedSession, error) {
 	// 該当が無ければ軸は空。5分割の肩・腕には BIG3 の中に主働を持つ
 	// 種目が無く、そういう日が実際にできる。0.88 のスクワットを肩の日に
 	// 出すより、軸の枠が無いほうが正直（2026-09-19 の仕様書）。
-	heavy, heavyPct := axis(history, req.Program, pool, declared, today, hasSplit)
-
-	rirBump := p.analyzer.RIRAdjustment(req.Conditions, req.Date)
+	var lineup []lineupEntry
+	heavy, axisRole := axis(history, prog, pool, declared, today, hasSplit)
 
 	// 直近1週のカバレッジ。窓は前日までの6日ぶんで、当日を足して7日。
 	//
@@ -147,36 +173,34 @@ func (p SessionPlanner) Plan(req PlanRequest) (PlannedSession, error) {
 	// 前日で切る。CoverageBetween は画面の「今週の充足」が当日込みで使う
 	// 公開関数なので、当日を外すのは呼ぶ側の窓で言う。
 	//
-	// 数えるのはマスタ全件（req.Pool）で、選択された種目だけではない。
+	// 数えるのはマスタ全件（master）で、選択された種目だけではない。
 	// やったセットは、いま選択しているかに関係なく、やったセット。pool で
 	// 数えると、種目を選択から外した瞬間にその記録が読み飛ばされ、区分の
 	// 残差が最大1週間ふくらむ。画面の「今週の充足」もマスタ全件で数えて
 	// いるので、そちらとも食い違う（#133）。
-	coverage := CoverageBetween(history, req.Pool, req.Date.AddDays(-6), req.Date.AddDays(-1))
+	coverage := CoverageBetween(history, master, date.AddDays(-6), date.AddDays(-1))
 
-	main := make([]PlannedSet, 0, 1)
+	// 今日すでに積む分（軸とバリエーション）。セット数は役割の表から引く。
+	// 処方を待たないのは、重量の側へ依存を作らないため。
 	thisSession := StimulusCoverage{}
 	if heavy != nil {
-		set := p.planHeavy(estimable, req.Conditions, req.Date, heavy, heavyPct, rirBump)
-		main = append(main, set)
-		thisSession = thisSession.Plus(heavy.Stimulus(), set.Sets())
+		lineup = append(lineup, lineupEntry{exercise: heavy, role: axisRole})
+		thisSession = thisSession.Plus(heavy.Stimulus(), p.prescriptionFor(axisRole).setCount())
 	}
 
-	variation := make([]PlannedSet, 0, 1)
-	exclude := accessoryExcluded(pool, req.Program)
-	if v := variationLift(history, req.Program, pool, heavy, req.Date, today, hasSplit); v != nil {
-		vs := p.planVariation(estimable, req.Conditions, req.Date, v, rirBump)
-		variation = append(variation, vs)
-		thisSession = thisSession.Plus(v.Stimulus(), vs.Sets())
+	exclude := accessoryExcluded(pool, prog)
+	if v := variationLift(history, prog, pool, heavy, date, today, hasSplit); v != nil {
+		lineup = append(lineup, lineupEntry{exercise: v, role: variationRole})
+		thisSession = thisSession.Plus(v.Stimulus(), p.prescriptionFor(variationRole).setCount())
 		exclude = append(exclude, v.ID())
 	}
 
 	// 分割があるときだけ天井を掛ける。理由は SessionResidual に書いた。
 	var active ActiveCount
 	if hasSplit {
-		active = activeCount(history, req.Program)
+		active = activeCount(history, prog)
 	}
-	gaps := SessionResidual(req.Program.WeeklyTarget(), coverage, thisSession, active)
+	gaps := SessionResidual(prog.WeeklyTarget(), coverage, thisSession, active)
 
 	// 今日の分割に属さない区分は狙わない。残差から落とすのは補助の
 	// 選択に効かせるためで、週目標そのものは変えない。窓が1週なので、
@@ -186,7 +210,7 @@ func (p SessionPlanner) Plan(req PlanRequest) (PlannedSession, error) {
 	// よい部位で、どのプリセットにも入っていない。素直に落とすと永久に
 	// 埋まらない（実測で腹斜筋が全プリセット・全頻度で 0%）。
 	if hasSplit {
-		cycle := req.Program.Cycle()
+		cycle := prog.Cycle()
 		for region := range gaps {
 			if affiliated(cycle, region) && !today.Includes(region) {
 				delete(gaps, region)
@@ -201,23 +225,20 @@ func (p SessionPlanner) Plan(req PlanRequest) (PlannedSession, error) {
 	//
 	// 候補と辞書を別の引数に分けなかったのは、「候補にはしないが記録は読む」
 	// が exclude の既にある意味そのものだから。
-	for _, e := range req.Pool {
-		if e != nil && !req.Program.Includes(e.ID()) {
+	for _, e := range master {
+		if e != nil && !prog.Includes(e.ID()) {
 			exclude = append(exclude, e.ID())
 		}
 	}
-	chosen := p.accessory.Select(gaps, req.Pool, history, req.Date, exclude)
-	accessories := make([]PlannedSet, 0, len(chosen))
-	for _, id := range chosen {
-		accessories = append(accessories, p.planAccessory(pool, estimable, req.Conditions, req.Date, id, rirBump))
+	// Select が返すのは pool の中の種目に限る。候補は master から exclude を
+	// 引いたもので、pool（選択された種目）に無いものは全て exclude に入れて
+	// あるので、findExercise が nil を返す経路は無い。
+	for _, id := range p.accessory.Select(gaps, master, history, date, exclude) {
+		if e := findExercise(pool, id); e != nil {
+			lineup = append(lineup, lineupEntry{exercise: e, role: accessoryRole})
+		}
 	}
-
-	return PlannedSession{
-		date:        req.Date,
-		main:        main,
-		variation:   variation,
-		accessories: accessories,
-	}, nil
+	return lineup, nil
 }
 
 // usablePool はプログラムで選択された種目を ID 昇順で返す。

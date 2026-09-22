@@ -7,45 +7,28 @@ import (
 	"github.com/dyoshyy/liftplan/internal/domain/training/setlog"
 )
 
-const (
-	// 軸レーンの処方。3レーンで最も重い。
-	//
-	// 割合は Epley の逆算に合わせる（1 / (1 + (レップ + RIR) / 30)）。
-	// 0.88 は3レップ RIR1、0.81 は6レップ RIR1。外部の強度表から刻みだけを
-	// 借りると、推定（Epley）と処方が別の式で動く。
-	//
-	// 軸の強度を1つの定数にしていたのは、散らす相手がいなかったため。
-	// 宣言種目は「最後にやったのが最も古いもの」で回るので、宣言が3つ
-	// あれば各種目は週1回しか軸に来ない（D-117）。分割が入ると前提が
-	// 変わる。上下2分割で宣言がBIG3なら、上半身の日に立てる宣言はベンチ
-	// だけになり、同じ種目を同じ強度で週2回やることになる。
-	heavyIntensityPct       = 0.88
-	focusVolumeIntensityPct = 0.81
-	heavySets               = 3
-	heavyTargetRIR          = 1
+// laneRole は種目が今日のセッションで担う役割。
+//
+// 種目を選ぶ側（axis・variationLift・AccessorySelector）はこの役割までを
+// 決め、強度・セット数・RIR は決めない。役割から処方の定数を引くのは
+// prescriptionFor の表だけで、強度の値はあの表にしか無い。
+type laneRole int
 
+const (
+	// heavyRole は軸。3レップ相当で、3レーンで最も重い。
+	heavyRole laneRole = iota
+	// focusVolumeRole は重点種目の一巡の2番目。同じ軸を6レップ相当で出す。
+	focusVolumeRole
+	// variationRole はバリエーションレーン。軸より軽く、補助より重い。
+	variationRole
+	// accessoryRole は補助。RIR2 で10レップ前後を狙う位置。
+	accessoryRole
+)
+
+const (
 	// focusCycleLength は重点種目の番に回す一巡の長さ。
 	// 3レップ相当 → 6レップ相当 → 派生 の3つ。
 	focusCycleLength = 3
-
-	// accessoryIntensityPct は補助種目の強度。RIR2 で10レップ前後を狙う位置。
-	accessoryIntensityPct = 0.71
-	accessoryTargetRIR    = 2
-
-	// バリエーションの処方。軸より軽く、補助より重い。
-	//
-	// 表を引かず定数にしているのは、派生が週に何回出ようと強度を変える
-	// 理由が無いため。同じ種目の中で強度を回すのは「同じ種目を週に何回も
-	// やる」ことが前提で、派生は別種目として自分の推定1RMを持つ（D-113）。
-	// 種目が違えば重量は自然に違う。
-	//
-	// 表から持ってきた値は 0.81 / 4セットだったが、0.81 は表の中で
-	// 0.88 や 0.76 と並んで初めて意味を持つ刻みで、単独では半端。
-	// 軸 0.88 と補助 0.71 の間に置く一つの値としては 0.80 でいい。
-	// 4セットは軸と合わせて胸の実測が週目標の134%まで出ていたので3に落とす。
-	variationIntensityPct = 0.80
-	variationSets         = 3
-	variationTargetRIR    = 2
 
 	// variationRecoveryDays は同じ系統を再び出すまでに空ける日数。
 	//
@@ -58,63 +41,131 @@ const (
 	variationRecoveryDays = 2
 )
 
-// planHeavy は軸レーンの処方を組み立てる。
+// lanePrescription は役割ごとの処方の定数。
 //
-// 以前は planMain という名前で、頻度と週の何本目かで引いた表を受け取って
-// いた。軽い日にベンチをラーセンプレスへ差し替えていた頃の名残で、差し替えを
-// やめた時点（D-114）から target は引数そのものに固定されている。表のほうも
-// D-117 で宣言種目が順に回るようになった時点で意味を失っていた（D-126）。
-func (p SessionPlanner) planHeavy(
-	estimable setlog.History, conditions condition.ConditionLog, date training.Date,
-	target *exercise.Exercise,
-	intensityPct float64,
-	rirBump int,
-) PlannedSet {
-	return p.prescribe(estimable, conditions, date, target,
-		intensityPct, heavySets, heavyTargetRIR, rirBump)
+// 値オブジェクトへ通すのは prescribeSet の中で実行時に行う。ここで通さないのは、
+// DefaultSessionPlanner がエラーを返せず、panic も使えないため
+// （TestDomain_PanickingFunctionsStayWhereTheyBelong）。
+type lanePrescription struct {
+	intensityPct float64
+	sets         int
+	targetRIR    int
 }
 
-// planVariation はバリエーションレーンの処方を組み立てる。
+// prescriptionFor は役割から強度・セット数・RIR を引く。3レーン分の定数は
+// ここにしか無い。
 //
-// 強度・セット数・RIR は定数。軸と同じく、週の何本目かでは変えない。派生は
-// それぞれ自分の推定1RMを持つので、種目が違えば重量は自然に違う。
-func (p SessionPlanner) planVariation(
-	estimable setlog.History, conditions condition.ConditionLog, date training.Date,
-	target *exercise.Exercise,
-	rirBump int,
-) PlannedSet {
-	return p.prescribe(estimable, conditions, date, target,
-		variationIntensityPct, variationSets, variationTargetRIR, rirBump)
+// 割合は Epley の逆算に合わせる（1 / (1 + (レップ + RIR) / 30)）。
+// 0.88 は3レップ RIR1、0.81 は6レップ RIR1。外部の強度表から刻みだけを
+// 借りると、推定（Epley）と処方が別の式で動く。
+//
+// 軸の強度を1つの定数にしていたのは、散らす相手がいなかったため。
+// 宣言種目は「最後にやったのが最も古いもの」で回るので、宣言が3つ
+// あれば各種目は週1回しか軸に来ない（D-117）。分割が入ると前提が
+// 変わる。上下2分割で宣言がBIG3なら、上半身の日に立てる宣言はベンチ
+// だけになり、同じ種目を同じ強度で週2回やることになる。そこで重点種目の
+// 番だけ 0.88 と 0.81 を回す（D-128）。
+//
+// バリエーションを表から引かず定数にしているのは、派生が週に何回出ようと
+// 強度を変える理由が無いため。同じ種目の中で強度を回すのは「同じ種目を
+// 週に何回もやる」ことが前提で、派生は別種目として自分の推定1RMを持つ
+// （D-113）。種目が違えば重量は自然に違う。
+// 表から持ってきた値は 0.81 / 4セットだったが、0.81 は表の中で
+// 0.88 や 0.76 と並んで初めて意味を持つ刻みで、単独では半端。
+// 軸 0.88 と補助 0.71 の間に置く一つの値としては 0.80 でいい。
+// 4セットは軸と合わせて胸の実測が週目標の134%まで出ていたので3に落とす。
+//
+// 補助のセット数だけ定数ではなく AccessorySelector から来る（D-126）。
+// 選択器が残差を消し込むときに使う数と同じでなければ、選んだ本数と
+// 出す本数が食い違う。
+func (p SessionPlanner) prescriptionFor(role laneRole) lanePrescription {
+	switch role {
+	case heavyRole:
+		return lanePrescription{intensityPct: 0.88, sets: 3, targetRIR: 1}
+	case focusVolumeRole:
+		return lanePrescription{intensityPct: 0.81, sets: 3, targetRIR: 1}
+	case variationRole:
+		return lanePrescription{intensityPct: 0.80, sets: 3, targetRIR: 2}
+	case accessoryRole:
+		return lanePrescription{
+			intensityPct: 0.71, sets: p.accessory.SetsPerAccessory().Int(), targetRIR: 2,
+		}
+	}
+	// 到達しない。役割は上の4つしか無い。ゼロ値を返すと prescribeSet が
+	// 値オブジェクトの検証で止まり、種目だけの set になる。
+	return lanePrescription{}
 }
 
-// prescribe は「この種目をこの強度で何セット」を1件ぶん組み立てる。
+// setCount はセット数を値オブジェクトにする。残差に「今日積む分」を足すときに
+// 使う。定数が範囲外ならゼロ値（0セット）で、prescribeSet がセット数を
+// 付けずに返すのと同じ量になる。
+func (l lanePrescription) setCount() training.SetCount {
+	sets, err := training.NewSetCount(l.sets)
+	if err != nil {
+		return training.SetCount{}
+	}
+	return sets
+}
+
+// prescribe は並びの各種目に、役割の表から引いた定数と推定1RMで重量を付ける。
+// 種目の選び方には触れない。
+//
+// 役割からレーンへの振り分けもここ。heavyRole と focusVolumeRole は同じ
+// 軸レーンで、違いは強度だけ。
+//
+// estimable は前日まで・実効負荷の履歴（Plan が作る）。記録のままの履歴を
+// 渡すと自重種目の重量がずれる。
+func (p SessionPlanner) prescribe(
+	lineup []lineupEntry, estimable setlog.History,
+	conditions condition.ConditionLog, date training.Date,
+) PlannedSession {
+	rirBump := p.analyzer.RIRAdjustment(conditions, date)
+
+	session := PlannedSession{
+		date:        date,
+		main:        make([]PlannedSet, 0, 1),
+		variation:   make([]PlannedSet, 0, 1),
+		accessories: make([]PlannedSet, 0, len(lineup)),
+	}
+	for _, entry := range lineup {
+		set := p.prescribeSet(estimable, conditions, date, entry.exercise, p.prescriptionFor(entry.role), rirBump)
+		switch entry.role {
+		case heavyRole, focusVolumeRole:
+			session.main = append(session.main, set)
+		case variationRole:
+			session.variation = append(session.variation, set)
+		case accessoryRole:
+			session.accessories = append(session.accessories, set)
+		}
+	}
+	return session
+}
+
+// prescribeSet は「この種目をこの強度で何セット」を1件ぶん組み立てる。
 // レーンごとの違いは渡す定数だけ。
 //
 // 定数を値オブジェクトへ通すのは実行時で、失敗しても種目だけの set に
 // 落とす。重量が付かなければ本人が決める。定数が正しい限り発火しないが、
 // panic は使わない（TestDomain_PanickingFunctionsStayWhereTheyBelong）。
-//
-// estimable は前日まで・実効負荷の履歴（Plan が作る）。記録のままの履歴を
-// 渡すと自重種目の重量がずれる。
-func (p SessionPlanner) prescribe(
+func (p SessionPlanner) prescribeSet(
 	estimable setlog.History, conditions condition.ConditionLog, date training.Date,
 	target *exercise.Exercise,
-	intensityPct float64, sets, rir, rirBump int,
+	lane lanePrescription, rirBump int,
 ) PlannedSet {
 	set := PlannedSet{exerciseID: target.ID()}
 
-	baseRIR, err := training.NewRIR(rir)
+	baseRIR, err := training.NewRIR(lane.targetRIR)
 	if err != nil {
 		return set
 	}
 	set.targetRIR = baseRIR.Plus(rirBump)
 
-	set.sets, err = training.NewSetCount(sets)
+	set.sets, err = training.NewSetCount(lane.sets)
 	if err != nil {
 		return set
 	}
 
-	intensity, err := training.NewIntensityPct(intensityPct)
+	intensity, err := training.NewIntensityPct(lane.intensityPct)
 	if err != nil {
 		return set
 	}
@@ -123,39 +174,6 @@ func (p SessionPlanner) prescribe(
 		if w, err := orm.WorkWeight(intensity, target.Increment()); err == nil {
 			// 推定も処方も実効負荷（体重込み）で通し、出口で加重に戻す。
 			set.weight, set.hasWeight = AddedWeight(w, target, conditions, date), true
-		}
-	}
-	return set
-}
-
-func (p SessionPlanner) planAccessory(
-	pool []*exercise.Exercise, estimable setlog.History,
-	conditions condition.ConditionLog, date training.Date,
-	id exercise.ExerciseID, rirBump int,
-) PlannedSet {
-	baseRIR, err := training.NewRIR(accessoryTargetRIR)
-	if err != nil {
-		return PlannedSet{}
-	}
-	set := PlannedSet{
-		exerciseID: id,
-		sets:       p.accessory.SetsPerAccessory(),
-		targetRIR:  baseRIR.Plus(rirBump),
-	}
-
-	exercise := findExercise(pool, id)
-	if exercise == nil {
-		return set
-	}
-
-	intensity, err := training.NewIntensityPct(accessoryIntensityPct)
-	if err != nil {
-		return set
-	}
-
-	if orm, ok := p.estimator.Estimate(estimable, id, date); ok {
-		if w, err := orm.WorkWeight(intensity, exercise.Increment()); err == nil {
-			set.weight, set.hasWeight = AddedWeight(w, exercise, conditions, date), true
 		}
 	}
 	return set

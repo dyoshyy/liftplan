@@ -7,9 +7,11 @@ import (
 	"github.com/dyoshyy/liftplan/internal/domain/training/setlog"
 )
 
-// axis は今日の軸と、その強度を返す。
+// axis は今日の軸と、その役割（heavyRole か focusVolumeRole）を返す。
 //
 // 重点種目の番に来たときだけ一巡する。3レップ相当 → 6レップ相当 → 派生。
+// 一巡のどこにいるかを数えるのは種目の判断で、その位置にどの強度を当てるかは
+// 重量の判断。ここは前者だけを扱い、強度の値は持たない（prescriptionFor）。
 //
 // 派生を軸に出すのは、バリエーションレーンが届かない日があるため。あちらは
 // 軸が系統に含まれる日は出ない（D-125）ので、上半身の日が毎回ベンチになる
@@ -19,20 +21,20 @@ import (
 func axis(
 	history setlog.History, prog *program.Program, pool, declared []*exercise.Exercise,
 	today program.Split, hasSplit bool,
-) (*exercise.Exercise, float64) {
+) (*exercise.Exercise, laneRole) {
 	lift := heavyLift(history, declared, today, hasSplit)
 	if lift == nil {
-		return nil, heavyIntensityPct
+		return nil, heavyRole
 	}
 
 	focus, ok := prog.FocusExercise()
 	if !ok || lift.ID() != focus {
-		return lift, heavyIntensityPct
+		return lift, heavyRole
 	}
 
 	switch focusCyclePosition(history, lineage(pool, focus)) {
 	case 1:
-		return lift, focusVolumeIntensityPct
+		return lift, focusVolumeRole
 	case 2:
 		// 派生も分割で絞る。軸の候補（heavyLift）は絞っているのに
 		// ここだけ素通しにすると、胸の日にナローベンチ（主働は三頭）が
@@ -44,10 +46,10 @@ func axis(
 			candidates = primaryIn(candidates, today)
 		}
 		if d := stalest(history, candidates); d != nil {
-			return d, heavyIntensityPct
+			return d, heavyRole
 		}
 	}
-	return lift, heavyIntensityPct
+	return lift, heavyRole
 }
 
 // focusCyclePosition は重点種目の一巡のうち、今日がどこかを返す。
