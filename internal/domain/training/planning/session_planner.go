@@ -130,7 +130,7 @@ func (p SessionPlanner) Plan(req PlanRequest) (PlannedSession, error) {
 	// 該当が無ければ軸は空。5分割の肩・腕には BIG3 の中に主働を持つ
 	// 種目が無く、そういう日が実際にできる。0.88 のスクワットを肩の日に
 	// 出すより、軸の枠が無いほうが正直（2026-09-19 の仕様書）。
-	heavy, heavyPct := axis(history, req.Program, pool, declared, today, hasSplit)
+	heavy, heavyRole := axis(history, req.Program, pool, declared, today, hasSplit)
 
 	rirBump := p.analyzer.RIRAdjustment(req.Conditions, req.Date)
 
@@ -157,7 +157,7 @@ func (p SessionPlanner) Plan(req PlanRequest) (PlannedSession, error) {
 	main := make([]PlannedSet, 0, 1)
 	thisSession := StimulusCoverage{}
 	if heavy != nil {
-		set := p.planHeavy(estimable, req.Conditions, req.Date, heavy, heavyPct, rirBump)
+		set := p.planHeavy(estimable, req.Conditions, req.Date, heavy, heavyRole, rirBump)
 		main = append(main, set)
 		thisSession = thisSession.Plus(heavy.Stimulus(), set.Sets())
 	}

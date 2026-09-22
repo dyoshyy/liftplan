@@ -17,15 +17,17 @@ import (
 // 現状を数値で固定しておく。
 //
 // 表を消した（D-126）ので、対象は頻度の行ではなくレーンの定数になった。
+// 定数は役割ごとの表（prescriptionFor）にしか無いので、役割で引く。
 func TestLanePrescriptions_RoundTripIsCurrentlyContractive(t *testing.T) {
+	planner := DefaultSessionPlanner()
 	lanes := []struct {
-		name      string
-		intensity float64
-		targetRIR int
+		name string
+		role laneRole
 	}{
-		{"軸", heavyIntensityPct, heavyTargetRIR},
-		{"バリエーション", variationIntensityPct, variationTargetRIR},
-		{"補助", accessoryIntensityPct, accessoryTargetRIR},
+		{"軸", heavyRole},
+		{"重点種目の6レップ相当", focusVolumeRole},
+		{"バリエーション", variationRole},
+		{"補助", accessoryRole},
 	}
 
 	baseline, err := training.NewOneRepMax(105)
@@ -39,11 +41,12 @@ func TestLanePrescriptions_RoundTripIsCurrentlyContractive(t *testing.T) {
 
 	for _, lane := range lanes {
 		t.Run(lane.name, func(t *testing.T) {
-			pct, err := training.NewIntensityPct(lane.intensity)
+			row := planner.prescriptionFor(lane.role)
+			pct, err := training.NewIntensityPct(row.intensityPct)
 			if err != nil {
 				t.Fatalf("NewIntensityPct: %v", err)
 			}
-			rir, err := training.NewRIR(lane.targetRIR)
+			rir, err := training.NewRIR(row.targetRIR)
 			if err != nil {
 				t.Fatalf("NewRIR: %v", err)
 			}
