@@ -300,3 +300,43 @@ func TestExercises_DerivedFromResolvesToARootLift(t *testing.T) {
 		}
 	}
 }
+
+// 配分と総量を分けても、出てくる数字が1つも変わらないこと。
+//
+// 配分を割合として持ち直す変更（D-139）の検収。割合 × 総量 で組み直した
+// 結果が、それまでの表と一致することを固定する。ここが動いたら、変換が
+// 意味を変えている。
+//
+// 週3回を基準に置くのは、配分表がその頻度で書かれているから。他の頻度は
+// 総量の掛け算でしかなく、TestSimulation が通し全体で見ている。
+func TestDefaultWeeklyTarget_DistributionIsUnchanged(t *testing.T) {
+	want := map[training.MuscleRegion]float64{
+		training.ChestUpper: 5, training.ChestMid: 10, training.ChestLower: 4.5,
+		training.Lat: 8.5, training.TrapMid: 8, training.TrapUpper: 4,
+		training.Erector:   12.5,
+		training.FrontDelt: 8.5, training.SideDelt: 4, training.RearDelt: 4,
+		training.TricepsLong: 4, training.TricepsLateral: 12.5,
+		training.Biceps: 6, training.Forearm: 5,
+		training.Quad: 12.5, training.Hamstring: 10.5, training.Glute: 14,
+		training.Adductor: 5, training.Calf: 4,
+		training.Abs: 5.5, training.Oblique: 4.5,
+	}
+
+	freq, err := program.NewFrequency(3)
+	if err != nil {
+		t.Fatalf("頻度が不正: %v", err)
+	}
+	got, err := seed.DefaultWeeklyTarget(freq)
+	if err != nil {
+		t.Fatalf("週目標が不正: %v", err)
+	}
+
+	if len(got.Regions()) != len(want) {
+		t.Errorf("区分の数が %d。%d のはず", len(got.Regions()), len(want))
+	}
+	for r, w := range want {
+		if d := got.Sets(r) - w; d > 1e-6 || d < -1e-6 {
+			t.Errorf("%s が %v。%v のはず", r, got.Sets(r), w)
+		}
+	}
+}
