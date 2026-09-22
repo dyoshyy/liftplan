@@ -158,7 +158,7 @@ func (p SessionPlanner) selectLineup(
 	// 種目が無く、そういう日が実際にできる。0.88 のスクワットを肩の日に
 	// 出すより、軸の枠が無いほうが正直（2026-09-19 の仕様書）。
 	var lineup []lineupEntry
-	heavy, heavyRole := axis(history, prog, pool, declared, today, hasSplit)
+	heavy, axisRole := axis(history, prog, pool, declared, today, hasSplit)
 
 	// 直近1週のカバレッジ。窓は前日までの6日ぶんで、当日を足して7日。
 	//
@@ -184,8 +184,8 @@ func (p SessionPlanner) selectLineup(
 	// 処方を待たないのは、重量の側へ依存を作らないため。
 	thisSession := StimulusCoverage{}
 	if heavy != nil {
-		lineup = append(lineup, lineupEntry{exercise: heavy, role: heavyRole})
-		thisSession = thisSession.Plus(heavy.Stimulus(), p.prescriptionFor(heavyRole).setCount())
+		lineup = append(lineup, lineupEntry{exercise: heavy, role: axisRole})
+		thisSession = thisSession.Plus(heavy.Stimulus(), p.prescriptionFor(axisRole).setCount())
 	}
 
 	exclude := accessoryExcluded(pool, prog)
