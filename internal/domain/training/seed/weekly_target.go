@@ -55,8 +55,14 @@ const baseFrequency = 3
 // 週4回のユーザーは狙っていない区分まで2倍に膨らむ。どちらの場合も
 // 目標が実際の挙動を説明しなくなり、数字を見る意味が消える。
 //
-// 不満が出た区分だけ後から調整すればよく、最初から自分で全部決める
-// 必要はない。
+// この数字は利用者の設定ではない。補助セレクタが「その区分はもう足りて
+// いるか」を判定する閾値で、種目マスタの刺激プロファイルと対になっている。
+// 何セットが適切かは本人に答えられる問いではないので、編集させない（D-139）。
+//
+// 量を決めているのはここではない。補助の本数は AccessorySelector の
+// maxSlots で打ち切られており、残差が尽きて止まることは低頻度では起きない
+// （通し検証で週1〜3回は全セッションが27セットで固定）。この表が効くのは
+// 「どの区分を狙うか」のゲートと、同点のときの順序付けまで。
 func DefaultWeeklyTarget(f program.Frequency) (program.WeeklyVolumeTarget, error) {
 	scale := float64(f.PerWeek()) / baseFrequency
 	scaled := make(map[training.MuscleRegion]float64, len(baseProfile))

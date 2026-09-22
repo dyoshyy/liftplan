@@ -272,15 +272,6 @@ func (p *Program) WithSelected(ids []exercise.ExerciseID) (*Program, error) {
 	return p.with(func(x *programParams) { x.selected = ids })
 }
 
-// WithTarget は週目標だけを差し替えた新しいプログラムを返す。
-//
-// 頻度は動かさない。WithFrequency が週目標を道連れにするのと非対称だが、
-// 向きが違う。頻度を変えたら供給量が変わるので目標も置き直る一方、
-// 目標を手で動かすのは「供給量はそのままで狙いを変える」ことだから。
-func (p *Program) WithTarget(target WeeklyVolumeTarget) (*Program, error) {
-	return p.with(func(x *programParams) { x.target = target })
-}
-
 func (p *Program) Frequency() Frequency             { return p.frequency }
 func (p *Program) WeeklyTarget() WeeklyVolumeTarget { return p.target }
 

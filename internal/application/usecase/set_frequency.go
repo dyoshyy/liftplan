@@ -15,10 +15,6 @@ import (
 // 週目標を道連れにするのは、1週間に供給できるセット数が頻度に比例する
 // ため（seed.DefaultWeeklyTarget のコメント）。頻度だけ動かすと、目標が
 // 実際の挙動を説明しなくなる。
-//
-// 手で調整した週目標があれば上書きされる。「不満が出た区分だけ後から
-// 調整すればよく、最初から自分で全部決める必要はない」という既定値の
-// 設計意図（seed）に沿った扱いで、頻度を変えたら調整もやり直しになる。
 type SetFrequency struct {
 	reader program.Reader
 	writer program.Writer

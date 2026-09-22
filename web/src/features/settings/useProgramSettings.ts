@@ -1,7 +1,6 @@
 import { useEffect, useState } from 'react';
 import { getJSON, send } from '../../api/client';
 import type { Program, SplitPreset, SplitPresetsResponse } from '../../api/types';
-import { regionLabel } from '../../domain/regions';
 import { focusBody, NO_FOCUS } from '../today/focus';
 import { lockedDeclared } from '../today/declared';
 import { matchingPresetKey, splitBody } from './split';
@@ -10,33 +9,6 @@ import { matchingPresetKey, splitBody } from './split';
 //
 // 送る前に決まることをここに集める。以前は ProgramSettings.tsx の中にあり、
 // DOM を立てないと検査できなかった。
-
-/**
- * asText は週目標を入力欄の文字列にする。
- *
- * 数値のまま持つと、入力中の「1.」や空欄が NaN になって値が飛ぶ。
- * 文字列で持ち、保存のときだけ数値にする。
- */
-export const asText = (target: Record<string, number>): Record<string, string> =>
-  Object.fromEntries(Object.entries(target).map(([k, v]) => [k, String(v)]));
-
-export type ParseResult =
-  | { ok: true; value: Record<string, number> }
-  | { ok: false; region: string };
-
-/** parseTarget は入力欄の文字列を週目標に戻す。
- *
- *  どの区分が読めなかったかまで返す。「値が数字ではありません」だけでは、
- *  21区分のどれを直せばよいのか分からない。 */
-export function parseTarget(target: Record<string, string>): ParseResult {
-  const value: Record<string, number> = {};
-  for (const [region, text] of Object.entries(target)) {
-    const n = Number.parseFloat(text);
-    if (!Number.isFinite(n)) return { ok: false, region };
-    value[region] = n;
-  }
-  return { ok: true, value };
-}
 
 /** isDirty は種目の選択が変わったかを見る。
  *
@@ -62,7 +34,6 @@ export function useProgramSettings(onChanged: () => Promise<void>) {
   // 1つ動かすたびに送ると、そのたびにメニューが組み替わる。
   const [draft, setDraft] = useState<string[] | null>(null);
   const [pick, setPick] = useState<string[] | null>(null);
-  const [target, setTarget] = useState<Record<string, string> | null>(null);
   const [presets, setPresets] = useState<SplitPreset[]>([]);
 
   // 画面を開いたら読む。以前は「開く」を押したときだけだったが、
@@ -93,7 +64,6 @@ export function useProgramSettings(onChanged: () => Promise<void>) {
       setPresets(sp.presets);
       setDraft(p.declared_exercises);
       setPick(p.selected_exercises);
-      setTarget(asText(p.weekly_target));
     } catch {
       setNote('設定を読めませんでした');
     }
@@ -143,18 +113,6 @@ export function useProgramSettings(onChanged: () => Promise<void>) {
     await onChanged();
   };
 
-  const saveTarget = async () => {
-    if (!program || !target || busy) return;
-    const parsed = parseTarget(target);
-    if (!parsed.ok) {
-      setNote(`${regionLabel(parsed.region)} の値が数字ではありません`);
-      return;
-    }
-    if (!(await put('/api/program/target', { weekly_target: parsed.value }))) return;
-    setProgram({ ...program, weekly_target: parsed.value });
-    await onChanged();
-  };
-
   const chooseSplit = async (preset: SplitPreset | null) => {
     if (!program || busy) return;
     if (!(await put('/api/program/split', splitBody(preset)))) return;
@@ -165,21 +123,16 @@ export function useProgramSettings(onChanged: () => Promise<void>) {
   const saveFrequency = async (n: number) => {
     if (!program || busy) return;
     if (!(await put('/api/program/frequency', { per_week: n }))) return;
-    // 週目標も置き直るので、画面の手持ちは捨てて取り直す。
+    // 画面の手持ちは捨てて取り直す。
     setProgram(null);
     setDraft(null);
     setPick(null);
-    setTarget(null);
     await onChanged();
     await load();
   };
 
   const locked = program ? lockedDeclared(draft ?? [], program.focus_exercise) : new Map();
   const dirty = program && draft ? isDirty(draft, program.declared_exercises) : false;
-  const targetDirty =
-    program && target
-      ? JSON.stringify(target) !== JSON.stringify(asText(program.weekly_target))
-      : false;
   const pickDirty = program && pick ? isDirty(pick, program.selected_exercises) : false;
   const splitKey = program ? matchingPresetKey(program, presets) : null;
 
@@ -190,18 +143,14 @@ export function useProgramSettings(onChanged: () => Promise<void>) {
     setDraft,
     pick,
     setPick,
-    target,
-    setTarget,
     note,
     busy,
     locked,
     dirty,
-    targetDirty,
     pickDirty,
     chooseFocus,
     saveDeclared,
     saveSelected,
-    saveTarget,
     saveFrequency,
     presets,
     splitKey,

@@ -1,9 +1,8 @@
 // 設定の保存を実機で確かめる。
 //
-// **週に通う回数が一番影響が大きい。**週目標も置き直るので、保存のあとに
-// 画面が自分で取り直せないと空白になる。実際そこにバグがあった（描画時の
-// program を掴んだ関数が、setProgram(null) の直後でも古い値を見て
-// 抜けていた）。単体テストでは踏めない。
+// **週に通う回数が一番影響が大きい。**保存のあとに画面が自分で取り直せないと
+// 空白になる。実際そこにバグがあった（描画時の program を掴んだ関数が、
+// setProgram(null) の直後でも古い値を見て抜けていた）。単体テストでは踏めない。
 //
 // 使い方は scripts/ui-check.mjs と同じ。ポートは APP= と API= で渡す。
 const { chromium } = await import(process.env.PLAYWRIGHT ?? 'playwright-core');
@@ -42,7 +41,7 @@ await page.waitForTimeout(2500);
 const after = await program();
 console.log('保存後: per_week =', after.per_week, '（期待', want, '）');
 console.log('他が壊れていないか: declared =', after.declared_exercises.length, '件 / selected =', after.selected_exercises.length, '件');
-console.log('週目標の区分数:', Object.keys(after.weekly_target).length);
+console.log('週目標の区分数:', Object.keys(after.weekly_target).length, '（利用者には出さない。サーバーが頻度から置き直す）');
 
 // 元に戻す
 await page.selectOption('select', String(before.per_week));

@@ -331,12 +331,6 @@ func TestProgram_WithKeepsOtherFields(t *testing.T) {
 			},
 		},
 		{
-			name: "WithTarget", changed: []string{"target"},
-			apply: func(p *program.Program) (*program.Program, error) {
-				return p.WithTarget(mustTarget(t, quadOnly))
-			},
-		},
-		{
 			name: "WithCycle", changed: []string{"cycle"},
 			apply: func(p *program.Program) (*program.Program, error) {
 				return p.WithCycle([]program.Split{mustSplit(t, "脚", training.Quad)})

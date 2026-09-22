@@ -1,12 +1,11 @@
 import { focusOptions, NO_FOCUS } from '../today/focus';
 import { lockedSelected, toggleDeclared } from '../today/declared';
 import { ExercisePicker } from './ExercisePicker';
-import { regionLabel } from '../../domain/regions';
 import { useProgramSettings } from './useProgramSettings';
 import { Button } from '../../ui/Button';
 import { Note } from '../../ui/Card';
 import { Section } from '../../ui/Section';
-import { LabeledInput, Select } from '../../ui/Field';
+import { Select } from '../../ui/Field';
 import type { Exercise } from '../../api/types';
 
 type Props = {
@@ -43,18 +42,14 @@ export function ProgramSettings({ nameOf, exercises, onChanged }: Props) {
     setDraft,
     pick,
     setPick,
-    target,
-    setTarget,
     note,
     busy,
     locked,
     dirty,
     pickDirty,
-    targetDirty,
     chooseFocus,
     saveDeclared,
     saveSelected,
-    saveTarget,
     saveFrequency,
     presets,
     splitKey,
@@ -102,7 +97,7 @@ export function ProgramSettings({ nameOf, exercises, onChanged }: Props) {
 
       <Section title="週に通う回数" summary={program ? `週${program.per_week}回` : ""}>
       <Note className="mb-3">
-        変えると週の目標セット数も一緒に変わります。
+        1週間に通う回数です。補助種目の量はこの回数に合わせて決まります。
       </Note>
 
       {program && (
@@ -205,45 +200,7 @@ export function ProgramSettings({ nameOf, exercises, onChanged }: Props) {
 
       </Section>
 
-      <Section title="週の目標セット数" summary={target ? `${Object.keys(target).length}区分` : ""}>
-      <Note className="mb-3">
-        区分ごとの1週間の目安です。通う回数を変えると、ここも回数に合わせて
-        置き直ります。届かない目標を置くと毎週すべてが赤字になるだけなので、
-        不満が出た区分だけ動かすのが楽です。
-      </Note>
-
-      {target && (
-        <div className="grid gap-2">
-          {Object.keys(target)
-            .sort()
-            .map((region) => (
-              <LabeledInput
-                key={region}
-                label={regionLabel(region)}
-                type="number"
-                inputMode="decimal"
-                step="0.5"
-                min="0"
-                value={target[region]}
-                disabled={busy}
-                onChange={(e) => setTarget({ ...target, [region]: e.target.value })}
-              />
-            ))}
-        </div>
-      )}
-
-      {targetDirty && (
-        <Button
-          className="mt-3"
-          disabled={busy}
-          onClick={() => void saveTarget()}
-        >
-          週の目標を保存する
-        </Button>
-      )}
-
       {note && <p className="mt-2.5 text-[13px] text-red">{note}</p>}
-      </Section>
     </>
   );
 }

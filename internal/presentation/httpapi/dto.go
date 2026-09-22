@@ -146,11 +146,6 @@ type selectedDTO struct {
 	Selected []string `json:"selected_exercises"`
 }
 
-// targetDTO は週目標だけの書き込み。
-type targetDTO struct {
-	Target map[string]float64 `json:"weekly_target"`
-}
-
 // splitDTO は分割1件。順序が周期そのものなので、配列の並びに意味がある。
 type splitDTO struct {
 	Name    string   `json:"name"`

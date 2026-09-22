@@ -28,7 +28,6 @@ type Handler struct {
 	setDeclared      *usecase.SetDeclaredExercises
 	setFrequency     *usecase.SetFrequency
 	setSelected      *usecase.SetSelectedExercises
-	setTarget        *usecase.SetWeeklyTarget
 	setSplit         *usecase.SetSplitCycle
 	getProgram       *usecase.GetProgram
 	deleteSetLog     *usecase.DeleteSetLog
@@ -49,7 +48,6 @@ type Dependencies struct {
 	SetDeclared      *usecase.SetDeclaredExercises
 	SetFrequency     *usecase.SetFrequency
 	SetSelected      *usecase.SetSelectedExercises
-	SetTarget        *usecase.SetWeeklyTarget
 	SetSplit         *usecase.SetSplitCycle
 	GetProgram       *usecase.GetProgram
 	DeleteSetLog     *usecase.DeleteSetLog
@@ -83,8 +81,6 @@ func NewHandler(d Dependencies) (*Handler, error) {
 		return nil, errMissingDependency("SetFrequency")
 	case d.SetSelected == nil:
 		return nil, errMissingDependency("SetSelected")
-	case d.SetTarget == nil:
-		return nil, errMissingDependency("SetTarget")
 	case d.SetSplit == nil:
 		return nil, errMissingDependency("SetSplit")
 	case d.GetProgram == nil:
@@ -107,7 +103,6 @@ func NewHandler(d Dependencies) (*Handler, error) {
 		setDeclared:      d.SetDeclared,
 		setFrequency:     d.SetFrequency,
 		setSelected:      d.SetSelected,
-		setTarget:        d.SetTarget,
 		setSplit:         d.SetSplit,
 		getProgram:       d.GetProgram,
 		deleteSetLog:     d.DeleteSetLog,
@@ -428,30 +423,6 @@ func (h *Handler) handlePutProgramSelected(w http.ResponseWriter, r *http.Reques
 	}
 
 	if err := h.setSelected.Execute(r.Context(), user, ids); err != nil {
-		respondError(w, err)
-		return
-	}
-	w.WriteHeader(http.StatusNoContent)
-}
-
-// handlePutProgramTarget は週目標だけを差し替える。
-func (h *Handler) handlePutProgramTarget(w http.ResponseWriter, r *http.Request) {
-	user, ok := requireUser(w, r)
-	if !ok {
-		return
-	}
-	var req targetDTO
-	if err := decodeJSON(r, &req); err != nil {
-		respondError(w, err)
-		return
-	}
-
-	sets := make(map[training.MuscleRegion]float64, len(req.Target))
-	for k, v := range req.Target {
-		sets[training.MuscleRegion(k)] = v
-	}
-
-	if err := h.setTarget.Execute(r.Context(), user, sets); err != nil {
 		respondError(w, err)
 		return
 	}
