@@ -165,38 +165,3 @@ func (p SessionPlanner) prescribe(
 	}
 	return set
 }
-
-func (p SessionPlanner) planAccessory(
-	pool []*exercise.Exercise, estimable setlog.History,
-	conditions condition.ConditionLog, date training.Date,
-	id exercise.ExerciseID, rirBump int,
-) PlannedSet {
-	lane := p.prescriptionFor(accessoryRole)
-
-	baseRIR, err := training.NewRIR(lane.targetRIR)
-	if err != nil {
-		return PlannedSet{}
-	}
-	set := PlannedSet{
-		exerciseID: id,
-		sets:       p.accessory.SetsPerAccessory(),
-		targetRIR:  baseRIR.Plus(rirBump),
-	}
-
-	exercise := findExercise(pool, id)
-	if exercise == nil {
-		return set
-	}
-
-	intensity, err := training.NewIntensityPct(lane.intensityPct)
-	if err != nil {
-		return set
-	}
-
-	if orm, ok := p.estimator.Estimate(estimable, id, date); ok {
-		if w, err := orm.WorkWeight(intensity, exercise.Increment()); err == nil {
-			set.weight, set.hasWeight = AddedWeight(w, exercise, conditions, date), true
-		}
-	}
-	return set
-}

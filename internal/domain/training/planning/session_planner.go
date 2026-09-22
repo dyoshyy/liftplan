@@ -206,10 +206,16 @@ func (p SessionPlanner) Plan(req PlanRequest) (PlannedSession, error) {
 			exclude = append(exclude, e.ID())
 		}
 	}
+	// Select が返すのは pool の中の種目に限る。候補は req.Pool から exclude を
+	// 引いたもので、pool（選択された種目）に無いものは全て exclude に入れて
+	// あるので、findExercise が nil を返す経路は無い。
 	chosen := p.accessory.Select(gaps, req.Pool, history, req.Date, exclude)
 	accessories := make([]PlannedSet, 0, len(chosen))
 	for _, id := range chosen {
-		accessories = append(accessories, p.planAccessory(pool, estimable, req.Conditions, req.Date, id, rirBump))
+		if e := findExercise(pool, id); e != nil {
+			accessories = append(accessories,
+				p.prescribe(estimable, req.Conditions, req.Date, e, p.prescriptionFor(accessoryRole), rirBump))
+		}
 	}
 
 	return PlannedSession{
