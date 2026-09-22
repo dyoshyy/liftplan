@@ -43,7 +43,7 @@ const (
 
 // lanePrescription は役割ごとの処方の定数。
 //
-// 値オブジェクトへ通すのは prescribe の中で実行時に行う。ここで通さないのは、
+// 値オブジェクトへ通すのは prescribeSet の中で実行時に行う。ここで通さないのは、
 // DefaultSessionPlanner がエラーを返せず、panic も使えないため
 // （TestDomain_PanickingFunctionsStayWhereTheyBelong）。
 type lanePrescription struct {
@@ -91,50 +91,63 @@ func (p SessionPlanner) prescriptionFor(role laneRole) lanePrescription {
 			intensityPct: 0.71, sets: p.accessory.SetsPerAccessory().Int(), targetRIR: 2,
 		}
 	}
-	// 到達しない。役割は上の4つしか無い。ゼロ値を返すと prescribe が
+	// 到達しない。役割は上の4つしか無い。ゼロ値を返すと prescribeSet が
 	// 値オブジェクトの検証で止まり、種目だけの set になる。
 	return lanePrescription{}
 }
 
-// planHeavy は軸レーンの処方を組み立てる。
-//
-// 以前は planMain という名前で、頻度と週の何本目かで引いた表を受け取って
-// いた。軽い日にベンチをラーセンプレスへ差し替えていた頃の名残で、差し替えを
-// やめた時点（D-114）から target は引数そのものに固定されている。表のほうも
-// D-117 で宣言種目が順に回るようになった時点で意味を失っていた（D-126）。
-//
-// role は heavyRole か focusVolumeRole。どちらにするかは axis が決める。
-func (p SessionPlanner) planHeavy(
-	estimable setlog.History, conditions condition.ConditionLog, date training.Date,
-	target *exercise.Exercise,
-	role laneRole,
-	rirBump int,
-) PlannedSet {
-	return p.prescribe(estimable, conditions, date, target, p.prescriptionFor(role), rirBump)
+// setCount はセット数を値オブジェクトにする。残差に「今日積む分」を足すときに
+// 使う。定数が範囲外ならゼロ値（0セット）で、prescribeSet がセット数を
+// 付けずに返すのと同じ量になる。
+func (l lanePrescription) setCount() training.SetCount {
+	sets, err := training.NewSetCount(l.sets)
+	if err != nil {
+		return training.SetCount{}
+	}
+	return sets
 }
 
-// planVariation はバリエーションレーンの処方を組み立てる。
+// prescribe は並びの各種目に、役割の表から引いた定数と推定1RMで重量を付ける。
+// 種目の選び方には触れない。
 //
-// 強度・セット数・RIR は定数。軸と同じく、週の何本目かでは変えない。派生は
-// それぞれ自分の推定1RMを持つので、種目が違えば重量は自然に違う。
-func (p SessionPlanner) planVariation(
-	estimable setlog.History, conditions condition.ConditionLog, date training.Date,
-	target *exercise.Exercise,
-	rirBump int,
-) PlannedSet {
-	return p.prescribe(estimable, conditions, date, target, p.prescriptionFor(variationRole), rirBump)
+// 役割からレーンへの振り分けもここ。heavyRole と focusVolumeRole は同じ
+// 軸レーンで、違いは強度だけ。
+//
+// estimable は前日まで・実効負荷の履歴（Plan が作る）。記録のままの履歴を
+// 渡すと自重種目の重量がずれる。
+func (p SessionPlanner) prescribe(
+	lineup []lineupEntry, estimable setlog.History,
+	conditions condition.ConditionLog, date training.Date,
+) PlannedSession {
+	rirBump := p.analyzer.RIRAdjustment(conditions, date)
+
+	session := PlannedSession{
+		date:        date,
+		main:        make([]PlannedSet, 0, 1),
+		variation:   make([]PlannedSet, 0, 1),
+		accessories: make([]PlannedSet, 0, len(lineup)),
+	}
+	for _, entry := range lineup {
+		set := p.prescribeSet(estimable, conditions, date, entry.exercise, p.prescriptionFor(entry.role), rirBump)
+		switch entry.role {
+		case heavyRole, focusVolumeRole:
+			session.main = append(session.main, set)
+		case variationRole:
+			session.variation = append(session.variation, set)
+		case accessoryRole:
+			session.accessories = append(session.accessories, set)
+		}
+	}
+	return session
 }
 
-// prescribe は「この種目をこの強度で何セット」を1件ぶん組み立てる。
+// prescribeSet は「この種目をこの強度で何セット」を1件ぶん組み立てる。
 // レーンごとの違いは渡す定数だけ。
 //
 // 定数を値オブジェクトへ通すのは実行時で、失敗しても種目だけの set に
 // 落とす。重量が付かなければ本人が決める。定数が正しい限り発火しないが、
 // panic は使わない（TestDomain_PanickingFunctionsStayWhereTheyBelong）。
-//
-// estimable は前日まで・実効負荷の履歴（Plan が作る）。記録のままの履歴を
-// 渡すと自重種目の重量がずれる。
-func (p SessionPlanner) prescribe(
+func (p SessionPlanner) prescribeSet(
 	estimable setlog.History, conditions condition.ConditionLog, date training.Date,
 	target *exercise.Exercise,
 	lane lanePrescription, rirBump int,
