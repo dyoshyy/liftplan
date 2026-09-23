@@ -75,21 +75,26 @@ func TestStimulusCoverage_IsQuantized(t *testing.T) {
 	}
 }
 
-// 不足がそのまま出ること。割らない。
+// 窓（4週）ぶんの目標に対する不足がそのまま出ること。割らない。
 //
 // 暦週のころは「残りセッション数で割る」だったので、週の後半ほど1回
 // あたりの量が増えた。ローリング窓には「残り」という区切りが無い。
+//
+// 窓ぶんの目標と比べるのは、窓が4週だから。週目標のまま比べると、4週ぶんの
+// 実績を1週ぶんの目標から引くことになり、すぐ満たされて補助が出なくなる。
 func TestSessionResidual_ReportsTheWholeGap(t *testing.T) {
-	target := mustTarget(t, map[training.MuscleRegion]float64{training.ChestMid: 12})
+	const weekly = 12.0
+	window := weekly * planning.CoverageWindowWeeks
+	target := mustTarget(t, map[training.MuscleRegion]float64{training.ChestMid: weekly})
 
 	got := planning.SessionResidual(target, planning.StimulusCoverage{}, planning.StimulusCoverage{}, nil)
-	if math.Abs(got[training.ChestMid]-12) > 1e-9 {
-		t.Errorf("不足が %v。12のはず", got[training.ChestMid])
+	if math.Abs(got[training.ChestMid]-window) > 1e-9 {
+		t.Errorf("不足が %v。%v（週目標×窓の週数）のはず", got[training.ChestMid], window)
 	}
 
-	// 直近1週で10セット埋まっていれば残りは2。
+	// 窓の中で「窓ぶんの目標 − 2」埋まっていれば残りは2。
 	covered := planning.StimulusCoverage{}.Plus(
-		singleRegionProfile(t, training.ChestMid, 1.0), mustSetCount(t, 10))
+		singleRegionProfile(t, training.ChestMid, 1.0), mustSetCount(t, int(window)-2))
 	got = planning.SessionResidual(target, covered, planning.StimulusCoverage{}, nil)
 	if math.Abs(got[training.ChestMid]-2) > 1e-9 {
 		t.Errorf("不足が %v。2のはず", got[training.ChestMid])
@@ -104,16 +109,19 @@ func TestSessionResidual_SubtractsWhatThisSessionAlreadyCovers(t *testing.T) {
 	today := planning.StimulusCoverage{}.Plus(
 		singleRegionProfile(t, training.ChestMid, 1.0), mustSetCount(t, 3))
 
+	want := 12*planning.CoverageWindowWeeks - 3.0
 	got := planning.SessionResidual(target, planning.StimulusCoverage{}, today, nil)
-	if math.Abs(got[training.ChestMid]-9) > 1e-9 {
-		t.Errorf("今日の分が引かれていない: %v（9のはず）", got[training.ChestMid])
+	if math.Abs(got[training.ChestMid]-want) > 1e-9 {
+		t.Errorf("今日の分が引かれていない: %v（%vのはず）", got[training.ChestMid], want)
 	}
 }
 
 func TestSessionResidual_DropsSatisfiedRegions(t *testing.T) {
 	target := mustTarget(t, map[training.MuscleRegion]float64{training.ChestMid: 4})
 
-	for _, sets := range []int{4, 6} {
+	// 窓ぶんの目標ちょうどと、それを超えたとき。
+	window := 4 * planning.CoverageWindowWeeks
+	for _, sets := range []int{window, window + 2} {
 		covered := planning.StimulusCoverage{}.Plus(
 			singleRegionProfile(t, training.ChestMid, 1.0), mustSetCount(t, sets))
 
@@ -152,12 +160,12 @@ func TestSessionResidual_IsQuantized(t *testing.T) {
 	}
 }
 
-// 1週を通して目標に届き、大きく超えないこと。
+// 窓を通して目標に届き、大きく超えないこと。
 //
 // 補助種目は3セット単位なので、天井が小さすぎると届かず、大きすぎると
 // 超過する。ローリング窓では窓から落ちた分だけ不足が戻ってくるので、
 // 定常状態では毎回ほぼ1回ぶんを出し続けることになる。
-func TestSessionResidual_ConvergesOverAWeek(t *testing.T) {
+func TestSessionResidual_ConvergesOverTheWindow(t *testing.T) {
 	const (
 		weeklyTarget = 12.0
 		frequency    = 4
@@ -185,12 +193,13 @@ func TestSessionResidual_ConvergesOverAWeek(t *testing.T) {
 		}
 	}
 
+	windowTarget := weeklyTarget * planning.CoverageWindowWeeks
 	got := coverage.Sets(training.ChestMid)
-	if got < weeklyTarget {
-		t.Errorf("週目標に届かない: %v / %v", got, weeklyTarget)
+	if got < windowTarget {
+		t.Errorf("窓ぶんの目標に届かない: %v / %v", got, windowTarget)
 	}
-	if got > weeklyTarget+setsPerBout {
-		t.Errorf("週目標を大きく超過している: %v / %v", got, weeklyTarget)
+	if got > windowTarget+setsPerBout {
+		t.Errorf("窓ぶんの目標を大きく超過している: %v / %v", got, windowTarget)
 	}
 }
 
@@ -216,11 +225,12 @@ func TestSessionResidual_CapsWhenActiveCountIsGiven(t *testing.T) {
 		t.Errorf("天井が効いていない: %v（12のはず）", got[training.Quad])
 	}
 
-	// 天井を渡さなければ不足をそのまま出す。
+	// 天井を渡さなければ不足（窓ぶん）をそのまま出す。
+	want := 24.0 * planning.CoverageWindowWeeks
 	got = planning.SessionResidual(target, planning.StimulusCoverage{},
 		planning.StimulusCoverage{}, nil)
-	if math.Abs(got[training.Quad]-24) > 1e-9 {
-		t.Errorf("天井なしで %v。24のはず", got[training.Quad])
+	if math.Abs(got[training.Quad]-want) > 1e-9 {
+		t.Errorf("天井なしで %v。%vのはず", got[training.Quad], want)
 	}
 }
 

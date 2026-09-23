@@ -573,9 +573,10 @@ func TestSessionPlanner_ResidualCarriesOverWithinTheWeek(t *testing.T) {
 		t.Fatalf("前提が崩れている（1本目の補助）: %v", firstIDs)
 	}
 
-	// 月曜に大胸筋上部の週目標（9セット）を全部こなしたことにする。
+	// 月曜に大胸筋上部の窓ぶんの目標（週9セット × 窓の週数）を全部
+	// こなしたことにする。窓は4週なので、週目標ぶんでは満たされない。
 	logs := planHistory(t)
-	for i := range 9 {
+	for i := range 9 * planning.CoverageWindowWeeks {
 		logs = append(logs, mkLogOn(t, fmt.Sprintf("inc-%d", i),
 			planMonday, "incline", 30, 10, 2))
 	}
@@ -585,7 +586,7 @@ func TestSessionPlanner_ResidualCarriesOverWithinTheWeek(t *testing.T) {
 	second := mustPlan(t, req)
 	for _, set := range second.Accessories() {
 		if set.ExerciseID() == "incline" {
-			t.Errorf("週目標を満たした区分がまだ狙われている: %v", set.ExerciseID())
+			t.Errorf("目標を満たした区分がまだ狙われている: %v", set.ExerciseID())
 		}
 	}
 
@@ -869,9 +870,12 @@ func TestSessionPlanner_SubtractsMainCoverageFromResidual(t *testing.T) {
 	pool := append(planPool(t),
 		mkAccessory(t, "pec_fly", map[training.MuscleRegion]float64{training.ChestMid: 1.0}))
 
-	// 週目標3・頻度3。ベンチが1セッションで3セット埋めるので、
-	// メインの刺激を差し引けば残差は0になる。
-	target := mustTarget(t, map[training.MuscleRegion]float64{training.ChestMid: 3})
+	// 窓（4週）ぶんの目標をちょうど6にする。planHistory が窓の中にベンチを
+	// 3セット置いていて、今日の軸（ベンチ）が3セット埋めるので、メインの
+	// 刺激を差し引けば残差は0になる。
+	target := mustTarget(t, map[training.MuscleRegion]float64{
+		training.ChestMid: 6.0 / planning.CoverageWindowWeeks,
+	})
 	program, err := program.NewProgram(mustFrequency(t, 3), planVolume(t), target,
 		[]exercise.ExerciseID{"bench", "squat", "deadlift", "pec_fly"}, big3(), "")
 	if err != nil {
@@ -916,7 +920,7 @@ func chestUpperRequest(t *testing.T) planning.PlanRequest {
 	return req
 }
 
-// 直近1週で埋まったぶんだけ、補助が減ること。
+// 直近4週で埋まったぶんだけ、補助が減ること。
 //
 // 暦週のころは「残りセッション数で割る」だったので、同じ不足でも週の
 // 後半ほど1回あたりの量が増えた。ローリング窓では窓から落ちた分が
@@ -924,12 +928,12 @@ func chestUpperRequest(t *testing.T) planning.PlanRequest {
 func TestSessionPlanner_AccessoriesFollowTheRollingGap(t *testing.T) {
 	req := chestUpperRequest(t)
 
-	// 直近1週に何も無い。週目標12を埋めにいくので上限近くまで出る。
+	// 直近4週に何も無い。窓ぶんの目標を埋めにいくので上限まで出る。
 	empty := mustPlan(t, req)
 
-	// 直近1週で9セット埋まっている。残りは3で、1種目ぶん。
+	// 直近4週で「窓ぶんの目標 − 3」埋まっている。残りは3で、1種目ぶん。
 	logs := planHistory(t)
-	for i := range 9 {
+	for i := range 12*planning.CoverageWindowWeeks - 3 {
 		logs = append(logs, mkLogOn(t, fmt.Sprintf("c-%d", i),
 			planMonday.AddDays(-2), "incline", 30, 10, 2))
 	}
@@ -969,7 +973,7 @@ func inclineDeselectedRequest(t *testing.T) planning.PlanRequest {
 //
 // 選択から外した種目の記録を読み飛ばすと、外した瞬間にその区分の残差が
 // ふくらみ、前日にやっていても回復中にならず、同じ区分の補助が余計に出る。
-// 画面の「今週の充足」（query.Stats.WeeklyVolume）はマスタ全件で数えるので、
+// 画面の「充足」（query.Stats.WeeklyVolume）はマスタ全件で数えるので、
 // 画面では埋まっているのに補助だけが出続ける、という食い違いにもなる。
 //
 // 選択が決めるのは「これから何を出すか」で、「何をやったか」ではない。
@@ -988,14 +992,16 @@ func TestSessionPlanner_DeselectedExercisesStillCountAsDone(t *testing.T) {
 		sets           int
 	}{
 		{
-			// 数える経路（CoverageBetween）。週目標12を使い切っているので
-			// 残差は 0。2日前は回復期間 (date-2, date) の外なので、補助が
-			// 出ないのは残差が埋まっているからでしかない。
-			name: "2日前に外した種目で週目標を埋めていたら補助は出ない", daysFromMonday: -2, sets: 12,
+			// 数える経路（CoverageBetween）。窓ぶんの目標（12 × 窓の週数）を
+			// 使い切っているので残差は 0。2日前は回復期間 (date-2, date) の外
+			// なので、補助が出ないのは残差が埋まっているからでしかない。
+			name: "2日前に外した種目で目標を埋めていたら補助は出ない", daysFromMonday: -2,
+			sets: 12 * planning.CoverageWindowWeeks,
 		},
 		{
-			// 回復を見る経路（Select の辞書）。残差は 12 − 3 = 9 残って
-			// いるので、補助が出ないのは胸上部が回復中だからでしかない。
+			// 回復を見る経路（Select の辞書）。残差は窓ぶんの目標から3を
+			// 引いたぶん残っているので、補助が出ないのは胸上部が回復中だから
+			// でしかない。
 			name: "前日に外した種目でやっていたら回復中として補助は出ない", daysFromMonday: -1, sets: 3,
 		},
 	}
@@ -1031,11 +1037,11 @@ func TestSessionPlanner_DeselectedExercisesStillCountAsDone(t *testing.T) {
 func TestSessionPlanner_DeselectedExercisesAreNeverCandidates(t *testing.T) {
 	req := inclineDeselectedRequest(t)
 
-	// 10日前はカバレッジの窓（6日）の外。残差は 12 のまま。
+	// 窓（28日）の外に置く。残差は窓ぶんの目標のまま。
 	logs := planHistory(t)
 	for i := range 5 {
 		logs = append(logs, mkLogOn(t, fmt.Sprintf("old-%d", i),
-			planMonday.AddDays(-10), fmt.Sprintf("chest_up_%d", i), 30, 10, 2))
+			planMonday.AddDays(-(planning.CoverageWindowDays+2)), fmt.Sprintf("chest_up_%d", i), 30, 10, 2))
 	}
 	req.History = setlog.NewHistory(logs)
 
@@ -1048,27 +1054,30 @@ func TestSessionPlanner_DeselectedExercisesAreNeverCandidates(t *testing.T) {
 	}
 }
 
-// カバレッジの窓は直近1週。前日までの6日ぶんを数え、当日を足して7日。
+// カバレッジの窓は直近4週。前日までの27日ぶんを数え、当日を足して28日。
 func TestSessionPlanner_RollingCoverageWindow(t *testing.T) {
 	base := chestUpperRequest(t)
 	want := len(mustPlan(t, base).Accessories())
 
 	cases := []struct {
 		name string
-		// 12セットぶんの記録を置く日（月曜からの日数）。
+		// 窓ぶんの目標（12 × 窓の週数）の記録を置く日（月曜からの日数）。
 		daysFromMonday int
-		// 窓に入っていれば週目標12を使い切り、補助が減る。
+		// 窓に入っていれば目標を使い切り、補助が減る。
 		inWindow bool
 	}{
 		{
-			// 境界。ここを -7 にすると、同じ曜日に通う人は先週の同じ
+			// 境界。ここを -28 にすると、同じ曜日に通う人は4週前の同じ
 			// セッションが常に窓に残り、定常状態で残差がほぼ 0 になって
 			// 補助が出なくなる。黙って壊れるので固定する。
-			name: "7日前は数えない", daysFromMonday: -7, inWindow: false,
+			name: "28日前は数えない", daysFromMonday: -planning.CoverageWindowDays, inWindow: false,
 		},
 		{
-			// 暦週のころは「先週」として捨てていた。ローリングでは入る。
-			name: "6日前は数える", daysFromMonday: -6, inWindow: true,
+			name: "27日前は数える", daysFromMonday: -(planning.CoverageWindowDays - 1), inWindow: true,
+		},
+		{
+			// 窓が1週だったころは窓の外だった。
+			name: "7日前は数える", daysFromMonday: -7, inWindow: true,
 		},
 		{
 			name: "3日前は数える", daysFromMonday: -3, inWindow: true,
@@ -1084,7 +1093,7 @@ func TestSessionPlanner_RollingCoverageWindow(t *testing.T) {
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			logs := planHistory(t)
-			for i := range 12 {
+			for i := range 12 * planning.CoverageWindowWeeks {
 				logs = append(logs, mkLogOn(t, fmt.Sprintf("out-%d", i),
 					planMonday.AddDays(c.daysFromMonday), "incline", 30, 10, 2))
 			}
@@ -1791,10 +1800,10 @@ func TestSessionPlanner_BodyweightSetsStillCountTowardCoverage(t *testing.T) {
 		t.Fatal("前提: 補助が提示されること")
 	}
 
-	// 今週すでに自重で12セットこなした。ただし体重は一度も測っていないので、
-	// 実効負荷が出せず、推定用の履歴からは落ちる。
+	// 窓の中ですでに自重で窓ぶん（12 × 窓の週数）こなした。ただし体重は一度も
+	// 測っていないので、実効負荷が出せず、推定用の履歴からは落ちる。
 	logs := planHistory(t)
-	for i := range 12 {
+	for i := range 12 * planning.CoverageWindowWeeks {
 		logs = append(logs, mkLogOn(t, fmt.Sprintf("chin-%d", i),
 			planMonday, "chin", 0, 8, 2))
 	}

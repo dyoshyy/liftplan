@@ -152,7 +152,7 @@ func TestWeeklyVolume_埋まっていない順に並ぶ(t *testing.T) {
 		defaultProgram(t),
 	)
 
-	// 2026-08-18 は火曜。週の頭から当日までを数える。
+	// 直近4週（当日を含む28日）を数え、週あたりに直す。
 	vols, err := q.WeeklyVolume(context.Background(), testUser, date(t, "2026-08-18"))
 	if err != nil {
 		t.Fatalf("読めない: %v", err)
@@ -163,7 +163,7 @@ func TestWeeklyVolume_埋まっていない順に並ぶ(t *testing.T) {
 	if vols[0].DoneSet > vols[1].DoneSet {
 		t.Fatalf("埋まっている方が先頭に来ている: %+v", vols)
 	}
-	// 胸（中部）に2セット入っているはず。
+	// 胸（中部）に2セット入っている。窓は4週なので、週あたりでは 2 ÷ 4。
 	var chest *query.RegionVolume
 	for i := range vols {
 		if vols[i].Region == training.ChestMid {
@@ -173,19 +173,25 @@ func TestWeeklyVolume_埋まっていない順に並ぶ(t *testing.T) {
 	if chest == nil {
 		t.Fatal("胸（中部）が出ない")
 	}
-	if chest.DoneSet != 2 {
-		t.Fatalf("こなしたセット数が %v", chest.DoneSet)
+	if want := 2.0 / planning.CoverageWindowWeeks; chest.DoneSet != want {
+		t.Fatalf("こなしたセット数（週あたり）が %v。%v のはず", chest.DoneSet, want)
 	}
 	if chest.TargetSet != 10 {
 		t.Fatalf("週目標が %v", chest.TargetSet)
 	}
 }
 
-// 先週の記録は今週の充足に入らない。入ると、やっていない週が
-// 埋まって見えて補助種目が選ばれなくなる。
-func TestWeeklyVolume_先週を含めない(t *testing.T) {
+// 窓（当日を含む28日）より前の記録は充足に入らないこと。
+//
+// 窓はエンジンと同じ長さ。画面だけ長いと、エンジンがもう数えていない
+// 記録で埋まって見え、「足りていない区分から選ばれる」が画面の上で
+// 成り立たなくなる。2026-07-21 は 2026-08-18 のちょうど28日前。
+func TestWeeklyVolume_窓の外を含めない(t *testing.T) {
 	q := newStats(t,
-		[]*setlog.SetLog{log(t, "a", "2026-08-11", "bench", 100, 5, 1)},
+		[]*setlog.SetLog{
+			log(t, "out", "2026-07-21", "bench", 100, 5, 1), // 28日前。窓の外
+			log(t, "in", "2026-07-22", "bench", 100, 5, 1),  // 27日前。窓の内側の端
+		},
 		[]*exercise.Exercise{newExercise(t, "bench", "ベンチプレス")},
 		defaultProgram(t),
 	)
@@ -194,9 +200,11 @@ func TestWeeklyVolume_先週を含めない(t *testing.T) {
 	if err != nil {
 		t.Fatalf("読めない: %v", err)
 	}
+	// 窓の中の1セットだけが数えられ、週あたりに直る。
+	want := 1.0 / planning.CoverageWindowWeeks
 	for _, v := range vols {
-		if v.DoneSet != 0 {
-			t.Fatalf("先週が混ざっている: %+v", v)
+		if v.Region == training.ChestMid && v.DoneSet != want {
+			t.Fatalf("胸（中部）が %v。窓の中の1セットだけで %v のはず", v.DoneSet, want)
 		}
 	}
 }

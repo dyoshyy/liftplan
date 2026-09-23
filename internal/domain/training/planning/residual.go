@@ -74,9 +74,37 @@ func CoverageBetween(h setlog.History, pool []*exercise.Exercise, from, to train
 	return coverage
 }
 
+// CoverageWindowWeeks は残差を数える窓の長さ（週）。
+//
+// **4週（28日）。**以前は1週だった。1週の窓では、週目標が1種目ぶん（3セット）
+// より小さい区分を抑えられない。週3回のカーフは目標1.7セット/週だが、1回
+// 選ばれると3セット入り、7日経つとそれが窓から消えて「10割欠け」に戻り、
+// すぐまた選ばれる。どう並べても週3セット未満にはならず、達成率は179%に
+// 張り付いた。平均を取る期間の問題ではなく、エンジンの記憶の長さの問題で、
+// 52週平均で測っても縮まない。
+//
+// 4週にすると、目標も4週ぶんで比べるので1回ぶんの刻みより十分大きくなる。
+// 週2〜7回の全区分が 60〜145% に収まる（通し検証、1日4種目3セット）。
+//
+// 休んだあとの取り戻しは緩やかになる。2週休んでも、その前の2週ぶんが窓に
+// 残るので、1日で全区分を取り返そうとしない。暦週をやめた理由（週の先頭で
+// 全区分の不足が最大になり、一日で使い尽くす）はローリングのまま保たれる。
+//
+// 週1回は4週でも回りきらない（4週で48セットを21区分に配る）。週1回は
+// 想定する利用者ではないので、この窓は週2回以上を基準に決めている。
+const CoverageWindowWeeks = 4
+
+// CoverageWindowDays は残差を数える窓の長さ（日）。
+const CoverageWindowDays = 7 * CoverageWindowWeeks
+
+// windowSets はその区分の、窓の長さぶんの目標セット数。
+func windowSets(target program.WeeklyVolumeTarget, r training.MuscleRegion) float64 {
+	return target.Sets(r) * CoverageWindowWeeks
+}
+
 // SessionResidual はこのセッションで狙うべき、筋区分ごとの不足セット数。
 //
-// 直近1週の実績と、今日すでに積んだ分を、週目標から引いた残り。
+// 直近4週の実績と、今日すでに積んだ分を、4週ぶんの目標から引いた残り。
 //
 // **割らない。**暦週のころは残りセッション数で割っていたが、ローリング窓には
 // 「今週の残り」という区切りが存在しない（窓が毎日ずれる）。
@@ -114,7 +142,7 @@ func SessionResidual(
 	}
 
 	for _, region := range target.Regions() {
-		gap := target.Sets(region) - window.Sets(region) - thisSession.Sets(region)
+		gap := windowSets(target, region) - window.Sets(region) - thisSession.Sets(region)
 		if gap <= 0 {
 			continue
 		}

@@ -51,7 +51,7 @@ check('設定は今日の画面に無い', !(await body()).includes('週に通�
 // 履歴タブ
 await page.click('nav >> text=履歴');
 await page.waitForTimeout(1800);
-check('履歴が開く', /今週の充足|記録がまだ|推定1RM/.test(await body()), (await body()).replace(/\s+/g,' ').slice(0,90));
+check('履歴が開く', /充足|記録がまだ|推定1RM/.test(await body()), (await body()).replace(/\s+/g,' ').slice(0,90));
 
 // 戻るジェスチャー（Android の端スワイプ相当）
 await page.goBack();
