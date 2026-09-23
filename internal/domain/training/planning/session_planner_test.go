@@ -3,6 +3,7 @@ package planning_test
 import (
 	"fmt"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -612,6 +613,17 @@ func TestSessionPlanner_ResidualCarriesOverWithinTheWeek(t *testing.T) {
 // こと。これが受け入れ条件で、ここが守られていれば「終えた種目が消える」
 // 「並びが入れ替わる」「枠が補充されて終わらない」は原理的に起きなくなる。
 // かつて別々に手当てしていた不具合は、すべてこの1点の派生だった（D-116）。
+//
+// 比べるのは種目の並びだけでなく、3レーンの PlannedSet 全体（種目・重量の
+// 有無と値・セット数・目標 RIR）。並びだけだと、推定や上乗せ（overload）に
+// 当日の記録が混ざって「追い込むほど次のセットが重くなる」形に戻っても緑の
+// まま通った（#172）。重量を「どのセットをこなしても」の網羅で守るのは
+// TodaysLogsDoNotMoveTodaysWeight で、こちらは計画の導出を触ったときに
+// 1本回せば分かる入口。
+//
+// 上乗せの判定に当日を混ぜる変異を捕まえるのは「分割も重点種目も無い」だけ。
+// 分割のケースは履歴が空で推定が立たず、重点種目の一巡は派生（tempo）の
+// 記録が1セッションしか無いので、どちらも上乗せが発火しうる状態にない。
 func TestSessionPlanner_PlanIsFixedForTheWholeDay(t *testing.T) {
 	cases := []struct {
 		name string
@@ -652,25 +664,25 @@ func TestSessionPlanner_PlanIsFixedForTheWholeDay(t *testing.T) {
 			base := req.History.Logs()
 
 			first := mustPlan(t, req)
-			want := lineup(first)
-			if len(want) == 0 {
+			if len(first.Main())+len(first.Accessories()) == 0 {
 				t.Fatal("前提: 種目が1つも出ていない")
 			}
 
-			// 提示されたとおりに1セットずつ記録しては、開き直す。
+			// 提示されたとおりに1セットずつ、3レーンすべて記録しては開き直す。
 			logs := append([]*setlog.SetLog{}, base...)
 			n := 0
-			for _, set := range append(first.Main(), first.Accessories()...) {
-				for range set.Sets().Int() {
-					n++
-					logs = append(logs, mkLogOn(t, fmt.Sprintf("d%03d", n), req.Date,
-						string(set.ExerciseID()), 40, 8, 2))
+			for _, lane := range plannedLanes(first) {
+				for _, set := range lane.sets {
+					for range set.Sets().Int() {
+						n++
+						logs = append(logs, mkLogOn(t, fmt.Sprintf("d%03d", n), req.Date,
+							string(set.ExerciseID()), 40, 8, 2))
 
-					req.History = setlog.NewHistory(logs)
-					got := lineup(mustPlan(t, req))
-					if !slices.Equal(got, want) {
-						t.Fatalf("%dセット記録した時点で計画が変わった\n  最初: %v\n  いま: %v",
-							n, want, got)
+						req.History = setlog.NewHistory(logs)
+						if diff := planDiff(first, mustPlan(t, req)); len(diff) > 0 {
+							t.Fatalf("%dセット記録した時点で計画が変わった\n  %s",
+								n, strings.Join(diff, "\n  "))
+						}
 					}
 				}
 			}
@@ -706,11 +718,56 @@ func fixedDaySplitRequest(t *testing.T) planning.PlanRequest {
 	return splitRequest(t, prog)
 }
 
-// lineup は提示された種目を並び順のまま返す。
-func lineup(s planning.PlannedSession) []exercise.ExerciseID {
-	out := make([]exercise.ExerciseID, 0, len(s.Main())+len(s.Accessories()))
-	for _, set := range append(s.Main(), s.Accessories()...) {
-		out = append(out, set.ExerciseID())
+// plannedLane は計画の1レーンと、失敗メッセージに出す名前。
+type plannedLane struct {
+	name string
+	sets []planning.PlannedSet
+}
+
+// plannedLanes は計画の3レーンを提示の順に返す。
+func plannedLanes(s planning.PlannedSession) []plannedLane {
+	return []plannedLane{
+		{"main", s.Main()},
+		{"variation", s.Variation()},
+		{"accessories", s.Accessories()},
+	}
+}
+
+// planDiff は2つの計画を3レーンの PlannedSet 全体で比べ、違いを
+// 「どのレーンの何番目の、どのフィールドが、何から何へ」の形で返す。
+// 同じなら空。
+func planDiff(want, got planning.PlannedSession) []string {
+	var out []string
+	gotLanes := plannedLanes(got)
+	for i, w := range plannedLanes(want) {
+		g := gotLanes[i]
+		if len(w.sets) != len(g.sets) {
+			out = append(out, fmt.Sprintf("%s の件数: %d → %d", w.name, len(w.sets), len(g.sets)))
+			continue
+		}
+		for j := range w.sets {
+			a, b := w.sets[j], g.sets[j]
+			at := fmt.Sprintf("%s[%d]", w.name, j)
+			if a.ExerciseID() != b.ExerciseID() {
+				out = append(out, fmt.Sprintf("%s の種目: %s → %s", at, a.ExerciseID(), b.ExerciseID()))
+				// 種目が違えば残りのフィールドを比べても意味がない。
+				continue
+			}
+			at = fmt.Sprintf("%s（%s）", at, a.ExerciseID())
+			aw, aok := a.Weight()
+			bw, bok := b.Weight()
+			if aok != bok {
+				out = append(out, fmt.Sprintf("%s の重量の有無: %v → %v", at, aok, bok))
+			} else if aok && aw.Kg() != bw.Kg() {
+				out = append(out, fmt.Sprintf("%s の重量: %vkg → %vkg", at, aw.Kg(), bw.Kg()))
+			}
+			if a.Sets().Int() != b.Sets().Int() {
+				out = append(out, fmt.Sprintf("%s のセット数: %d → %d", at, a.Sets().Int(), b.Sets().Int()))
+			}
+			if a.TargetRIR().Int() != b.TargetRIR().Int() {
+				out = append(out, fmt.Sprintf("%s の目標 RIR: %d → %d", at, a.TargetRIR().Int(), b.TargetRIR().Int()))
+			}
+		}
 	}
 	return out
 }
