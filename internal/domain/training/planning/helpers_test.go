@@ -159,3 +159,22 @@ func mustFrequency(t *testing.T, n int) program.Frequency {
 	}
 	return f
 }
+
+// planVolume はテスト用の1回の量。
+//
+// 6種目は範囲（2〜6）の上限。変更前の9種目に最も近く、レーンの取り分を
+// 検査するテストが枠不足で落ちるのを避ける。量そのものを見るテストは
+// 自分で組む。
+func planVolume(t *testing.T) program.SessionVolume {
+	t.Helper()
+	return mustVolume(t, 6, 3)
+}
+
+func mustVolume(t *testing.T, exercises, sets int) program.SessionVolume {
+	t.Helper()
+	v, err := program.NewSessionVolume(exercises, sets)
+	if err != nil {
+		t.Fatalf("NewSessionVolume(%d, %d): %v", exercises, sets, err)
+	}
+	return v
+}

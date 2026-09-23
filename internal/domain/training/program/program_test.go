@@ -154,7 +154,7 @@ func TestWeeklyVolumeTarget_ZeroValueIsEmpty(t *testing.T) {
 }
 
 func TestNewProgram(t *testing.T) {
-	p, err := program.NewProgram(mustFrequency(t, 3), simpleTarget(t),
+	p, err := program.NewProgram(mustFrequency(t, 3), mustVolume(t, 6, 3), simpleTarget(t),
 		[]exercise.ExerciseID{"bench", "squat"}, []exercise.ExerciseID{"bench"}, "")
 	if err != nil {
 		t.Fatalf("生成に失敗: %v", err)
@@ -175,7 +175,7 @@ func TestNewProgram(t *testing.T) {
 
 // 重点種目を指定すると往復すること。指定なしと区別できること。
 func TestNewProgram_Focus(t *testing.T) {
-	p, err := program.NewProgram(mustFrequency(t, 3), simpleTarget(t),
+	p, err := program.NewProgram(mustFrequency(t, 3), mustVolume(t, 6, 3), simpleTarget(t),
 		[]exercise.ExerciseID{"bench", "squat"}, []exercise.ExerciseID{"bench"}, "bench")
 	if err != nil {
 		t.Fatalf("生成に失敗: %v", err)
@@ -220,7 +220,7 @@ func TestNewProgram_RejectsInvalid(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			got, err := program.NewProgram(c.freq, c.target, c.selected, c.declared, c.focus)
+			got, err := program.NewProgram(c.freq, mustVolume(t, 6, 3), c.target, c.selected, c.declared, c.focus)
 			if err == nil {
 				t.Fatalf("不正なプログラムが通ってしまう: %+v", got)
 			}
@@ -232,7 +232,7 @@ func TestNewProgram_RejectsInvalid(t *testing.T) {
 }
 
 func TestProgram_SelectedExercisesIsACopy(t *testing.T) {
-	p, err := program.NewProgram(mustFrequency(t, 3), simpleTarget(t), []exercise.ExerciseID{"bench"}, []exercise.ExerciseID{"bench"}, "")
+	p, err := program.NewProgram(mustFrequency(t, 3), mustVolume(t, 6, 3), simpleTarget(t), []exercise.ExerciseID{"bench"}, []exercise.ExerciseID{"bench"}, "")
 	if err != nil {
 		t.Fatalf("生成に失敗: %v", err)
 	}
@@ -246,7 +246,7 @@ func TestProgram_SelectedExercisesIsACopy(t *testing.T) {
 
 func TestProgram_IsImmutableAgainstInputMutation(t *testing.T) {
 	input := []exercise.ExerciseID{"bench", "squat"}
-	p, err := program.NewProgram(mustFrequency(t, 3), simpleTarget(t), input, []exercise.ExerciseID{"bench"}, "")
+	p, err := program.NewProgram(mustFrequency(t, 3), mustVolume(t, 6, 3), simpleTarget(t), input, []exercise.ExerciseID{"bench"}, "")
 	if err != nil {
 		t.Fatalf("生成に失敗: %v", err)
 	}
@@ -340,7 +340,7 @@ func TestProgram_WithKeepsOtherFields(t *testing.T) {
 
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			base, err := program.NewProgram(mustFrequency(t, 3), simpleTarget(t),
+			base, err := program.NewProgram(mustFrequency(t, 3), mustVolume(t, 6, 3), simpleTarget(t),
 				big3(), []exercise.ExerciseID{"bench", "squat"}, "bench")
 			if err != nil {
 				t.Fatalf("NewProgram: %v", err)
@@ -389,7 +389,7 @@ func TestProgram_WithKeepsOtherFields(t *testing.T) {
 // 全セッションの補助種目が消える。
 func TestProgram_WeeklyTarget(t *testing.T) {
 	target := simpleTarget(t)
-	p, err := program.NewProgram(mustFrequency(t, 3), target, []exercise.ExerciseID{"bench"}, []exercise.ExerciseID{"bench"}, "")
+	p, err := program.NewProgram(mustFrequency(t, 3), mustVolume(t, 6, 3), target, []exercise.ExerciseID{"bench"}, []exercise.ExerciseID{"bench"}, "")
 	if err != nil {
 		t.Fatalf("生成に失敗: %v", err)
 	}
@@ -413,7 +413,7 @@ func TestProgram_WeeklyTarget(t *testing.T) {
 // 一致しないIDは黙って無視されるので、選んだ種目が理由なく消える。
 func TestNewProgram_ValidatesExerciseIDs(t *testing.T) {
 	for _, id := range []exercise.ExerciseID{"   ", " bench", "bench ", "\tbench"} {
-		got, err := program.NewProgram(mustFrequency(t, 3), simpleTarget(t),
+		got, err := program.NewProgram(mustFrequency(t, 3), mustVolume(t, 6, 3), simpleTarget(t),
 			[]exercise.ExerciseID{id}, []exercise.ExerciseID{id}, "")
 		if err == nil {
 			t.Errorf("不正な種目ID %q が通ってしまう: %+v", id, got)
@@ -439,4 +439,14 @@ func TestNewWeeklyVolumeTarget_Quantizes(t *testing.T) {
 	if n := decimalPlaces(strconv.FormatFloat(got, 'f', -1, 64)); n > 6 {
 		t.Errorf("量子化されていない: %v（小数点以下 %d 桁）", got, n)
 	}
+}
+
+// mustVolume はテスト用の1回の量。
+func mustVolume(t *testing.T, exercises, sets int) program.SessionVolume {
+	t.Helper()
+	v, err := program.NewSessionVolume(exercises, sets)
+	if err != nil {
+		t.Fatalf("NewSessionVolume(%d, %d): %v", exercises, sets, err)
+	}
+	return v
 }

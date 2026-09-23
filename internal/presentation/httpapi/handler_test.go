@@ -70,7 +70,7 @@ func buildRoutes(t *testing.T, configured bool) http.Handler {
 	programs := memory.NewProgramRepository()
 	if configured {
 		freq, _ := program.NewFrequency(3)
-		target, err := seed.DefaultWeeklyTarget(freq)
+		target, err := seed.DefaultWeeklyTarget(freq, mustVolume(t, 6, 3))
 		if err != nil {
 			t.Fatalf("週目標が不正: %v", err)
 		}
@@ -78,7 +78,7 @@ func buildRoutes(t *testing.T, configured bool) http.Handler {
 		for _, e := range pool {
 			selected = append(selected, e.ID())
 		}
-		program, err := program.NewProgram(freq, target, selected, []exercise.ExerciseID{"bench", "squat", "deadlift"}, "")
+		program, err := program.NewProgram(freq, mustVolume(t, 6, 3), target, selected, []exercise.ExerciseID{"bench", "squat", "deadlift"}, "")
 		if err != nil {
 			t.Fatalf("プログラムが不正: %v", err)
 		}
@@ -677,7 +677,7 @@ func TestPutProgramFrequency_MovesTargetWithIt(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewFrequency: %v", err)
 	}
-	target, err := seed.DefaultWeeklyTarget(freq)
+	target, err := seed.DefaultWeeklyTarget(freq, mustVolume(t, 6, 3))
 	if err != nil {
 		t.Fatalf("DefaultWeeklyTarget: %v", err)
 	}
@@ -1202,12 +1202,12 @@ func TestGetSession_UnavailableIsNot500(t *testing.T) {
 		t.Fatalf("シードが不正: %v", err)
 	}
 	freq, _ := program.NewFrequency(3)
-	target, _ := seed.DefaultWeeklyTarget(freq)
+	target, _ := seed.DefaultWeeklyTarget(freq, mustVolume(t, 6, 3))
 	selected := make([]exercise.ExerciseID, 0, len(pool))
 	for _, e := range pool {
 		selected = append(selected, e.ID())
 	}
-	prog, err := program.NewProgram(freq, target, selected,
+	prog, err := program.NewProgram(freq, mustVolume(t, 6, 3), target, selected,
 		[]exercise.ExerciseID{"bench", "squat", "deadlift"}, "")
 	if err != nil {
 		t.Fatalf("プログラムが不正: %v", err)
@@ -1410,12 +1410,12 @@ func TestGetSession_InternalErrorDoesNotLeak(t *testing.T) {
 		t.Fatalf("シードが不正: %v", err)
 	}
 	freq, _ := program.NewFrequency(3)
-	target, _ := seed.DefaultWeeklyTarget(freq)
+	target, _ := seed.DefaultWeeklyTarget(freq, mustVolume(t, 6, 3))
 	selected := make([]exercise.ExerciseID, 0, len(pool))
 	for _, e := range pool {
 		selected = append(selected, e.ID())
 	}
-	program, err := program.NewProgram(freq, target, selected, []exercise.ExerciseID{"bench", "squat", "deadlift"}, "")
+	program, err := program.NewProgram(freq, mustVolume(t, 6, 3), target, selected, []exercise.ExerciseID{"bench", "squat", "deadlift"}, "")
 	if err != nil {
 		t.Fatalf("プログラムが不正: %v", err)
 	}
@@ -1807,4 +1807,14 @@ func TestAPI_RequiresAuth(t *testing.T) {
 	if *reached {
 		t.Error("認証なしでハンドラへ到達した")
 	}
+}
+
+// mustVolume はテスト用の1回の量。
+func mustVolume(t *testing.T, exercises, sets int) program.SessionVolume {
+	t.Helper()
+	v, err := program.NewSessionVolume(exercises, sets)
+	if err != nil {
+		t.Fatalf("NewSessionVolume(%d, %d): %v", exercises, sets, err)
+	}
+	return v
 }

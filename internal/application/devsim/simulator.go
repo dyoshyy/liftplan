@@ -234,7 +234,13 @@ func (s *Simulator) buildProgram(req Request) (*program.Program, error) {
 	if err != nil {
 		return nil, fmt.Errorf("頻度が不正: %w", err)
 	}
-	target, err := seed.DefaultWeeklyTarget(freq)
+	// 1回の量は出荷時の既定で回す。入力に足すのは、設定の変化を見る画面が
+	// 要ったときでよい。
+	volume, err := seed.DefaultSessionVolume()
+	if err != nil {
+		return nil, fmt.Errorf("既定の1回の量が不正: %w", err)
+	}
+	target, err := seed.DefaultWeeklyTarget(freq, volume)
 	if err != nil {
 		return nil, fmt.Errorf("週目標が不正: %w", err)
 	}
@@ -245,7 +251,7 @@ func (s *Simulator) buildProgram(req Request) (*program.Program, error) {
 		selected = append(selected, e.ID())
 	}
 
-	prog, err := program.NewProgram(freq, target, selected, req.Declared, req.Focus)
+	prog, err := program.NewProgram(freq, volume, target, selected, req.Declared, req.Focus)
 	if err != nil {
 		return nil, fmt.Errorf("プログラムが不正: %w", err)
 	}

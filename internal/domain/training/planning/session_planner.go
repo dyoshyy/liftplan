@@ -2,6 +2,7 @@ package planning
 
 import (
 	"errors"
+	"fmt"
 	"sort"
 
 	"github.com/dyoshyy/liftplan/internal/domain/training"
@@ -121,7 +122,7 @@ func (p SessionPlanner) Plan(req PlanRequest) (PlannedSession, error) {
 	if err != nil {
 		return PlannedSession{}, err
 	}
-	return p.prescribe(lineup, estimable, req.Conditions, req.Date), nil
+	return p.prescribe(lineup, estimable, req.Conditions, req.Date, req.Program.SessionVolume().Sets()), nil
 }
 
 // lineupEntry は今日やる種目1つと、その役割。重量はまだ付いていない。
@@ -182,16 +183,17 @@ func (p SessionPlanner) selectLineup(
 
 	// 今日すでに積む分（軸とバリエーション）。セット数は役割の表から引く。
 	// 処方を待たないのは、重量の側へ依存を作らないため。
+	sets := prog.SessionVolume().Sets()
 	thisSession := StimulusCoverage{}
 	if heavy != nil {
 		lineup = append(lineup, lineupEntry{exercise: heavy, role: axisRole})
-		thisSession = thisSession.Plus(heavy.Stimulus(), p.prescriptionFor(axisRole).setCount())
+		thisSession = thisSession.Plus(heavy.Stimulus(), p.prescriptionFor(axisRole, sets).setCount())
 	}
 
 	exclude := accessoryExcluded(pool, prog)
 	if v := variationLift(history, prog, pool, heavy, date, today, hasSplit); v != nil {
 		lineup = append(lineup, lineupEntry{exercise: v, role: variationRole})
-		thisSession = thisSession.Plus(v.Stimulus(), p.prescriptionFor(variationRole).setCount())
+		thisSession = thisSession.Plus(v.Stimulus(), p.prescriptionFor(variationRole, sets).setCount())
 		exclude = append(exclude, v.ID())
 	}
 
@@ -230,10 +232,31 @@ func (p SessionPlanner) selectLineup(
 			exclude = append(exclude, e.ID())
 		}
 	}
+	// 補助に割ける枠は、1回の種目数から、すでに並んだ軸とバリエーションを
+	// 引いた残り。
+	//
+	// 取り分を先に決め打ちしない。軸が立たない日（分割で狙う区分に宣言種目が
+	// 無い）もバリエーションが出ない日もあるので、実際に並んだぶんを引く。
+	// 決め打ちにすると、軸が空の日に予算が余ったまま終わる。
+	//
+	// 以前は枠が AccessorySelector の maxSlots = 8 という定数で、軸を足した
+	// 9種目27セットが全頻度・全セッションで固定的に出ていた。
+	//
+	// 選択器を毎回組み直すのは、枠数とセット数が利用者の設定だから。回復
+	// 日数だけが方針で、組み立て時のものをそのまま使う。
+	slots := prog.SessionVolume().Exercises() - len(lineup)
+	if slots <= 0 {
+		return lineup, nil
+	}
+	selector, err := NewAccessorySelector(p.accessory.RecoveryDays(), sets, slots)
+	if err != nil {
+		return nil, fmt.Errorf("補助の枠が組めない: %w", err)
+	}
+
 	// Select が返すのは pool の中の種目に限る。候補は master から exclude を
 	// 引いたもので、pool（選択された種目）に無いものは全て exclude に入れて
 	// あるので、findExercise が nil を返す経路は無い。
-	for _, id := range p.accessory.Select(gaps, master, history, date, exclude) {
+	for _, id := range selector.Select(gaps, master, history, date, exclude) {
 		if e := findExercise(pool, id); e != nil {
 			lineup = append(lineup, lineupEntry{exercise: e, role: accessoryRole})
 		}

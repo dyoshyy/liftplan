@@ -1,6 +1,9 @@
 package seed
 
 import (
+	"errors"
+	"fmt"
+
 	"github.com/dyoshyy/liftplan/internal/domain/training"
 	"github.com/dyoshyy/liftplan/internal/domain/training/program"
 )
@@ -45,30 +48,50 @@ var regionShare = map[training.MuscleRegion]float64{
 	training.Oblique: 4.5,
 }
 
-// baseWeeklyStimulus は週3回で供給される刺激の総量。
+// averageStimulusPerSet は1セットが筋区分に与える寄与の合計の平均。
 //
-// **配分と別に持つ。**同じ表で両方を表すと、1区分の重みを動かしただけで
-// 週全体の量が動き、逆に量を絞ると21個すべてを引き直すことになる。実際
-// baseProfile はそうなっていて、供給量（補助8スロット）に合わせて全区分を
-// 引き直した跡が残っている。
+// 週の総セット数から「週に供給される刺激の総量」に直す係数。1セットが
+// 複数の区分に寄与する（スクワットは大腿四頭筋1.0＋臀筋0.5）ので、
+// セット数と刺激量は1対1ではない。
 //
-// この値は供給の実測から来ている。週3回は1セッション27セット×3回＝81セット、
-// 1セットあたりの区分への寄与が平均1.77なので、81×1.77≒143。表の合計152.5は
-// それに合わせてある。
+// **定数に書かずに数える。**この値は種目カタログの性質であって、独立した
+// 調整つまみではない。書き写すと、種目を足したときに黙ってずれる。
 //
-// **1日の種目数を可変にするときは、ここが差し替え点になる。**配分表は触らない。
-const baseWeeklyStimulus = 152.5
+// 選択された種目ではなくカタログ全体で取る。利用者が種目を外すたびに週目標が
+// 動くと、目標が「何を選んだか」に依存して意味が薄れる。カタログの性質として
+// 固定しておくほうが、達成率の読み方が安定する。
+func averageStimulusPerSet() (float64, error) {
+	all, err := Exercises()
+	if err != nil {
+		return 0, fmt.Errorf("種目カタログが読めない: %w", err)
+	}
+	if len(all) == 0 {
+		return 0, errors.New("種目カタログが空である")
+	}
 
-// baseFrequency は baseWeeklyStimulus の基準となる週あたりの回数。
-const baseFrequency = 3
+	total := 0.0
+	for _, e := range all {
+		for _, r := range e.Stimulus().Regions() {
+			c, ok := e.Stimulus().Contribution(r)
+			if !ok {
+				continue
+			}
+			total += c.Float()
+		}
+	}
+	return total / float64(len(all)), nil
+}
 
 // DefaultWeeklyTarget は筋区分ごとの週目標セット数のプリセット。
 //
-// 総量（頻度から決まる）を配分（regionShare）で割り振る。頻度を受け取るのは、
-// 1週間に供給できるセット数が頻度に比例するため。固定値にすると、週1回の
-// ユーザーは全区分が3割の達成率で埋まらず、週4回のユーザーは狙っていない
-// 区分まで2倍に膨らむ。どちらの場合も目標が実際の挙動を説明しなくなり、
-// 数字を見る意味が消える。
+// **週に供給できる量を、配分で割り振る。**供給量は利用者の設定だけで決まる。
+//
+//	週の総セット数 = 頻度 × 1回の種目数 × 1種目あたりのセット数
+//	週の刺激総量   = 週の総セット数 × 1セットあたりの平均寄与
+//
+// 供給から導くのは、届かない目標を置かないため。目標を供給と無関係に置くと、
+// 毎週すべての区分が赤字の画面を出し続けるだけで何も導かない。逆に供給より
+// 小さく置くと、残差が常に0になってその区分を主働筋とする種目が選ばれない。
 //
 // この数字は利用者の設定ではない。補助セレクタが「その区分はもう足りて
 // いるか」を判定する閾値で、種目マスタの刺激プロファイルと対になっている。
@@ -78,8 +101,12 @@ const baseFrequency = 3
 // maxSlots で打ち切られており、残差が尽きて止まることは低頻度では起きない
 // （通し検証で週1〜3回は全セッションが27セットで固定）。この表が効くのは
 // 「どの区分を狙うか」のゲートと、同点のときの順序付けまで。
-func DefaultWeeklyTarget(f program.Frequency) (program.WeeklyVolumeTarget, error) {
-	total := baseWeeklyStimulus * float64(f.PerWeek()) / baseFrequency
+func DefaultWeeklyTarget(f program.Frequency, v program.SessionVolume) (program.WeeklyVolumeTarget, error) {
+	k, err := averageStimulusPerSet()
+	if err != nil {
+		return program.WeeklyVolumeTarget{}, err
+	}
+	total := float64(f.PerWeek()*v.TotalSets()) * k
 
 	// 合計は実行時に取る。定数に書くと、配分を1つ動かしたときに合計だけが
 	// 古いまま残り、割り振りが静かにずれる。

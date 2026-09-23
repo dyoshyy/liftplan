@@ -38,14 +38,16 @@ func (u *SetFrequency) Execute(ctx context.Context, user account.UserID, perWeek
 	if err != nil {
 		return fmt.Errorf("%w: 頻度: %w", apperror.ErrInvalidInput, err)
 	}
-	target, err := seed.DefaultWeeklyTarget(freq)
-	if err != nil {
-		return fmt.Errorf("%w: 週目標: %w", apperror.ErrInvalidInput, err)
-	}
-
 	prog, err := u.reader.Get(ctx, user)
 	if err != nil {
 		return err
+	}
+
+	// 1回の量はそのまま。週目標は「頻度 × 1回の量」で決まるので、
+	// 量を読んでから組み直す。
+	target, err := seed.DefaultWeeklyTarget(freq, prog.SessionVolume())
+	if err != nil {
+		return fmt.Errorf("%w: 週目標: %w", apperror.ErrInvalidInput, err)
 	}
 
 	next, err := prog.WithFrequency(freq, target)

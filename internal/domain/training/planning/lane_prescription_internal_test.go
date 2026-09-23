@@ -41,7 +41,8 @@ func TestLanePrescriptions_RoundTripIsCurrentlyContractive(t *testing.T) {
 
 	for _, lane := range lanes {
 		t.Run(lane.name, func(t *testing.T) {
-			row := planner.prescriptionFor(lane.role)
+			// セット数は強度と RIR の組に効かないので、既定の3で引く。
+			row := planner.prescriptionFor(lane.role, 3)
 			pct, err := training.NewIntensityPct(row.intensityPct)
 			if err != nil {
 				t.Fatalf("NewIntensityPct: %v", err)

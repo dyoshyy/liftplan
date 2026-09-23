@@ -66,7 +66,7 @@ func TestSetSplitCycle_PrimaryBoundary(t *testing.T) {
 				t.Fatalf("週目標が不正: %v", err)
 			}
 			ids := []exercise.ExerciseID{"near_primary"}
-			prog, err := program.NewProgram(freq, target, ids, ids, "")
+			prog, err := program.NewProgram(freq, mustVolume(t, 6, 3), target, ids, ids, "")
 			if err != nil {
 				t.Fatalf("プログラムの生成に失敗: %v", err)
 			}

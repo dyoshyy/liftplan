@@ -34,7 +34,7 @@ func newProgram(t *testing.T, sets map[training.MuscleRegion]float64, selected [
 	if err != nil {
 		t.Fatalf("週目標が不正: %v", err)
 	}
-	p, err := program.NewProgram(freq, target, selected, selected, "")
+	p, err := program.NewProgram(freq, mustVolume(t, 6, 3), target, selected, selected, "")
 	if err != nil {
 		t.Fatalf("プログラムが不正: %v", err)
 	}
@@ -211,4 +211,14 @@ func TestWeeklyVolume_プログラムが無ければ断る(t *testing.T) {
 	if _, err := q.WeeklyVolume(context.Background(), testUser, date(t, "2026-08-18")); err == nil {
 		t.Fatal("プログラム未設定なのに通った")
 	}
+}
+
+// mustVolume はテスト用の1回の量。
+func mustVolume(t *testing.T, exercises, sets int) program.SessionVolume {
+	t.Helper()
+	v, err := program.NewSessionVolume(exercises, sets)
+	if err != nil {
+		t.Fatalf("NewSessionVolume(%d, %d): %v", exercises, sets, err)
+	}
+	return v
 }

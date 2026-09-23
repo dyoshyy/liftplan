@@ -159,7 +159,7 @@ func buildProgram(t *testing.T, pool []*exercise.Exercise) *program.Program {
 	if err != nil {
 		t.Fatalf("頻度が不正: %v", err)
 	}
-	target, err := seed.DefaultWeeklyTarget(freq)
+	target, err := seed.DefaultWeeklyTarget(freq, mustVolume(t, 6, 3))
 	if err != nil {
 		t.Fatalf("週目標が不正: %v", err)
 	}
@@ -167,7 +167,7 @@ func buildProgram(t *testing.T, pool []*exercise.Exercise) *program.Program {
 	for _, e := range pool {
 		selected = append(selected, e.ID())
 	}
-	p, err := program.NewProgram(freq, target, selected, []exercise.ExerciseID{"bench", "squat", "deadlift"}, "")
+	p, err := program.NewProgram(freq, mustVolume(t, 6, 3), target, selected, []exercise.ExerciseID{"bench", "squat", "deadlift"}, "")
 	if err != nil {
 		t.Fatalf("プログラムが不正: %v", err)
 	}
@@ -367,4 +367,14 @@ func TestGetSession_StopsOnCancelledContext(t *testing.T) {
 	if logs.findCount() != 0 {
 		t.Errorf("キャンセル済みなのに履歴を読んだ: %d回", logs.findCount())
 	}
+}
+
+// mustVolume はテスト用の1回の量。
+func mustVolume(t *testing.T, exercises, sets int) program.SessionVolume {
+	t.Helper()
+	v, err := program.NewSessionVolume(exercises, sets)
+	if err != nil {
+		t.Fatalf("NewSessionVolume(%d, %d): %v", exercises, sets, err)
+	}
+	return v
 }

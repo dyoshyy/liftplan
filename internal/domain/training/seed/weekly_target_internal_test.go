@@ -24,12 +24,16 @@ func TestDefaultWeeklyTarget_ShareDoesNotMoveTotal(t *testing.T) {
 		return out
 	}
 
-	freq, err := program.NewFrequency(baseFrequency)
+	freq, err := program.NewFrequency(3)
 	if err != nil {
 		t.Fatalf("頻度が不正: %v", err)
 	}
+	volume, err := program.NewSessionVolume(4, 3)
+	if err != nil {
+		t.Fatalf("1回の量が不正: %v", err)
+	}
 
-	before, err := DefaultWeeklyTarget(freq)
+	before, err := DefaultWeeklyTarget(freq, volume)
 	if err != nil {
 		t.Fatalf("週目標が不正: %v", err)
 	}
@@ -39,7 +43,7 @@ func TestDefaultWeeklyTarget_ShareDoesNotMoveTotal(t *testing.T) {
 	regionShare[training.Glute] = restore * 3
 	t.Cleanup(func() { regionShare[training.Glute] = restore })
 
-	after, err := DefaultWeeklyTarget(freq)
+	after, err := DefaultWeeklyTarget(freq, volume)
 	if err != nil {
 		t.Fatalf("週目標が不正: %v", err)
 	}

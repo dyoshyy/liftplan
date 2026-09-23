@@ -84,7 +84,7 @@ func TestDefaultWeeklyTarget_CoversEveryRegion(t *testing.T) {
 		if err != nil {
 			t.Fatalf("頻度が不正: %v", err)
 		}
-		target, err := seed.DefaultWeeklyTarget(freq)
+		target, err := seed.DefaultWeeklyTarget(freq, mustVolume(t, 6, 3))
 		if err != nil {
 			t.Fatalf("週目標が不正: %v", err)
 		}
@@ -136,7 +136,7 @@ func TestSeed_EveryTargetRegionHasANonMainExercise(t *testing.T) {
 	if err != nil {
 		t.Fatalf("頻度が不正: %v", err)
 	}
-	target, err := seed.DefaultWeeklyTarget(freq)
+	target, err := seed.DefaultWeeklyTarget(freq, mustVolume(t, 6, 3))
 	if err != nil {
 		t.Fatalf("週目標が不正: %v", err)
 	}
@@ -301,14 +301,14 @@ func TestExercises_DerivedFromResolvesToARootLift(t *testing.T) {
 	}
 }
 
-// 配分と総量を分けても、出てくる数字が1つも変わらないこと。
+// 配分の比が変わらないこと。
 //
-// 配分を割合として持ち直す変更（D-139）の検収。割合 × 総量 で組み直した
-// 結果が、それまでの表と一致することを固定する。ここが動いたら、変換が
-// 意味を変えている。
+// 総量は利用者の設定（頻度 × 種目数 × セット数）で動くので、絶対値では
+// 固定できない。動かしてはいけないのは**区分どうしの比**のほうで、これが
+// 配分表の中身そのものになる。
 //
-// 週3回を基準に置くのは、配分表がその頻度で書かれているから。他の頻度は
-// 総量の掛け算でしかなく、TestSimulation が通し全体で見ている。
+// 胸中部を1として測る。基準をどこに取っても同じだが、表で中庸な値を選ぶと
+// 桁の差で丸めが見えにくい。
 func TestDefaultWeeklyTarget_DistributionIsUnchanged(t *testing.T) {
 	want := map[training.MuscleRegion]float64{
 		training.ChestUpper: 5, training.ChestMid: 10, training.ChestLower: 4.5,
@@ -326,7 +326,7 @@ func TestDefaultWeeklyTarget_DistributionIsUnchanged(t *testing.T) {
 	if err != nil {
 		t.Fatalf("頻度が不正: %v", err)
 	}
-	got, err := seed.DefaultWeeklyTarget(freq)
+	got, err := seed.DefaultWeeklyTarget(freq, mustVolume(t, 6, 3))
 	if err != nil {
 		t.Fatalf("週目標が不正: %v", err)
 	}
@@ -334,9 +334,26 @@ func TestDefaultWeeklyTarget_DistributionIsUnchanged(t *testing.T) {
 	if len(got.Regions()) != len(want) {
 		t.Errorf("区分の数が %d。%d のはず", len(got.Regions()), len(want))
 	}
+
+	base := got.Sets(training.ChestMid)
+	if base <= 0 {
+		t.Fatalf("基準にする %s が 0", training.ChestMid)
+	}
 	for r, w := range want {
-		if d := got.Sets(r) - w; d > 1e-6 || d < -1e-6 {
-			t.Errorf("%s が %v。%v のはず", r, got.Sets(r), w)
+		wantRatio := w / want[training.ChestMid]
+		gotRatio := got.Sets(r) / base
+		if d := gotRatio - wantRatio; d > 1e-6 || d < -1e-6 {
+			t.Errorf("%s の比が %.6f。%.6f のはず", r, gotRatio, wantRatio)
 		}
 	}
+}
+
+// mustVolume はテスト用の1回の量。
+func mustVolume(t *testing.T, exercises, sets int) program.SessionVolume {
+	t.Helper()
+	v, err := program.NewSessionVolume(exercises, sets)
+	if err != nil {
+		t.Fatalf("NewSessionVolume(%d, %d): %v", exercises, sets, err)
+	}
+	return v
 }

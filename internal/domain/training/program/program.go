@@ -67,6 +67,7 @@ func (t WeeklyVolumeTarget) IsEmpty() bool { return len(t.m) == 0 }
 //ddd:aggregate
 type Program struct {
 	frequency Frequency
+	volume    SessionVolume // 1セッションの量。利用者の設定
 	target    WeeklyVolumeTarget
 	selected  []exercise.ExerciseID // 実施可能な種目
 	declared  []exercise.ExerciseID // 重量を伸ばしたい種目
@@ -74,7 +75,7 @@ type Program struct {
 	cycle     []Split               // 分割の周期。空なら分割なし（全身法）
 }
 
-// programParams は Program を組み立てる材料。Program と同じ6つを持つ。
+// programParams は Program を組み立てる材料。Program と同じ7つを持つ。
 //
 // フィールドを足すときに触るのは、Program とここ、newProgram と params。
 // ほかの With* は触らない。With* がそれぞれ全フィールドを手で並べ直して
@@ -82,6 +83,7 @@ type Program struct {
 // 設定だけが黙って消えた（declared と focus で D-127、cycle で #122）。
 type programParams struct {
 	frequency Frequency
+	volume    SessionVolume
 	target    WeeklyVolumeTarget
 	selected  []exercise.ExerciseID
 	declared  []exercise.ExerciseID
@@ -90,9 +92,10 @@ type programParams struct {
 }
 
 // NewProgram は分割なしのプログラムを組み立てる。分割は WithCycle で足す。
-func NewProgram(freq Frequency, target WeeklyVolumeTarget, selected, declared []exercise.ExerciseID, focus exercise.ExerciseID) (*Program, error) {
+func NewProgram(freq Frequency, volume SessionVolume, target WeeklyVolumeTarget, selected, declared []exercise.ExerciseID, focus exercise.ExerciseID) (*Program, error) {
 	return newProgram(programParams{
 		frequency: freq,
+		volume:    volume,
 		target:    target,
 		selected:  selected,
 		declared:  declared,
@@ -107,6 +110,9 @@ func NewProgram(freq Frequency, target WeeklyVolumeTarget, selected, declared []
 func newProgram(x programParams) (*Program, error) {
 	if x.frequency.IsZero() {
 		return nil, errors.New("週の頻度が設定されていない")
+	}
+	if x.volume.IsZero() {
+		return nil, errors.New("1回の量が設定されていない")
 	}
 	if x.target.IsEmpty() {
 		return nil, errors.New("週目標が設定されていない")
@@ -160,6 +166,7 @@ func newProgram(x programParams) (*Program, error) {
 
 	return &Program{
 		frequency: x.frequency,
+		volume:    x.volume,
 		target:    x.target,
 		selected:  selected,
 		declared:  declared,
@@ -175,6 +182,7 @@ func newProgram(x programParams) (*Program, error) {
 func (p *Program) params() programParams {
 	return programParams{
 		frequency: p.frequency,
+		volume:    p.volume,
 		target:    p.target,
 		selected:  p.selected,
 		declared:  p.declared,
@@ -260,6 +268,18 @@ func (p *Program) WithFrequency(freq Frequency, target WeeklyVolumeTarget) (*Pro
 	})
 }
 
+// WithSessionVolume は1回の量と週目標を差し替えた新しいプログラムを返す。
+//
+// 週目標を道連れにするのは WithFrequency と同じ理由。週に供給できる量は
+// 「頻度 × 1回の種目数 × 1種目あたりのセット数」で決まるので、量だけ動かすと
+// 目標が実際の挙動を説明しなくなる。
+func (p *Program) WithSessionVolume(volume SessionVolume, target WeeklyVolumeTarget) (*Program, error) {
+	return p.with(func(x *programParams) {
+		x.volume = volume
+		x.target = target
+	})
+}
+
 // WithSelected は使う種目だけを差し替えた新しいプログラムを返す。
 //
 // 伸ばしたい種目が新しい選択から外れる場合はエラーになる（declared ⊂
@@ -273,6 +293,7 @@ func (p *Program) WithSelected(ids []exercise.ExerciseID) (*Program, error) {
 }
 
 func (p *Program) Frequency() Frequency             { return p.frequency }
+func (p *Program) SessionVolume() SessionVolume     { return p.volume }
 func (p *Program) WeeklyTarget() WeeklyVolumeTarget { return p.target }
 
 // normalizeExerciseIDs は種目IDの正規化を行う。重複と存在しない種目はエラーになる。昇順にソートする。

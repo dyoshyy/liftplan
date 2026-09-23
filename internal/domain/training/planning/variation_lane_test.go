@@ -170,10 +170,9 @@ func mustProgramWithout(t *testing.T, focus exercise.ExerciseID, drop ...exercis
 		}
 	}
 
-	p, err := program.NewProgram(mustFrequency(t, 3),
-		mustTarget(t, map[training.MuscleRegion]float64{
-			training.ChestMid: 12, training.ChestUpper: 9, training.Quad: 12, training.Biceps: 9,
-		}), selected, big3(), focus)
+	p, err := program.NewProgram(mustFrequency(t, 3), planVolume(t), mustTarget(t, map[training.MuscleRegion]float64{
+		training.ChestMid: 12, training.ChestUpper: 9, training.Quad: 12, training.Biceps: 9,
+	}), selected, big3(), focus)
 	if err != nil {
 		t.Fatalf("プログラムの生成に失敗: %v", err)
 	}
@@ -423,8 +422,7 @@ func TestSessionPlanner_SubtractsVariationCoverageFromResidual(t *testing.T) {
 	// 出力に現れない。
 	build := func(focus exercise.ExerciseID) *program.Program {
 		t.Helper()
-		p, err := program.NewProgram(mustFrequency(t, 3),
-			mustTarget(t, map[training.MuscleRegion]float64{training.ChestMid: 12}),
+		p, err := program.NewProgram(mustFrequency(t, 3), planVolume(t), mustTarget(t, map[training.MuscleRegion]float64{training.ChestMid: 12}),
 			ids, big3(), focus)
 		if err != nil {
 			t.Fatalf("プログラムの生成に失敗: %v", err)
@@ -513,8 +511,7 @@ func TestSessionPlanner_NonFocusDerivativesStayAsAccessories(t *testing.T) {
 		IncrementKg: 2.5, DerivedFrom: "squat",
 	}))
 
-	prog, err := program.NewProgram(mustFrequency(t, 3),
-		mustTarget(t, map[training.MuscleRegion]float64{training.Quad: 30}),
+	prog, err := program.NewProgram(mustFrequency(t, 3), planVolume(t), mustTarget(t, map[training.MuscleRegion]float64{training.Quad: 30}),
 		[]exercise.ExerciseID{"bench", "squat", "deadlift", "larsen", "tempo", "front_squat"},
 		big3(), "bench")
 	if err != nil {

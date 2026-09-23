@@ -73,23 +73,21 @@ type lanePrescription struct {
 // 表から持ってきた値は 0.81 / 4セットだったが、0.81 は表の中で
 // 0.88 や 0.76 と並んで初めて意味を持つ刻みで、単独では半端。
 // 軸 0.88 と補助 0.71 の間に置く一つの値としては 0.80 でいい。
-// 4セットは軸と合わせて胸の実測が週目標の134%まで出ていたので3に落とす。
 //
-// 補助のセット数だけ定数ではなく AccessorySelector から来る（D-126）。
-// 選択器が残差を消し込むときに使う数と同じでなければ、選んだ本数と
-// 出す本数が食い違う。
-func (p SessionPlanner) prescriptionFor(role laneRole) lanePrescription {
+// **セット数は表に持たない。**利用者の設定（1種目あたりのセット数）を全役割で
+// 使う。役割ごとに変えると「1回の種目数 × セット数」が1日の量を説明しなく
+// なる。補助の選択器にも同じ数を渡すので、選んだ本数と残差の消し込みが
+// 食い違わない（D-126 の理由はそのまま保たれる）。
+func (p SessionPlanner) prescriptionFor(role laneRole, sets int) lanePrescription {
 	switch role {
 	case heavyRole:
-		return lanePrescription{intensityPct: 0.88, sets: 3, targetRIR: 1}
+		return lanePrescription{intensityPct: 0.88, sets: sets, targetRIR: 1}
 	case focusVolumeRole:
-		return lanePrescription{intensityPct: 0.81, sets: 3, targetRIR: 1}
+		return lanePrescription{intensityPct: 0.81, sets: sets, targetRIR: 1}
 	case variationRole:
-		return lanePrescription{intensityPct: 0.80, sets: 3, targetRIR: 2}
+		return lanePrescription{intensityPct: 0.80, sets: sets, targetRIR: 2}
 	case accessoryRole:
-		return lanePrescription{
-			intensityPct: 0.71, sets: p.accessory.SetsPerAccessory().Int(), targetRIR: 2,
-		}
+		return lanePrescription{intensityPct: 0.71, sets: sets, targetRIR: 2}
 	}
 	// 到達しない。役割は上の4つしか無い。ゼロ値を返すと prescribeSet が
 	// 値オブジェクトの検証で止まり、種目だけの set になる。
@@ -117,7 +115,7 @@ func (l lanePrescription) setCount() training.SetCount {
 // 渡すと自重種目の重量がずれる。
 func (p SessionPlanner) prescribe(
 	lineup []lineupEntry, estimable setlog.History,
-	conditions condition.ConditionLog, date training.Date,
+	conditions condition.ConditionLog, date training.Date, sets int,
 ) PlannedSession {
 	rirBump := p.analyzer.RIRAdjustment(conditions, date)
 
@@ -128,7 +126,7 @@ func (p SessionPlanner) prescribe(
 		accessories: make([]PlannedSet, 0, len(lineup)),
 	}
 	for _, entry := range lineup {
-		set := p.prescribeSet(estimable, conditions, date, entry.exercise, p.prescriptionFor(entry.role), rirBump)
+		set := p.prescribeSet(estimable, conditions, date, entry.exercise, p.prescriptionFor(entry.role, sets), rirBump)
 		switch entry.role {
 		case heavyRole, focusVolumeRole:
 			session.main = append(session.main, set)

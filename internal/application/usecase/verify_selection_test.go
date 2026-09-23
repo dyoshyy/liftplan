@@ -36,7 +36,7 @@ func bicepsProgram(t *testing.T) *program.Program {
 	if err != nil {
 		t.Fatalf("週目標が不正: %v", err)
 	}
-	p, err := program.NewProgram(freq, target,
+	p, err := program.NewProgram(freq, mustVolume(t, 6, 3), target,
 		[]exercise.ExerciseID{"squat", "calf_raise", "barbell_curl"},
 		[]exercise.ExerciseID{"squat"}, "")
 	if err != nil {
