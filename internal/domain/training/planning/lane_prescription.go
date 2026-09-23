@@ -128,7 +128,7 @@ func (p SessionPlanner) prescribe(
 		accessories: make([]PlannedSet, 0, len(lineup)),
 	}
 	for _, entry := range lineup {
-		set := p.prescribeSet(estimable, conditions, date, entry.exercise, p.prescriptionFor(entry.role), rirBump)
+		set := p.prescribeSet(estimable, conditions, date, entry.exercise, entry.role, rirBump)
 		switch entry.role {
 		case heavyRole, focusVolumeRole:
 			session.main = append(session.main, set)
@@ -149,10 +149,10 @@ func (p SessionPlanner) prescribe(
 // panic は使わない（TestDomain_PanickingFunctionsStayWhereTheyBelong）。
 func (p SessionPlanner) prescribeSet(
 	estimable setlog.History, conditions condition.ConditionLog, date training.Date,
-	target *exercise.Exercise,
-	lane lanePrescription, rirBump int,
+	target *exercise.Exercise, role laneRole, rirBump int,
 ) PlannedSet {
 	set := PlannedSet{exerciseID: target.ID()}
+	lane := p.prescriptionFor(role)
 
 	baseRIR, err := training.NewRIR(lane.targetRIR)
 	if err != nil {
@@ -172,9 +172,85 @@ func (p SessionPlanner) prescribeSet(
 
 	if orm, ok := p.estimator.Estimate(estimable, target.ID(), date); ok {
 		if w, err := orm.WorkWeight(intensity, target.Increment()); err == nil {
+			if role == heavyRole || role == focusVolumeRole {
+				w = p.overload(estimable, target, lane, intensity, w)
+			}
 			// 推定も処方も実効負荷（体重込み）で通し、出口で加重に戻す。
 			set.weight, set.hasWeight = AddedWeight(w, target, conditions, date), true
 		}
 	}
 	return set
+}
+
+// overloadSessions は「推定が刻み単位で動いていない」と見なすのに要る、
+// その種目を実施したセッションの数。
+//
+// 推定器の追随の速さから決めた。EWMA（α=0.3）は持続した変化の半分を
+// 2セッションで（1−0.7² ≒ 0.51）、3分の2を3セッションで（≒ 0.66）拾う。
+// 本人が刻み1つぶん強くなっていれば、推定は3セッション以内に処方を刻み
+// 1つ動かす（模擬ユーザーで測った。4本目で 100 → 102.5）。3セッション
+// 動かないなら、推定の側からは上がらない。
+//
+// 2 だと既存の3週ぶんの履歴（TestSessionPlanner_HeavyPrescriptionIsPinned
+// など）でも発火する。そちらは「推定 × 強度」を固定しているテストで、
+// 3セッションぶん推定が平坦な履歴を持つ。
+const overloadSessions = 3
+
+// overload は軸の処方に進行の規則を1つ挟む（D-138）。
+//
+// 推定1RMのとおりの実力で目標 RIR ちょうどで止める人には、処方と推定が
+// 固定点に落ちて重量が二度と動かない（D-014）。「何kgでやるか」はアプリの
+// 担当なのに、上に行く判断だけ本人に残る。そこで、直近 overloadSessions
+// セッション、この役割の処方が刻み単位で同じで、かつ一度も目標 RIR を
+// 割っていなければ、刻みを1つ乗せる。
+//
+// 判定は重量の記録ではなく「その日の始まりの推定からこの役割で出る処方」で
+// 見る。記録のままの重量で比べると、重点種目の一巡で 0.88 と 0.81 が交互に
+// 来るので同じ重量が並ばず、永久に発火しない。履歴は役割を持たないので、
+// 「同じ役割で出た前回」も引けない。推定から役割の強度で引き直せば、どの
+// 役割でやった日でも同じ物差しで比べられ、差は刻み単位で出る（D-124）。
+//
+// 上乗せは「前回の重量 + 刻み」ではなく base + 刻み。平坦なら両者は同じ
+// 値だが、記録の重量から積むと、上げた日の重量からさらに積める形になる。
+// base から積めば、推定が支える重量より刻み1つ上にしか出ない。本人が
+// 実際に強くなっていれば推定が base を動かし、窓が切れて base に戻る
+// （そのときの base が上げた重量以上になる）。
+//
+// 推定と同じく実効負荷（体重込み）で判定し、処方の出口で加重に戻す。
+// 記録の加重で比べると、自重種目は体重が変わっただけで同じ負荷が違う
+// 数字になる。
+//
+// 下げる規則は置かない。上げた重量で目標 RIR を割れば、RIR の条件が
+// 窓を抜けるまで外れて base に戻る。推定もその記録で下がる。
+func (p SessionPlanner) overload(
+	estimable setlog.History, target *exercise.Exercise, lane lanePrescription,
+	intensity training.IntensityPct, base training.Weight,
+) training.Weight {
+	sessions := estimable.ForExercise(target.ID()).Sessions()
+	if len(sessions) < overloadSessions {
+		return base
+	}
+	for _, s := range sessions[len(sessions)-overloadSessions:] {
+		for _, l := range s.Logs() {
+			if l.RIR().Int() < lane.targetRIR {
+				return base
+			}
+		}
+		// その日の始まりに、この役割で出ていたはずの処方。推定できない
+		// 日（履歴の最初のセッション、ブランク明け）が窓にあれば判定しない。
+		orm, ok := p.estimator.Estimate(estimable.Before(s.Date()), target.ID(), s.Date())
+		if !ok {
+			return base
+		}
+		w, err := orm.WorkWeight(intensity, target.Increment())
+		if err != nil || w != base {
+			return base
+		}
+	}
+
+	raised, err := training.NewWeight(base.Kg() + target.Increment().Kg())
+	if err != nil {
+		return base
+	}
+	return raised
 }

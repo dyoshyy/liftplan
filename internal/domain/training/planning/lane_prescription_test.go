@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/dyoshyy/liftplan/internal/domain/training"
+	"github.com/dyoshyy/liftplan/internal/domain/training/exercise"
 	"github.com/dyoshyy/liftplan/internal/domain/training/planning"
 	"github.com/dyoshyy/liftplan/internal/domain/training/program"
 	"github.com/dyoshyy/liftplan/internal/domain/training/setlog"
@@ -44,12 +45,18 @@ func steadyReps(t *testing.T, estimate, weight float64, rir int) int {
 
 // simulateAxis は prog で sessions 回、軸だけを steadyReps でこなし続ける。
 // 通うのは月・水・金。補助は記録しない（軸の推定に影響しない）。
+//
+// 始まりの履歴はベンチ1セッションだけ（85kg×8 RIR2、推定 113.33kg）。
+// 上乗せには「前の日に推定が立っていたセッション」が overloadSessions 個
+// 要るので、最初の3本は必ず推定どおりの重量になり、比べる起点にできる。
 func simulateAxis(t *testing.T, prog *program.Program, sessions int) []axisRow {
 	t.Helper()
 
 	req := planRequest(t)
 	req.Program = prog
-	logs := planHistory(t)
+	logs := []*setlog.SetLog{
+		mkLogOn(t, "start", planMonday.AddDays(-7), "bench", 85, 8, 2),
+	}
 	estimator := planning.DefaultOneRepMaxEstimator()
 
 	rows := make([]axisRow, 0, sessions)
@@ -92,7 +99,15 @@ func logAxisRows(t *testing.T, rows []axisRow) {
 	}
 }
 
-// 目標 RIR を割らずにこなし続けたら、軸の重量が上がること。
+// 目標 RIR を割らずにこなし続けたら、軸の重量が刻みちょうど1つ上がること。
+//
+// 上げないと、推定1RMのとおりの実力で目標 RIR ちょうどで止める人には
+// 推定と処方が固定点に落ち、重量が永久に同じになる（D-014）。上に行く
+// 判断だけ本人に残る（#169）。実装前はどちらのケースも 12本やって
+// 100kg（6レップ相当は 92.5kg）のまま一度も動かなかった。
+//
+// 上がる幅も見る。刻み2つ上げる実装でも「上がった」は満たすので、
+// 「上がった重量 = 起点 + 刻み1つ」で固定する。
 func TestSessionPlanner_AxisWeightProgresses(t *testing.T) {
 	cases := []struct {
 		name string
@@ -116,18 +131,116 @@ func TestSessionPlanner_AxisWeightProgresses(t *testing.T) {
 			rows := simulateAxis(t, c.prog(t), 12)
 			logAxisRows(t, rows)
 
+			// ベンチの刻みは 2.5kg。
+			const increment = 2.5
 			for pos := range c.period {
 				first := rows[pos].weight
-				raised := false
+				top := first
 				for i := pos; i < len(rows); i += c.period {
-					if rows[i].weight >= first+2.5 {
-						raised = true
-					}
+					top = max(top, rows[i].weight)
 				}
-				if !raised {
-					t.Errorf("%d本目と同じ役割の軸が %d本やっても %vkg から上がらない",
-						pos+1, len(rows), first)
+				if top != first+increment {
+					t.Errorf("%d本目と同じ役割の軸が、%d本やって %vkg → 最大 %vkg。%vkg のはず",
+						pos+1, len(rows), first, top, first+increment)
 				}
+			}
+		})
+	}
+}
+
+// 軸の上乗せが、どの条件で効いてどの条件で効かないか。
+//
+// どのケースも、ベンチ85kg×8 RIR2（推定 113.33kg、0.88 で 100kg）の
+// 1セッションを起点に積む。起点の日は前に推定が無いので、判定の窓に
+// 入っていれば平坦とは見なされない。記録は各セッション3セット。
+func TestSessionPlanner_AxisOverload(t *testing.T) {
+	type session struct {
+		daysAgo   int
+		kg        float64
+		reps, rir int
+	}
+	cases := []struct {
+		name     string
+		sessions []session
+		exercise exercise.ExerciseID
+		want     float64
+	}{
+		{
+			// 100×3 RIR1 は Epley で 113.33kg。推定は動かない。
+			// 100 + 2.5
+			name: "推定が刻み単位で平坦で、目標 RIR を割っていなければ刻みを1つ乗せる",
+			sessions: []session{
+				{35, 85, 8, 2}, {21, 100, 3, 1}, {14, 100, 3, 1}, {7, 100, 3, 1},
+			},
+			exercise: "bench", want: 102.5,
+		},
+		{
+			// 100×4 RIR0 も Epley で 113.33kg。推定は上と同じで、RIR だけが違う。
+			name: "窓の中で1度でも目標 RIR を割っていたら乗せない",
+			sessions: []session{
+				{35, 85, 8, 2}, {21, 100, 3, 1}, {14, 100, 3, 1}, {7, 100, 4, 0},
+			},
+			exercise: "bench", want: 100,
+		},
+		{
+			// 上げてもらった 102.5kg で RIR0 まで追い込んだ（×3 で 112.75kg）。
+			// 推定は 0.3×112.75 + 0.7×113.33 = 113.16kg、0.88 で 99.6 → 100kg。
+			// 下げる規則が無くても、RIR の条件が外れて推定どおりに戻る。
+			name: "上げた重量で目標 RIR を割ったら、次は推定どおりに戻る",
+			sessions: []session{
+				{35, 85, 8, 2}, {28, 100, 3, 1}, {21, 100, 3, 1}, {14, 100, 3, 1},
+				{7, 102.5, 3, 0},
+			},
+			exercise: "bench", want: 100,
+		},
+		{
+			// 100×5 RIR1 は 120kg。推定は 0.3×120 + 0.7×113.33 = 115.33kg、
+			// 0.88 で 101.5 → 102.5kg。推定が既に刻み1つ上げているので、
+			// さらに乗せて 105kg にはしない。
+			name: "推定が刻み1つ動いていたら乗せない",
+			sessions: []session{
+				{35, 85, 8, 2}, {21, 100, 3, 1}, {14, 100, 3, 1}, {7, 100, 5, 1},
+			},
+			exercise: "bench", want: 102.5,
+		},
+		{
+			// 窓の3セッションのうち最古（起点）は、その日の始まりに推定が
+			// 無い。平坦だったかどうか分からないので判定しない。
+			name: "窓に推定の立たない日があれば乗せない",
+			sessions: []session{
+				{21, 85, 8, 2}, {14, 100, 3, 1}, {7, 100, 3, 1},
+			},
+			exercise: "bench", want: 100,
+		},
+		{
+			// 40×10 RIR2 は 56kg、0.71 で 39.8 → 40kg。軸なら 42.5kg になる形。
+			name: "補助には乗せない",
+			sessions: []session{
+				{35, 40, 10, 2}, {21, 40, 10, 2}, {14, 40, 10, 2}, {7, 40, 10, 2},
+			},
+			exercise: "incline", want: 40,
+		},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			logs := make([]*setlog.SetLog, 0, len(c.sessions)*3)
+			for i, s := range c.sessions {
+				for k := range 3 {
+					logs = append(logs, mkLogOn(t, fmt.Sprintf("s%d-%d", i, k),
+						planMonday.AddDays(-s.daysAgo), string(c.exercise), s.kg, s.reps, s.rir))
+				}
+			}
+			req := planRequest(t)
+			req.Program = benchOnlyProgram(t)
+			req.History = setlog.NewHistory(logs)
+
+			got, ok := plannedWeight(t, mustPlan(t, req), c.exercise)
+			if !ok {
+				t.Fatalf("前提: %s の重量が出ること", c.exercise)
+			}
+			if got != c.want {
+				t.Errorf("%s が %vkg。%vkg のはず", c.exercise, got, c.want)
 			}
 		})
 	}
