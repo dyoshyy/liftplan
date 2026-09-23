@@ -41,6 +41,10 @@ export type SplitPresetsResponse = { presets: SplitPreset[] };
 
 export type Program = {
   per_week: number;
+  /** 1回に出る種目の数（2〜6）。利用者が時間に合わせて選ぶ。 */
+  exercises_per_session: number;
+  /** 1種目あたりのセット数（2〜6）。 */
+  sets_per_exercise: number;
   weekly_target: Record<string, number>;
   selected_exercises: string[];
   declared_exercises: string[];

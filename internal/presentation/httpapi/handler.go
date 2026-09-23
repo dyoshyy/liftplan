@@ -27,6 +27,7 @@ type Handler struct {
 	setFocus         *usecase.SetFocusExercise
 	setDeclared      *usecase.SetDeclaredExercises
 	setFrequency     *usecase.SetFrequency
+	setVolume        *usecase.SetSessionVolume
 	setSelected      *usecase.SetSelectedExercises
 	setSplit         *usecase.SetSplitCycle
 	getProgram       *usecase.GetProgram
@@ -47,6 +48,7 @@ type Dependencies struct {
 	SetFocus         *usecase.SetFocusExercise
 	SetDeclared      *usecase.SetDeclaredExercises
 	SetFrequency     *usecase.SetFrequency
+	SetVolume        *usecase.SetSessionVolume
 	SetSelected      *usecase.SetSelectedExercises
 	SetSplit         *usecase.SetSplitCycle
 	GetProgram       *usecase.GetProgram
@@ -79,6 +81,8 @@ func NewHandler(d Dependencies) (*Handler, error) {
 		return nil, errMissingDependency("SetDeclared")
 	case d.SetFrequency == nil:
 		return nil, errMissingDependency("SetFrequency")
+	case d.SetVolume == nil:
+		return nil, errMissingDependency("SetVolume")
 	case d.SetSelected == nil:
 		return nil, errMissingDependency("SetSelected")
 	case d.SetSplit == nil:
@@ -102,6 +106,7 @@ func NewHandler(d Dependencies) (*Handler, error) {
 		setFocus:         d.SetFocus,
 		setDeclared:      d.SetDeclared,
 		setFrequency:     d.SetFrequency,
+		setVolume:        d.SetVolume,
 		setSelected:      d.SetSelected,
 		setSplit:         d.SetSplit,
 		getProgram:       d.GetProgram,
@@ -396,6 +401,25 @@ func (h *Handler) handlePutProgramFrequency(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	if err := h.setFrequency.Execute(r.Context(), user, req.PerWeek); err != nil {
+		respondError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// handlePutProgramVolume は1回の量を差し替える。週目標も道連れに置き直る
+// （頻度の口と同じ）。
+func (h *Handler) handlePutProgramVolume(w http.ResponseWriter, r *http.Request) {
+	user, ok := requireUser(w, r)
+	if !ok {
+		return
+	}
+	var req sessionVolumeDTO
+	if err := decodeJSON(r, &req); err != nil {
+		respondError(w, err)
+		return
+	}
+	if err := h.setVolume.Execute(r.Context(), user, req.ExercisesPerSession, req.SetsPerExercise); err != nil {
 		respondError(w, err)
 		return
 	}

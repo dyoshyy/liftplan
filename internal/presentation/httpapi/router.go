@@ -28,6 +28,7 @@ func (h *Handler) Routes() *http.ServeMux {
 	mux.HandleFunc("PUT /api/program/focus", h.handlePutProgramFocus)
 	mux.HandleFunc("PUT /api/program/declared", h.handlePutProgramDeclared)
 	mux.HandleFunc("PUT /api/program/frequency", h.handlePutProgramFrequency)
+	mux.HandleFunc("PUT /api/program/volume", h.handlePutProgramVolume)
 	mux.HandleFunc("PUT /api/program/selected", h.handlePutProgramSelected)
 	mux.HandleFunc("PUT /api/program/split", h.handlePutProgramSplit)
 	mux.HandleFunc("GET /api/split-presets", h.handleGetSplitPresets)

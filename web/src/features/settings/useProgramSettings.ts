@@ -131,6 +131,18 @@ export function useProgramSettings(onChanged: () => Promise<void>) {
     await load();
   };
 
+  // 1回の量。頻度と同じく週目標も置き直るので、手持ちを捨てて取り直す。
+  const saveVolume = async (exercises: number, sets: number) => {
+    if (!program || busy) return;
+    const body = { exercises_per_session: exercises, sets_per_exercise: sets };
+    if (!(await put('/api/program/volume', body))) return;
+    setProgram(null);
+    setDraft(null);
+    setPick(null);
+    await onChanged();
+    await load();
+  };
+
   const locked = program ? lockedDeclared(draft ?? [], program.focus_exercise) : new Map();
   const dirty = program && draft ? isDirty(draft, program.declared_exercises) : false;
   const pickDirty = program && pick ? isDirty(pick, program.selected_exercises) : false;
@@ -152,6 +164,7 @@ export function useProgramSettings(onChanged: () => Promise<void>) {
     saveDeclared,
     saveSelected,
     saveFrequency,
+    saveVolume,
     presets,
     splitKey,
     chooseSplit,

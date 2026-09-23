@@ -51,6 +51,7 @@ export function ProgramSettings({ nameOf, exercises, onChanged }: Props) {
     saveDeclared,
     saveSelected,
     saveFrequency,
+    saveVolume,
     presets,
     splitKey,
     chooseSplit,
@@ -113,6 +114,51 @@ export function ProgramSettings({ nameOf, exercises, onChanged }: Props) {
             </option>
           ))}
         </Select>
+      )}
+
+      </Section>
+
+      <Section
+        title="1回の量"
+        summary={program ? `${program.exercises_per_session}種目×${program.sets_per_exercise}セット` : ""}
+      >
+      <Note className="mb-3">
+        1回に出る種目の数と、1種目あたりのセット数です。ジムで取れる時間に
+        合わせてください。どの部位をどれだけやるかは、この量と通う回数から
+        決まります。
+      </Note>
+
+      {program && (
+        <div className="grid grid-cols-2 gap-2">
+          <Select
+            aria-label="1回の種目数"
+            value={program.exercises_per_session}
+            disabled={busy}
+            onChange={(e) =>
+              void saveVolume(Number(e.target.value), program.sets_per_exercise)
+            }
+          >
+            {[2, 3, 4, 5, 6].map((n) => (
+              <option key={n} value={n}>
+                {n}種目
+              </option>
+            ))}
+          </Select>
+          <Select
+            aria-label="1種目あたりのセット数"
+            value={program.sets_per_exercise}
+            disabled={busy}
+            onChange={(e) =>
+              void saveVolume(program.exercises_per_session, Number(e.target.value))
+            }
+          >
+            {[2, 3, 4, 5, 6].map((n) => (
+              <option key={n} value={n}>
+                {n}セット
+              </option>
+            ))}
+          </Select>
+        </div>
       )}
 
       </Section>

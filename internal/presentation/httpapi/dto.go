@@ -109,12 +109,23 @@ type errorResponse struct {
 // 週目標をマップで返すのは、区分ごとに独立して調整するため。
 // 配列だと順序に意味が生まれ、区分の追加でクライアントが壊れる。
 type programDTO struct {
-	PerWeek  int                `json:"per_week"`
-	Target   map[string]float64 `json:"weekly_target"`
-	Selected []string           `json:"selected_exercises"`
-	Declared []string           `json:"declared_exercises"`
-	Focus    *string            `json:"focus_exercise"`
-	Splits   []splitDTO         `json:"splits"`
+	PerWeek             int                `json:"per_week"`
+	ExercisesPerSession int                `json:"exercises_per_session"`
+	SetsPerExercise     int                `json:"sets_per_exercise"`
+	Target              map[string]float64 `json:"weekly_target"`
+	Selected            []string           `json:"selected_exercises"`
+	Declared            []string           `json:"declared_exercises"`
+	Focus               *string            `json:"focus_exercise"`
+	Splits              []splitDTO         `json:"splits"`
+}
+
+// sessionVolumeDTO は1回の量だけの書き込み。
+//
+// 0 は NewSessionVolume が弾くので、欠落と「0種目」を区別する必要が無い。
+// 片方だけ送られても、欠けた側が 0 になって断られる。
+type sessionVolumeDTO struct {
+	ExercisesPerSession int `json:"exercises_per_session"`
+	SetsPerExercise     int `json:"sets_per_exercise"`
 }
 
 // focusDTO は重点種目だけの書き込み。
@@ -204,12 +215,14 @@ func toProgramDTO(p *program.Program) programDTO {
 	}
 
 	return programDTO{
-		PerWeek:  p.Frequency().PerWeek(),
-		Target:   target,
-		Selected: selected,
-		Declared: declared,
-		Focus:    focus,
-		Splits:   toSplitDTOs(p.Cycle()),
+		PerWeek:             p.Frequency().PerWeek(),
+		ExercisesPerSession: p.SessionVolume().Exercises(),
+		SetsPerExercise:     p.SessionVolume().Sets(),
+		Target:              target,
+		Selected:            selected,
+		Declared:            declared,
+		Focus:               focus,
+		Splits:              toSplitDTOs(p.Cycle()),
 	}
 }
 

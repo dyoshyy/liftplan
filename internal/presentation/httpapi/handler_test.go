@@ -110,6 +110,7 @@ func dependencies(
 		SetFocus:         usecase.NewSetFocusExercise(programs, programs),
 		SetDeclared:      usecase.NewSetDeclaredExercises(exercises, programs, programs),
 		SetFrequency:     usecase.NewSetFrequency(programs, programs),
+		SetVolume:        usecase.NewSetSessionVolume(programs, programs),
 		SetSelected:      usecase.NewSetSelectedExercises(exercises, programs, programs),
 		SetSplit:         usecase.NewSetSplitCycle(exercises, programs, programs),
 		GetProgram:       usecase.NewGetProgram(programs),
@@ -701,6 +702,98 @@ func TestPutProgramFrequency_MovesTargetWithIt(t *testing.T) {
 	}
 }
 
+// 1回の量の口は、1回の量と週目標だけを動かすこと。
+//
+// 週目標を道連れにするのは頻度の口と同じ理由。週に供給できる量は
+// 「頻度 × 種目数 × セット数」で決まるので、量だけ動かすと目標が
+// 実際の挙動を説明しなくなる。
+func TestPutProgramVolume_MovesTargetWithIt(t *testing.T) {
+	mux := newServer(t, true)
+
+	before := do(t, mux, http.MethodGet, "/api/program", "")
+	if rec := do(t, mux, http.MethodPut, "/api/program/volume",
+		`{"exercises_per_session":5,"sets_per_exercise":4}`); rec.Code != http.StatusNoContent {
+		t.Fatalf("保存に失敗: %d body=%s", rec.Code, rec.Body.String())
+	}
+	after := do(t, mux, http.MethodGet, "/api/program", "")
+
+	var b, a map[string]json.RawMessage
+	if err := json.Unmarshal(before.Body.Bytes(), &b); err != nil {
+		t.Fatalf("JSONが壊れている: %v", err)
+	}
+	if err := json.Unmarshal(after.Body.Bytes(), &a); err != nil {
+		t.Fatalf("JSONが壊れている: %v", err)
+	}
+	moved := map[string]bool{
+		"exercises_per_session": true, "sets_per_exercise": true, "weekly_target": true,
+	}
+	for k, want := range b {
+		if moved[k] {
+			continue
+		}
+		if string(a[k]) != string(want) {
+			t.Errorf("%s が変わった: %s → %s", k, want, a[k])
+		}
+	}
+	if string(a["exercises_per_session"]) != "5" || string(a["sets_per_exercise"]) != "4" {
+		t.Errorf("1回の量が %s種目×%sセット。5×4 のはず",
+			a["exercises_per_session"], a["sets_per_exercise"])
+	}
+
+	// 週目標が「頻度 × 新しい量」の既定と一致すること。
+	var perWeek int
+	if err := json.Unmarshal(a["per_week"], &perWeek); err != nil {
+		t.Fatalf("頻度が壊れている: %v", err)
+	}
+	freq, err := program.NewFrequency(perWeek)
+	if err != nil {
+		t.Fatalf("NewFrequency: %v", err)
+	}
+	target, err := seed.DefaultWeeklyTarget(freq, mustVolume(t, 5, 4))
+	if err != nil {
+		t.Fatalf("DefaultWeeklyTarget: %v", err)
+	}
+	var got map[string]float64
+	if err := json.Unmarshal(a["weekly_target"], &got); err != nil {
+		t.Fatalf("週目標が壊れている: %v", err)
+	}
+	for _, r := range target.Regions() {
+		if got[string(r)] != target.Sets(r) {
+			t.Errorf("%s が %v。既定の %v のはず", r, got[string(r)], target.Sets(r))
+		}
+	}
+	// 動いていなければ上の一致は「もともと同じだった」でも通る。
+	if string(a["weekly_target"]) == string(b["weekly_target"]) {
+		t.Error("週目標が1回の量に追従していない")
+	}
+}
+
+func TestPutProgramVolume_Rejects(t *testing.T) {
+	cases := []struct {
+		name       string
+		configured bool
+		body       string
+		want       int
+	}{
+		{"種目数が下限未満", true, `{"exercises_per_session":1,"sets_per_exercise":3}`, http.StatusBadRequest},
+		{"種目数が上限超え", true, `{"exercises_per_session":7,"sets_per_exercise":3}`, http.StatusBadRequest},
+		{"セット数が下限未満", true, `{"exercises_per_session":4,"sets_per_exercise":1}`, http.StatusBadRequest},
+		{"セット数が上限超え", true, `{"exercises_per_session":4,"sets_per_exercise":7}`, http.StatusBadRequest},
+		{"片方が欠けている", true, `{"exercises_per_session":4}`, http.StatusBadRequest},
+		{"プログラムが未設定", false, `{"exercises_per_session":4,"sets_per_exercise":3}`, http.StatusConflict},
+		{"余計なフィールド", true, `{"exercises_per_session":4,"sets_per_exercise":3,"per_week":3}`, http.StatusBadRequest},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			rec := do(t, newServer(t, c.configured), http.MethodPut,
+				"/api/program/volume", c.body)
+			if rec.Code != c.want {
+				t.Errorf("ステータスが %d。%d のはず: %s", rec.Code, c.want, rec.Body.String())
+			}
+		})
+	}
+}
+
 func TestPutProgramFrequency_Rejects(t *testing.T) {
 	cases := []struct {
 		name       string
@@ -1264,6 +1357,7 @@ func TestProgram_RoundTrips(t *testing.T) {
 	mux = newServer(t, true)
 	for _, step := range []struct{ path, body string }{
 		{"/api/program/frequency", `{"per_week":2}`},
+		{"/api/program/volume", `{"exercises_per_session":5,"sets_per_exercise":4}`},
 		{"/api/program/selected", `{"selected_exercises":["bench","squat","deadlift","incline_db_press"]}`},
 		{"/api/program/focus", `{"focus_exercise":"bench"}`},
 	} {
@@ -1277,17 +1371,22 @@ func TestProgram_RoundTrips(t *testing.T) {
 		t.Fatalf("取得に失敗: %d", rec.Code)
 	}
 	var got struct {
-		PerWeek  int                `json:"per_week"`
-		Target   map[string]float64 `json:"weekly_target"`
-		Selected []string           `json:"selected_exercises"`
-		Declared []string           `json:"declared_exercises"`
-		Focus    *string            `json:"focus_exercise"`
+		PerWeek   int                `json:"per_week"`
+		Exercises int                `json:"exercises_per_session"`
+		Sets      int                `json:"sets_per_exercise"`
+		Target    map[string]float64 `json:"weekly_target"`
+		Selected  []string           `json:"selected_exercises"`
+		Declared  []string           `json:"declared_exercises"`
+		Focus     *string            `json:"focus_exercise"`
 	}
 	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
 		t.Fatalf("応答を解釈できない: %v", err)
 	}
 	if got.PerWeek != 2 {
 		t.Errorf("頻度が往復していない: %d", got.PerWeek)
+	}
+	if got.Exercises != 5 || got.Sets != 4 {
+		t.Errorf("1回の量が往復していない: %d種目×%dセット", got.Exercises, got.Sets)
 	}
 	if len(got.Selected) != 4 {
 		t.Errorf("選択種目が往復していない: %v", got.Selected)
@@ -1371,6 +1470,7 @@ func TestRoutes_RejectWrongMethod(t *testing.T) {
 		{http.MethodPost, "/api/program/focus"},
 		{http.MethodPost, "/api/program/declared"},
 		{http.MethodPost, "/api/program/frequency"},
+		{http.MethodPost, "/api/program/volume"},
 		{http.MethodPost, "/api/program/selected"},
 		{http.MethodPost, "/api/program/split"},
 		{http.MethodPost, "/api/split-presets"},
@@ -1719,6 +1819,7 @@ func TestWrites_StopOnClientDisconnect(t *testing.T) {
 		"focus":      {http.MethodPut, "/api/program/focus", `{"focus_exercise":"bench"}`},
 		"declared":   {http.MethodPut, "/api/program/declared", `{"declared_exercises":["bench"]}`},
 		"frequency":  {http.MethodPut, "/api/program/frequency", `{"per_week":4}`},
+		"volume":     {http.MethodPut, "/api/program/volume", `{"exercises_per_session":5,"sets_per_exercise":4}`},
 		"selected":   {http.MethodPut, "/api/program/selected", `{"selected_exercises":["bench","squat","deadlift"]}`},
 		"split":      {http.MethodPut, "/api/program/split", `{"splits":[{"name":"全身","regions":[]}]}`},
 	} {
