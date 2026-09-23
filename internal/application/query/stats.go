@@ -11,6 +11,7 @@ import (
 	"github.com/dyoshyy/liftplan/internal/domain/training/exercise"
 	"github.com/dyoshyy/liftplan/internal/domain/training/planning"
 	"github.com/dyoshyy/liftplan/internal/domain/training/program"
+	"github.com/dyoshyy/liftplan/internal/domain/training/seed"
 	"github.com/dyoshyy/liftplan/internal/domain/training/setlog"
 )
 
@@ -180,6 +181,12 @@ func (q *Stats) load(ctx context.Context, user account.UserID) (
 	if prog == nil {
 		return setlog.History{}, nil, nil,
 			fmt.Errorf("プログラムの取得: %w", program.ErrProgramNotConfigured)
+	}
+	// 週目標は保存値を使わず、設定から組み直す。計画と同じ週目標で比べないと、
+	// 計画が狙う区分と画面が「足りていない」と言う区分が食い違う。
+	prog, err = seed.WithDerivedTarget(prog)
+	if err != nil {
+		return setlog.History{}, nil, nil, err
 	}
 	return h, pool, prog, nil
 }

@@ -11,6 +11,7 @@ import (
 	"github.com/dyoshyy/liftplan/internal/domain/training/exercise"
 	"github.com/dyoshyy/liftplan/internal/domain/training/planning"
 	"github.com/dyoshyy/liftplan/internal/domain/training/program"
+	"github.com/dyoshyy/liftplan/internal/domain/training/seed"
 	"github.com/dyoshyy/liftplan/internal/domain/training/setlog"
 )
 
@@ -157,7 +158,8 @@ func TestWeeklyVolume_埋まっていない順に並ぶ(t *testing.T) {
 	if err != nil {
 		t.Fatalf("読めない: %v", err)
 	}
-	if len(vols) != 2 {
+	// 週目標は設定から組み直すので、全区分が並ぶ。
+	if len(vols) != len(training.AllMuscleRegions()) {
 		t.Fatalf("区分の数が合わない: %d", len(vols))
 	}
 	if vols[0].DoneSet > vols[1].DoneSet {
@@ -176,8 +178,13 @@ func TestWeeklyVolume_埋まっていない順に並ぶ(t *testing.T) {
 	if want := 2.0 / planning.CoverageWindowWeeks; chest.DoneSet != want {
 		t.Fatalf("こなしたセット数（週あたり）が %v。%v のはず", chest.DoneSet, want)
 	}
-	if chest.TargetSet != 10 {
-		t.Fatalf("週目標が %v", chest.TargetSet)
+	p := defaultProgram(t)
+	want, err := seed.DefaultWeeklyTarget(p.Frequency(), p.SessionVolume())
+	if err != nil {
+		t.Fatalf("既定の週目標が組めない: %v", err)
+	}
+	if chest.TargetSet != want.Sets(training.ChestMid) {
+		t.Fatalf("週目標が %v。設定から組み直した %v のはず", chest.TargetSet, want.Sets(training.ChestMid))
 	}
 }
 
@@ -229,4 +236,37 @@ func mustVolume(t *testing.T, exercises, sets int) program.SessionVolume {
 		t.Fatalf("NewSessionVolume(%d, %d): %v", exercises, sets, err)
 	}
 	return v
+}
+
+// 充足は、保存された週目標ではなく、設定（頻度 × 1回の量）から組み直した
+// 週目標と比べること。
+//
+// 計画と同じ理由（D-139）。画面だけ保存値を見ると、計画が狙っている区分と
+// 画面が「足りていない」と言う区分が食い違う。
+//
+// 保存値はわざと胸中部だけ・既定と違う数にしておく。
+func TestWeeklyVolume_設定から組み直した週目標と比べる(t *testing.T) {
+	stale := newProgram(t,
+		map[training.MuscleRegion]float64{training.ChestMid: 30},
+		[]exercise.ExerciseID{"bench"},
+	)
+	q := newStats(t, nil, []*exercise.Exercise{newExercise(t, "bench", "ベンチプレス")}, stale)
+
+	vols, err := q.WeeklyVolume(context.Background(), testUser, date(t, "2026-08-18"))
+	if err != nil {
+		t.Fatalf("読めない: %v", err)
+	}
+
+	want, err := seed.DefaultWeeklyTarget(stale.Frequency(), stale.SessionVolume())
+	if err != nil {
+		t.Fatalf("既定の週目標が組めない: %v", err)
+	}
+	if len(vols) != len(want.Regions()) {
+		t.Fatalf("区分が %d 個。設定から組み直せば %d 個のはず", len(vols), len(want.Regions()))
+	}
+	for _, v := range vols {
+		if v.TargetSet != want.Sets(v.Region) {
+			t.Errorf("%s の目標が %v。設定から組み直した %v のはず", v.Region, v.TargetSet, want.Sets(v.Region))
+		}
+	}
 }

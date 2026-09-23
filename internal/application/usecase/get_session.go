@@ -23,6 +23,7 @@ import (
 	"github.com/dyoshyy/liftplan/internal/domain/training/exercise"
 	"github.com/dyoshyy/liftplan/internal/domain/training/planning"
 	"github.com/dyoshyy/liftplan/internal/domain/training/program"
+	"github.com/dyoshyy/liftplan/internal/domain/training/seed"
 	"github.com/dyoshyy/liftplan/internal/domain/training/setlog"
 )
 
@@ -70,6 +71,11 @@ func (u *GetSession) Execute(ctx context.Context, user account.UserID, in GetSes
 	if prog == nil {
 		return planning.PlannedSession{}, fmt.Errorf(
 			"プログラムの取得: %w", program.ErrProgramNotConfigured)
+	}
+	// 週目標は保存値を使わず、設定から組み直す（理由は seed.WithDerivedTarget）。
+	prog, err = seed.WithDerivedTarget(prog)
+	if err != nil {
+		return planning.PlannedSession{}, err
 	}
 	// 途中でキャンセルされたら残りの取得をやめる。履歴は全件を読むので、
 	// クライアントが切断済みでも最後まで走らせると数十MBを無駄に確保する。

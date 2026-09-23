@@ -130,3 +130,25 @@ func distribute(share map[training.MuscleRegion]float64, f program.Frequency, v 
 	}
 	return program.NewWeeklyVolumeTarget(scaled)
 }
+
+// WithDerivedTarget は、設定（頻度と1回の量）から組み直した週目標を持つ
+// プログラムを返す。保存されている週目標は使わない。
+//
+// 週目標は設定から導く値で、利用者は触れない（D-139）。保存値を信用すると、
+// 導き方を変えたときに、頻度も量も触っていない既存の行だけが古い目標で
+// 動き続ける。実際、1日の上限を「9種目27セット固定」から「1回の量」に
+// 変えたとき、既存の行の週目標は約2.4倍のまま残った。区分の順序は崩れない
+// （新旧は比率が同じで倍率だけが違う）が、「もう足りている」の判定が
+// 甘くなり、画面の充足は4割程度に見える。
+//
+// 計画と画面の充足の両方がこれを通す。保存列を消すのは別の変更で、それまでの
+// 間、保存値は書かれるだけで読まれない。
+func WithDerivedTarget(p *program.Program) (*program.Program, error) {
+	target, err := DefaultWeeklyTarget(p.Frequency(), p.SessionVolume())
+	if err != nil {
+		return nil, fmt.Errorf("週目標が組めない: %w", err)
+	}
+	// 量はそのままで週目標だけを置き直す。WithSessionVolume は量と週目標を
+	// 一緒に受け取る口で、同じ量を渡せば週目標だけが変わる。
+	return p.WithSessionVolume(p.SessionVolume(), target)
+}
