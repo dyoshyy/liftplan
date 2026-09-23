@@ -39,11 +39,14 @@ func TestDefaultWeeklyTarget_ShareDoesNotMoveTotal(t *testing.T) {
 	}
 
 	// 配分を大きく歪める。総量に触れていなければ合計は動かない。
-	restore := regionShare[training.Glute]
-	regionShare[training.Glute] = restore * 3
-	t.Cleanup(func() { regionShare[training.Glute] = restore })
+	// 共有の regionShare は書き換えず、写しを歪めて渡す。
+	skewed := make(map[training.MuscleRegion]float64, len(regionShare))
+	for r, w := range regionShare {
+		skewed[r] = w
+	}
+	skewed[training.Glute] *= 3
 
-	after, err := DefaultWeeklyTarget(freq, volume)
+	after, err := distribute(skewed, freq, volume)
 	if err != nil {
 		t.Fatalf("週目標が不正: %v", err)
 	}

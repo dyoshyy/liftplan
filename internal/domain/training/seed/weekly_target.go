@@ -102,6 +102,15 @@ func averageStimulusPerSet() (float64, error) {
 // （通し検証で週1〜3回は全セッションが27セットで固定）。この表が効くのは
 // 「どの区分を狙うか」のゲートと、同点のときの順序付けまで。
 func DefaultWeeklyTarget(f program.Frequency, v program.SessionVolume) (program.WeeklyVolumeTarget, error) {
+	return distribute(regionShare, f, v)
+}
+
+// distribute は配分表を受け取って週目標を組む。
+//
+// 配分表を引数にしているのは、テストが共有の regionShare を書き換えずに
+// 「配分を動かしても総量が動かない」を検査できるようにするため。パッケージ
+// 変数を書き換えるテストは、並行に走らせた瞬間に他のテストと競合する。
+func distribute(share map[training.MuscleRegion]float64, f program.Frequency, v program.SessionVolume) (program.WeeklyVolumeTarget, error) {
 	k, err := averageStimulusPerSet()
 	if err != nil {
 		return program.WeeklyVolumeTarget{}, err
@@ -111,12 +120,12 @@ func DefaultWeeklyTarget(f program.Frequency, v program.SessionVolume) (program.
 	// 合計は実行時に取る。定数に書くと、配分を1つ動かしたときに合計だけが
 	// 古いまま残り、割り振りが静かにずれる。
 	sum := 0.0
-	for _, w := range regionShare {
+	for _, w := range share {
 		sum += w
 	}
 
-	scaled := make(map[training.MuscleRegion]float64, len(regionShare))
-	for r, w := range regionShare {
+	scaled := make(map[training.MuscleRegion]float64, len(share))
+	for r, w := range share {
 		scaled[r] = w / sum * total
 	}
 	return program.NewWeeklyVolumeTarget(scaled)
