@@ -3,20 +3,12 @@ package program
 import (
 	"errors"
 	"fmt"
+	"math"
 	"slices"
 	"sort"
 
 	"github.com/dyoshyy/liftplan/internal/domain/training"
 	"github.com/dyoshyy/liftplan/internal/domain/training/exercise"
-)
-
-// 週目標セット数の範囲。
-//
-// 上限は「1筋区分に週40セット」で、どんなプログラムでも過剰。
-// 下限を正の数にするのは、0を設定するくらいなら区分ごと外すべきだから。
-const (
-	minWeeklySets = 0.5
-	maxWeeklySets = 40
 )
 
 // WeeklyVolumeTarget は筋区分ごとの週あたり目標セット数。不変。
@@ -34,9 +26,19 @@ func NewWeeklyVolumeTarget(m map[training.MuscleRegion]float64) (WeeklyVolumeTar
 		if !region.Valid() {
 			return WeeklyVolumeTarget{}, fmt.Errorf("未知の筋区分: %q", region)
 		}
+		// 正で有限であることだけを見る。
+		//
+		// 以前は 0.5〜40 に収めていた。利用者が手で入力していた頃の防波堤で、
+		// 「0を入れるくらいなら区分ごと外せ」「40はどんなプログラムでも過剰」
+		// という理由だった。週目標は利用者の設定（頻度 × 種目数 × セット数）
+		// から導く値になり、入力ではなくなった。範囲を残すと、選べる設定の
+		// うち10通り（週1回の少量設定で0.5未満、週7回6種目6セットで臀筋41）
+		// で週目標が組めず、その設定を選んだ瞬間に保存が落ちる。
+		//
+		// 量子化してから見るので、0に潰れるほど小さい値は弾かれる。
 		q := training.Quantize(v)
 		name := fmt.Sprintf("筋区分 %s の目標セット数", region)
-		if err := training.ValidateRange(name, q, minWeeklySets, maxWeeklySets); err != nil {
+		if err := training.ValidateRange(name, q, training.SmallestPositive, math.MaxFloat64); err != nil {
 			return WeeklyVolumeTarget{}, err
 		}
 		out[region] = q

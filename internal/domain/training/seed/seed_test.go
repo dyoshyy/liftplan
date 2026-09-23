@@ -78,19 +78,30 @@ func TestExercises_NonDeclaredCoverEveryRegion(t *testing.T) {
 	}
 }
 
+// 利用者が選べるすべての設定で週目標が組め、全区分に正の値が入ること。
+//
+// 週目標は利用者の設定（頻度 × 種目数 × セット数）から導くので、どれか1つの
+// 組み合わせで組めないと、その設定を選んだ瞬間に保存が落ちる。以前は頻度
+// 1〜4 × 6種目3セットしか見ておらず、週1回の少量設定（0.5未満）と週7回
+// 6種目6セット（臀筋 41.0）で組めないことを見逃していた。
 func TestDefaultWeeklyTarget_CoversEveryRegion(t *testing.T) {
-	for f := 1; f <= 4; f++ {
-		freq, err := program.NewFrequency(f)
-		if err != nil {
-			t.Fatalf("頻度が不正: %v", err)
-		}
-		target, err := seed.DefaultWeeklyTarget(freq, mustVolume(t, 6, 3))
-		if err != nil {
-			t.Fatalf("週目標が不正: %v", err)
-		}
-		for _, r := range training.AllMuscleRegions() {
-			if target.Sets(r) <= 0 {
-				t.Errorf("週%d回: 筋区分 %s の目標が設定されていない", f, r)
+	for f := 1; f <= 7; f++ {
+		for e := 2; e <= 6; e++ {
+			for s := 2; s <= 6; s++ {
+				freq, err := program.NewFrequency(f)
+				if err != nil {
+					t.Fatalf("頻度が不正: %v", err)
+				}
+				target, err := seed.DefaultWeeklyTarget(freq, mustVolume(t, e, s))
+				if err != nil {
+					t.Errorf("週%d回 %d種目×%dセット: 週目標が組めない: %v", f, e, s, err)
+					continue
+				}
+				for _, r := range training.AllMuscleRegions() {
+					if target.Sets(r) <= 0 {
+						t.Errorf("週%d回 %d種目×%dセット: 筋区分 %s の目標が無い", f, e, s, r)
+					}
+				}
 			}
 		}
 	}
