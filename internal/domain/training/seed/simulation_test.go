@@ -359,6 +359,8 @@ func TestSimulation_EveryAccessoryGetsUsedInSomeSetup(t *testing.T) {
 //
 // 下限を1種目ぶんに置くのは、軸だけの日（補助が全部回復期間に当たる、
 // 分割で狙う区分が尽きる）が正当にあるため。予算に届かない日を責めない。
+// 下限そのものを外さないのは、何も出ない日（0セット）は捕まえたいから。
+// ジムに来て空のリストが出るのは、予算に届かないのとは別の壊れ方。
 //
 // 予算は利用者の設定から来る。ここでは出荷される既定を測る。
 func TestSimulation_SessionLengthIsReasonable(t *testing.T) {
