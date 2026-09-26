@@ -108,7 +108,7 @@ func (p SessionPlanner) ProjectHorizon(
 	declared := declaredExercises(usable, prog)
 
 	// 1種目あたりのセット数は利用者の設定（SessionVolume）で、役割によらず
-	// 共通（D-126 の理由がそのまま保たれる。selectLineup と同じ値を使う）。
+	// 共通（D-126 の理由がそのまま保たれる。Forecast と同じ値を使う）。
 	sets := prog.SessionVolume().Sets()
 
 	dates := horizonDates(date, prog.Frequency().PerWeek())
@@ -145,9 +145,10 @@ func (p SessionPlanner) ProjectHorizon(
 // （accessory_allocator.go）の入力へ変換する。
 //
 // 空き枠は「1回の種目数 − 軸があれば1 − バリエーションがあれば1」。
-// selectLineup が回0の枠を確定するのと同じ式だが、回0については
-// 呼び出し側（selectLineup）がその場で確定した slots で上書きする
-// （TestProjectHorizon_MatchesPlanWhenFollowedExactly が両者の一致を守る）。
+// Forecast はこの式をそのまま全回（回0を含む）で使う。以前
+// （selectLineup）は回0だけ、その場で確定した lineup から求めた
+// slots で上書きしていたが、Forecast が軸・バリエーションの決定を
+// ProjectHorizon 側の1本に統一したので、上書きは無くなった。
 func toHorizonSessions(sessions []ProjectedSession, exercisesPerSession int) []HorizonSession {
 	out := make([]HorizonSession, len(sessions))
 	for i, s := range sessions {
