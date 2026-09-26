@@ -35,15 +35,13 @@ export function isInitiallyOpen(index: number): boolean {
  * forecastErrorMessage は取得に失敗したときに出す一言を選ぶ。
  *
  * 「オフラインでは見られません」は**本当に応答が返らなかった**ときだけ
- * 出す（`fetch` が投げる `TypeError`、または `navigator.onLine` が
- * false）。401（`Unauthorized`）や `getJSON` が投げる非2xxの `Error`
- * （409・5xx など）はサーバーとは通信できているので、オフラインだと
- * 言い切ると誤解させる——新設エンドポイントが5xxを返しているだけなのに
- * 「オフラインだから」と読めると、実際に壊れている場所を見誤る。
- * それ以外の失敗は原因を名指ししない中立な一言にする。
+ * 出す（`fetch` が投げる `TypeError`）。401（`Unauthorized`）や
+ * `getJSON` が投げる非2xxの `Error`（409・5xx など）はサーバーとは
+ * 通信できているので、オフラインだと言い切ると誤解させる——新設
+ * エンドポイントが5xxを返しているだけなのに「オフラインだから」と
+ * 読めると、実際に壊れている場所を見誤る。それ以外の失敗は原因を
+ * 名指ししない中立な一言にする。
  */
 export function forecastErrorMessage(e: unknown): string {
-  const offline = typeof navigator !== 'undefined' && navigator.onLine === false;
-  const noResponseReceived = e instanceof TypeError || offline;
-  return noResponseReceived ? OFFLINE_MESSAGE : COMMUNICATION_ERROR_MESSAGE;
+  return e instanceof TypeError ? OFFLINE_MESSAGE : COMMUNICATION_ERROR_MESSAGE;
 }
