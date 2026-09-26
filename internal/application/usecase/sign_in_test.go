@@ -407,6 +407,25 @@ func (r *signInAccounts) Create(_ context.Context, a *account.Account) error {
 	return nil
 }
 
+// UpdateEmail はアドレスだけを書き直す。利用者はそのまま持ち越す。
+func (r *signInAccounts) UpdateEmail(
+	_ context.Context, provider account.Provider, subject string, email account.Email,
+) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	key := signInAccountKey{provider: provider, subject: subject}
+	a, ok := r.byKey[key]
+	if !ok {
+		return fmt.Errorf("%w: %s/%s", account.ErrAccountNotFound, provider, subject)
+	}
+	updated, err := account.NewAccount(a.Provider(), a.Subject(), a.UserID(), email)
+	if err != nil {
+		return err
+	}
+	r.byKey[key] = updated
+	return nil
+}
+
 func (r *signInAccounts) created() int {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -720,5 +739,52 @@ func TestSignIn_NeverRelinksAnExistingAccount(t *testing.T) {
 	}
 	if f.accounts.emailLookups != 1 {
 		t.Errorf("アドレスを %d 回引いている。作るときの1回だけのはず", f.accounts.emailLookups)
+	}
+}
+
+// 2回目以降のログインで、プロバイダが返したアドレスを書き直すこと。
+//
+// アドレスの列（0010）より前に作られたアカウントは空のままで、書き直さないと
+// 設定画面にいつまでもアドレスが出ない。本番の2行はどちらもこの形だった。
+func TestSignIn_FillsTheEmailOfAnExistingAccount(t *testing.T) {
+	f := newSignInFixture(t)
+	ctx := context.Background()
+	provider, subject := githubSubject()
+
+	if _, err := f.signIn.Execute(ctx, githubIdentity(t, ""), signInNow); err != nil {
+		t.Fatalf("初回ログインに失敗: %v", err)
+	}
+	first, _ := f.accounts.Find(ctx, provider, subject)
+
+	if _, err := f.signIn.Execute(ctx, githubIdentity(t, "me@example.com"), signInNow); err != nil {
+		t.Fatalf("2回目のログインに失敗: %v", err)
+	}
+
+	again, _ := f.accounts.Find(ctx, provider, subject)
+	if again.Email() != account.NewEmail("me@example.com") {
+		t.Errorf("アドレスが %q。me@example.com のはず", again.Email())
+	}
+	if again.UserID() != first.UserID() {
+		t.Errorf("利用者が %q に変わった。%q のままのはず", again.UserID(), first.UserID())
+	}
+}
+
+// プロバイダがアドレスを返さなかったときは、持っているアドレスを消さない。
+// 返さないのは「取れなかった」で、「無くなった」ではない。
+func TestSignIn_KeepsTheEmailWhenTheProviderSendsNone(t *testing.T) {
+	f := newSignInFixture(t)
+	ctx := context.Background()
+	provider, subject := githubSubject()
+
+	if _, err := f.signIn.Execute(ctx, githubIdentity(t, "me@example.com"), signInNow); err != nil {
+		t.Fatalf("初回ログインに失敗: %v", err)
+	}
+	if _, err := f.signIn.Execute(ctx, githubIdentity(t, ""), signInNow); err != nil {
+		t.Fatalf("2回目のログインに失敗: %v", err)
+	}
+
+	again, _ := f.accounts.Find(ctx, provider, subject)
+	if again.Email() != account.NewEmail("me@example.com") {
+		t.Errorf("アドレスが %q。me@example.com のまま残るはず", again.Email())
 	}
 }

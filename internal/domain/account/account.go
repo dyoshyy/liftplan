@@ -195,4 +195,8 @@ type AccountWriter interface {
 	// Create はアカウントを作る。同じ (provider, subject) が既にあれば
 	// ErrAccountAlreadyExists を返す。既存の行を上書きしてはならない。
 	Create(ctx context.Context, a *Account) error
+
+	// UpdateEmail は (provider, subject) のアカウントのアドレスだけを
+	// 書き直す。利用者は変えない。無ければ ErrAccountNotFound を返す。
+	UpdateEmail(ctx context.Context, provider Provider, subject string, email Email) error
 }
