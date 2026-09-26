@@ -1,39 +1,171 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import type { Day, StatsResponse, Trend, Volume } from '../../api/types';
 import { label } from '../../domain/date';
 import { regionLabel } from '../../domain/regions';
 import { formatSets } from '../../domain/sets';
 import { Button } from '../../ui/Button';
 import { Card, Note } from '../../ui/Card';
+import { cn } from '../../ui/cn';
+import { ChevronLeftIcon, ChevronRightIcon } from '../../ui/icons';
+import { monthLabel, summarize } from './month';
 import { Sparkline } from './Sparkline';
+import type { MonthLogs } from './useMonthLogs';
 import { fillPercent } from './volume';
 import { weeklyTotal } from './weekly';
 
 const TOP_REGIONS = 6;
 
+type View = 'logs' | 'stats';
+
 type Props = {
+  /** 月ごとの記録。どの月を見ているかもここが持つ。 */
+  logs: MonthLogs;
   /** 週の充足と推移。まだ読めていなければ null。 */
   stats: StatsResponse | null;
-  /** 日ごとの記録。`/api/set-logs` の応答をそのまま渡す（新しい順）。 */
-  days: Day[];
-  /** 読めなかったときの一言。空なら出さない。 */
-  error?: string;
-  /** 読み直し。省略すると再読み込みのボタンを出さない。 */
-  onReload?: () => void;
+  /** 推移を読めなかったときの一言。空なら出さない。 */
+  statsError?: string;
+  /** 推移の読み直し。省略すると再読み込みのボタンを出さない。 */
+  onReloadStats?: () => void;
 };
 
 // History は溜まった記録を見る画面。書き込みは1つも無い。
 //
 // 読むだけなので待ち行列も契約ずれの心配も無い。増える経路は
-// GET /api/stats 1本だけで、記録が消える経路は1本も増えない（D-127）。
+// GET /api/stats と、過去の月を開いたときの GET /api/set-logs で、
+// 記録が消える経路は1本も増えない（D-127）。
 //
 // **fetch はここに持たない。**props だけで描けるようにしてあるので、
-// 呼び出し側が「いつ取るか」を決められる。取りに行くのは useStats。
-// 日ごとの記録は `/api/set-logs` を使い回すので、往復は1本しか増えない。
-export function History({ stats, days, error = '', onReload }: Props) {
+// 呼び出し側が「いつ取るか」を決められる。取りに行くのは useStats と
+// useMonthLogs。
+//
+// **記録と推移は切り替えにする。**充足は「直近4週」で固定なのに、記録は
+// 選んだ月を出す。1本のスクロールに並べると、8月を見ているのに上の数字は
+// 今週のまま、という読み違いが起きる。
+export function History({ logs, stats, statsError = '', onReloadStats }: Props) {
+  const [view, setView] = useState<View>('logs');
+
+  return (
+    <>
+      <div className="grid grid-cols-2 gap-1 rounded-xl border border-line bg-surface p-1">
+        <ViewTab label="記録" active={view === 'logs'} onClick={() => setView('logs')} />
+        <ViewTab label="推移" active={view === 'stats'} onClick={() => setView('stats')} />
+      </div>
+
+      {view === 'logs' ? (
+        <MonthlyLogs logs={logs} />
+      ) : (
+        <Stats stats={stats} error={statsError} onReload={onReloadStats} />
+      )}
+    </>
+  );
+}
+
+function ViewTab({ label, active, onClick }: { label: string; active: boolean; onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      aria-pressed={active}
+      onClick={onClick}
+      className={cn(
+        'min-h-11 rounded-lg text-sm',
+        active ? 'bg-surface-2 font-semibold text-text' : 'text-muted',
+      )}
+    >
+      {label}
+    </button>
+  );
+}
+
+// MonthlyLogs は推移の読み込みと切り離してある。
+//
+// 以前は推移（/api/stats）が読めるまで記録の一覧も出さなかった。記録は
+// 起動時にもう手元にあるのに、圏外のジムで開くと「読めませんでした」だけに
+// なっていた。
+function MonthlyLogs({ logs }: { logs: MonthLogs }) {
+  const { month, days, error } = logs;
+
+  // 月を送ったら頭に戻す。一覧の末尾から前の月へ進むと、前の月の末尾
+  // （＝一番古い日）から見ることになる。
+  useEffect(() => {
+    window.scrollTo({ top: 0 });
+  }, [month]);
+
+  return (
+    <>
+      <Card>
+        <div className="flex items-center">
+          <Button variant="ghost" size="icon" aria-label="前の月" onClick={logs.prev}>
+            <ChevronLeftIcon />
+          </Button>
+          <div className="flex-1 text-center">
+            <div className="num text-[17px] font-semibold tracking-[0.04em]">{monthLabel(month)}</div>
+            <div className="mt-0.5 min-h-[18px] text-xs text-faint">
+              {days && days.length > 0 && <MonthSummaryLine days={days} />}
+            </div>
+          </div>
+          <Button
+            variant="ghost"
+            size="icon"
+            aria-label="次の月"
+            disabled={!logs.canNext}
+            onClick={logs.next}
+          >
+            <ChevronRightIcon />
+          </Button>
+        </div>
+      </Card>
+
+      {error ? (
+        <Card>
+          <Note className="mb-3">{error}</Note>
+          <Button variant="quiet" onClick={logs.reload}>
+            もう一度読む
+          </Button>
+        </Card>
+      ) : days === null ? (
+        <Card>
+          <Note>読み込んでいます</Note>
+        </Card>
+      ) : days.length === 0 ? (
+        <Card>
+          <Note>この月の記録はありません</Note>
+        </Card>
+      ) : (
+        days.map((d) => <DayCard key={d.date} day={d} />)
+      )}
+
+      {/* 一覧の末尾まで読んだ流れで前の月へ進めるようにする。頭まで
+          戻らないと送れないと、1か月分を指で巻き戻すことになる。 */}
+      {days && days.length > 0 && (
+        <Button variant="quiet" onClick={logs.prev}>
+          前の月を見る
+        </Button>
+      )}
+    </>
+  );
+}
+
+function MonthSummaryLine({ days }: { days: readonly Day[] }) {
+  const { sessions, sets } = summarize(days);
+  return (
+    <span className="num">
+      {sessions}回 ・ {sets}セット
+    </span>
+  );
+}
+
+function Stats({
+  stats,
+  error,
+  onReload,
+}: {
+  stats: StatsResponse | null;
+  error: string;
+  onReload?: () => void;
+}) {
   if (error) {
     return (
-      <Card title="履歴">
+      <Card title="推移">
         <Note className="mb-3">{error}</Note>
         {onReload && (
           <Button variant="quiet" onClick={onReload}>
@@ -46,7 +178,7 @@ export function History({ stats, days, error = '', onReload }: Props) {
 
   if (!stats) {
     return (
-      <Card title="履歴">
+      <Card title="推移">
         <Note>読み込んでいます</Note>
       </Card>
     );
@@ -76,14 +208,6 @@ export function History({ stats, days, error = '', onReload }: Props) {
           </div>
         )}
       </Card>
-
-      {days.length === 0 ? (
-        <Card>
-          <Note>記録がまだありません</Note>
-        </Card>
-      ) : (
-        days.map((d) => <DayCard key={d.date} day={d} />)
-      )}
     </>
   );
 }
