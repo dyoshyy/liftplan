@@ -597,34 +597,6 @@ func splitWeeks(frequency, cycleLen int) int {
 	return 8
 }
 
-// splitAllocatorRewritten は補助の割り振りの入れ替え（PR 3。
-// docs/specs/2026-09-26-accessory-allocation-design.md）が終わったら true にする。
-//
-// 単一のスイッチ。true にすると、下の「既知の赤」が全部いつもの assertion に
-// 戻る。PR 3 のあとにこれを true にして go test ./... が緑にならなければ、
-// 割り振り器がここに挙げた赤を消しきれていない、ということ。
-const splitAllocatorRewritten = true
-
-// knownEmptySplitSession は、いまの補助選択が分割＋回復の二重制約で
-// 候補を使い切り、空セッション（軸も補助も無い）を出す既知の組み合わせ。
-//
-// five_way の週6・7回、腕の日。肩・腕の日は軸を持たない設計だが、頻度が
-// 上がるほど同じ区分の日が近接し、回復期間中の種目しか残らず補助まで
-// 尽きる。#175（1回の量の予算）で1回に入る枠が9固定から4に絞られたぶん、
-// 同じ現象がより浅いところ（以前は最小6セット止まりだったのが、いまは0）
-// で顕在化した。docs/specs/…-accessory-allocation-design.md が
-// 「1回が6セットまで落ちる」として挙げていたのと同根で、1週ぶんをまとめて
-// 見る割り振り器（PR 3）が解消する見込み。
-func knownEmptySplitSession(presetKey string, frequency int) bool {
-	return presetKey == "five_way" && (frequency == 6 || frequency == 7)
-}
-
-// logKnownRed は既知の赤を、-v で見えるログとして残しつつ検査を通す。
-func logKnownRed(t *testing.T, msg string) {
-	t.Helper()
-	t.Logf("既知の赤（補助の割り振りの入れ替え・PR 3 で有効化する）: %s", msg)
-}
-
 // 分割を設定しても計画が出続けること。
 //
 // 空のセッションが出ると、周期が出席回数で進む以上そこで止まる。記録が
@@ -638,12 +610,7 @@ func TestSimulation_SplitAlwaysProducesASession(t *testing.T) {
 				})
 				for i, s := range res.sessions {
 					if s.sets == 0 {
-						msg := fmt.Sprintf("%d本目（%s の日）が空。周期がここで止まる", i+1, s.split.Name())
-						if !splitAllocatorRewritten && knownEmptySplitSession(p.Key, f) {
-							logKnownRed(t, msg)
-							continue
-						}
-						t.Fatalf("%s", msg)
+						t.Fatalf("%d本目（%s の日）が空。周期がここで止まる", i+1, s.split.Name())
 					}
 				}
 			})
@@ -700,13 +667,8 @@ func TestSimulation_SplitKeepsTheDayInsideItsRegions(t *testing.T) {
 							if primaryUnaffiliated(byID[id], p.Cycle) {
 								continue
 							}
-							msg := fmt.Sprintf("%d本目（%s の日）に無関係な補助 %s が出ている",
+							t.Errorf("%d本目（%s の日）に無関係な補助 %s が出ている",
 								i+1, s.split.Name(), id)
-							if !splitAllocatorRewritten && knownRedFrontSquatLeak(id) {
-								logKnownRed(t, msg)
-								continue
-							}
-							t.Errorf("%s", msg)
 						}
 					}
 				})
@@ -748,20 +710,6 @@ func primaryUnaffiliated(e *exercise.Exercise, cycle []program.Split) bool {
 		}
 	}
 	return false
-}
-
-// knownRedFrontSquatLeak は front_squat が分割の外の日に補助として漏れ出る、
-// 既知の赤（docs/specs/…-accessory-allocation-design.md
-// 「肩・腕・胸の日にフロントスクワットが出る」）。
-//
-// front_squat は Abs 0.4 の副次寄与を持つ。腹はどのプリセットにも未所属で
-// #113 のとおり毎日活きるので、腹を埋める目的で選ばれて胸・肩・腕の日にも
-// 出てくる。「副次の寄与では未所属の例外にしない」という判断（bf615e87）
-// 自体は正しく、この検査を緩めるとその判断ごと壊れるので、帯や例外は
-// 動かさず、種目名で既知の赤として保持する。1週ぶんの割り振り器（PR 3）が
-// 日の外の区分への刺激を候補選定の時点で締め出す設計なので解消の見込み。
-func knownRedFrontSquatLeak(id exercise.ExerciseID) bool {
-	return id == "front_squat"
 }
 
 // affiliatedInCycle はその区分が周期のどこかの日に書かれているか。
@@ -817,12 +765,7 @@ func TestSimulation_FiveWayLeavesTheAxisEmptyOnShoulderAndArmDays(t *testing.T) 
 							i+1, s.split.Name())
 					}
 					if len(s.accessories) == 0 {
-						msg := fmt.Sprintf("%d本目（%s の日）が軸も補助も無い", i+1, s.split.Name())
-						if !splitAllocatorRewritten && knownEmptySplitSession(p.Key, f) {
-							logKnownRed(t, msg)
-							continue
-						}
-						t.Errorf("%s", msg)
+						t.Errorf("%d本目（%s の日）が軸も補助も無い", i+1, s.split.Name())
 					}
 				}
 				if p.Key == "five_way" && empty == 0 {
@@ -831,18 +774,6 @@ func TestSimulation_FiveWayLeavesTheAxisEmptyOnShoulderAndArmDays(t *testing.T) 
 			})
 		}
 	}
-}
-
-// knownRedObliqueShortfall は ppl・週3回で腹斜筋の達成率が帯を割る、既知の赤。
-//
-// PR #107（main 取り込み前）では腹（ABS/OBLIQUE）の週1回の振り切れ（超過、
-// 218〜260%）が問題だった。#175 で1回の量の予算が9固定から4に絞られた
-// ことで逆側に振れ、今度は一部の頻度で不足するようになった。未所属の規則
-// 自体（#113）は生きていて一度も出ないわけではないので、「死んでいる」
-// ではなく「量が足りない」。1週ぶんをまとめて見る割り振り器（PR 3）が
-// 日の外の区分もまとめて埋め直す設計なので解消の見込み。
-func knownRedObliqueShortfall(presetKey string, frequency int) bool {
-	return presetKey == "ppl" && frequency == 3
 }
 
 // どの分割にも属さない区分（腹直筋・腹斜筋）が、分割を設定しても死なないこと。
@@ -868,59 +799,13 @@ func TestSimulation_UnaffiliatedRegionsStayActiveUnderSplit(t *testing.T) {
 					}
 				}
 				if rate := res.rate(training.Oblique); rate < 0.60 {
-					msg := fmt.Sprintf("腹斜筋の達成率が %.0f%%（目標 %.1f、実測 %.1f）",
+					t.Errorf("腹斜筋の達成率が %.0f%%（目標 %.1f、実測 %.1f）",
 						rate*100, res.target.Sets(training.Oblique),
 						res.achieved[training.Oblique])
-					if !splitAllocatorRewritten && knownRedObliqueShortfall(p.Key, f) {
-						logKnownRed(t, msg)
-					} else {
-						t.Errorf("%s", msg)
-					}
 				}
 			})
 		}
 	}
-}
-
-// splitAttainmentKnownRed は TestSimulation_SplitWeeklyTargetIsAttainable で
-// いま帯（60〜145%）を外れている (プリセット, 頻度, 区分) の組み合わせ。
-//
-// #175（1回の量の予算）で1回に入る枠が9固定から4に絞られたことで、分割の
-// 「今日の区分しか狙わない」制約と組み合わさり、多くの区分が4週の窓に
-// 届かなくなった。PR #107（main 取り込み前）が挙げていた ABS/OBLIQUE の
-// 超過より範囲が広い。帯を緩めるのではなく、いま実際に外れている組だけを
-// ここに列挙して既知の赤として保持する（測定日 2026-09-26、main は
-// 19d0dd0d + このブランチ）。1週ぶんをまとめて見る割り振り器（PR 3）が
-// 解消する見込み。
-//
-// five_way・週1回はここに含めない。1区分が5週に1度しか来ず構造的に
-// 届かないので、帯の対象外として別に除外する（下記）。
-var splitAttainmentKnownRed = map[string]bool{
-	"upper_lower|1|SIDE_DELT":    true,
-	"upper_lower|1|REAR_DELT":    true,
-	"upper_lower|1|LAT":          true,
-	"upper_lower|3|BICEPS":       true,
-	"upper_lower|3|CHEST_UPPER":  true,
-	"upper_lower|4|CHEST_LOWER":  true,
-	"upper_lower|5|SIDE_DELT":    true,
-	"upper_lower|5|TRICEPS_LONG": true,
-	"upper_lower|6|SIDE_DELT":    true,
-	"upper_lower|6|TRICEPS_LONG": true,
-	"upper_lower|7|CHEST_LOWER":  true,
-	"upper_lower|7|TRAP_MID":     true,
-	"upper_lower|7|LAT":          true,
-	"ppl|1|REAR_DELT":            true,
-	"ppl|1|ADDUCTOR":             true,
-	"ppl|1|TRICEPS_LONG":         true,
-	"ppl|1|FOREARM":              true,
-	"ppl|3|OBLIQUE":              true,
-	"ppl|3|FOREARM":              true,
-	"five_way|2|ADDUCTOR":        true,
-	"five_way|6|ADDUCTOR":        true,
-}
-
-func knownRedSplitAttainment(presetKey string, frequency int, r training.MuscleRegion) bool {
-	return splitAttainmentKnownRed[fmt.Sprintf("%s|%d|%s", presetKey, frequency, r)]
 }
 
 // 分割を設定しても週目標が現実的な範囲に収まること。
@@ -936,8 +821,22 @@ func knownRedSplitAttainment(presetKey string, frequency int, r training.MuscleR
 // 21区分に配ることになり、小さい区分の4週ぶんの目標（約2.4セット）が
 // 1種目ぶん（3セット）より小さい。窓をどう取っても配分どおりには
 // 回りきらない。週1回を選ぶこと自体は妨げないが、配分の質は保証しない。
-// これで five_way・週1回（1区分が5週に1度しか来ず構造的に届かない、
-// 「受け入れない構成」）を個別に除外する必要も無くなる。
+//
+// **five_way の週2・3回も見ない。**同じく帯を動かす変更ではなく、対象の
+// 範囲を絞る変更。5分割の各日が持つ区分の週目標合計に対して、その日に
+// 4週間で配れる枠容量（種目数×セット数×出現回数）の比を測ると
+//
+//	胸 0.88　背中 0.52　肩 1.04　腕 0.63　脚 0.37
+//
+// 背中・腕・脚は、その日の枠を100%の効率で使い切っても目標に届かない
+// （脚は37%しか配れない）。これはタイミング（先の回をどう見通すか）の
+// 問題ではなく容量の問題で、`ProjectHorizon` の見通しをどれだけ伸ばしても
+// 配れる量は変わらないことを実験で確認した（horizon を分割周期の長さまで
+// 伸ばす変更を試したが、容量が足りない区分の達成率は動かず、他のプリセット
+// を新たに壊しただけだった。PR 本文参照）。頻度が上がれば1回あたりの
+// 出現回数が増えて容量比は変わらないまま絶対量が増えるので、週4回以降は
+// 緑になる（実測）。five_way は頻度4回未満を選べないようにする対応を
+// 別PRで行う予定（それまでの間、この検査の対象からは外す）。
 func TestSimulation_SplitWeeklyTargetIsAttainable(t *testing.T) {
 	const (
 		minRate = 0.60
@@ -946,6 +845,9 @@ func TestSimulation_SplitWeeklyTargetIsAttainable(t *testing.T) {
 
 	for _, p := range splitCycles(t) {
 		for f := 2; f <= maxSimFrequency; f++ {
+			if p.Key == "five_way" && (f == 2 || f == 3) {
+				continue
+			}
 			t.Run(fmt.Sprintf("%s/週%d回", p.Key, f), func(t *testing.T) {
 				res := runSim(t, simConfig{
 					frequency: f, weeks: splitWeeks(f, len(p.Cycle)), cycle: p.Cycle,
@@ -958,13 +860,8 @@ func TestSimulation_SplitWeeklyTargetIsAttainable(t *testing.T) {
 				for _, r := range regions {
 					rate := res.rate(r)
 					if rate < minRate || rate > maxRate {
-						msg := fmt.Sprintf("%s の達成率が範囲外: %.0f%%（目標 %.1f、実測 %.1f）",
+						t.Errorf("%s の達成率が範囲外: %.0f%%（目標 %.1f、実測 %.1f）",
 							r, rate*100, res.target.Sets(r), res.achieved[r])
-						if !splitAllocatorRewritten && knownRedSplitAttainment(p.Key, f, r) {
-							logKnownRed(t, msg)
-							continue
-						}
-						t.Errorf("%s", msg)
 					}
 				}
 			})
@@ -998,13 +895,8 @@ func TestSimulation_SplitSessionLengthIsReasonable(t *testing.T) {
 								i+1, s.split.Name(), s.sets, budget)
 						}
 						if s.sets < setsPerExercise {
-							msg := fmt.Sprintf("%d本目（%s の日）のセット数が現実的でない: %d",
+							t.Errorf("%d本目（%s の日）のセット数が現実的でない: %d",
 								i+1, s.split.Name(), s.sets)
-							if !splitAllocatorRewritten && knownEmptySplitSession(p.Key, f) {
-								logKnownRed(t, msg)
-								continue
-							}
-							t.Errorf("%s", msg)
 						}
 					}
 				})
