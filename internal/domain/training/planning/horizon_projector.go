@@ -121,7 +121,7 @@ func (p SessionPlanner) ProjectHorizon(
 		h := setlog.NewHistory(logs)
 
 		today, hasSplit := prog.SplitOn(h.SessionCount())
-		heavy, axisRole := axis(h, prog, usable, declared, today, hasSplit)
+		heavy, axisRole := axis(h, prog, usable, declared, today, hasSplit, d)
 		variation := variationLift(h, prog, usable, heavy, d, today, hasSplit)
 
 		session := ProjectedSession{date: d, split: today, hasSplit: hasSplit}
