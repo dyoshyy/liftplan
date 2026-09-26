@@ -152,7 +152,7 @@ func (u *SignIn) findOrCreateAccount(
 	a, err := u.accounts.Find(ctx, identity.Provider(), identity.Subject())
 	switch {
 	case err == nil:
-		return a, nil
+		return u.refreshEmail(ctx, a, identity.Email())
 	case !errors.Is(err, account.ErrAccountNotFound):
 		return nil, fmt.Errorf("アカウントの取得に失敗: %w", err)
 	}
@@ -182,6 +182,45 @@ func (u *SignIn) findOrCreateAccount(
 		return nil, fmt.Errorf("先に作られたアカウントを引けない: %w", err)
 	}
 	return a, nil
+}
+
+// refreshEmail は既にあるアカウントのアドレスを、プロバイダが今回返した
+// 確認済みのものに書き直す。
+//
+// アドレスの列（0010）より前に作られたアカウントは空のままで、書き直さない
+// と設定画面にいつまでもアドレスが出ない。プロバイダ側でアドレスを変えた
+// ときにも追いつく。
+//
+// # 利用者は書き換えない
+//
+// 変えるのはアドレスだけ（resolveUser の「既にあるアカウントの利用者は
+// 決して書き換えない」はそのまま）。書き直したアドレスは、以後に**新しく
+// 作られる**アカウントを結ぶ材料になるが、プロバイダが確認したアドレスで
+// ある以上、作るときに受け取るアドレスと信頼の度合いは変わらない。
+//
+// # 空では書き直さない
+//
+// 返さなかったのは「取れなかった」で、「無くなった」ではない。消すと、
+// 1度取れなかっただけで表示も結びつきも失う。
+//
+// # 書けなければログインを失敗させる
+//
+// 保存先に届かないならセッションも保存できない。押し直してもらう
+// （resolveUser と同じ扱い）。
+func (u *SignIn) refreshEmail(
+	ctx context.Context, a *account.Account, email account.Email,
+) (*account.Account, error) {
+	if email.IsZero() || email == a.Email() {
+		return a, nil
+	}
+	if err := u.accountWriter.UpdateEmail(ctx, a.Provider(), a.Subject(), email); err != nil {
+		return nil, fmt.Errorf("アカウントのアドレスを書き直せない: %w", err)
+	}
+	refreshed, err := account.NewAccount(a.Provider(), a.Subject(), a.UserID(), email)
+	if err != nil {
+		return nil, fmt.Errorf("アカウントを組み直せない: %w", err)
+	}
+	return refreshed, nil
 }
 
 // seedProgramIfMissing はその利用者にプログラムが無ければ初期値を入れる。

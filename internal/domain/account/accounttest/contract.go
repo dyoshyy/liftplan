@@ -207,6 +207,58 @@ func RunAccountContract(t *testing.T, newRepos func(t *testing.T) Repos) {
 
 	runFindUserByEmailContract(t, newRepos)
 	runFindByUserContract(t, newRepos)
+	runUpdateEmailContract(t, newRepos)
+}
+
+// runUpdateEmailContract はアカウントのアドレスを書き直す口の契約。
+//
+// ログインのたびに、プロバイダが返した確認済みのアドレスで書き直す。
+// 守るのは、**アドレスだけが変わり、利用者は変わらないこと**。利用者まで
+// 書き換わると、アドレスを変えて入り直すだけで他人の記録に入れる。
+func runUpdateEmailContract(t *testing.T, newRepos func(t *testing.T) Repos) {
+	t.Helper()
+
+	ctx := context.Background()
+
+	// 読み戻しと、アドレスからの引きの両方で見る。Postgres は列から
+	// 組み直すので、片方だけ見ると書いた列と読む列の食い違いを見逃す。
+	t.Run("書き直したアドレスで引ける", func(t *testing.T) {
+		repos := newRepos(t)
+		createAll(t, repos, mustAccount(t, account.GitHub(), "1", userA, noEmail))
+
+		if err := repos.Accounts.UpdateEmail(ctx, account.GitHub(), "1", emailA); err != nil {
+			t.Fatalf("書き直しに失敗: %v", err)
+		}
+
+		got, err := repos.Accounts.Find(ctx, account.GitHub(), "1")
+		if err != nil {
+			t.Fatalf("取得に失敗: %v", err)
+		}
+		if got.Email() != emailA {
+			t.Errorf("アドレスが %q。%q のはず", got.Email(), emailA)
+		}
+		if got.UserID() != userA {
+			t.Errorf("利用者が %q に変わった。%q のままのはず", got.UserID(), userA)
+		}
+		linked, err := repos.Accounts.FindUserByEmail(ctx, emailA)
+		if err != nil {
+			t.Fatalf("書き直したアドレスで引けない: %v", err)
+		}
+		if linked != userA {
+			t.Errorf("引けた利用者が %q。%q のはず", linked, userA)
+		}
+	})
+
+	// 無いものを書き直したら「無い」と返す。黙って成功すると、書いた
+	// つもりのアドレスがどこにも無い。
+	t.Run("無いアカウントは書き直せない", func(t *testing.T) {
+		repos := newRepos(t)
+
+		err := repos.Accounts.UpdateEmail(ctx, account.GitHub(), "1", emailA)
+		if !errors.Is(err, account.ErrAccountNotFound) {
+			t.Errorf("エラーが %v。ErrAccountNotFound のはず", err)
+		}
+	})
 }
 
 // runFindByUserContract は利用者から、その人のアカウントを引く口の契約。
