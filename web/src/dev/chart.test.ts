@@ -17,8 +17,14 @@ const set = (over: Partial<DevSet>): DevSet => ({
   sets: 3,
   target_rir: 1,
   pct_of_1rm: 0.88,
+  athlete_1rm_kg: 100,
+  performed: { weight_kg: 80, reps: 3, rir: 1 },
   ...over,
 });
+
+/** done は処方どおりの重さで記録した set。 */
+const done = (kg: number, over: Partial<DevSet> = {}): DevSet =>
+  set({ weight_kg: kg, performed: { weight_kg: kg, reps: 3, rir: 1 }, ...over });
 
 const day = (date: string, over: Partial<DevDay>): DevDay => ({
   date,
@@ -30,7 +36,17 @@ const day = (date: string, over: Partial<DevDay>): DevDay => ({
   ...over,
 });
 
-const result = (days: DevDay[], weeks: DevWeek[] = []): DevResult => ({ days, weeks });
+const settings: DevResult['settings'] = {
+  declared: ['bench'],
+  focus: '',
+  split: '',
+  frequency: 4,
+  weeks: 4,
+  start: '2026-01-05',
+  athlete: { growth_pct_per_week: 0, first_session_pct: 70, body_weight_kg: 75 },
+};
+
+const result = (days: DevDay[], weeks: DevWeek[] = []): DevResult => ({ settings, days, weeks });
 
 const bench = { id: 'bench', name: 'ベンチプレス' };
 const squat = { id: 'squat', name: 'スクワット' };
@@ -40,8 +56,8 @@ describe('weightSeries', () => {
   it('宣言した種目だけを、宣言の並びで返す。点は種目ごとに分ける', () => {
     const r = result([
       day('2026-01-05', {
-        main: [set({ exercise_id: 'squat', weight_kg: 120 })],
-        accessories: [set({ exercise_id: 'curl', weight_kg: 20 })],
+        main: [done(120, { exercise_id: 'squat' })],
+        accessories: [done(20, { exercise_id: 'curl' })],
       }),
     ]);
     const got = weightSeries(r, [bench, squat]);
@@ -52,33 +68,65 @@ describe('weightSeries', () => {
 
   it('点は日付の順に、出たレーンを持たせて並べる', () => {
     const r = result([
-      day('2026-01-05', { main: [set({ weight_kg: 80 })] }),
-      day('2026-01-07', { variation: [set({ weight_kg: 70 })] }),
-      day('2026-01-09', { accessories: [set({ weight_kg: 55 })] }),
+      day('2026-01-05', { main: [done(80)] }),
+      day('2026-01-07', { variation: [done(70)] }),
+      day('2026-01-09', { accessories: [done(55)] }),
     ]);
     const [s] = weightSeries(r, [bench]);
-    expect(s?.points).toEqual([
-      { date: '2026-01-05', kg: 80, lane: 'main' },
-      { date: '2026-01-07', kg: 70, lane: 'variation' },
-      { date: '2026-01-09', kg: 55, lane: 'accessory' },
+    expect(s?.points.map((p) => [p.date, p.kg, p.lane])).toEqual([
+      ['2026-01-05', 80, 'main'],
+      ['2026-01-07', 70, 'variation'],
+      ['2026-01-09', 55, 'accessory'],
     ]);
   });
 
-  // 履歴が無い初回は重量が付かない（本人が決める）。0kg として点にすると、
-  // 折れ線が地面から立ち上がって見える。
-  it('重量が未確定の回は点にせず、数だけ数える', () => {
+  // 点は記録した重さ。処方と記録を並べて持ち、表で両方を出す。
+  it('記録と処方と実力を1点に持つ', () => {
     const r = result([
-      day('2026-01-05', { main: [set({ weight_kg: null })] }),
-      day('2026-01-07', { main: [set({ weight_kg: 80 })] }),
+      day('2026-01-05', {
+        main: [
+          set({
+            weight_kg: 87.5,
+            pct_of_1rm: 0.88,
+            athlete_1rm_kg: 101,
+            performed: { weight_kg: 87.5, reps: 2, rir: 1 },
+          }),
+        ],
+      }),
     ]);
     const [s] = weightSeries(r, [bench]);
-    expect(s?.points.map((p) => p.kg)).toEqual([80]);
-    expect(s?.undecided).toBe(1);
+    expect(s?.points[0]).toEqual({
+      date: '2026-01-05',
+      lane: 'main',
+      kg: 87.5,
+      reps: 2,
+      rir: 1,
+      prescribedKg: 87.5,
+      chosen: false,
+      athlete1rm: 101,
+      estPct: 0.88,
+    });
+  });
+
+  // 履歴が無い初回は処方が無く、本人が選んだ重さで記録する。点から
+  // 落とすと、推移が2回目から始まり、何から始めたのかが見えない。
+  it('処方の無い回も、本人が選んだ重さとして点にする', () => {
+    const r = result([
+      day('2026-01-05', {
+        main: [set({ weight_kg: null, pct_of_1rm: null, performed: { weight_kg: 70, reps: 12, rir: 1 } })],
+      }),
+      day('2026-01-07', { main: [done(80)] }),
+    ]);
+    const [s] = weightSeries(r, [bench]);
+    expect(s?.points.map((p) => [p.kg, p.chosen, p.prescribedKg])).toEqual([
+      [70, true, null],
+      [80, false, 80],
+    ]);
   });
 
   it('一度も出ない宣言種目は、空の系列として残す', () => {
     const [s] = weightSeries(result([]), [bench]);
-    expect(s).toEqual({ id: 'bench', name: 'ベンチプレス', points: [], undecided: 0 });
+    expect(s).toEqual({ id: 'bench', name: 'ベンチプレス', points: [] });
   });
 });
 

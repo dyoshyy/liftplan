@@ -287,3 +287,25 @@ func TestDevSimulation_OptionsCarryAthleteDefaults(t *testing.T) {
 		t.Errorf("pull_up が自重種目になっていない: %+v", e)
 	}
 }
+
+// 空の split と focus は「指定なし」。画面は「分割なし」を URL で再現する
+// ために空のまま送る（キーごと落とすと既定の分割に戻る）。
+func TestDevSimulation_EmptySplitAndFocusMeanNone(t *testing.T) {
+	rec := devGet(t, "/api/dev/simulate?declared=bench&split=&focus=&frequency=2&weeks=1")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("%d が返った。200 のはず: %s", rec.Code, rec.Body.String())
+	}
+	var got struct {
+		Days []struct {
+			Split string `json:"split"`
+		} `json:"days"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatalf("応答が JSON でない: %v", err)
+	}
+	for _, d := range got.Days {
+		if d.Split != "" {
+			t.Errorf("分割なしのはずが %q", d.Split)
+		}
+	}
+}

@@ -8,25 +8,36 @@ import { tone, type DevResult, type DevSet, type DevWeek } from './simulate';
 
 // ---- 重量の推移 ------------------------------------------------------
 
-/** WeightPoint は処方された1回ぶんの重量。lane は出たレーン。 */
-export type WeightPoint = { date: string; kg: number; lane: 'main' | 'variation' | 'accessory' };
+export type Lane = 'main' | 'variation' | 'accessory';
 
-export type WeightSeries = {
-  id: string;
-  name: string;
-  points: WeightPoint[];
-  /** 重量が付かなかった回の数。履歴が無い初回は本人が決める枠になる。 */
-  undecided: number;
+/** WeightPoint は宣言種目が出た1回。点の高さは記録した重さ。 */
+export type WeightPoint = {
+  date: string;
+  lane: Lane;
+  /** 記録した重さ（加重）。 */
+  kg: number;
+  reps: number;
+  rir: number;
+  /** 処方の重さ。履歴が無い初回は null（本人が選んだ）。 */
+  prescribedKg: number | null;
+  /** 処方が無く、本人が選んだ重さか。 */
+  chosen: boolean;
+  /** その日の模擬ユーザーの実力（加重の1RM）。 */
+  athlete1rm: number;
+  /** 処方の、推定1RMに対する比。推定が立たない日は null。 */
+  estPct: number | null;
 };
 
-/** weightSeries は宣言種目ごとに、処方された重量を出た順に集める。
+export type WeightSeries = { id: string; name: string; points: WeightPoint[] };
+
+/** weightSeries は宣言種目ごとに、記録した重さを出た順に集める。
  *
  *  平らな折れ線にはならない。軸の一巡（0.88 と 0.81）や、同じ種目がバリエー
  *  ションや補助で軽く出た回が、そのまま上下に出る。均さないのは、見たいのが
  *  その動きだから。
  *
- *  重量が未確定の回は点にしない。0kg として打つと、折れ線が地面から
- *  立ち上がって見える。 */
+ *  処方の無い回（履歴の無い初回）も点にする。落とすと推移が2回目から
+ *  始まり、何から始めたのかが見えない。 */
 export function weightSeries(
   result: DevResult,
   declared: { id: string; name: string }[],
@@ -39,21 +50,25 @@ export function weightSeries(
 
   return declared.map(({ id, name }) => {
     const points: WeightPoint[] = [];
-    let undecided = 0;
-
     for (const day of result.days) {
       for (const [key, lane] of lanes) {
         for (const set of day[key] as DevSet[]) {
           if (set.exercise_id !== id) continue;
-          if (set.weight_kg === null) {
-            undecided++;
-            continue;
-          }
-          points.push({ date: day.date, kg: set.weight_kg, lane });
+          points.push({
+            date: day.date,
+            lane,
+            kg: set.performed.weight_kg,
+            reps: set.performed.reps,
+            rir: set.performed.rir,
+            prescribedKg: set.weight_kg,
+            chosen: set.weight_kg === null,
+            athlete1rm: set.athlete_1rm_kg,
+            estPct: set.pct_of_1rm,
+          });
         }
       }
     }
-    return { id, name, points, undecided };
+    return { id, name, points };
   });
 }
 

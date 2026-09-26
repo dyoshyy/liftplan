@@ -2,9 +2,13 @@ import { describe, expect, it } from 'vitest';
 import { Unauthorized } from '../api/client';
 import {
   buildQuery,
+  curlCommand,
   describeFailure,
   defaultForm,
+  parseForm,
+  setOneRepMax,
   formatPct,
+  formatPerformed,
   formatWeight,
   outOfRange,
   rate,
@@ -25,11 +29,94 @@ describe('buildQuery', () => {
     expect(q.get('weeks')).toBe('4');
   });
 
-  // 空文字を送るとサーバーが「そういう名前の分割」を探して 400 になる。
-  it('指定していない項目は送らない', () => {
+  // 「分割なし・重点なし」は空で送る。キーごと落とすと、URL を読み戻した
+  // ときに既定（上下分割・ベンチ）に戻り、「なし」の状況を URL で再現
+  // できない。サーバーは空を指定なしとして扱う（dev_simulation_test.go）。
+  it('分割と重点の「なし」は空のまま送る', () => {
     const q = new URLSearchParams(buildQuery({ ...defaultForm, focus: '', split: '' }));
-    expect(q.has('focus')).toBe(false);
-    expect(q.has('split')).toBe(false);
+    expect(q.get('focus')).toBe('');
+    expect(q.get('split')).toBe('');
+  });
+
+  // 模擬ユーザーの既定値はサーバーが持つ。画面が同じ定数を二重に持たない
+  // ように、触っていない項目は送らずサーバーに任せる。
+  it('模擬ユーザーは触った項目だけ送る', () => {
+    const q = new URLSearchParams(buildQuery(defaultForm));
+    for (const k of ['growth', 'first_pct', 'body_weight', 'orm']) expect(q.has(k)).toBe(false);
+
+    const got = new URLSearchParams(
+      buildQuery({ ...defaultForm, growth: 0, firstPct: 60, bodyWeight: 82, orm: { squat: 150, bench: 110 } }),
+    );
+    // 0 は「伸びない」という設定で、未指定ではない。
+    expect(got.get('growth')).toBe('0');
+    expect(got.get('first_pct')).toBe('60');
+    expect(got.get('body_weight')).toBe('82');
+    // 並びを固定する。同じ設定が同じ URL になる。
+    expect(got.get('orm')).toBe('bench:110,squat:150');
+  });
+});
+
+describe('parseForm', () => {
+  // URL を開けば同じ状況が再現できること。Claude が URL 1本で読みに来る。
+  it('buildQuery の出力を読み戻すと同じ設定になる', () => {
+    const form = {
+      ...defaultForm,
+      declared: ['squat', 'pull_up'],
+      focus: 'squat',
+      split: '',
+      frequency: 3,
+      weeks: 12,
+      growth: -1.5,
+      firstPct: 55,
+      bodyWeight: 68,
+      orm: { pull_up: 0, squat: 160 },
+    };
+    expect(parseForm(buildQuery(form), defaultForm)).toEqual(form);
+  });
+
+  it('何も無ければ既定のまま', () => {
+    expect(parseForm('', defaultForm)).toEqual(defaultForm);
+  });
+
+  // 数字でないものは読み飛ばして既定に倒す。範囲はサーバーが見る。
+  it('読めない値は既定に倒す', () => {
+    const got = parseForm('frequency=x&weeks=&growth=fast&orm=bench:heavy,squat:150,nope', defaultForm);
+    expect(got.frequency).toBe(defaultForm.frequency);
+    expect(got.weeks).toBe(defaultForm.weeks);
+    expect(got.growth).toBeNull();
+    expect(got.orm).toEqual({ squat: 150 });
+  });
+
+  // 分割を「指定しない」は空文字で表す。URL に split が無いときの既定
+  // （上下分割）と区別しないと、分割なしの状況を URL で再現できない。
+  it('空の split は「分割なし」として読む', () => {
+    expect(parseForm('split=', defaultForm).split).toBe('');
+  });
+});
+
+describe('setOneRepMax', () => {
+  it('既定値と違えば上書きとして持つ', () => {
+    expect(setOneRepMax({}, 'bench', 120, 100)).toEqual({ bench: 120 });
+  });
+
+  // 既定値に戻したら上書きを消す。残すと URL に既定値が並び、どれを
+  // 変えたのかが読めなくなる。
+  it('既定値に戻したら上書きを消す', () => {
+    expect(setOneRepMax({ bench: 120, squat: 150 }, 'bench', 100, 100)).toEqual({ squat: 150 });
+  });
+
+  it('数字でなければ上書きを消す', () => {
+    expect(setOneRepMax({ bench: 120 }, 'bench', Number.NaN, 100)).toEqual({});
+  });
+});
+
+describe('curlCommand', () => {
+  // 画面を通さずに JSON を読むための1行。トークンは環境変数のまま出す
+  // （画面に値を書き出さない）。
+  it('同じ設定の API を叩く1行を返す', () => {
+    const got = curlCommand('http://localhost:8080', defaultForm);
+    expect(got).toContain(`'http://localhost:8080/api/dev/simulate?${buildQuery(defaultForm)}'`);
+    expect(got).toContain('Authorization: Bearer $LIFTPLAN_TOKEN');
   });
 });
 
@@ -93,12 +180,21 @@ describe('表示', () => {
     sets: 3,
     target_rir: 1,
     pct_of_1rm: 0.88,
+    athlete_1rm_kg: 100,
+    performed: { weight_kg: 95, reps: 3, rir: 1 },
     ...over,
   });
 
   it('重量が未確定なら、本人が決める枠だと分かる形で出す', () => {
     expect(formatWeight(set({ weight_kg: null }))).toBe('自分で決める');
     expect(formatWeight(set({}))).toBe('95kg');
+    // 自重だけで強度を超える回は加重0が処方される。記録の表記と揃える。
+    expect(formatWeight(set({ weight_kg: 0 }))).toBe('自重');
+  });
+
+  it('記録は「重量×回 RIR」。自重だけなら自重と出す', () => {
+    expect(formatPerformed(set({}))).toBe('95kg×3 RIR1');
+    expect(formatPerformed(set({ performed: { weight_kg: 0, reps: 9, rir: 2 } }))).toBe('自重×9 RIR2');
   });
 
   it('推定1RMに対する比は小数2桁。立っていなければ空', () => {
