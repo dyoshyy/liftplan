@@ -17,6 +17,7 @@ import (
 
 	"github.com/dyoshyy/liftplan/internal/application/query"
 	"github.com/dyoshyy/liftplan/internal/application/usecase"
+	"github.com/dyoshyy/liftplan/internal/domain/account"
 	"github.com/dyoshyy/liftplan/internal/domain/training"
 	"github.com/dyoshyy/liftplan/internal/domain/training/seed"
 	"github.com/dyoshyy/liftplan/internal/infrastructure/memory"
@@ -1341,7 +1342,7 @@ func do(t *testing.T, mux http.Handler, method, path, body string) *httptest.Res
 // 読んで記録を捨てる。分類を消しても 500 で緑になるので、独立に見る。
 type unavailableExercises struct{}
 
-func (unavailableExercises) FindAll(context.Context) ([]*exercise.Exercise, error) {
+func (unavailableExercises) FindAll(context.Context, account.UserID) ([]*exercise.Exercise, error) {
 	return nil, fmt.Errorf("種目の取得: %w: dial tcp 10.0.0.1:5432: connect: refused",
 		training.ErrRepositoryUnavailable)
 }
@@ -1553,7 +1554,7 @@ func TestGetSession_RequiresDate(t *testing.T) {
 // 取得に失敗するリポジトリ。500 の経路を作るために使う。
 type brokenExercises struct{}
 
-func (brokenExercises) FindAll(context.Context) ([]*exercise.Exercise, error) {
+func (brokenExercises) FindAll(context.Context, account.UserID) ([]*exercise.Exercise, error) {
 	return nil, errors.New("種目テーブル exercises_v2 の接続文字列が不正: user=admin")
 }
 

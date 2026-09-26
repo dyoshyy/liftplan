@@ -25,7 +25,7 @@ func TestExercises_CarriesStimulus(t *testing.T) {
 		t.Fatalf("シードが不正: %v", err)
 	}
 
-	got, err := query.NewExercises(&stubExercises{all: pool}).All(context.Background())
+	got, err := query.NewExercises(&stubExercises{all: pool}).All(context.Background(), testUser)
 	if err != nil {
 		t.Fatalf("読み取りに失敗: %v", err)
 	}

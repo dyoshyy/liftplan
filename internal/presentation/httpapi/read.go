@@ -26,7 +26,11 @@ const defaultHistoryDays = 56
 const maxHistoryDays = 400
 
 func (h *Handler) handleGetExercises(w http.ResponseWriter, r *http.Request) {
-	items, err := h.exercises.All(r.Context())
+	user, ok := requireUser(w, r)
+	if !ok {
+		return
+	}
+	items, err := h.exercises.All(r.Context(), user)
 	if err != nil {
 		respondError(w, err)
 		return

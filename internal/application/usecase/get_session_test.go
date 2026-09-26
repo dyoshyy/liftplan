@@ -29,7 +29,7 @@ type fakeExercises struct {
 	err   error
 }
 
-func (f *fakeExercises) FindAll(context.Context) ([]*exercise.Exercise, error) {
+func (f *fakeExercises) FindAll(context.Context, account.UserID) ([]*exercise.Exercise, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.calls++

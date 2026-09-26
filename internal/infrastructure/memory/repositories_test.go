@@ -36,7 +36,7 @@ func TestExerciseRepository_ReturnsSeed(t *testing.T) {
 	}
 	repo := memory.NewExerciseRepository(all)
 
-	got, err := repo.FindAll(context.Background())
+	got, err := repo.FindAll(context.Background(), userA(t))
 	if err != nil {
 		t.Fatalf("取得に失敗: %v", err)
 	}
@@ -54,12 +54,12 @@ func TestExerciseRepository_DoesNotAliasItsState(t *testing.T) {
 	repo := memory.NewExerciseRepository(pool)
 
 	// 呼び出し側がスライスを壊しても、次の取得に影響しない。
-	got, _ := repo.FindAll(context.Background())
+	got, _ := repo.FindAll(context.Background(), userA(t))
 	for i := range got {
 		got[i] = nil
 	}
 
-	again, _ := repo.FindAll(context.Background())
+	again, _ := repo.FindAll(context.Background(), userA(t))
 	for i, e := range again {
 		if e == nil {
 			t.Fatalf("%d番目が nil になっている", i)
@@ -68,7 +68,7 @@ func TestExerciseRepository_DoesNotAliasItsState(t *testing.T) {
 
 	// コンストラクタに渡したスライスを後から壊しても影響しない。
 	pool[0] = nil
-	third, _ := repo.FindAll(context.Background())
+	third, _ := repo.FindAll(context.Background(), userA(t))
 	if third[0] == nil {
 		t.Error("コンストラクタの引数をエイリアスしている")
 	}

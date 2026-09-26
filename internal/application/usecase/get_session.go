@@ -84,7 +84,7 @@ func (u *GetSession) Execute(ctx context.Context, user account.UserID, in GetSes
 		return planning.PlannedSession{}, fmt.Errorf("セッションの導出が中断された: %w", err)
 	}
 
-	pool, err := u.exercises.FindAll(ctx)
+	pool, err := u.exercises.FindAll(ctx, user)
 	if err != nil {
 		return planning.PlannedSession{}, fmt.Errorf("種目の取得に失敗: %w", err)
 	}

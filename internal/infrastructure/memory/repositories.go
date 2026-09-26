@@ -29,7 +29,9 @@ func NewExerciseRepository(all []*exercise.Exercise) *ExerciseRepository {
 	return &ExerciseRepository{all: copied}
 }
 
-func (r *ExerciseRepository) FindAll(context.Context) ([]*exercise.Exercise, error) {
+func (r *ExerciseRepository) FindAll(
+	_ context.Context, _ account.UserID,
+) ([]*exercise.Exercise, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 

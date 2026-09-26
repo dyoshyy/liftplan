@@ -3,6 +3,8 @@ package exercise
 import (
 	"context"
 	"errors"
+
+	"github.com/dyoshyy/liftplan/internal/domain/account"
 )
 
 // ErrExerciseNotFound は種目マスタに存在しない種目IDを指したことを表す。
@@ -13,13 +15,14 @@ import (
 // 理由の説明なく消える。
 var ErrExerciseNotFound = errors.New("種目が見つからない")
 
-// Reader は種目マスタの取得口。
+// Reader は種目の取得口。
 //
-// 種目マスタはシードから流し込まれるだけで、実行時に書き換わらない。
-// 書き手が居ないので Writer は無い。必要になってから足す。
+// 共通の種目（シード）に、その利用者が足した種目を加えて返す。所有者を
+// 引数で受けるのは program.Reader と同じ理由で、他人の種目が見えては
+// いけない。
 //
 // FindAll が返すスライスと要素は、呼び出し側が自由に扱ってよい。
 // リポジトリ内部の可変状態をエイリアスして返してはならない。
 type Reader interface {
-	FindAll(ctx context.Context) ([]*Exercise, error)
+	FindAll(ctx context.Context, user account.UserID) ([]*Exercise, error)
 }

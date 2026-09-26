@@ -6,13 +6,16 @@ import (
 	"slices"
 	"testing"
 
+	"github.com/dyoshyy/liftplan/internal/domain/account"
 	"github.com/dyoshyy/liftplan/internal/domain/training/exercise"
 )
 
 // Reader を満たす最小実装。
 type stubRepo struct{}
 
-func (stubRepo) FindAll(context.Context) ([]*exercise.Exercise, error) { return nil, nil }
+func (stubRepo) FindAll(context.Context, account.UserID) ([]*exercise.Exercise, error) {
+	return nil, nil
+}
 
 // インターフェースの形を両方向から固定する。
 //
@@ -21,7 +24,7 @@ func (stubRepo) FindAll(context.Context) ([]*exercise.Exercise, error) { return 
 // 追加とシグネチャ変更だけ。メソッド値を期待する関数型に取り出す向きが要る。
 func TestReader_KeepsItsShape(t *testing.T) {
 	var r exercise.Reader = stubRepo{}
-	var _ func(context.Context) ([]*exercise.Exercise, error) = r.FindAll
+	var _ func(context.Context, account.UserID) ([]*exercise.Exercise, error) = r.FindAll
 }
 
 // 種目マスタは実行時に書き換わらないので Writer を持たない。

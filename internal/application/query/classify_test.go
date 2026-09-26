@@ -37,7 +37,7 @@ func TestQueries_ClassifyUnavailable(t *testing.T) {
 		name string
 		call func() error
 	}{
-		{"Exercises.All", func() error { _, err := exercises.All(ctx); return err }},
+		{"Exercises.All", func() error { _, err := exercises.All(ctx, testUser); return err }},
 		{"History.Days", func() error { _, err := history.Days(ctx, testUser, from, to); return err }},
 		{"History.LastPerformances", func() error { _, err := history.LastPerformances(ctx, testUser, to); return err }},
 		{"Stats.Trends", func() error { _, err := stats.Trends(ctx, testUser, from, to); return err }},

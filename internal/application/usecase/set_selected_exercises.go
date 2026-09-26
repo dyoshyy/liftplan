@@ -49,7 +49,7 @@ func (u *SetSelectedExercises) Execute(ctx context.Context, user account.UserID,
 		return fmt.Errorf("使う種目の保存が中断された: %w", err)
 	}
 
-	pool, err := u.exercises.FindAll(ctx)
+	pool, err := u.exercises.FindAll(ctx, user)
 	if err != nil {
 		return fmt.Errorf("種目の取得に失敗: %w", err)
 	}
