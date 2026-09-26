@@ -77,11 +77,7 @@ func (r *ExerciseRepository) FindAll(ctx context.Context, user account.UserID) (
 	return out, nil
 }
 
-// Save は利用者が足した種目を保存する。
-//
-// 同じ ID が既にあれば、消したかどうかだけを反映する。名前・部位・刻みは
-// 最初に保存した値のまま（編集の経路がまだ無い。memory 実装と
-// exercise.Writer の「上書きする」とはここが違う）。
+// Save は利用者が足した種目を保存する。同じ ID は上書きする。
 func (r *ExerciseRepository) Save(ctx context.Context, user account.UserID, e *exercise.Exercise) error {
 	if e == nil || !e.IsCustom() {
 		return errors.New("共通の種目は保存できない")
@@ -95,7 +91,11 @@ func (r *ExerciseRepository) Save(ctx context.Context, user account.UserID, e *e
 			(user_id, id, name, primary_regions, secondary_regions, increment_kg, deleted_at)
 		VALUES ($1, $2, $3, $4, $5, $6, CASE WHEN $7 THEN now() END)
 		ON CONFLICT (user_id, id) DO UPDATE SET
-			deleted_at = CASE WHEN $7 THEN COALESCE(custom_exercises.deleted_at, now()) END`,
+			name              = EXCLUDED.name,
+			primary_regions   = EXCLUDED.primary_regions,
+			secondary_regions = EXCLUDED.secondary_regions,
+			increment_kg      = EXCLUDED.increment_kg,
+			deleted_at        = CASE WHEN $7 THEN COALESCE(custom_exercises.deleted_at, now()) END`,
 		user.String(), string(e.ID()), e.Name(), primary, secondary, e.Increment().Kg(), e.IsDeleted())
 	var pgErr *pgconn.PgError
 	if errors.As(err, &pgErr) && pgErr.Code == "23505" && pgErr.ConstraintName == "custom_exercises_alive_name" {

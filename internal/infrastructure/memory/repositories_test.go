@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"sync"
 	"testing"
 	"time"
@@ -189,5 +190,45 @@ func TestExerciseRepository_OrdersCustomsByIDRegardlessOfSaveOrder(t *testing.T)
 	tail := got[len(seedAll):]
 	if tail[0].ID() != first.ID() || tail[1].ID() != second.ID() {
 		t.Errorf("保存順のまま返っている（ID 昇順のはず）: %v, %v", tail[0].ID(), tail[1].ID())
+	}
+}
+
+// 同じ ID を二度渡したら上書きする（exercise.Writer の契約）。
+// 名前・部位・刻みも含めて、2回目の値だけが残ること。
+func TestExerciseRepository_SaveOverwritesTheSameID(t *testing.T) {
+	ctx := context.Background()
+	repo := memory.NewExerciseRepository(nil)
+	a := newUser(t)
+
+	first, err := exercise.NewCustomExercise(exercise.CustomExerciseParams{
+		ID: "u-000000000000000a", Name: "アイソラテラル・ロー",
+		Primary: []training.MuscleRegion{training.Lat}, IncrementKg: 2.5,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := repo.Save(ctx, a, first); err != nil {
+		t.Fatal(err)
+	}
+
+	second, err := exercise.NewCustomExercise(exercise.CustomExerciseParams{
+		ID: "u-000000000000000a", Name: "シーテッドロー",
+		Primary: []training.MuscleRegion{training.TrapMid}, IncrementKg: 5.0,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := repo.Save(ctx, a, second); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := repo.FindAll(ctx, a)
+	if err != nil {
+		t.Fatal(err)
+	}
+	back := got[len(got)-1]
+	if back.Name() != second.Name() || back.Increment().Kg() != second.Increment().Kg() ||
+		!slices.Equal(back.PrimaryRegions(), second.PrimaryRegions()) {
+		t.Errorf("2回目の値で上書きされていない: %+v", back)
 	}
 }
