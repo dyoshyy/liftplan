@@ -1218,8 +1218,20 @@ func TestSessionPlanner_DeselectedExercisesAreNeverCandidates(t *testing.T) {
 }
 
 // カバレッジの窓は直近4週。前日までの27日ぶんを数え、当日を足して28日。
+//
+// 評価日 E（割り振り器が損失を測る基準日）は「予測の最後の回の日」で、
+// 頻度が1より大きいと today より先にずれる（PR 3・
+// docs/specs/2026-09-26-accessory-allocation-design.md）。この境界検査は
+// 「today から数えて何日前か」を厳密に見たいので、頻度1のプログラムに
+// 差し替えて E を today に固定する（頻度1なら horizonDates が返す回は
+// 今日1回だけで、ずれが起きない）。
 func TestSessionPlanner_RollingCoverageWindow(t *testing.T) {
 	base := chestUpperRequest(t)
+	freq1, err := base.Program.WithFrequency(mustFrequency(t, 1))
+	if err != nil {
+		t.Fatalf("WithFrequency(1): %v", err)
+	}
+	base.Program = freq1
 	want := len(mustPlan(t, base).Accessories())
 
 	cases := []struct {

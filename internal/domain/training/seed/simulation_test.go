@@ -603,7 +603,7 @@ func splitWeeks(frequency, cycleLen int) int {
 // 単一のスイッチ。true にすると、下の「既知の赤」が全部いつもの assertion に
 // 戻る。PR 3 のあとにこれを true にして go test ./... が緑にならなければ、
 // 割り振り器がここに挙げた赤を消しきれていない、ということ。
-const splitAllocatorRewritten = false
+const splitAllocatorRewritten = true
 
 // knownEmptySplitSession は、いまの補助選択が分割＋回復の二重制約で
 // 候補を使い切り、空セッション（軸も補助も無い）を出す既知の組み合わせ。

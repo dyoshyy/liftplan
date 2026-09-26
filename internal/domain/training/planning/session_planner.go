@@ -169,104 +169,81 @@ func (p SessionPlanner) selectLineup(
 	// 出すより、軸の枠が無いほうが正直（2026-09-19 の仕様書）。
 	var lineup []lineupEntry
 	heavy, axisRole := axis(history, prog, pool, declared, today, hasSplit)
-
-	// 直近4週のカバレッジ。窓は前日までの27日ぶんで、当日を足して28日。
-	// 長さの理由は CoverageWindowWeeks に書いた。
-	//
-	// date-28 にしてはいけない。4週前の同じ曜日のセッションが窓に残り、
-	// 同じ曜日に通う人は定常状態で不足が 0 になって補助が出なくなる。
-	//
-	// 暦週をやめたのは、週の先頭でリセットされるため。埋めきった週末は
-	// セッションが短くなり（実測18セット）、週明けに全区分の不足が
-	// 最大になって一日で使い尽くしていた。
-	//
-	// 当日の記録は見ない。history が前日までなのに加えて、窓の上端も
-	// 前日で切る。CoverageBetween は画面の「充足」が当日込みで使う
-	// 公開関数なので、当日を外すのは呼ぶ側の窓で言う。
-	//
-	// 数えるのはマスタ全件（master）で、選択された種目だけではない。
-	// やったセットは、いま選択しているかに関係なく、やったセット。pool で
-	// 数えると、種目を選択から外した瞬間にその記録が読み飛ばされ、区分の
-	// 残差が窓の長さのあいだふくらむ。画面の「充足」もマスタ全件で数えて
-	// いるので、そちらとも食い違う（#133）。
-	coverage := CoverageBetween(history, master, date.AddDays(-(CoverageWindowDays - 1)), date.AddDays(-1))
-
-	// 今日すでに積む分（軸とバリエーション）。セット数は役割の表から引く。
-	// 処方を待たないのは、重量の側へ依存を作らないため。
-	sets := prog.SessionVolume().Sets()
-	thisSession := StimulusCoverage{}
 	if heavy != nil {
 		lineup = append(lineup, lineupEntry{exercise: heavy, role: axisRole})
-		thisSession = thisSession.Plus(heavy.Stimulus(), p.prescriptionFor(axisRole, sets).setCount())
 	}
 
 	exclude := accessoryExcluded(pool, prog)
 	if v := variationLift(history, prog, pool, heavy, date, today, hasSplit); v != nil {
 		lineup = append(lineup, lineupEntry{exercise: v, role: variationRole})
-		thisSession = thisSession.Plus(v.Stimulus(), p.prescriptionFor(variationRole, sets).setCount())
 		exclude = append(exclude, v.ID())
 	}
 
-	// 分割があるときだけ天井を掛ける。理由は SessionResidual に書いた。
-	var active ActiveCount
-	if hasSplit {
-		active = activeCount(history, prog)
-	}
-	gaps := SessionResidual(target, coverage, thisSession, active)
-
-	// 今日の分割に属さない区分は狙わない。残差から落とすのは補助の
-	// 選択に効かせるためで、週目標そのものは変えない。窓が1週なので、
-	// 落とした分は次にその分割が来た日に残ったまま出てくる。
-	//
-	// ただし**どの日にも属さない区分は毎日活かす**。腹はどの日にやっても
-	// よい部位で、どのプリセットにも入っていない。素直に落とすと永久に
-	// 埋まらない（実測で腹斜筋が全プリセット・全頻度で 0%）。
-	if hasSplit {
-		cycle := prog.Cycle()
-		for region := range gaps {
-			if affiliated(cycle, region) && !today.Includes(region) {
-				delete(gaps, region)
-			}
-		}
-	}
-
-	// Select にもマスタ全件を渡し、選択されていない種目は exclude で候補から
-	// 落とす。Select は除外した種目も履歴を読む辞書には残すので、外した種目を
-	// 前日にやっていれば、その区分は回復中と判定される。pool を渡すと辞書から
-	// も消え、前日にやった区分の補助が今日も出る（#133）。
-	//
-	// 候補と辞書を別の引数に分けなかったのは、「候補にはしないが記録は読む」
-	// が exclude の既にある意味そのものだから。
+	// 補助の候補プールに残さない種目。マスタ全件のうち選択されていない
+	// ものも足す（AccessorySelector.Select が以前していたのと同じ理由：
+	// 除外した種目の記録は回復の判定に要るので、辞書には残しつつ候補からは
+	// 落とす。候補プールと辞書を別の引数に分けないのは AllocationRequest の
+	// Pool／Master がその2役をそのまま引き継いでいるため）。
 	for _, e := range master {
 		if e != nil && !prog.Includes(e.ID()) {
 			exclude = append(exclude, e.ID())
 		}
 	}
-	// 補助に割ける枠は、1回の種目数から、すでに並んだ軸とバリエーションを
-	// 引いた残り。
-	//
-	// 取り分を先に決め打ちしない。軸が立たない日（分割で狙う区分に宣言種目が
-	// 無い）もバリエーションが出ない日もあるので、実際に並んだぶんを引く。
-	// 決め打ちにすると、軸が空の日に予算が余ったまま終わる。
-	//
-	// 以前は枠が AccessorySelector の maxSlots = 8 という定数で、軸を足した
-	// 9種目27セットが全頻度・全セッションで固定的に出ていた。
-	//
-	// 選択器を毎回組み直すのは、枠数とセット数が利用者の設定だから。回復
-	// 日数だけが方針で、組み立て時のものをそのまま使う。
+
+	// 補助に割ける今日の枠は、1回の種目数から、すでに並んだ軸と
+	// バリエーションを引いた残り。取り分を先に決め打ちしないのは以前と同じ
+	// 理由（軸が立たない日・バリエーションが出ない日がある）。
 	slots := prog.SessionVolume().Exercises() - len(lineup)
 	if slots <= 0 {
 		return lineup, nil
 	}
-	selector, err := NewAccessorySelector(p.accessory.RecoveryDays(), sets, slots)
+
+	// 先の回（今日を含めて頻度ぶん）を予測し、割り振り器に渡す形へ変換する。
+	// 回0の空き枠は、いま確定した lineup から求めた slots で上書きする
+	// （ProjectHorizon が計算し直す軸・バリエーションの有無と一致するはずだが
+	// 一致は horizon_projector.go の TestProjectHorizon_MatchesPlanWhenFollowedExactly
+	// が守っている契約であって、ここでは Plan 自身が確定した値を優先する）。
+	sessions, err := p.ProjectHorizon(history, prog, pool, date)
 	if err != nil {
-		return nil, fmt.Errorf("補助の枠が組めない: %w", err)
+		return nil, fmt.Errorf("先の回の予測に失敗: %w", err)
+	}
+	horizon := toHorizonSessions(sessions, prog.SessionVolume().Exercises())
+	if len(horizon) > 0 {
+		horizon[0].Slots = slots
 	}
 
-	// Select が返すのは pool の中の種目に限る。候補は master から exclude を
-	// 引いたもので、pool（選択された種目）に無いものは全て exclude に入れて
-	// あるので、findExercise が nil を返す経路は無い。
-	for _, id := range selector.Select(target, gaps, master, history, date, exclude) {
+	// 評価日 E は予測の最後の回の日。窓は [E-27, E]（設計書「損失」）。
+	// 前日までの実際の記録は date より先に伸びないので、上端を E に
+	// 取っても実害は無い（History に未来の記録は無い）。
+	evalDate := horizon[len(horizon)-1].Date
+	baseline := CoverageBetween(history, master, evalDate.AddDays(-(CoverageWindowDays - 1)), evalDate)
+
+	allocator, err := NewAccessoryAllocator(p.accessory.RecoveryDays())
+	if err != nil {
+		return nil, fmt.Errorf("割り振り器が組めない: %w", err)
+	}
+	setsPerAccessory, err := training.NewSetCount(prog.SessionVolume().Sets())
+	if err != nil {
+		return nil, fmt.Errorf("補助のセット数が不正: %w", err)
+	}
+
+	allocations, err := allocator.Allocate(AllocationRequest{
+		Target:           target,
+		Baseline:         baseline,
+		Sessions:         horizon,
+		Cycle:            prog.Cycle(),
+		SetsPerAccessory: setsPerAccessory,
+		Pool:             candidateAccessories(master, exclude),
+		Master:           master,
+		History:          history,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("補助の割り振りに失敗: %w", err)
+	}
+
+	// 回0（今日）だけを採用する。Allocate が返すのは pool の中の種目に
+	// 限るので findExercise が nil を返す経路は無い。
+	for _, id := range allocations[0] {
 		if e := findExercise(pool, id); e != nil {
 			lineup = append(lineup, lineupEntry{exercise: e, role: accessoryRole})
 		}

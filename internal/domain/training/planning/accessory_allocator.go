@@ -13,11 +13,14 @@ import (
 
 // overAttainmentWeight は損失の α（超過の重み）。
 //
-// 0 < α < 1。超過（ρ≥1）を不足（ρ<1）より軽く罰する。1/4 は通し検証の
-// グリッド探索（1/8・1/4・1/2 × β 0.8・0.9・0.95）で選んだ。1/8 は分割の
-// 腹（ABS/OBLIQUE）が超過側に振れやすく、1/2 は対称に近づいて腹の
-// 積み上がりが PR の課題（218〜260%）に戻りかけた。1/4 が両方の帯を
-// 崩さずに収まった（PR 本文の表に数値がある）。
+// 0 < α < 1。超過（ρ≥1）を不足（ρ<1）より軽く罰する。設計書の初期値
+// 1/4 のまま置く。α∈{1/8,1/4,1/2}×β∈{0.8,0.9,0.95} の9通りで通し検証
+// （分割の達成率）を測ったが、**どの組も帯（60〜145%）を全区分では
+// 満たさなかった**（残る赤は α・β では動かない別の原因による。PR 本文と
+// 通し検証の失敗に数値がある）。件数だけを見ると 1/8・β0.9 が最少だが、
+// そちらは ppl・週1回の ABS/OBLIQUE が 146〜174% まで戻る（PR 3 がまさに
+// 消したかった超過）ので、件数だけで選ばない。1/4 は設計書の出発点であり、
+// 挙動を悪化させる方向へ動かす理由も無いので据え置く。
 //
 // 定数にして利用者の設定にしないのは設計書の決定（「どちらも定数」）。
 const overAttainmentWeight = 1.0 / 4.0
@@ -25,7 +28,8 @@ const overAttainmentWeight = 1.0 / 4.0
 // similarityBand は損失の β（「ほぼ同じ」の幅）。
 //
 // 0 < β < 1。最良の減り幅の β 倍以上を「ほぼ同じ」として多様性の選定に
-// 回す。0.9 が α と同じグリッド探索で選んだ値（PR 本文）。
+// 回す。設計書の初期値 0.9 のまま置く（グリッド探索の結果は
+// overAttainmentWeight のコメントと PR 本文を参照）。
 const similarityBand = 0.9
 
 // HorizonSession は割り振り器が読む、先の回1つぶんの入力。
@@ -333,6 +337,25 @@ func (a AccessoryAllocator) Allocate(req AllocationRequest) ([][]exercise.Exerci
 }
 
 // primaryRegions はその種目の主働（寄与1.0以上）の区分。
+// candidateAccessories は補助の候補プール。exclude に挙がった種目
+// （宣言種目、重点種目の系統、選択されていない種目）を master から引く。
+//
+// ID順のソートは Allocate の側で行う（呼び出し側の並びに依存しないため）。
+func candidateAccessories(master []*exercise.Exercise, exclude []exercise.ExerciseID) []*exercise.Exercise {
+	excluded := make(map[exercise.ExerciseID]bool, len(exclude))
+	for _, id := range exclude {
+		excluded[id] = true
+	}
+	out := make([]*exercise.Exercise, 0, len(master))
+	for _, e := range master {
+		if e == nil || excluded[e.ID()] {
+			continue
+		}
+		out = append(out, e)
+	}
+	return out
+}
+
 func primaryRegions(e *exercise.Exercise) []training.MuscleRegion {
 	out := make([]training.MuscleRegion, 0, 2)
 	for _, r := range e.Stimulus().Regions() {
