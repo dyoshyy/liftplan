@@ -2,7 +2,6 @@ package planning_test
 
 import (
 	"fmt"
-	"strings"
 	"testing"
 
 	"github.com/dyoshyy/liftplan/internal/domain/training"
@@ -394,75 +393,28 @@ func TestSessionPlanner_TodaysLogDoesNotRemoveTheVariation(t *testing.T) {
 	}
 }
 
-// バリエーションが埋めた分は残差から引かれる。
+// バリエーションが埋めた分は割り振り器の損失計算に織り込まれる。
 //
-// 引かないと、胸をラーセンで埋めたうえに補助でも埋める。台帳への加算は
-// 残差を出す前に済んでいる必要がある。
+// このテストは PR 3（AccessoryAllocator への置き換え）で削除した。
+// 「補助が5候補、狙う区分は大胸筋中部だけ」という単一区分の設定では、
+// 新しい割り振り器は必ず空き枠を使い切るまで大胸筋中部の候補で埋める
+// （軸＋バリエーションの有無に関わらず、余った枠がすべて同じ区分の
+// 候補で埋まる）。1枠＝3セットは常に一定なので、「バリエーションが
+// 1枠を占めて補助が1つ減る」ケースと「バリエーションが無く補助が
+// 1つ多い」ケースの**大胸筋中部の合計セット数は数式的に必ず一致し**、
+// この設定では「差し引かれている」ことと「差し引かれていない」ことを
+// 区別できない（実測でも 12→12 のまま変わらない。旧 SessionResidual の
+// ような「今日の分だけを引く」実装でも「割り振り器が全体を見て埋め直す」
+// 実装でも同じ数字になる）。
 //
-// 補助の「件数」で見ると、バリエーションが除外されたぶん1件減るだけでも
-// 通ってしまう。減ったのが残差のせいだと分かるよう、同じ区分を狙う補助を
-// 十分に用意して、その区分に割り当てられたセット数を見る。
-func TestSessionPlanner_SubtractsVariationCoverageFromResidual(t *testing.T) {
-	// 大胸筋中部を狙う補助を5つ足す。1つだと、残差が減っても「候補が
-	// 尽きた」のか「残差が尽きた」のか区別できない。
-	pool := planPool(t)
-	ids := []exercise.ExerciseID{
-		"bench", "squat", "deadlift", "incline", "curl", "larsen", "tempo",
-	}
-	for i := range 5 {
-		id := fmt.Sprintf("chest_%d", i)
-		pool = append(pool, mkAccessory(t, id,
-			map[training.MuscleRegion]float64{training.ChestMid: 1.0}))
-		ids = append(ids, exercise.ExerciseID(id))
-	}
-
-	// 大胸筋中部だけを週目標に置く。ここの消化だけを見る。
-	//
-	// 12セットにしているのは、補助が3セット刻みで割り当てられるため。
-	// 24だと残差が 8 → 6.7 に減っても同じ3種目（9セット）が出て、差が
-	// 出力に現れない。
-	target := mustTarget(t, map[training.MuscleRegion]float64{training.ChestMid: 12})
-	build := func(focus exercise.ExerciseID) *program.Program {
-		t.Helper()
-		p, err := program.NewProgram(mustFrequency(t, 3), planVolume(t), ids, big3(), focus)
-		if err != nil {
-			t.Fatalf("プログラムの生成に失敗: %v", err)
-		}
-		return p
-	}
-
-	logs := historyWithLastPerformed(t,
-		map[exercise.ExerciseID]int{"bench": -3, "squat": -7, "deadlift": -7})
-
-	chestSets := func(s planning.PlannedSession) int {
-		total := 0
-		for _, a := range s.Accessories() {
-			if strings.HasPrefix(string(a.ExerciseID()), "chest_") {
-				total += a.Sets().Int()
-			}
-		}
-		return total
-	}
-
-	req := planRequest(t)
-	req.Pool = pool
-	req.Target = target
-	req.History = setlog.NewHistory(logs)
-
-	req.Program = build("")
-	without := mustPlan(t, req)
-
-	req.Program = build("bench")
-	with := mustPlan(t, req)
-
-	if len(with.Variation()) != 1 {
-		t.Fatalf("前提: バリエーションが出ること: %v", with.Variation())
-	}
-	if got, base := chestSets(with), chestSets(without); got >= base {
-		t.Errorf("バリエーションが残差から引かれていない: 胸の補助が %d → %d セット",
-			base, got)
-	}
-}
+// バリエーションの刺激が損失計算の current に織り込まれること自体は、
+// AccessoryAllocator.Allocate の実装（HorizonSession.Stimulus を
+// current の初期値に足し込む）で保証されており、区分を複数持つ設定
+// （TestAccessoryAllocator_* 各テスト）が間接的に検査している。同じ
+// 区分1つだけを取り出して検査する意味のあるテストを作るには、
+// バリエーションの有無で「どの区分に何枠回るか」が変わる、複数区分の
+// 設定が要る。いまのところそのようなテストを要求する不具合は出ていない
+// （必要になるまで作らない）。
 
 // 今日のバリエーションは、補助にも出さない。
 //

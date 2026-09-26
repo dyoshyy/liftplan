@@ -23,14 +23,14 @@ import (
 // 挙動を悪化させる方向へ動かす理由も無いので据え置く。
 //
 // 定数にして利用者の設定にしないのは設計書の決定（「どちらも定数」）。
-const overAttainmentWeight = 1.0 / 4.0
+const overAttainmentWeight = 1.0 / 8.0
 
 // similarityBand は損失の β（「ほぼ同じ」の幅）。
 //
 // 0 < β < 1。最良の減り幅の β 倍以上を「ほぼ同じ」として多様性の選定に
 // 回す。設計書の初期値 0.9 のまま置く（グリッド探索の結果は
 // overAttainmentWeight のコメントと PR 本文を参照）。
-const similarityBand = 0.9
+const similarityBand = 0.8
 
 // HorizonSession は割り振り器が読む、先の回1つぶんの入力。
 //
@@ -186,9 +186,22 @@ func (a AccessoryAllocator) Allocate(req AllocationRequest) ([][]exercise.Exerci
 	var allocated []stimulusEvent
 
 	// touching はその日の前後 recoveryDays 未満（両方向、当日は含まない）に
-	// 刺激されている区分。AccessorySelector.recovering と同じ「どのレベルの
-	// 寄与でも触れていれば回復中」という判定を、両方向・複数の情報源に
-	// 広げたもの。
+	// 主働として刺激されている区分。
+	//
+	// 刺激源の側も主働（寄与1.0以上）だけを数える。候補の側（recoveryBlocks）
+	// はすでに主働だけで判定しているので、刺激源の側だけ副次まで拾うと
+	// 非対称になる。副次まで拾っていたときは、隣接する日の候補が互いを
+	// 締め出す症状が出た：five_way の「背中」「肩」は隣接日で、
+	// barbell_row（RearDelt 副次0.4）が背中の日に選ばれると肩の日の
+	// RearDelt が「回復中」になり rear_delt_fly を締め出し、逆に
+	// rear_delt_fly（TrapMid 副次0.3）が肩の日に選ばれると背中の日の
+	// TrapMid を締め出して barbell_row・seated_row を締め出していた
+	// （TestSimulation_SplitWeeklyTargetIsAttainable の REAR_DELT・
+	// TRAP_MID 未達）。主働だけに絞ると、この相互ブロックは起きない
+	// （TestAccessoryAllocator_RecoverySourceCountsOnlyPrimaryMovers が守る）。
+	//
+	// 主働が回復中であることは引き続き候補を締め出す
+	// （TestAccessoryAllocator_RecoveryLooksBothWays が守る）。
 	touching := func(d training.Date) map[training.MuscleRegion]bool {
 		out := map[training.MuscleRegion]bool{}
 		add := func(events []stimulusEvent) {
@@ -200,7 +213,7 @@ func (a AccessoryAllocator) Allocate(req AllocationRequest) ([][]exercise.Exerci
 				if diff == 0 || diff >= a.recoveryDays {
 					continue
 				}
-				for _, r := range ev.ex.Stimulus().Regions() {
+				for _, r := range primaryRegions(ev.ex) {
 					out[r] = true
 				}
 			}
@@ -396,16 +409,38 @@ func recoveryBlocks(primary []training.MuscleRegion, recovering map[training.Mus
 	return false
 }
 
-// regionLoss は区分1つぶんの損失。ρ<1 は (1−ρ)²、ρ≥1 は α(ρ−1)²。
+// regionLoss は区分1つぶんの損失。週目標 T で重み付けする。
 //
-// (1−ρ)² と (ρ−1)² は同じ値（2乗なので符号が消える）なので、非対称は
-// ρ≥1 側の α だけで表せる。
-func regionLoss(rho float64) float64 {
-	d := rho - 1
+//	C < 4T： T×(1−ρ)²  = (4T−C)²/(16T)
+//	C ≥ 4T： T×α×(ρ−1)² = α×(C−4T)²/(16T)   （ρ = C/(4T)）
+//
+// ρ を経由せず C・T から直接計算するのは、実装として楽になるからだけ
+// ではない。ρ で書くと「達成率にした時点で目標の大小は打ち消される」と
+// 誤解しやすいが、それは損失の**値**の話であって**1手あたりの変化**の
+// 話ではない（下の重み付けの理由）。C・T のままの式なら、重み T が
+// 消えていないことが読める。
+//
+// **T で重み付けする理由。**重み無し（regionLoss(ρ)=(1−ρ)² のような形）
+// だと、ρ=0 付近での1手あたりの ΔL はおよそ −(寄与×セット数)/(2T) になり、
+// 週目標 T にほぼ反比例する。達成率がまったく同じでも、週目標の大きい
+// 区分（TrapMid・Glute 等）は1手の効きが薄く見え、割り振り器の貪欲が
+// 系統的に後回しにする（実測：TestSimulation_EveryAccessoryGetsUsedInSomeSetup
+// で hip_thrust が一度も選ばれない。Glute は軸の副次寄与だけで達成率
+// 100%超に達するのに、割り振り器の側はそれを大きな目標のせいで「まだ
+// 効きが薄い」としか見ていなかった）。
+//
+// T を掛けると、1手あたりの ΔL の主要項が T に依存しなくなり
+// （TestAccessoryAllocator_DeltaLossIsNotBiasedByTargetSize が、同じ
+// 相対的な遅れなら T の大小で有利不利が付かないことを守る）、優先度を
+// 決めるのは週目標の絶対値ではなく達成率（相対的な遅れ）になる。これは
+// 旧 nextRegion の「欠けている割合で並べる」という発想と同じで、
+// 貪欲法の下で保つには重みが要る、という結論だった。
+func regionLoss(c, t float64) float64 {
+	d := c - 4*t
 	if d < 0 {
-		return d * d
+		return d * d / (16 * t)
 	}
-	return overAttainmentWeight * d * d
+	return overAttainmentWeight * d * d / (16 * t)
 }
 
 // deltaLoss は種目 e を setsPerAccessory ぶん足したときの、損失 L の変化。
@@ -426,8 +461,8 @@ func deltaLoss(
 		if !ok {
 			continue
 		}
-		before := regionLoss(current[r] / (4 * t))
-		after := regionLoss((current[r] + c.TimesSets(sets)) / (4 * t))
+		before := regionLoss(current[r], t)
+		after := regionLoss(current[r]+c.TimesSets(sets), t)
 		total += after - before
 	}
 	return total

@@ -101,12 +101,70 @@ func TestAccessoryAllocator_DeficitIsPunishedMoreSteeply(t *testing.T) {
 	}
 }
 
+// TestAccessoryAllocator_DeltaLossIsNotBiasedByTargetSize は M1 の再現・
+// 回帰検査。週目標 T で損失を重み付けしないと、1手あたりの ΔL が
+// およそ 1/T に比例して薄まるため、達成率が同じでも週目標の大きい区分が
+// 系統的に後回しになる（TestSimulation_EveryAccessoryGetsUsedInSomeSetup
+// で hip_thrust が一度も選ばれなかった実測がこれ）。
+//
+// 区分S（週目標2・小さい）は達成率50%、区分L（週目標40・Sの20倍）は
+// 達成率30%にする。相対的な遅れは L の方が深刻なので、L 専用の候補が
+// 選ばれるべきである。
+//
+// T の比を大きく取る（20倍）のは、変異後（重み無し）でも本テストが
+// 同点処理に落ちずに逆転して見えるようにするため。比が小さいと、重み
+// 無しでも両候補が「ほぼ同じ」の帯に入り、同点処理（未実施優先）が
+// たまたま ID 順で正しい方を選んでしまい、変異の効果を検知できない
+// （手を動かして確認した）。
+//
+// 【変異】regionLoss の重み付け（T を掛ける・16Tで割る）を外し、
+// (c/(4t)-1)² のような重み無しの形に戻す。週目標が20倍大きい L は
+// 1手のΔρが1/20になるぶん ΔL が大きく薄まり、S の方が「遅れが浅いのに」
+// 選ばれてしまう（達成率の大小と選択が逆転する）。
+func TestAccessoryAllocator_DeltaLossIsNotBiasedByTargetSize(t *testing.T) {
+	target := mustTarget(t, map[training.MuscleRegion]float64{
+		training.Calf: 2, training.Erector: 40,
+	})
+	// 4週目標: Calf=8、Erector=160。
+	// Calf 4/8=50%、Erector 48/160=30%（Lの方が相対的に大きく遅れている）。
+	baseline := planning.StimulusCoverage{}.
+		Plus(regionOnly(t, "hist_s", training.Calf, 1.0).Stimulus(), mustSetCount(t, 4)).
+		Plus(regionOnly(t, "hist_l", training.Erector, 1.0).Stimulus(), mustSetCount(t, 48))
+
+	small := regionOnly(t, "small_target", training.Calf, 1.0)
+	large := regionOnly(t, "large_target", training.Erector, 1.0)
+
+	req := planning.AllocationRequest{
+		Target:           target,
+		Baseline:         baseline,
+		Sessions:         []planning.HorizonSession{noSplitSession(allocatorDay, 1)},
+		SetsPerAccessory: mustSetCount(t, 3),
+		Pool:             []*exercise.Exercise{small, large},
+		Master:           []*exercise.Exercise{small, large},
+		History:          setlog.NewHistory(nil),
+	}
+
+	got, err := planning.DefaultAccessoryAllocator().Allocate(req)
+	if err != nil {
+		t.Fatalf("Allocate: %v", err)
+	}
+	if !contains(got[0], "large_target") {
+		t.Errorf("回0の割り当てが %v。達成率30%%で大きく遅れている large_target が選ばれるはず", idsOf(got[0]))
+	}
+	if contains(got[0], "small_target") {
+		t.Errorf("回0の割り当てが %v。達成率50%%の small_target が先に選ばれている（週目標の小ささが有利に働いている）", idsOf(got[0]))
+	}
+}
+
 // TestAccessoryAllocator_DoesNotBlowUpRegionsAtTarget は「目標に届いた
 // 区分には足さない（腹が振り切れない）」を守る。
 //
-// 区分D（達成率0%）と区分S（達成率175%・超過）を用意する。D専用の候補
-// "pure" と、Dに加えてSも刺激する候補 "combo" を比べると、combo は
+// 区分D（達成率0%）と区分S（達成率325%・大幅な超過）を用意する。D専用の
+// 候補 "pure" と、Dに加えてSも刺激する候補 "combo" を比べると、combo は
 // 超過中のSへさらに積む分だけ損失が増える（α>0 の罰）ので pure が勝つ。
+// Sの超過を大きく取るのは、α（PR 3 の通し検証で 1/8 を選んだ。PR 本文）が
+// 小さいため、浅い超過だと罰が弱く combo が「ほぼ同じ」の帯に入って
+// 同点処理に落ちてしまうため（実測で確認済み。手を動かして数値を決めた）。
 //
 // 【変異】overAttainmentWeight（α）を0にする。超過の罰が消えると combo の
 // Sへの追加がタダになり、combo と pure の ΔL が Dの項だけで完全に一致する。
@@ -116,8 +174,11 @@ func TestAccessoryAllocator_DoesNotBlowUpRegionsAtTarget(t *testing.T) {
 	target := mustTarget(t, map[training.MuscleRegion]float64{
 		training.Abs: 10, training.Oblique: 10,
 	})
-	// Abs(D) は実績0。Oblique(S) は実績70（4週目標40に対し175%、超過）。
-	baseline := coverage(t, regionOnly(t, "hist_s", training.Oblique, 1.0), 70)
+	// Abs(D) は実績0。Oblique(S) は実績130（4週目標40に対し325%、大幅な超過）。
+	// SetCount は1回のPlusにつき100までなので、2回に分けて積む。
+	baseline := planning.StimulusCoverage{}.
+		Plus(regionOnly(t, "hist_s1", training.Oblique, 1.0).Stimulus(), mustSetCount(t, 100)).
+		Plus(regionOnly(t, "hist_s2", training.Oblique, 1.0).Stimulus(), mustSetCount(t, 30))
 
 	pure := regionOnly(t, "pure", training.Abs, 1.0)
 	combo, err := exercise.NewExercise(exercise.ExerciseParams{
@@ -298,14 +359,16 @@ func TestAccessoryAllocator_NoFrontSquatOnShoulderDay(t *testing.T) {
 }
 
 // TestAccessoryAllocator_RecoveryLooksBothWays は「回復を前後両方で守る」を
-// 守る。
+// 守る。主働（寄与1.0以上）が回復中なら、引き続き候補を締め出すことも
+// 確かめる（M2・刺激源も主働だけで数える、に切り替えたあとに残るべき
+// 挙動）。
 //
-// 回0（today）と回1（today+1日）の2回。回1の軸が二頭に副次で触れる。
-// 回復日数2なら、回0からの差は1日（前後どちらでも）で回復窓に入る。
-// 候補は二頭が主働の種目1つだけ。回0の視点では「1日先（未来）に二頭を
-// 刺激する回がある」ため回0では選べず、回1では「同じ日（差0）」は
-// 回復窓に入らないので選べる。結果、回0の割り当ては空になり、回1に
-// 割り当てられる。
+// 回0（today）と回1（today+1日）の2回。回1の軸が二頭にも主働で触れる
+// （デッドリフトのように複数区分を1.0で持つ種目を模す）。回復日数2なら、
+// 回0からの差は1日（前後どちらでも）で回復窓に入る。候補は二頭が主働の
+// 種目1つだけ。回0の視点では「1日先（未来）に二頭を主働で刺激する回が
+// ある」ため回0では選べず、回1では「同じ日（差0）」は回復窓に入らないので
+// 選べる。結果、回0の割り当ては空になり、回1に割り当てられる。
 //
 // 【変異】touching の判定を「差が正（過去方向）のときだけ」に絞る
 // （前方向を見なくする）。回0が二頭の候補を選べるようになり、しかも
@@ -314,7 +377,7 @@ func TestAccessoryAllocator_NoFrontSquatOnShoulderDay(t *testing.T) {
 func TestAccessoryAllocator_RecoveryLooksBothWays(t *testing.T) {
 	rows, err := exercise.NewExercise(exercise.ExerciseParams{
 		ID: "rows_like", Name: "rows_like",
-		Stimulus:    map[training.MuscleRegion]float64{training.Lat: 1.0, training.Biceps: 0.3},
+		Stimulus:    map[training.MuscleRegion]float64{training.Lat: 1.0, training.Biceps: 1.0},
 		IncrementKg: 2.5,
 	})
 	if err != nil {
@@ -358,6 +421,91 @@ func TestAccessoryAllocator_RecoveryLooksBothWays(t *testing.T) {
 	}
 	if !contains(got[1], "curl") {
 		t.Errorf("回1の割り当てが %v。curl はここに割り当てられるはず", idsOf(got[1]))
+	}
+}
+
+// TestAccessoryAllocator_RecoverySourceCountsOnlyPrimaryMovers は M2 の
+// 再現・回帰検査。回復の刺激源も主働（寄与1.0以上）だけを数えることを守る。
+//
+// five_way の隣接日（背中・肩）を模す。barbell_row 相当（TrapMid 主働1.0・
+// RearDelt 副次0.4）と rear_delt_fly 相当（RearDelt 主働1.0・TrapMid
+// 副次0.3）は、互いの主働ではなく副次にしか触れない。副次まで回復の
+// 刺激源に数えると、前日にどちらかが出た瞬間にもう片方が翌日締め出され、
+// 実際に通し検証で REAR_DELT・TRAP_MID の未達として出た
+// （TestSimulation_SplitWeeklyTargetIsAttainable）。
+//
+// 【変異】刺激源側の判定を primaryRegions ではなく
+// e.Stimulus().Regions()（副次も含む）に戻す。前日に固定した種目の副次が
+// 翌日の候補の主働を回復中にしてしまい、締め出されて本テストが落ちる。
+func TestAccessoryAllocator_RecoverySourceCountsOnlyPrimaryMovers(t *testing.T) {
+	barbellRow, err := exercise.NewExercise(exercise.ExerciseParams{
+		ID: "barbell_row_like", Name: "barbell_row_like",
+		Stimulus:    map[training.MuscleRegion]float64{training.TrapMid: 1.0, training.RearDelt: 0.4},
+		IncrementKg: 2.5,
+	})
+	if err != nil {
+		t.Fatalf("NewExercise(barbell_row_like): %v", err)
+	}
+	rearDeltFly, err := exercise.NewExercise(exercise.ExerciseParams{
+		ID: "rear_delt_fly_like", Name: "rear_delt_fly_like",
+		Stimulus:    map[training.MuscleRegion]float64{training.RearDelt: 1.0, training.TrapMid: 0.3},
+		IncrementKg: 1.0,
+	})
+	if err != nil {
+		t.Fatalf("NewExercise(rear_delt_fly_like): %v", err)
+	}
+
+	target := mustTarget(t, map[training.MuscleRegion]float64{
+		training.TrapMid: 10, training.RearDelt: 10,
+	})
+
+	cases := []struct {
+		name      string
+		fixed     *exercise.Exercise // 前日に軸として固定で刺激される種目
+		candidate *exercise.Exercise // 当日の唯一の候補
+	}{
+		{
+			name:  "barbell_rowの副次(RearDelt)がrear_delt_flyを締め出さない",
+			fixed: barbellRow, candidate: rearDeltFly,
+		},
+		{
+			name:  "rear_delt_flyの副次(TrapMid)がbarbell_rowを締め出さない",
+			fixed: rearDeltFly, candidate: barbellRow,
+		},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			sessions := []planning.HorizonSession{
+				{ // 前日：fixed が軸として出る（枠は無い＝それ自体は候補にならない）。
+					Date: allocatorDay, Axis: c.fixed, Stimulus: coverage(t, c.fixed, 3), Slots: 0,
+				},
+				{Date: allocatorDay.AddDays(1), Slots: 1}, // 当日
+			}
+
+			req := planning.AllocationRequest{
+				Target:           target,
+				Baseline:         planning.StimulusCoverage{},
+				Sessions:         sessions,
+				SetsPerAccessory: mustSetCount(t, 3),
+				Pool:             []*exercise.Exercise{c.candidate},
+				Master:           []*exercise.Exercise{c.candidate, c.fixed},
+				History:          setlog.NewHistory(nil),
+			}
+
+			allocator, err := planning.NewAccessoryAllocator(2)
+			if err != nil {
+				t.Fatalf("NewAccessoryAllocator: %v", err)
+			}
+			got, err := allocator.Allocate(req)
+			if err != nil {
+				t.Fatalf("Allocate: %v", err)
+			}
+			if !contains(got[1], c.candidate.ID()) {
+				t.Errorf("当日の割り当てが %v。%s が前日の副次の重複で締め出されずに選ばれるはず",
+					idsOf(got[1]), c.candidate.ID())
+			}
+		})
 	}
 }
 
