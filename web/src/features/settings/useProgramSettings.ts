@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { getJSON, send } from '../../api/client';
 import type { Program, SplitPreset, SplitPresetsResponse } from '../../api/types';
 import { focusBody, NO_FOCUS } from '../today/focus';
-import { lockedDeclared } from '../today/declared';
+import { lockedDeclared, toggleDeclared } from '../today/declared';
 import { matchingPresetKey, splitBody, splitUnselectableReason } from './split';
 
 // 設定の判断。副作用は持たない。
@@ -20,20 +20,14 @@ import { matchingPresetKey, splitBody, splitUnselectableReason } from './split';
 export const describePutFailure = (status: number, body: { error?: string } | null): string =>
   body?.error ? body.error : `変えられませんでした（${status}）`;
 
-/** isDirty は種目の選択が変わったかを見る。
+/** exercisesSummary は「種目」を畳んだときに出す1行。
  *
- *  並び順の違いは無視する。並びだけで「変わった」にすると、押していないのに
- *  保存ボタンが出続ける。 */
-export const isDirty = (draft: readonly string[], saved: readonly string[]): boolean =>
-  [...draft].sort().join(',') !== [...saved].sort().join(',');
-
-/** exerciseCountSummary は畳んだときの summary 文言を組む。
- *
- *  出すのは保存済みの件数。チェックを動かして畳むと、保存ボタンが
- *  消えるので保存したように見えるが、サーバーへはまだ送っていない。
- *  未保存の変更が残っていることをここで示す。 */
-export const exerciseCountSummary = (savedCount: number, dirty: boolean): string =>
-  dirty ? `${savedCount}種目（未保存）` : `${savedCount}種目`;
+ *  重点種目の名前を最後に置くのは、長さが決まっていないため。先に置くと、
+ *  狭い画面で切れたときに件数まで隠れる。 */
+export const exercisesSummary = (program: Program, nameOf: (id: string) => string): string => {
+  const focus = program.focus_exercise ? `重点 ${nameOf(program.focus_exercise)}` : '重点なし';
+  return `使う${program.selected_exercises.length}・伸ばす${program.declared_exercises.length}・${focus}`;
+};
 
 // 設定の手順を束ねる。
 //
@@ -49,10 +43,6 @@ export function useProgramSettings(onChanged: () => Promise<void>) {
   const [note, setNote] = useState('');
   const [busy, setBusy] = useState(false);
 
-  // 保存前のチェック状態。宣言はチェックを何個か動かしてから保存する。
-  // 1つ動かすたびに送ると、そのたびにメニューが組み替わる。
-  const [draft, setDraft] = useState<string[] | null>(null);
-  const [pick, setPick] = useState<string[] | null>(null);
   const [presets, setPresets] = useState<SplitPreset[]>([]);
 
   // 画面を開いたら読む。以前は「開く」を押したときだけだったが、
@@ -66,9 +56,8 @@ export function useProgramSettings(onChanged: () => Promise<void>) {
 
   // 取りに行く。呼ぶのは画面を開いたときの1回だけ。
   //
-  // 以前は保存のたびに手持ちを捨てて取り直していた。取り直すと、畳んだ節で
-  // 動かしていた未保存のチェックまで保存済みの値で上書きされ、取り直すまで
-  // 節の中身も空になる。保存した値は手元で書き換える（save* を参照）。
+  // 保存した値は手元で書き換える（choose* / save* / toggle* を参照）。取り直すと、
+  // 取り直すまで節の中身が空になる。
   const load = async () => {
     setNote('');
     try {
@@ -78,8 +67,6 @@ export function useProgramSettings(onChanged: () => Promise<void>) {
       ]);
       setProgram(p);
       setPresets(sp.presets);
-      setDraft(p.declared_exercises);
-      setPick(p.selected_exercises);
     } catch {
       setNote('設定を読めませんでした');
     }
@@ -116,17 +103,29 @@ export function useProgramSettings(onChanged: () => Promise<void>) {
     await onChanged();
   };
 
-  const saveDeclared = async () => {
-    if (!program || !draft || busy) return;
-    if (!(await put('/api/program/declared', { declared_exercises: draft }))) return;
-    setProgram({ ...program, declared_exercises: draft });
+  // 種目は押したその場で1つずつ送る。
+  //
+  // 以前は何個か動かしてから保存ボタンで送っていた。設定が「今日」の画面の
+  // 中にあったころ、1つ動かすたびに目の前のメニューが組み替わったため。
+  // 設定が別の画面に移ってその理由が無くなり、残った保存前の選択が
+  // 「回数を変えると未保存のチェックが消える」「畳むと未保存に気づけない」を
+  // 生んでいた。
+  //
+  // 1つずつ送っても制約（伸ばしたい ⊆ 使う、重点 ∈ 伸ばしたい）は破れない。
+  // 候補の絞り込みと外せない種目の鍵で、1回の操作ごとに守っている。
+  const toggleSelectedExercise = async (id: string) => {
+    if (!program || busy) return;
+    const next = toggleDeclared(program.selected_exercises, id);
+    if (!(await put('/api/program/selected', { selected_exercises: next }))) return;
+    setProgram({ ...program, selected_exercises: next });
     await onChanged();
   };
 
-  const saveSelected = async () => {
-    if (!program || !pick || busy) return;
-    if (!(await put('/api/program/selected', { selected_exercises: pick }))) return;
-    setProgram({ ...program, selected_exercises: pick });
+  const toggleDeclaredExercise = async (id: string) => {
+    if (!program || busy) return;
+    const next = toggleDeclared(program.declared_exercises, id);
+    if (!(await put('/api/program/declared', { declared_exercises: next }))) return;
+    setProgram({ ...program, declared_exercises: next });
     await onChanged();
   };
 
@@ -155,9 +154,7 @@ export function useProgramSettings(onChanged: () => Promise<void>) {
     await onChanged();
   };
 
-  const locked = program ? lockedDeclared(draft ?? [], program.focus_exercise) : new Map();
-  const dirty = program && draft ? isDirty(draft, program.declared_exercises) : false;
-  const pickDirty = program && pick ? isDirty(pick, program.selected_exercises) : false;
+  const locked = program ? lockedDeclared(program.declared_exercises, program.focus_exercise) : new Map();
   const splitKey = program ? matchingPresetKey(program, presets) : null;
   // プリセットごとに「いまの頻度で選べるか」を添える。5分割のように
   // 下限を持つプリセットは、頻度が足りない間ボタンを押させない
@@ -170,18 +167,12 @@ export function useProgramSettings(onChanged: () => Promise<void>) {
 
   return {
     program,
-    draft,
-    setDraft,
-    pick,
-    setPick,
     note,
     busy,
     locked,
-    dirty,
-    pickDirty,
     chooseFocus,
-    saveDeclared,
-    saveSelected,
+    toggleSelectedExercise,
+    toggleDeclaredExercise,
     saveFrequency,
     saveVolume,
     splitOptions,
