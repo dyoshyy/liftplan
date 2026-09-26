@@ -52,7 +52,7 @@ export function ProgramSettings({ nameOf, exercises, onChanged }: Props) {
     saveSelected,
     saveFrequency,
     saveVolume,
-    presets,
+    splitOptions,
     splitKey,
     chooseSplit,
   } = useProgramSettings(onChanged);
@@ -77,15 +77,18 @@ export function ProgramSettings({ nameOf, exercises, onChanged }: Props) {
           >
             全身法
           </Button>
-          {presets.map((p) => (
-            <Button
-              key={p.key}
-              variant={splitKey === p.key ? 'primary' : 'quiet'}
-              disabled={busy}
-              onClick={() => void chooseSplit(p)}
-            >
-              {p.name}
-            </Button>
+          {splitOptions.map(({ preset: p, reason }) => (
+            <div key={p.key}>
+              <Button
+                variant={splitKey === p.key ? 'primary' : 'quiet'}
+                disabled={busy || reason !== null}
+                title={reason ?? undefined}
+                onClick={() => void chooseSplit(p)}
+              >
+                {p.name}
+              </Button>
+              {reason && <Note className="mt-1">{reason}</Note>}
+            </div>
           ))}
         </div>
 

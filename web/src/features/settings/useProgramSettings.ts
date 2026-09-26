@@ -3,12 +3,22 @@ import { getJSON, send } from '../../api/client';
 import type { Program, SplitPreset, SplitPresetsResponse } from '../../api/types';
 import { focusBody, NO_FOCUS } from '../today/focus';
 import { lockedDeclared } from '../today/declared';
-import { matchingPresetKey, splitBody } from './split';
+import { matchingPresetKey, splitBody, splitUnselectableReason } from './split';
 
 // 設定の判断。副作用は持たない。
 //
 // 送る前に決まることをここに集める。以前は ProgramSettings.tsx の中にあり、
 // DOM を立てないと検査できなかった。
+
+/** describePutFailure は PUT が失敗したときに画面へ出す1行を組む。
+ *
+ *  サーバーが本文に書いた理由をそのまま出す。5分割の頻度下限のように
+ *  「なぜ成り立たないか」はサーバーしか知らない（どの分割にどの区分が
+ *  あるか、頻度の下限）。状態コードだけでは本人が次に何をすればいいか
+ *  分からない（web/src/dev/simulate.ts の describeFailure と同じ理由）。
+ *  理由が無ければ状態コードだけを出す。 */
+export const describePutFailure = (status: number, body: { error?: string } | null): string =>
+  body?.error ? body.error : `変えられませんでした（${status}）`;
 
 /** isDirty は種目の選択が変わったかを見る。
  *
@@ -80,7 +90,8 @@ export function useProgramSettings(onChanged: () => Promise<void>) {
     try {
       const res = await send({ path, method: 'PUT', body });
       if (!res.ok) {
-        setNote(`変えられませんでした（${res.status}）`);
+        const failure = (await res.json().catch(() => null)) as { error?: string } | null;
+        setNote(describePutFailure(res.status, failure));
         return false;
       }
       return true;
@@ -147,7 +158,14 @@ export function useProgramSettings(onChanged: () => Promise<void>) {
   const dirty = program && draft ? isDirty(draft, program.declared_exercises) : false;
   const pickDirty = program && pick ? isDirty(pick, program.selected_exercises) : false;
   const splitKey = program ? matchingPresetKey(program, presets) : null;
-
+  // プリセットごとに「いまの頻度で選べるか」を添える。5分割のように
+  // 下限を持つプリセットは、頻度が足りない間ボタンを押させない
+  // （押しても保存の口が同じ理由で拒否するので、実害は無いが、
+  // 押す前に理由が読めたほうが本人が次に何をすればいいか分かる）。
+  const splitOptions = presets.map((p) => ({
+    preset: p,
+    reason: program ? splitUnselectableReason(p, program.per_week) : null,
+  }));
 
   return {
     program,
@@ -165,7 +183,7 @@ export function useProgramSettings(onChanged: () => Promise<void>) {
     saveSelected,
     saveFrequency,
     saveVolume,
-    presets,
+    splitOptions,
     splitKey,
     chooseSplit,
   };

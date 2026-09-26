@@ -33,3 +33,36 @@ export function matchingPresetKey(program: Program, presets: readonly SplitPrese
 export function splitBody(preset: SplitPreset | null): { splits: SplitPreset['splits'] } {
   return { splits: preset ? preset.splits : [] };
 }
+
+/**
+ * isSplitSelectable は、その頻度でプリセットを選べるかを返す。
+ *
+ * 下限は preset.min_frequency_per_week から読む（0 は下限なし）。
+ * 「five_way」をここに書かないのは、下限を持つプリセットが増えても
+ * 画面側を直さずに済ませるため（サーバー側も同じ理由で seed.SplitPreset
+ * に持たせている。CLAUDE.md「必要になるまで作らない」）。
+ *
+ * 補助の割り振り（PR #185）の計測で、5分割は週4回未満だと部位ごとの
+ * 週目標を満たせない。選べる設定を残したまま本人に判断を押し戻すのでは
+ * なく、選べる選択肢から外す。
+ *
+ * 下限0（下限なし）を別条件で弾かない。頻度は1以上しか無い（週の頻度の
+ * 選択肢に0は無い）ので、下限0との比較は常に真になり、素通しと同じになる
+ * （internal/application/usecase/set_split_cycle.go と同じ判断）。
+ */
+export function isSplitSelectable(preset: SplitPreset, perWeek: number): boolean {
+  return perWeek >= preset.min_frequency_per_week;
+}
+
+/**
+ * splitUnselectableReason は選べない理由の1行。選べるなら null。
+ *
+ * サーバーが PUT /api/program/split / /api/program/frequency を拒否する
+ * ときと同じ下限を、押す前に画面へ出すためのもの。実際に弾かれる理由は
+ * サーバーの応答（describePutFailure）が持つので、ここは「なぜ選べないか」
+ * だけを言う。
+ */
+export function splitUnselectableReason(preset: SplitPreset, perWeek: number): string | null {
+  if (isSplitSelectable(preset, perWeek)) return null;
+  return `${preset.name}は週${preset.min_frequency_per_week}回以上で使えます`;
+}
