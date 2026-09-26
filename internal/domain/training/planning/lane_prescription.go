@@ -4,12 +4,13 @@ import (
 	"github.com/dyoshyy/liftplan/internal/domain/training"
 	"github.com/dyoshyy/liftplan/internal/domain/training/condition"
 	"github.com/dyoshyy/liftplan/internal/domain/training/exercise"
+	"github.com/dyoshyy/liftplan/internal/domain/training/program"
 	"github.com/dyoshyy/liftplan/internal/domain/training/setlog"
 )
 
 // laneRole は種目が今日のセッションで担う役割。
 //
-// 種目を選ぶ側（axis・variationLift・selectLineup の補助選定）はこの役割までを
+// 種目を選ぶ側（axis・variationLift・Forecast の補助選定）はこの役割までを
 // 決め、強度・セット数・RIR は決めない。役割から処方の定数を引くのは
 // prescriptionFor の表だけで、強度の値はあの表にしか無い。
 type laneRole int
@@ -116,11 +117,14 @@ func (l lanePrescription) setCount() training.SetCount {
 func (p SessionPlanner) prescribe(
 	lineup []lineupEntry, estimable setlog.History,
 	conditions condition.ConditionLog, date training.Date, sets int,
+	split program.Split, hasSplit bool,
 ) PlannedSession {
 	rirBump := p.analyzer.RIRAdjustment(conditions, date)
 
 	session := PlannedSession{
 		date:        date,
+		split:       split,
+		hasSplit:    hasSplit,
 		main:        make([]PlannedSet, 0, 1),
 		variation:   make([]PlannedSet, 0, 1),
 		accessories: make([]PlannedSet, 0, len(lineup)),

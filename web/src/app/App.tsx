@@ -1,6 +1,7 @@
 import { useCallback } from 'react';
 import type { DayChange } from '../domain/days';
 import { label, today } from '../domain/date';
+import { Forecast } from '../features/forecast/Forecast';
 import { Setup } from '../features/setup/Setup';
 import { GearIcon } from '../ui/icons';
 import { Today } from '../features/today/Today';
@@ -102,6 +103,7 @@ export function App() {
                 onRecorded={timer.start}
                 canStartRest={timer.state.kind === 'idle'}
                 onReload={reload}
+                onOpenForecast={() => go('forecast')}
               />
             )}
 
@@ -126,6 +128,10 @@ export function App() {
                   go('today');
                 }}
               />
+            )}
+
+            {route === 'forecast' && (
+              <Forecast nameOf={nameOf} onBack={() => go('today')} />
             )}
           </>
         )}

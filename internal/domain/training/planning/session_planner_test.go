@@ -790,6 +790,36 @@ func TestSessionPlanner_PlanIsFixedForTheWholeDay(t *testing.T) {
 	}
 }
 
+// Plan の結果に、その日の分割の日が乗ること。
+//
+// 今日の sessionDTO はまだこの値を読まない（読み始めるのは見込みの画面
+// から、PR2・PR3）。ここで先に固定するのは、次のタスクで Forecast が
+// Plan の回0をそのまま返す形になったとき、分割の日だけがすり抜けて
+// null になる退行を早期に潰すため。
+func TestSessionPlanner_Plan_CarriesTheSplitDay(t *testing.T) {
+	cases := []struct {
+		name      string
+		req       func(t *testing.T) planning.PlanRequest
+		wantHas   bool
+		wantSplit string
+	}{
+		{"分割なしは false", planRequest, false, ""},
+		{"分割ありは周期の先頭", fixedDaySplitRequest, true, "上"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			got := mustPlan(t, c.req(t))
+			split, hasSplit := got.Split()
+			if hasSplit != c.wantHas {
+				t.Fatalf("分割の有無が %v。%v のはず", hasSplit, c.wantHas)
+			}
+			if hasSplit && split.Name() != c.wantSplit {
+				t.Errorf("分割の日が %q。%q のはず", split.Name(), c.wantSplit)
+			}
+		})
+	}
+}
+
 // fixedDaySplitRequest は上下2分割・週3回で、まだ1度も通っていない入力。
 // 周期の先頭＝上の日で、軸はベンチ。
 func fixedDaySplitRequest(t *testing.T) planning.PlanRequest {
@@ -833,11 +863,20 @@ func plannedLanes(s planning.PlannedSession) []plannedLane {
 	}
 }
 
-// planDiff は2つの計画を3レーンの PlannedSet 全体で比べ、違いを
-// 「どのレーンの何番目の、どのフィールドが、何から何へ」の形で返す。
-// 同じなら空。
+// planDiff は2つの計画を、分割の日（Split）と3レーンの PlannedSet
+// 全体で比べ、違いを「どのレーンの何番目の、どのフィールドが、何から
+// 何へ」の形で返す。同じなら空。
+//
+// Forecast が全回に Split() を持つようになった（PlannedSession.Split()
+// タスク2）ので、一日中変わらないことの検査もここで一緒に見る。
 func planDiff(want, got planning.PlannedSession) []string {
 	var out []string
+	wantSplit, wantHasSplit := want.Split()
+	gotSplit, gotHasSplit := got.Split()
+	if wantHasSplit != gotHasSplit || wantSplit.Name() != gotSplit.Name() {
+		out = append(out, fmt.Sprintf("分割の日: %v(%v) → %v(%v)",
+			wantSplit.Name(), wantHasSplit, gotSplit.Name(), gotHasSplit))
+	}
 	gotLanes := plannedLanes(got)
 	for i, w := range plannedLanes(want) {
 		g := gotLanes[i]

@@ -11,7 +11,9 @@ import (
 	"github.com/dyoshyy/liftplan/internal/domain/training/setlog"
 )
 
-// ProjectedSession は先の回1つぶんの予測。割り振り器（次のPR）が読む形だけを持つ。
+// ProjectedSession は先の回1つぶんの予測。toHorizonSessions が
+// HorizonSession に変換し、割り振り器（AccessoryAllocator）に渡す
+// （Forecast が全回ぶん呼ぶ）。
 //
 // 重量は付けない。Plan の2段（何をやるか→何kgでやるか）のうち、予測が
 // 要るのは前段だけ。後段（prescribeSet）は当日の推定1RMに依存し、実際に
@@ -21,6 +23,7 @@ type ProjectedSession struct {
 	split         program.Split
 	hasSplit      bool
 	axis          *exercise.Exercise
+	axisRole      laneRole
 	axisSets      training.SetCount
 	variation     *exercise.Exercise
 	variationSets training.SetCount
@@ -42,6 +45,14 @@ func (s ProjectedSession) Axis() (*exercise.Exercise, training.SetCount, bool) {
 	return s.axis, s.axisSets, s.axis != nil
 }
 
+// axisLaneRole はその回の軸が担う役割（重い日・重点種目の一巡の
+// ボリュームの日）。パッケージの外には出さない。Forecast がその回を
+// prescribe するときに、軸を heavyRole 固定ではなく実際の役割で処方する
+// ために要る（設計書「役割（重い日・ボリュームの日・派生）も使う」）。
+// 役割が外へ与える効果は Axis() が既に表現しているので、公開はしない
+// （必要になるまで作らない）。
+func (s ProjectedSession) axisLaneRole() laneRole { return s.axisRole }
+
 // Variation はその回のバリエーションと、その処方のセット数。出ない日は
 // 3番目の戻り値が false。
 func (s ProjectedSession) Variation() (*exercise.Exercise, training.SetCount, bool) {
@@ -49,12 +60,14 @@ func (s ProjectedSession) Variation() (*exercise.Exercise, training.SetCount, bo
 }
 
 // Stimulus はその回に軸・バリエーションがすでに入れる刺激。割り振り器が
-// 損失を計算する材料の一部になる（補助はまだ載っていない。回0だけが
-// 補助込みの実際の刺激を Plan から得る）。
+// 損失を計算する材料の一部になる（補助はまだ載っていない。割り振り器が
+// 回ごとに補助を足した実際の刺激は Forecast の戻り値から得る）。
 func (s ProjectedSession) Stimulus() StimulusCoverage { return s.stimulus }
 
-// ProjectHorizon は今日を含めて頻度ぶんの先の回を予測する。まだ Plan からは
-// 使わない（設計書 PR2）。
+// ProjectHorizon は今日を含めて頻度ぶんの先の回を予測する。Forecast が
+// 呼び、その回ごとの分割の日・軸・バリエーションをそのまま使う。Plan は
+// Forecast(req) の回0を取り出すだけなので、今日の計画もここを経由する
+// （設計書「Plan(req) = Forecast(req) の回0」）。
 //
 // 日付は今日から 7/頻度 日ごとの等間隔を仮定し、整数日へ丸める
 // （horizonDates）。回ごとの分割の日・軸・バリエーションは、Plan が今日に
@@ -99,7 +112,7 @@ func (p SessionPlanner) ProjectHorizon(
 	declared := declaredExercises(usable, prog)
 
 	// 1種目あたりのセット数は利用者の設定（SessionVolume）で、役割によらず
-	// 共通（D-126 の理由がそのまま保たれる。selectLineup と同じ値を使う）。
+	// 共通（D-126 の理由がそのまま保たれる。Forecast と同じ値を使う）。
 	sets := prog.SessionVolume().Sets()
 
 	dates := horizonDates(date, prog.Frequency().PerWeek())
@@ -116,6 +129,7 @@ func (p SessionPlanner) ProjectHorizon(
 		session := ProjectedSession{date: d, split: today, hasSplit: hasSplit}
 		if heavy != nil {
 			session.axis = heavy
+			session.axisRole = axisRole
 			session.axisSets = p.prescriptionFor(axisRole, sets).setCount()
 			session.stimulus = session.stimulus.Plus(heavy.Stimulus(), session.axisSets)
 			logs = append(logs, projectedLog(k, "axis", d, heavy.ID()))
@@ -135,9 +149,10 @@ func (p SessionPlanner) ProjectHorizon(
 // （accessory_allocator.go）の入力へ変換する。
 //
 // 空き枠は「1回の種目数 − 軸があれば1 − バリエーションがあれば1」。
-// selectLineup が回0の枠を確定するのと同じ式だが、回0については
-// 呼び出し側（selectLineup）がその場で確定した slots で上書きする
-// （TestProjectHorizon_MatchesPlanWhenFollowedExactly が両者の一致を守る）。
+// Forecast はこの式をそのまま全回（回0を含む）で使う。以前
+// （selectLineup）は回0だけ、その場で確定した lineup から求めた
+// slots で上書きしていたが、Forecast が軸・バリエーションの決定を
+// ProjectHorizon 側の1本に統一したので、上書きは無くなった。
 func toHorizonSessions(sessions []ProjectedSession, exercisesPerSession int) []HorizonSession {
 	out := make([]HorizonSession, len(sessions))
 	for i, s := range sessions {

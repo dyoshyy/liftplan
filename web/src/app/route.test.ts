@@ -17,11 +17,19 @@ describe('fromState', () => {
   ])('$name なら今日に倒す', ({ state }) => {
     expect(fromState(state)).toBe('today');
   });
+
+  it('forecast も読み戻す', () => {
+    expect(fromState({ route: 'forecast' })).toBe('forecast');
+  });
 });
 
 describe('isRoute', () => {
   it('知っている行き先だけを通す', () => {
     expect(isRoute('today')).toBe(true);
     expect(isRoute('nope')).toBe(false);
+  });
+
+  it('forecast も知っている行き先', () => {
+    expect(isRoute('forecast')).toBe(true);
   });
 });

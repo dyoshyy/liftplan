@@ -22,6 +22,7 @@ func (h *Handler) Routes() *http.ServeMux {
 	// バイナリに埋めていた頃は staticPaths の明示的な一覧で守っていた。
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/sessions", h.handleGetSession)
+	mux.HandleFunc("GET /api/sessions/forecast", h.handleGetForecast)
 	mux.HandleFunc("POST /api/set-logs", h.handlePostSetLogs)
 	mux.HandleFunc("POST /api/conditions", h.handlePostConditions)
 	mux.HandleFunc("GET /api/program", h.handleGetProgram)

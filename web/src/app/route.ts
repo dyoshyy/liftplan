@@ -8,10 +8,10 @@
 // あとに戻ろうとしてアプリごと閉じる。PWA では致命的で、記録の途中なら
 // なおさら困る。
 
-export type Route = 'today' | 'history' | 'settings';
+export type Route = 'today' | 'history' | 'settings' | 'forecast';
 
 export const isRoute = (v: unknown): v is Route =>
-  v === 'today' || v === 'history' || v === 'settings';
+  v === 'today' || v === 'history' || v === 'settings' || v === 'forecast';
 
 /** fromState は popstate が運んできた値を Route に戻す。
  *  他所が積んだ履歴や壊れた値でも、必ず既定へ倒す。 */

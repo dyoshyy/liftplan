@@ -240,6 +240,7 @@ func buildHandler(ctx context.Context) (http.Handler, func(), error) {
 
 	handler, err := httpapi.NewHandler(httpapi.Dependencies{
 		GetSession:       usecase.NewGetSession(exercises, logs, conditions, programs, planner),
+		GetForecast:      usecase.NewGetForecast(exercises, logs, conditions, programs, planner),
 		RecordSets:       usecase.NewRecordSets(logs, exercises),
 		RecordConditions: usecase.NewRecordConditions(conditions),
 		SetFocus:         usecase.NewSetFocusExercise(programs, programs),
