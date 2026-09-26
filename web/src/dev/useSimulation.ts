@@ -32,6 +32,9 @@ export function useSimulation() {
   const [options, setOptions] = useState<DevOptions | null>(null);
   const [form, setFormState] = useState<Form>(defaultForm);
   const [result, setResult] = useState<DevResult | null>(null);
+  // 結果を作ったときの設定。フォームは「作る」を押す前に変えられるので、
+  // グラフが宣言種目を引くのは、いまのフォームではなくこちら。
+  const [ranForm, setRanForm] = useState<Form | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -43,8 +46,10 @@ export function useSimulation() {
     setError(null);
     try {
       setResult(await getJSON<DevResult>(`/api/dev/simulate?${buildQuery(target)}`));
+      setRanForm(target);
     } catch (e) {
       setResult(null);
+      setRanForm(null);
       setError(describeFailure(e));
     } finally {
       setBusy(false);
@@ -69,5 +74,5 @@ export function useSimulation() {
     };
   }, [run]);
 
-  return { options, form, setForm, result, error, busy, run: () => void run(form) };
+  return { options, form, setForm, result, ranForm, error, busy, run: () => void run(form) };
 }

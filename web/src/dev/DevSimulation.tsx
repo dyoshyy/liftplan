@@ -1,16 +1,15 @@
+import { weightSeries } from './chart';
+import { RegionHeatmap } from './RegionHeatmap';
 import {
   declaredCandidates,
   formatPct,
   formatWeight,
-  outOfRange,
-  rate,
   toggle,
-  tone,
   type DevDay,
   type DevSet,
-  type DevWeek,
 } from './simulate';
 import { useSimulation } from './useSimulation';
+import { WeightTrend } from './WeightTrend';
 
 // シミュレーション画面。
 //
@@ -21,7 +20,7 @@ import { useSimulation } from './useSimulation';
 // 導線を付けないのは、ここで変えたものが何も保存されないため。設定を
 // 変える場所は設定画面1つに保つ。
 export function DevSimulation() {
-  const { options, form, setForm, result, error, busy, run } = useSimulation();
+  const { options, form, setForm, result, ranForm, error, busy, run } = useSimulation();
 
   return (
     <div className="mx-auto grid max-w-[900px] gap-4 p-4">
@@ -131,13 +130,30 @@ export function DevSimulation() {
 
       {result && (
         <>
+          {ranForm && result.days.length > 0 && (
+            <section className="grid gap-2">
+              <SectionTitle>宣言種目の重量</SectionTitle>
+              <WeightTrend
+                series={weightSeries(
+                  result,
+                  ranForm.declared.map((id) => ({
+                    id,
+                    name: options?.exercises.find((e) => e.id === id)?.name ?? id,
+                  })),
+                )}
+                from={result.days[0]!.date}
+                to={result.days[result.days.length - 1]!.date}
+              />
+            </section>
+          )}
+
           <section className="grid gap-2">
-            {result.weeks.map((w) => (
-              <WeekRow key={w.index} week={w} />
-            ))}
+            <SectionTitle>筋区分ごとの刺激（週目標に対する達成率）</SectionTitle>
+            <RegionHeatmap weeks={result.weeks} />
           </section>
 
           <section className="grid gap-2">
+            <SectionTitle>日ごとの計画</SectionTitle>
             {result.days.map((d) => (
               <DayCard key={d.date} day={d} />
             ))}
@@ -148,42 +164,15 @@ export function DevSimulation() {
   );
 }
 
+function SectionTitle({ children }: { children: React.ReactNode }) {
+  return <h2 className="text-[14px] font-bold">{children}</h2>;
+}
+
 function Row({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div className="grid gap-1.5">
       <div className="text-[12px] font-bold text-muted">{label}</div>
       {children}
-    </div>
-  );
-}
-
-function WeekRow({ week }: { week: DevWeek }) {
-  const bad = outOfRange(week);
-  return (
-    <div className="rounded-[14px] border border-line bg-surface p-3">
-      <div className="mb-2 flex items-baseline gap-2">
-        <span className="text-[13px] font-bold">{week.index}週目</span>
-        <span className="text-[12px] text-muted">
-          {bad.length === 0 ? '全区分が 60〜145% に収まっている' : `範囲外 ${bad.length} 区分`}
-        </span>
-      </div>
-      <div className="flex flex-wrap gap-1.5">
-        {week.regions.map((r) => {
-          const value = rate(r.done, r.target);
-          const t = tone(value);
-          return (
-            <span
-              key={r.region}
-              title={`目標 ${r.target} / 実測 ${r.done.toFixed(1)}`}
-              className={`num rounded border px-1.5 py-0.5 text-[11px] ${
-                t === 'ok' ? 'border-line text-muted' : 'border-red text-red'
-              }`}
-            >
-              {r.region} {Math.round(value * 100)}%
-            </span>
-          );
-        })}
-      </div>
     </div>
   );
 }
