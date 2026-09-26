@@ -119,8 +119,11 @@ func variationsOf(pool []*exercise.Exercise, focus exercise.ExerciseID) []*exerc
 
 // recentlyPerformed は系統のどれかを直近 variationRecoveryDays 日にやったか。
 //
-// AccessorySelector.recovering と同じ開区間 (date - N, date)。区分ではなく
-// 系統で見る点だけが違う。
+// 区間は (date - variationRecoveryDays, date) の開区間。下限を開くのは、
+// recoveryDays ぶん経過した記録は解禁されるべきだから（2なら月曜の記録は
+// 火曜を塞ぐが水曜は解禁される）。上限を開くのは、セッション中に記録してから
+// 計画を開き直したとき、たった今やった種目の系統で自分自身の枠が消えない
+// ようにするため。
 //
 // 渡す履歴は前日まで。理由は Plan に書いた。
 func recentlyPerformed(h setlog.History, family []*exercise.Exercise, date training.Date) bool {

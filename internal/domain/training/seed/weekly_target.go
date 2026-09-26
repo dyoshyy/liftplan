@@ -97,10 +97,11 @@ func averageStimulusPerSet() (float64, error) {
 // いるか」を判定する閾値で、種目マスタの刺激プロファイルと対になっている。
 // 何セットが適切かは本人に答えられる問いではないので、編集させない（D-139）。
 //
-// 量を決めているのはここではない。補助の本数は AccessorySelector の
-// maxSlots で打ち切られており、残差が尽きて止まることは低頻度では起きない
-// （通し検証で週1〜3回は全セッションが27セットで固定）。この表が効くのは
-// 「どの区分を狙うか」のゲートと、同点のときの順序付けまで。
+// 量を決めているのはここではない。補助の本数は、1回の種目数（利用者の設定）
+// から軸・バリエーションを引いた枠と、AccessoryAllocator が損失（ΔL）の
+// 改善が無くなった時点で打ち切る貪欲法（docs/specs/2026-09-26-accessory-
+// allocation-design.md）で決まる。この表が効くのは「どの区分を狙うか」の
+// ゲートと、同点のときの順序付けまで。
 func DefaultWeeklyTarget(f program.Frequency, v program.SessionVolume) (program.WeeklyVolumeTarget, error) {
 	return distribute(regionShare, f, v)
 }

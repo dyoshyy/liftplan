@@ -3,15 +3,15 @@ package planning
 import (
 	"github.com/dyoshyy/liftplan/internal/domain/training"
 	"github.com/dyoshyy/liftplan/internal/domain/training/exercise"
-	"github.com/dyoshyy/liftplan/internal/domain/training/program"
 	"github.com/dyoshyy/liftplan/internal/domain/training/setlog"
 )
 
 // StimulusCoverage は各筋区分がすでに何セット分埋まっているか。不変。
 //
 // 内部のマップを公開しないのは、外から NaN や無限大を書き込めるようにすると
-// 残差が壊れるため。+Inf の残差は補助種目の選択で永久に最優先され、
-// しかも有限値を引いても減らないので、その区分がスロットを食い尽くす。
+// 壊れるため。AccessoryAllocator の損失計算（regionLoss）はこの値を3乗して
+// 候補どうしを比べるので、NaN や +Inf が混ざると全ての候補の優劣が
+// 付かなくなる。
 type StimulusCoverage struct {
 	m map[training.MuscleRegion]float64
 }
@@ -74,7 +74,7 @@ func CoverageBetween(h setlog.History, pool []*exercise.Exercise, from, to train
 	return coverage
 }
 
-// CoverageWindowWeeks は残差を数える窓の長さ（週）。
+// CoverageWindowWeeks は AccessoryAllocator が目標と比べる基準窓の長さ（週）。
 //
 // **4週（28日）。**以前は1週だった。1週の窓では、週目標が1種目ぶん（3セット）
 // より小さい区分を抑えられない。週3回のカーフは目標1.7セット/週だが、1回
@@ -94,78 +94,5 @@ func CoverageBetween(h setlog.History, pool []*exercise.Exercise, from, to train
 // 想定する利用者ではないので、この窓は週2回以上を基準に決めている。
 const CoverageWindowWeeks = 4
 
-// CoverageWindowDays は残差を数える窓の長さ（日）。
+// CoverageWindowDays は AccessoryAllocator が目標と比べる基準窓の長さ（日）。
 const CoverageWindowDays = 7 * CoverageWindowWeeks
-
-// windowSets はその区分の、窓の長さぶんの目標セット数。
-func windowSets(target program.WeeklyVolumeTarget, r training.MuscleRegion) float64 {
-	return target.Sets(r) * CoverageWindowWeeks
-}
-
-// SessionResidual はこのセッションで狙うべき、筋区分ごとの不足セット数。
-//
-// 直近4週の実績と、今日すでに積んだ分を、4週ぶんの目標から引いた残り。
-//
-// **割らない。**暦週のころは残りセッション数で割っていたが、ローリング窓には
-// 「今週の残り」という区切りが存在しない（窓が毎日ずれる）。
-//
-// 1回ぶんの天井を掛ける案も測ったが、逆効果だった。全区分の share が
-// 一律「週目標 ÷ 頻度」に揃うので、補助が枯れた区分に集中せず散る。
-// 軸がベンチの日の上体ボリュームが 33.6 → 18.0 まで落ちた。
-//
-// 天井を提案した理由は「1週間休んだ翌日に1つの区分がスロットを食い尽くす」
-// だったが、実測では起きない（最大2種目）。補助の選択は区分の古さで回すので、
-// 残差が大きいだけでは同じ区分に積み上がらない。
-//
-// thisSession は今日すでに積んだ分（軸とバリエーション）。引かないと、
-// 軸が胸を3セット埋めた日でも補助が同じだけ上乗せする。
-//
-// active はその区分がこれからの1週ぶんで何回狙われるか。nil なら天井なし。
-//
-// **分割があるときだけ天井を掛ける。**分割が無いときに掛けると、全区分の
-// 取り分が一律「週目標 ÷ 頻度」に揃い、補助が枯れた区分に集中せず散る
-// （軸がベンチの日の上体ボリュームが 33.6 → 18.0 まで落ちた）。分割が
-// 無いときの「その日らしさ」は残差の偏りだけが作っているので、均すと消える。
-//
-// 分割があるときは話が逆になる。その日らしさは分割が構造として決めるので、
-// 天井は「1週ぶんの量をその区分が出る日数で分ける」だけの働きをする。
-// 掛けないと、上下2分割の最初の下半身の日が週の下半身目標を丸ごと使い切り
-// （実測38.1）、次の下半身の日が6セットまで落ちる。
-func SessionResidual(
-	target program.WeeklyVolumeTarget,
-	window, thisSession StimulusCoverage,
-	active ActiveCount,
-) map[training.MuscleRegion]float64 {
-	out := map[training.MuscleRegion]float64{}
-	if target.IsEmpty() {
-		return out
-	}
-
-	for _, region := range target.Regions() {
-		gap := windowSets(target, region) - window.Sets(region) - thisSession.Sets(region)
-		if gap <= 0 {
-			continue
-		}
-
-		share := gap
-		if active != nil {
-			n := active(region)
-			if n <= 0 {
-				continue
-			}
-			// 今日すでに積んだ分は天井からも引く。引かないと、軸が
-			// 埋めた区分に補助が1回ぶんを上乗せする。
-			room := target.Sets(region)/float64(n) - thisSession.Sets(region)
-			share = min(share, room)
-		}
-
-		if q := training.Quantize(share); q > 0 {
-			out[region] = q
-		}
-	}
-	return out
-}
-
-// ActiveCount はその筋区分が、これからの1週ぶんのセッションのうち
-// 何回狙われるかを返す。
-type ActiveCount func(training.MuscleRegion) int

@@ -438,8 +438,8 @@ func TestSessionPlanner_RejectsInvalidRequests(t *testing.T) {
 		{"プログラムが nil", func(r *planning.PlanRequest) { r.Program = nil }},
 		// 週目標は Program から取らず、呼び出し側が別に渡す
 		// （seed.DefaultWeeklyTarget）。渡し忘れをここで弾かないと、
-		// ゼロ値のまま SessionResidual に渡り、全区分の残差が0のまま
-		// 補助が1つも選ばれない「静かな空振り」になる。
+		// ゼロ値のまま AccessoryAllocator まで届くことになる
+		// （Allocate は週目標が空だとエラーを返す）。
 		{"週目標が空", func(r *planning.PlanRequest) { r.Target = program.WeeklyVolumeTarget{} }},
 		{"対象日が無い", func(r *planning.PlanRequest) { r.Date = training.Date{} }},
 		{"種目プールが空", func(r *planning.PlanRequest) { r.Pool = nil }},
@@ -500,7 +500,7 @@ func TestSessionPlanner_ZeroValueIsSafe(t *testing.T) {
 
 func TestNewSessionPlanner_RejectsZeroDependencies(t *testing.T) {
 	est := planning.DefaultOneRepMaxEstimator()
-	acc := planning.DefaultAccessorySelector()
+	acc := planning.DefaultAccessoryAllocator()
 	analyzer := planning.DefaultConditionAnalyzer()
 
 	cases := []struct {
@@ -511,8 +511,8 @@ func TestNewSessionPlanner_RejectsZeroDependencies(t *testing.T) {
 			_, err := planning.NewSessionPlanner(planning.OneRepMaxEstimator{}, acc, analyzer)
 			return err
 		}},
-		{"補助の選択器", func() error {
-			_, err := planning.NewSessionPlanner(est, planning.AccessorySelector{}, analyzer)
+		{"補助の割り振り器", func() error {
+			_, err := planning.NewSessionPlanner(est, planning.AccessoryAllocator{}, analyzer)
 			return err
 		}},
 		{"コンディション分析器", func() error {
@@ -894,7 +894,8 @@ func TestSessionPlanner_DoesNotDoubleCountTodaysLogs(t *testing.T) {
 // 補助レーンの処方を固定する。
 //
 // 3レーンとも定数になった（D-126）ので、軸・バリエーションと同じ形で
-// 補助も見ておく。セット数だけは定数ではなく AccessorySelector が持つ。
+// 補助も見ておく。セット数は4レーン共通で、利用者の設定
+// （req.Program.SessionVolume().Sets()）から来る。
 func TestSessionPlanner_AccessoryPrescriptionIsPinned(t *testing.T) {
 	const (
 		wantIntensity = 0.71
@@ -919,7 +920,7 @@ func TestSessionPlanner_AccessoryPrescriptionIsPinned(t *testing.T) {
 		t.Fatal("補助種目が1つも出ていない")
 	}
 
-	wantSets := planning.DefaultAccessorySelector().SetsPerAccessory().Int()
+	wantSets := req.Program.SessionVolume().Sets()
 	pct, err := training.NewIntensityPct(wantIntensity)
 	if err != nil {
 		t.Fatalf("強度: %v", err)
@@ -1469,7 +1470,7 @@ func TestSessionPlanner_UsesInjectedConditionAnalyzer(t *testing.T) {
 	}
 	planner, err := planning.NewSessionPlanner(
 		planning.DefaultOneRepMaxEstimator(),
-		planning.DefaultAccessorySelector(), analyzer)
+		planning.DefaultAccessoryAllocator(), analyzer)
 	if err != nil {
 		t.Fatalf("生成器の生成に失敗: %v", err)
 	}
@@ -1742,13 +1743,13 @@ func TestSessionPlanner_PlannedWorkIsConsumedExactly(t *testing.T) {
 // 画面では同じ内容のカードが並び替わり、どこまでやったか見失う。
 //
 // 以前はここで「IDの昇順であること」も見ていた。やめたのは、それが実装の
-// 契約ではなく偶然だったため。usablePool と AccessorySelector.Select の
-// ソートを両方とも逆順にする変異を入れても、この検査は緑のまま通った
-// （docs/refactoring.md「Select の中のソートが上流と重複している」）。
+// 契約ではなく偶然だったため（旧 AccessorySelector.Select の時代の話。
+// 呼び出し側のソートを逆順にする変異を入れても検査は緑のまま通った）。
 //
-// Select が返す順序の契約は「最も放置している区分から」であって、
-// 昇順ではない。偶然を固定すると、優先度の付け方を変えたときに
-// 理由の無い赤が出る。
+// いまの AccessoryAllocator が返す順序の契約は「損失（ΔL）を貪欲に確定した
+// 順」であって、昇順ではない。同点は最終実施日・空き枠・日付・種目IDの順で
+// 崩す（accessory_allocator.go の Allocate のコメント参照）。偶然を固定
+// すると、優先度の付け方を変えたときに理由の無い赤が出る。
 func TestSessionPlanner_AccessoriesComeBackInAStableOrder(t *testing.T) {
 	req := planRequest(t)
 

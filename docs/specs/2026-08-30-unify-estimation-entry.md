@@ -23,7 +23,7 @@ status: 前段は実装済み。後段（入口の一本化）は未着手
 | 経路 | 重量を読むか |
 |---|---|
 | `CoverageBetween` | 読まない（1セットとして数えるだけ） |
-| `AccessorySelector` | 読まない（`Weight` の参照がファイル内にゼロ） |
+| `AccessoryAllocator`（旧 `AccessorySelector`） | 読まない（`Weight` の参照がファイル内にゼロ） |
 | `sessionIndexInWeek` | 読まない（日付だけ） |
 | `query.History` | 読む。ただし記録をそのまま見せる表示 |
 
