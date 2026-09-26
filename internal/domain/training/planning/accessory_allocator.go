@@ -13,24 +13,23 @@ import (
 
 // overAttainmentWeight は損失の α（超過の重み）。
 //
-// 0 < α < 1。超過（ρ≥1）を不足（ρ<1）より軽く罰する。設計書の初期値
-// 1/4 のまま置く。α∈{1/8,1/4,1/2}×β∈{0.8,0.9,0.95} の9通りで通し検証
-// （分割の達成率）を測ったが、**どの組も帯（60〜145%）を全区分では
-// 満たさなかった**（残る赤は α・β では動かない別の原因による。PR 本文と
-// 通し検証の失敗に数値がある）。件数だけを見ると 1/8・β0.9 が最少だが、
-// そちらは ppl・週1回の ABS/OBLIQUE が 146〜174% まで戻る（PR 3 がまさに
-// 消したかった超過）ので、件数だけで選ばない。1/4 は設計書の出発点であり、
-// 挙動を悪化させる方向へ動かす理由も無いので据え置く。
+// 0 < α < 1。超過（ρ≥1）を不足（ρ<1）より軽く罰する。
+//
+// 指数を2から3に直したあと、α∈{1/8,1/4,1/2}×β∈{0.8,0.9,0.95} の9通りを
+// 再度測り直した（PR 本文にグリッドの表がある）。α=1/4, β=0.9 を選んだ。
+// 全身法（TestSimulation_WeeklyTargetIsAttainableAtEveryFrequency）を崩さない
+// 組み合わせの中で、通し検証全体の失敗が最少（`TestSimulation_SplitWeeklyTargetIsAttainable`
+// のうち five_way の週2・3回のみが残る）。設計書の初期値でもある。
 //
 // 定数にして利用者の設定にしないのは設計書の決定（「どちらも定数」）。
-const overAttainmentWeight = 1.0 / 8.0
+const overAttainmentWeight = 1.0 / 4.0
 
 // similarityBand は損失の β（「ほぼ同じ」の幅）。
 //
 // 0 < β < 1。最良の減り幅の β 倍以上を「ほぼ同じ」として多様性の選定に
-// 回す。設計書の初期値 0.9 のまま置く（グリッド探索の結果は
-// overAttainmentWeight のコメントと PR 本文を参照）。
-const similarityBand = 0.8
+// 回す。0.9 を選んだ（グリッド探索の結果は overAttainmentWeight の
+// コメントと PR 本文を参照）。設計書の初期値でもある。
+const similarityBand = 0.9
 
 // HorizonSession は割り振り器が読む、先の回1つぶんの入力。
 //
@@ -409,10 +408,11 @@ func recoveryBlocks(primary []training.MuscleRegion, recovering map[training.Mus
 	return false
 }
 
-// regionLoss は区分1つぶんの損失。週目標 T で重み付けする。
+// regionLoss は区分1つぶんの損失。週目標 T で重み付けし、遅れの指数は
+// 3（2ではない。理由は下）。
 //
-//	C < 4T： T×(1−ρ)²  = (4T−C)²/(16T)
-//	C ≥ 4T： T×α×(ρ−1)² = α×(C−4T)²/(16T)   （ρ = C/(4T)）
+//	C < 4T： T×|1−ρ|³   = |4T−C|³/(64T²)
+//	C ≥ 4T： T×α×|ρ−1|³ = α×|C−4T|³/(64T²)   （ρ = C/(4T)）
 //
 // ρ を経由せず C・T から直接計算するのは、実装として楽になるからだけ
 // ではない。ρ で書くと「達成率にした時点で目標の大小は打ち消される」と
@@ -420,27 +420,46 @@ func recoveryBlocks(primary []training.MuscleRegion, recovering map[training.Mus
 // 話ではない（下の重み付けの理由）。C・T のままの式なら、重み T が
 // 消えていないことが読める。
 //
-// **T で重み付けする理由。**重み無し（regionLoss(ρ)=(1−ρ)² のような形）
-// だと、ρ=0 付近での1手あたりの ΔL はおよそ −(寄与×セット数)/(2T) になり、
-// 週目標 T にほぼ反比例する。達成率がまったく同じでも、週目標の大きい
-// 区分（TrapMid・Glute 等）は1手の効きが薄く見え、割り振り器の貪欲が
-// 系統的に後回しにする（実測：TestSimulation_EveryAccessoryGetsUsedInSomeSetup
-// で hip_thrust が一度も選ばれない。Glute は軸の副次寄与だけで達成率
-// 100%超に達するのに、割り振り器の側はそれを大きな目標のせいで「まだ
-// 効きが薄い」としか見ていなかった）。
-//
-// T を掛けると、1手あたりの ΔL の主要項が T に依存しなくなり
-// （TestAccessoryAllocator_DeltaLossIsNotBiasedByTargetSize が、同じ
-// 相対的な遅れなら T の大小で有利不利が付かないことを守る）、優先度を
+// **T で重み付けする理由。**重み無し（regionLoss(ρ)=|1−ρ|ⁿ のような形）
+// だと、ρ=0 付近での1手あたりの ΔL はおよそ T の逆数〜二乗の逆数に比例して
+// 薄まり、達成率がまったく同じでも、週目標の大きい区分（TrapMid・Glute 等）
+// は1手の効きが薄く見え、割り振り器の貪欲が系統的に後回しにする
+// （実測：TestSimulation_EveryAccessoryGetsUsedInSomeSetup で hip_thrust が
+// 一度も選ばれない。Glute は軸の副次寄与だけで達成率100%超に達するのに、
+// 割り振り器の側はそれを大きな目標のせいで「まだ効きが薄い」としか
+// 見ていなかった）。T を掛けると、1手あたりの ΔL の主要項が T に依存
+// しなくなり（TestAccessoryAllocator_DeltaLossIsNotBiasedByTargetSize が、
+// 同じ相対的な遅れなら T の大小で有利不利が付かないことを守る）、優先度を
 // 決めるのは週目標の絶対値ではなく達成率（相対的な遅れ）になる。これは
-// 旧 nextRegion の「欠けている割合で並べる」という発想と同じで、
-// 貪欲法の下で保つには重みが要る、という結論だった。
+// 旧 nextRegion の「欠けている割合で並べる」という発想と同じで、貪欲法の
+// 下で保つには重みが要る、という結論だった。
+//
+// **指数を2ではなく3にする理由（PR 3 で見つかった、Tの重み付けだけでは
+// 直らなかった別の症状）。**Tで重み付けしても、「複数区分に中程度効く
+// 種目」が「1区分に大きく効く種目」に、後者の区分の方がずっと遅れている
+// のに勝つケースが残っていた。指数2の損失は下がり方が遅れの大きさに
+// 比例して急になるが、急峻さが2乗どまりだと、複数区分ぶんの中程度の
+// 改善を**足し合わせた**値が、1区分の大きな改善に追いついてしまう。
+//
+// 週目標 T=10 で揃えた例（TestAccessoryAllocator_CubedLossFavorsTheMostBehindRegion
+// が固定する）。孤立種目（区分A、達成率0%）と複合種目（区分B・C、それぞれ
+// 達成率30%）に同じセット数を足すと、
+//
+//	指数2： 孤立 ΔL=-1.44375  複合 ΔL=-1.9875（B+C合計） → 複合が勝つ（誤り）
+//	指数3： 孤立 ΔL=-2.08547  複合 ΔL=-1.97719（B+C合計） → 孤立が勝つ（正しい）
+//
+// 分割の通し検証で実際に起きていた症状：five_way の肩の日、`side_raise`
+// （SideDeltのみ、達成率がほぼ0%）が `barbell_row`・`rear_delt_fly` のような
+// 複数区分の種目に負け続け、TRAP_UPPER・CALF・SIDE_DELTが約54%に張り付いて
+// いた（TestSimulation_SplitWeeklyTargetIsAttainable）。指数3にすると
+// upper_lower・ppl は全頻度で緑になり、five_way も週4回以降が緑になった
+// （週2・3回は残る。原因・数値は PR 本文）。
 func regionLoss(c, t float64) float64 {
 	d := c - 4*t
 	if d < 0 {
-		return d * d / (16 * t)
+		return -(d * d * d) / (64 * t * t)
 	}
-	return overAttainmentWeight * d * d / (16 * t)
+	return overAttainmentWeight * (d * d * d) / (64 * t * t)
 }
 
 // deltaLoss は種目 e を setsPerAccessory ぶん足したときの、損失 L の変化。

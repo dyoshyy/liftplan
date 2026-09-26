@@ -407,7 +407,7 @@ func TestSessionPlanner_TodaysLogDoesNotRemoveTheVariation(t *testing.T) {
 // できなかった（実測でも 12→12 のまま変わらなかった）。
 //
 // 区別するには、バリエーションの有無で「どの区分に枠が回るか」が
-// 変わる、複数区分の設定が要る。大胸筋中部（候補5つ・週目標20）と
+// 変わる、複数区分の設定が要る。大胸筋中部（候補5つ・週目標24）と
 // 二頭筋（候補1つ=curl・週目標2、小さい）を両方狙う設定にすると、
 // バリエーション（ラーセン、大胸筋中部）が無い日は大胸筋中部の候補が
 // 枠を独占して curl が出ない。バリエーションがある日は、その3セットぶん
@@ -426,7 +426,7 @@ func TestSessionPlanner_VariationCoverageFreesSlotsForOtherRegions(t *testing.T)
 	}
 
 	target := mustTarget(t, map[training.MuscleRegion]float64{
-		training.ChestMid: 20, training.Biceps: 2,
+		training.ChestMid: 24, training.Biceps: 2,
 	})
 	build := func(focus exercise.ExerciseID) *program.Program {
 		p, err := program.NewProgram(mustFrequency(t, 3), planVolume(t), ids, big3(), focus)

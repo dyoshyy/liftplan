@@ -156,15 +156,87 @@ func TestAccessoryAllocator_DeltaLossIsNotBiasedByTargetSize(t *testing.T) {
 	}
 }
 
+// TestAccessoryAllocator_CubedLossFavorsTheMostBehindRegion は指数3の
+// 存在理由そのものを固定する。T による重み付け（M1）だけでは、「複数区分に
+// 中程度効く種目」が「1区分に大きく効く種目」に、後者の区分の方がずっと
+// 遅れているのに勝ってしまうことがある。
+//
+// side_raise 相当（SideDelt のみ、達成率0%）と barbell_row 相当（TrapMid・
+// RearDelt の2区分、それぞれ達成率30%）を、週目標10で揃えて比べる。
+// 相対的な遅れは side_raise 側がはるかに深刻（0% 対 30%）なので、
+// side_raise 相当が選ばれるべきである。
+//
+// 手計算（週目標T=10、寄与1.0・3セット）：
+//
+//	指数2： 孤立 ΔL=-1.44375  複合 ΔL=-1.9875（2区分合計） → 複合が勝つ（誤り）
+//	指数3： 孤立 ΔL=-2.08547  複合 ΔL=-1.97719（2区分合計） → 孤立が勝つ（正しい）
+//
+// side_raise 相当を未実施、barbell_row 相当を実施済みにしておくのは、
+// 指数3でも近い値になる（同点処理の帯に両方入りうる）ため、同点処理
+// （手順4a・未実施優先）でも side_raise 相当が勝つよう固定するため
+// （margin だけに頼らない）。
+//
+// 【変異】regionLoss の指数を3から2に戻す（accessory_allocator.go の
+// コメントに書いた式）。複合（barbell_row 相当）が選ばれてしまい、
+// side_raise 相当を実施済みでも未実施でもない中間の状態にしなくても、
+// 複合の ΔL が孤立を上回って本テストが落ちる。
+func TestAccessoryAllocator_CubedLossFavorsTheMostBehindRegion(t *testing.T) {
+	target := mustTarget(t, map[training.MuscleRegion]float64{
+		training.SideDelt: 10, training.TrapMid: 10, training.RearDelt: 10,
+	})
+	// SideDelt は実績0（達成率0%）。TrapMid・RearDelt は実績12（達成率30%）。
+	baseline := planning.StimulusCoverage{}.
+		Plus(regionOnly(t, "hist_trap", training.TrapMid, 1.0).Stimulus(), mustSetCount(t, 12)).
+		Plus(regionOnly(t, "hist_rear", training.RearDelt, 1.0).Stimulus(), mustSetCount(t, 12))
+
+	isolation := regionOnly(t, "side_raise_like", training.SideDelt, 1.0)
+	compound, err := exercise.NewExercise(exercise.ExerciseParams{
+		ID: "barbell_row_like", Name: "barbell_row_like",
+		Stimulus: map[training.MuscleRegion]float64{
+			training.TrapMid: 1.0, training.RearDelt: 1.0,
+		},
+		IncrementKg: 2.5,
+	})
+	if err != nil {
+		t.Fatalf("NewExercise(barbell_row_like): %v", err)
+	}
+
+	history := setlog.NewHistory([]*setlog.SetLog{
+		mkLogOn(t, "l1", allocatorDay.AddDays(-10), "barbell_row_like", 40, 8, 2),
+	})
+
+	req := planning.AllocationRequest{
+		Target:           target,
+		Baseline:         baseline,
+		Sessions:         []planning.HorizonSession{noSplitSession(allocatorDay, 1)},
+		SetsPerAccessory: mustSetCount(t, 3),
+		Pool:             []*exercise.Exercise{isolation, compound},
+		Master:           []*exercise.Exercise{isolation, compound},
+		History:          history,
+	}
+
+	got, err := planning.DefaultAccessoryAllocator().Allocate(req)
+	if err != nil {
+		t.Fatalf("Allocate: %v", err)
+	}
+	if !contains(got[0], "side_raise_like") {
+		t.Errorf("回0の割り当てが %v。達成率0%%で最も遅れている side_raise_like が選ばれるはず", idsOf(got[0]))
+	}
+	if contains(got[0], "barbell_row_like") {
+		t.Errorf("回0の割り当てが %v。2区分ぶんの中程度の改善を足し合わせた barbell_row_like が"+
+			"勝ってしまっている", idsOf(got[0]))
+	}
+}
+
 // TestAccessoryAllocator_DoesNotBlowUpRegionsAtTarget は「目標に届いた
 // 区分には足さない（腹が振り切れない）」を守る。
 //
 // 区分D（達成率0%）と区分S（達成率325%・大幅な超過）を用意する。D専用の
 // 候補 "pure" と、Dに加えてSも刺激する候補 "combo" を比べると、combo は
 // 超過中のSへさらに積む分だけ損失が増える（α>0 の罰）ので pure が勝つ。
-// Sの超過を大きく取るのは、α（PR 3 の通し検証で 1/8 を選んだ。PR 本文）が
-// 小さいため、浅い超過だと罰が弱く combo が「ほぼ同じ」の帯に入って
-// 同点処理に落ちてしまうため（実測で確認済み。手を動かして数値を決めた）。
+// Sの超過を大きく取るのは、浅い超過だと罰が弱く combo が「ほぼ同じ」の帯に
+// 入って同点処理に落ちてしまうため（実測で確認済み。手を動かして数値を
+// 決めた。α・指数を測り直すたびに崩れていないか確認すること）。
 //
 // 【変異】overAttainmentWeight（α）を0にする。超過の罰が消えると combo の
 // Sへの追加がタダになり、combo と pure の ΔL が Dの項だけで完全に一致する。
