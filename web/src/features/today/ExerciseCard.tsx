@@ -69,7 +69,7 @@ export function ExerciseCard({ plan, name, last, recorded, onOpen }: Props) {
   );
 }
 
-function Target({ plan }: { plan: CardPlan }) {
+export function Target({ plan }: { plan: CardPlan }) {
   if (plan.finished_only) {
     // 予定として出すと「これからやる」ように読めるので、済んだ事実だけを出す。
     return (

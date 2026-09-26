@@ -1,4 +1,4 @@
-import type { ForecastSession } from '../../api/types';
+import type { ForecastSession, PlannedSet } from '../../api/types';
 
 /**
  * sessionHeading は回の見出し。0→今日、1→次の回、2以上→n回後。
@@ -10,4 +10,20 @@ import type { ForecastSession } from '../../api/types';
 export function sessionHeading(index: number, split: ForecastSession['split']): string {
   const base = index === 0 ? '今日' : index === 1 ? '次の回' : `${index}回後`;
   return split ? `${base} ・ ${split}` : base;
+}
+
+/**
+ * forecastRows は1回ぶんの種目を、軸・バリエーション・補助の順に並べる
+ * （設計書の画面モックの並び）。空のレーンは詰めて、隙間を作らない。
+ */
+export function forecastRows(session: ForecastSession): PlannedSet[] {
+  return [...session.main, ...session.variation, ...session.accessories];
+}
+
+/**
+ * isInitiallyOpen はページを開いたときに、その回を開いた状態で見せるか。
+ * 今日（回0）だけ開き、先の回はたたんで並べる（設計書の画面モック）。
+ */
+export function isInitiallyOpen(index: number): boolean {
+  return index === 0;
 }

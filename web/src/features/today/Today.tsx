@@ -23,6 +23,8 @@ type Props = {
   onRecorded: () => void;
   /** canStartRest は休憩がまだ動いていないか。手動の入口を出すかの判断に使う。 */
   canStartRest: boolean;
+  /** onOpenForecast はこの先の予定を開く。 */
+  onOpenForecast: () => void;
 };
 
 export function Today(props: Props) {
@@ -97,7 +99,15 @@ export function Today(props: Props) {
       {done.length > 0 && <SectionTitle>今日やったもの</SectionTitle>}
       {done.map(card)}
 
-
+      <div className="mt-1 border-t border-line-soft pt-3.5">
+        <button
+          type="button"
+          className="text-[13px] text-muted underline underline-offset-2"
+          onClick={props.onOpenForecast}
+        >
+          この先の予定を見る →
+        </button>
+      </div>
 
       {sheet.sheet && (
         <RecordSheet
