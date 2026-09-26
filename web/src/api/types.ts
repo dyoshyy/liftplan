@@ -23,6 +23,19 @@ export type Session = {
   accessories: PlannedSet[];
 };
 
+/** 見込みの1回ぶん。dto.go の forecastSessionDTO と対。date は無い
+ *  （画面では出さない決定なので、応答にも乗せない）。 */
+export type ForecastSession = {
+  index: number;
+  /** split はその回の分割の日の名前。分割なしは null。 */
+  split: string | null;
+  main: PlannedSet[];
+  variation: PlannedSet[];
+  accessories: PlannedSet[];
+};
+
+export type ForecastResponse = { sessions: ForecastSession[] };
+
 /** プログラム。dto.go の programDTO と対。 */
 /** 分割1件。区分が空なら全区分（全身法の日）。 */
 export type Split = {
