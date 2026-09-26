@@ -1,8 +1,9 @@
 // 設定の保存を実機で確かめる。
 //
-// **週に通う回数が一番影響が大きい。**保存のあとに画面が自分で取り直せないと
-// 空白になる。実際そこにバグがあった（描画時の program を掴んだ関数が、
-// setProgram(null) の直後でも古い値を見て抜けていた）。単体テストでは踏めない。
+// **週に通う回数が一番影響が大きい。**以前は保存のたびに設定を取り直して
+// いて、そのせいで画面が空白になったり（描画時の program を掴んだ関数が
+// 古い値を見て抜けていた）、畳んだ節で動かしていた未保存のチェックが
+// 消えたりした。どちらも単体テストでは踏めない。
 //
 // 使い方は scripts/ui-check.mjs と同じ。ポートは APP= と API= で渡す。
 const { chromium } = await import(process.env.PLAYWRIGHT ?? 'playwright-core');
@@ -29,11 +30,23 @@ await page.waitForTimeout(2500);
 await page.click('header button[aria-label="設定"]');
 await page.waitForTimeout(1800);
 
-// 設定の節は畳んである（縦 8.2画面分あったため）。開いてから触る。
-await page.click('text=週に通う回数');
+// 「使う種目」で1つチェックを外し、保存せずに置いておく。回数を変えたあとも
+// 外れたままかを見る。初期状態は全種目が選ばれているので、入れるのではなく
+// 外す。伸ばしたい種目は外せない（disabled）ので、押せるものから選ぶ。
+// 節は畳んであるので開いてから触る。
+// 見出しは aria-expanded で指す。名前だけだと「使う種目を保存する」も拾う。
+const pickHeader = page.locator('button[aria-expanded]', { hasText: /^使う種目/ });
+await pickHeader.click();
 await page.waitForTimeout(500);
+const pickBody = page.locator(`[id="${await pickHeader.getAttribute('aria-controls')}"]`);
+const toUnpick = pickBody.locator('button:not([disabled])').filter({ hasText: '✓' }).first();
+const unpickedName = (await toUnpick.textContent())?.replace('✓', '').trim();
+await toUnpick.click();
+const chip = pickBody.locator('button', { hasText: unpickedName });
+const SAVE_PICK = 'button:has-text("使う種目を保存する")';
+const pendingBefore = await page.locator(SAVE_PICK).isVisible();
 
-// 週に通う回数を変える（週目標も置き直るので、一番影響が大きい）
+// 週に通う回数を変える。「通い方」は最初から開いている。
 const want = before.per_week === 3 ? 4 : 3;
 // aria-label で指す。'select' だと先頭の1つを掴むので、選択が増えると
 // 別の設定を黙って触る。
@@ -43,6 +56,9 @@ await page.waitForTimeout(2500);
 
 const after = await program();
 console.log('保存後: per_week =', after.per_week, '（期待', want, '）');
+const pendingAfter = await page.locator(SAVE_PICK).isVisible();
+const stillUnchecked = !(await chip.textContent())?.includes('✓');
+console.log('未保存で外したチェック（', unpickedName, '）: 変更前', pendingBefore, '/ 変更後', pendingAfter, stillUnchecked, '（期待 true / true true）');
 console.log('他が壊れていないか: declared =', after.declared_exercises.length, '件 / selected =', after.selected_exercises.length, '件');
 
 // 元に戻す
@@ -51,11 +67,8 @@ await page.waitForTimeout(2000);
 const restored = await program();
 console.log('戻した後: per_week =', restored.per_week);
 
-// 1回の量。頻度と同じく週目標も置き直るので、保存のあとに画面が取り直せる
-// ことを見る。片方の選択を変えたとき、もう片方が送られずに 0 で断られる
+// 1回の量。片方の選択を変えたとき、もう片方が送られずに 0 で断られる
 // 配線ミス（400）もここで出る。
-await page.click('text=1回の量');
-await page.waitForTimeout(500);
 const EX = 'select[aria-label="1回の種目数"]';
 const wantEx = restored.exercises_per_session === 4 ? 5 : 4;
 await page.selectOption(EX, String(wantEx));
@@ -66,10 +79,29 @@ await page.selectOption(EX, String(restored.exercises_per_session));
 await page.waitForTimeout(2000);
 const volRestored = await program();
 
+// 畳むと、要約が保存済みの件数だけになって保存したように見えていた。
+// 未保存の印が「使う種目」にだけ出るかを見る。どの節にどちらの dirty を
+// 渡すかは描画側の配線で、取り違えても単体テストは緑のまま通る。
+const declaredHeader = page.locator('button[aria-expanded]', { hasText: /^伸ばしたい種目/ });
+await pickHeader.click();
+await page.waitForTimeout(300);
+const pickSummary = (await pickHeader.textContent()) ?? '';
+const declaredSummary = (await declaredHeader.textContent()) ?? '';
+console.log('畳んだ要約: 使う種目 =', pickSummary, '/ 伸ばしたい種目 =', declaredSummary);
+const pendingShown = pickSummary.includes('未保存') && !declaredSummary.includes('未保存');
+await pickHeader.click();
+await page.waitForTimeout(300);
+
+// 外しておいたチェックを入れ直して元に戻す（保存はしていない）。
+await chip.click();
+const pendingCleared = !(await page.locator(SAVE_PICK).isVisible());
+
 console.log('エラー:', errs.length ? errs.join('\n') : '(なし)');
 const ok = after.per_week === want && after.declared_exercises.length === before.declared_exercises.length && restored.per_week === before.per_week
   && vol.exercises_per_session === wantEx && vol.sets_per_exercise === restored.sets_per_exercise
-  && volRestored.exercises_per_session === restored.exercises_per_session;
+  && volRestored.exercises_per_session === restored.exercises_per_session
+  && pendingBefore && pendingAfter && stillUnchecked && pendingCleared && pendingShown
+  && after.selected_exercises.length === before.selected_exercises.length;
 console.log(ok ? '\n✓ 設定の保存は壊れていない' : '\n✗ 壊れている');
 await browser.close();
 process.exit(ok ? 0 : 1);

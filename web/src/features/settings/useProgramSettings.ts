@@ -27,9 +27,18 @@ export const describePutFailure = (status: number, body: { error?: string } | nu
 export const isDirty = (draft: readonly string[], saved: readonly string[]): boolean =>
   [...draft].sort().join(',') !== [...saved].sort().join(',');
 
+/** exerciseCountSummary は畳んだときの summary 文言を組む。
+ *
+ *  出すのは保存済みの件数。チェックを動かして畳むと、保存ボタンが
+ *  消えるので保存したように見えるが、サーバーへはまだ送っていない。
+ *  未保存の変更が残っていることをここで示す。 */
+export const exerciseCountSummary = (savedCount: number, dirty: boolean): string =>
+  dirty ? `${savedCount}種目（未保存）` : `${savedCount}種目`;
+
 // 設定の手順を束ねる。
 //
-// **判断は program.ts に置き、ここは順に実行するだけ。**
+// **判断はこのファイル先頭と split.ts・../today/focus.ts・
+// ../today/declared.ts に置き、ここは順に実行するだけ。**
 //
 // 待ち行列を通さずその場で送る。待ち行列は記録を守るための仕組みで、
 // 設定を混ぜると圏外で押した変更がジムを出たあとに流れ、その日の
@@ -50,19 +59,16 @@ export function useProgramSettings(onChanged: () => Promise<void>) {
   // 設定画面そのものが「開いた」の意味を持つようになった。
   useEffect(() => {
     void load();
-    // load は program を見て二度読みを避けるだけなので、初回に1回でよい。
+    // load は描画ごとに作り直されるので、依存に入れると読むたびに読み直す。
+    // load 自体は二度読みを見張らないので、初回だけに絞るのはこの [] の役目。
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // 取りに行く。呼ばれたら必ず取る。
+  // 取りに行く。呼ぶのは画面を開いたときの1回だけ。
   //
-  // 以前は `if (program) return;` で二度読みを避けていたが、この関数は
-  // 描画時の program を掴んでいるので、setProgram(null) の直後に呼んでも
-  // 古い値を見て即座に抜けていた。**週に通う回数を変えると設定画面が
-  // 空白になり、開き直すまで戻らなかった。**
-  //
-  // 初回の1回だけ読めばよいのは useEffect の依存配列が保証するので、
-  // ここで重ねて見張る必要がない。
+  // 以前は保存のたびに手持ちを捨てて取り直していた。取り直すと、畳んだ節で
+  // 動かしていた未保存のチェックまで保存済みの値で上書きされ、取り直すまで
+  // 節の中身も空になる。保存した値は手元で書き換える（save* を参照）。
   const load = async () => {
     setNote('');
     try {
@@ -131,27 +137,22 @@ export function useProgramSettings(onChanged: () => Promise<void>) {
     await onChanged();
   };
 
+  // 週目標を読んでいたころは、回数と量を変えると週目標が置き直るので
+  // 取り直していた。いまは画面が週目標を読まない（#176）ので、ほかの
+  // save* と同じく手元を書き換えるだけでよい。
   const saveFrequency = async (n: number) => {
     if (!program || busy) return;
     if (!(await put('/api/program/frequency', { per_week: n }))) return;
-    // 画面の手持ちは捨てて取り直す。
-    setProgram(null);
-    setDraft(null);
-    setPick(null);
+    setProgram({ ...program, per_week: n });
     await onChanged();
-    await load();
   };
 
-  // 1回の量。頻度と同じく週目標も置き直るので、手持ちを捨てて取り直す。
   const saveVolume = async (exercises: number, sets: number) => {
     if (!program || busy) return;
     const body = { exercises_per_session: exercises, sets_per_exercise: sets };
     if (!(await put('/api/program/volume', body))) return;
-    setProgram(null);
-    setDraft(null);
-    setPick(null);
+    setProgram({ ...program, ...body });
     await onChanged();
-    await load();
   };
 
   const locked = program ? lockedDeclared(draft ?? [], program.focus_exercise) : new Map();
