@@ -77,7 +77,11 @@ func (r *ExerciseRepository) FindAll(ctx context.Context, user account.UserID) (
 	return out, nil
 }
 
-// Save は利用者が足した種目を保存する。同じ ID は上書きする。
+// Save は利用者が足した種目を保存する。
+//
+// 同じ ID が既にあれば、消したかどうかだけを反映する。名前・部位・刻みは
+// 最初に保存した値のまま（編集の経路がまだ無い。memory 実装と
+// exercise.Writer の「上書きする」とはここが違う）。
 func (r *ExerciseRepository) Save(ctx context.Context, user account.UserID, e *exercise.Exercise) error {
 	if e == nil || !e.IsCustom() {
 		return errors.New("共通の種目は保存できない")
