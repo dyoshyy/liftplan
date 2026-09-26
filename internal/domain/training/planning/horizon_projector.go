@@ -62,8 +62,10 @@ func (s ProjectedSession) Variation() (*exercise.Exercise, training.SetCount, bo
 // 補助込みの実際の刺激を Plan から得る）。
 func (s ProjectedSession) Stimulus() StimulusCoverage { return s.stimulus }
 
-// ProjectHorizon は今日を含めて頻度ぶんの先の回を予測する。まだ Plan からは
-// 使わない（設計書 PR2）。
+// ProjectHorizon は今日を含めて頻度ぶんの先の回を予測する。Forecast が
+// 呼び、その回ごとの分割の日・軸・バリエーションをそのまま使う。Plan は
+// Forecast(req) の回0を取り出すだけなので、今日の計画もここを経由する
+// （設計書「Plan(req) = Forecast(req) の回0」）。
 //
 // 日付は今日から 7/頻度 日ごとの等間隔を仮定し、整数日へ丸める
 // （horizonDates）。回ごとの分割の日・軸・バリエーションは、Plan が今日に
