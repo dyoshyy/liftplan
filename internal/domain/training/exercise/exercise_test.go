@@ -115,6 +115,20 @@ func TestNewExercise_RejectsInvalidParams(t *testing.T) {
 	}
 }
 
+// 通常の NewExercise（シードが使う経路）は custom にも deleted にもならないこと。
+//
+// IsCustom は「共通の種目を消させない」判定に使う。ここが緑にならないと、
+// custom を true にしたまま NewExercise を返しても検査が通ってしまう。
+func TestNewExercise_IsNotCustomOrDeleted(t *testing.T) {
+	e := mustExercise(t, benchParams())
+	if e.IsCustom() {
+		t.Error("通常の種目が custom=true になっている")
+	}
+	if e.IsDeleted() {
+		t.Error("生成直後の種目が deleted=true になっている")
+	}
+}
+
 func TestNewExercise_TrimsName(t *testing.T) {
 	p := benchParams()
 	p.Name = "  ベンチプレス  "

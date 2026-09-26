@@ -1,6 +1,7 @@
 package exercise_test
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 
@@ -119,6 +120,28 @@ func TestExercise_PrimaryAndSecondaryRoundTrip(t *testing.T) {
 		if a != b {
 			t.Errorf("%s: %v と %v", r, a.Float(), b.Float())
 		}
+	}
+}
+
+// 少しが無い種目は、保存で null ではなく空配列になること。
+//
+// nil スライスを json.Marshal すると "null" になり、jsonb 列に null が
+// 入る。読み戻しで区別できず、以後ずっと nil のままになる。regionsAt が
+// 空スライスから始めるのはこのため（SecondaryRegions だけでなく
+// PrimaryRegions も同じ経路を通る）。
+func TestExercise_SecondaryRegionsMarshalsToEmptyArrayNotNull(t *testing.T) {
+	p := validCustom()
+	p.Secondary = nil
+	e, err := exercise.NewCustomExercise(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := json.Marshal(e.SecondaryRegions())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != "[]" {
+		t.Errorf("SecondaryRegions() が %s（期待 []）", got)
 	}
 }
 
