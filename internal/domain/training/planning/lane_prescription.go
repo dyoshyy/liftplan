@@ -10,7 +10,7 @@ import (
 
 // laneRole は種目が今日のセッションで担う役割。
 //
-// 種目を選ぶ側（axis・variationLift・selectLineup の補助選定）はこの役割までを
+// 種目を選ぶ側（axis・variationLift・Forecast の補助選定）はこの役割までを
 // 決め、強度・セット数・RIR は決めない。役割から処方の定数を引くのは
 // prescriptionFor の表だけで、強度の値はあの表にしか無い。
 type laneRole int
