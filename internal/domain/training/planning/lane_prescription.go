@@ -227,9 +227,15 @@ const overloadSessions = 3
 // 対象は heavyRole と focusVolumeRole（prescribeSet の呼び分け）。派生・補助が
 // 対象から外れているのではない。派生も、一巡の「派生の番」に heavyRole で
 // 軸へ立てば対象になる（axis_rotation.go の case 2）。線を引いているのは
-// 種目ではなく役割。
+// 種目ではなく役割。派生が focusVolumeRole（一巡の2番目）に立つ経路は無い
+// （case 1 は必ず重点種目そのものを返す）ので、いま効くのは heavyRole
+// （0.88）とバリエーション（0.80）の差だけ。丸めると 87.5 と 80 で別の
+// 2.5kg グリッドに乗るので、後段の performedAtLeast が区別できる。もし
+// 将来 focusVolumeRole（0.81）に派生が立つ経路ができると、0.81 と
+// variationRole の 0.80 は丸めた結果が同じグリッド値になりうるため、
+// この判定はすり抜ける。そのときはこの前提を見直すこと。
 //
-// Why not: バリエーションの日は窓の証拠に使わない。履歴は役割を持たないので、
+// バリエーションの日は窓の証拠に使わない。履歴は役割を持たないので、
 // 派生がバリエーションレーン（variationRole・0.80・RIR2）で出た日も
 // ForExercise には同じ種目として並ぶ。その日の記録RIR（2）はここで比べる
 // 目標RIR（heavyRole なら1）を割っていないため素通りし、「推定が平坦」の
@@ -240,9 +246,11 @@ const overloadSessions = 3
 // 本来はバリエーションの日も換算して証拠に使うべきだが、その日の強度
 // （0.80・RIR2）を軸の強度へどう換算するかが決まっていない。無理に決めると
 // ロジックが複雑になるので、今は重い処方で実施した日だけに絞る
-// （必要になるまで作らない）。バリエーションを日本語のとおり「絞る」で
-// 読み、軽い日は無視して素通りし、その分さらに古い日まで遡って
-// overloadSessions 件集める。
+// （必要になるまで作らない）。軽い日は窓を消費せず素通りし、その分さらに
+// 古い日まで遡って overloadSessions 件集める。推定できない日（履歴の最初の
+// セッション、ブランク明け）に当たれば、重い・軽いを判定するまでもなく
+// 打ち切る。窓を無限に遡るわけではないのはこのためで、42日の鮮度判定は
+// ここに新しく足すのではなく、推定器の側の既存の判定にそのまま乗る。
 func (p SessionPlanner) overload(
 	estimable setlog.History, target *exercise.Exercise, lane lanePrescription,
 	intensity training.IntensityPct, base training.Weight,
