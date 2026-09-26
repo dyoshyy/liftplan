@@ -10,6 +10,7 @@ import type {
   Session,
 } from '../api/types';
 import { addDays, today } from '../domain/date';
+import { applyDayChange, type DayChange } from '../domain/days';
 
 /** LoadResult は読み込みの結果。状態にはしない（呼び手が決める）。 */
 export type LoadResult = { ok: true } | { ok: false; reason: 'offline' | 'unauthorized' };
@@ -27,6 +28,9 @@ export type Data = {
    *
    * `/api/set-logs` の応答は「今日どこまでやったか」の復元に必ず要るので、
    * 既に取ってある。捨てずに持つだけで、往復は1本も増えない。
+   *
+   * 記録のたびに手元でも進める（`applyDayChange`）。今日の分は doneToday と
+   * 同じ記録を指す。
    */
   days: Day[];
 };
@@ -90,26 +94,30 @@ export function useLiftplan() {
     }
   }, [loadToday]);
 
-  // recordLocally は手元の実績を先に進める。
+  // applyLocally は手元の記録を先に進める。
   //
   // 送信の完了を待つと、電波が悪いときに「押したのに反応しない」画面になる。
-  const recordLocally = useCallback(
-    (exerciseId: string, set: RecordedSet, replacing?: string) => {
-      setData((d) => {
-        const list = d.doneToday.get(exerciseId) ?? [];
-        const next = replacing ? list.map((r) => (r.id === replacing ? set : r)) : [...list, set];
-        return { ...d, doneToday: new Map(d.doneToday).set(exerciseId, next) };
-      });
-    },
-    [],
-  );
-
-  const forgetLocally = useCallback((exerciseId: string, id: string) => {
-    setData((d) => {
-      const next = (d.doneToday.get(exerciseId) ?? []).filter((r) => r.id !== id);
-      return { ...d, doneToday: new Map(d.doneToday).set(exerciseId, next) };
-    });
+  // 今日の記録も履歴での修正もここを通る。日ごとの記録と今日の実績を
+  // 別々に進めていたせいで、今日記録した分が開き直すまで履歴に出なかった。
+  const applyLocally = useCallback((change: DayChange) => {
+    setData((d) => ({ ...d, ...applyDayChange(d, change, today()) }));
   }, []);
 
-  return { data, loadAll, loadToday, recordLocally, forgetLocally };
+  // recordLocally は今日の記録。修正は同じIDで入れ直す（planRecord）ので、
+  // 置き換えるか足すかは ID で決まる。
+  const recordLocally = useCallback((exerciseId: string, set: RecordedSet) => {
+    const date = today();
+    setData((d) => ({
+      ...d,
+      ...applyDayChange(d, { kind: 'put', date, exerciseId, name: d.names.get(exerciseId) ?? '', set }, date),
+    }));
+  }, []);
+
+  const forgetLocally = useCallback(
+    (exerciseId: string, id: string) =>
+      applyLocally({ kind: 'remove', date: today(), exerciseId, id }),
+    [applyLocally],
+  );
+
+  return { data, loadAll, loadToday, recordLocally, forgetLocally, applyLocally };
 }
