@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { getJSON } from '../../api/client';
 import type { ForecastResponse, ForecastSession } from '../../api/types';
 import { today } from '../../domain/date';
+import { forecastErrorMessage } from './forecast';
 
 export type Forecast = {
   sessions: ForecastSession[] | null;
@@ -28,9 +29,9 @@ export function useForecast(): Forecast {
     try {
       const res = await getJSON<ForecastResponse>(`/api/sessions/forecast?date=${today()}`);
       setSessions(res.sessions);
-    } catch {
+    } catch (e) {
       setSessions(null);
-      setError('オフラインでは見られません');
+      setError(forecastErrorMessage(e));
     }
   }, []);
 

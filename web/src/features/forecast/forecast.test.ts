@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
+import { Unauthorized } from '../../api/client';
 import type { ForecastSession, PlannedSet } from '../../api/types';
-import { forecastRows, isInitiallyOpen, sessionHeading } from './forecast';
+import { forecastErrorMessage, forecastRows, isInitiallyOpen, sessionHeading } from './forecast';
 
 const set = (exercise_id: string): PlannedSet => ({
   exercise_id,
@@ -65,5 +66,25 @@ describe('isInitiallyOpen', () => {
     expect(isInitiallyOpen(0)).toBe(true);
     expect(isInitiallyOpen(1)).toBe(false);
     expect(isInitiallyOpen(2)).toBe(false);
+  });
+});
+
+describe('forecastErrorMessage', () => {
+  it('fetch が投げる TypeError（実際に応答が返らなかった通信の失敗）はオフラインの一言', () => {
+    expect(forecastErrorMessage(new TypeError('Failed to fetch'))).toBe('オフラインでは見られません');
+  });
+
+  it('401（Unauthorized）は中立な一言。オフラインとは限らないので言い切らない', () => {
+    expect(forecastErrorMessage(new Unauthorized())).toBe('予定を読み込めませんでした');
+  });
+
+  it('getJSON が投げる非 2xx の Error（409・5xx など）も中立な一言', () => {
+    expect(forecastErrorMessage(new Error('/api/sessions/forecast が 500 を返した'))).toBe(
+      '予定を読み込めませんでした',
+    );
+  });
+
+  it('想定外の値が来ても例外を投げず、中立な一言にする', () => {
+    expect(forecastErrorMessage('oops')).toBe('予定を読み込めませんでした');
   });
 });
