@@ -259,7 +259,7 @@ func mixedWindowProgram(t *testing.T) *program.Program {
 	target := mustTarget(t, map[training.MuscleRegion]float64{
 		training.ChestMid: 12, training.ChestUpper: 9, training.Quad: 12, training.Biceps: 9,
 	})
-	p, err := program.NewProgram(mustFrequency(t, 3), target,
+	p, err := program.NewProgram(mustFrequency(t, 3), planVolume(t), target,
 		[]exercise.ExerciseID{"bench", "squat", "incline", "curl", "tempo"},
 		[]exercise.ExerciseID{"bench", "squat"}, "bench")
 	if err != nil {
