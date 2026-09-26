@@ -106,8 +106,9 @@ type Writer interface {
 
 ### ID
 
-サーバーが採番する。形は `u-` ＋ランダム。共通の種目のIDは英小文字と `_`
-だけなので衝突しない。念のため、共通の種目と同じIDなら採番し直す。
+サーバーが採番する。形は `u-` ＋ランダム（16進16文字）。共通の種目のIDは
+英小文字と `_` だけなので衝突しない。これはシードのテストで守る
+（シードのIDは `u-` で始まらない）。
 
 記録のIDのようにクライアントで採番しないのは、種目を足すのは設定画面で、
 圏外で足す必要が無いから。二度押しは名前の重複チェックで止まる。
@@ -119,7 +120,8 @@ CREATE TABLE custom_exercises (
   user_id      uuid        NOT NULL,
   id           text        NOT NULL,
   name         text        NOT NULL,
-  stimulus     jsonb       NOT NULL,  -- {"LAT": 1.0, "BICEPS": 0.5}
+  primary_regions   jsonb NOT NULL,  -- ["LAT"]
+  secondary_regions jsonb NOT NULL,  -- ["TRAP_MID", "BICEPS"]
   increment_kg numeric     NOT NULL,
   created_at   timestamptz NOT NULL DEFAULT now(),
   deleted_at   timestamptz,
@@ -128,6 +130,10 @@ CREATE TABLE custom_exercises (
 CREATE UNIQUE INDEX custom_exercises_name_alive
   ON custom_exercises (user_id, name) WHERE deleted_at IS NULL;
 ```
+
+寄与の数値ではなく「主に効く・少し効く」の区分を保存する。読み出しのたびに
+`NewCustomExercise` を通すので、1.0と0.5の対応がドメインの外に漏れない。
+後で固定値を見直しても、保存済みの種目は新しい値で読まれる。
 
 `user_id` に外部キーを張らないのは `set_logs` などと同じ（利用者の表が無く、
 `accounts` の `user_id` は一意でない。0008 のコメント）。
@@ -162,6 +168,18 @@ DB では見られないので、アプリだけで見る。
 
 **使う種目を保存する**（`verifySelection`）：消した種目を選ぼうとしたら
 弾く。
+
+### エラー
+
+| 状況 | 分類 | HTTP |
+|---|---|---|
+| 入力が不正（主なし・重なり・名前が空や長すぎる・刻みが範囲外） | `ErrInvalidInput` | 400 |
+| 名前が重複 | `ErrDuplicateName`（新設） | 409 |
+| 種目が無い・共通の種目・他人の種目 | `ErrExerciseNotFound`（新設） | 404 |
+| 伸ばしたい種目に入っている | `ErrStillDeclared`（新設） | 409 |
+
+既存の `ErrNotFound` と `ErrConflict` は文言が「プログラムが未設定」
+「記録が衝突」なので流用しない。
 
 ### API
 
