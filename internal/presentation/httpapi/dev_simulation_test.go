@@ -252,6 +252,43 @@ func TestDevSimulation_RejectsBadAthleteQuery(t *testing.T) {
 	}
 }
 
+// 知らないキーと、同じキーの2回指定は 400。どのキーかを本文で名指しする。
+//
+// 黙って読み飛ばすと、書き間違えたキーは既定値のまま走る。growth の既定は
+// 0.5%/週なので、`growt=0` と打つと「実力一定」のつもりで伸びる人の結果を
+// 読むことになり、しかも応答は 200 で気づけない（開発用シミュレーションを
+// 観点ごとに叩いたときに実際に踏んだ）。2回指定は q.Get が先頭だけを取り、
+// 後ろが消える。
+func TestDevSimulation_RejectsUnknownOrRepeatedKey(t *testing.T) {
+	cases := []struct {
+		name  string
+		query string
+		key   string
+	}{
+		{name: "書き間違えたキー", query: "declared=bench&growt=0", key: "growt"},
+		{name: "知らないキー", query: "declared=bench&volume=5", key: "volume"},
+		{name: "同じキーを2回", query: "declared=bench&declared=squat", key: "declared"},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			rec := devGet(t, "/api/dev/simulate?"+c.query)
+			if rec.Code != http.StatusBadRequest {
+				t.Fatalf("%d が返った。400 のはず: %s", rec.Code, rec.Body.String())
+			}
+			var body struct {
+				Error string `json:"error"`
+			}
+			if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+				t.Fatalf("JSONが壊れている: %v", err)
+			}
+			if !strings.Contains(body.Error, c.key) {
+				t.Errorf("本文が %q。キー %q を名指しするはず", body.Error, c.key)
+			}
+		})
+	}
+}
+
 // 画面が入力欄の初期値に使う既定値を返す。画面が定数を二重に持たないため。
 func TestDevSimulation_OptionsCarryAthleteDefaults(t *testing.T) {
 	rec := devGet(t, "/api/dev/options")
