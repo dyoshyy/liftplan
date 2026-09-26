@@ -41,27 +41,24 @@ func toPlannedSetDTO(s planning.PlannedSet) plannedSetDTO {
 	return dto
 }
 
-func toSessionDTO(s planning.PlannedSession) sessionDTO {
-	main := make([]plannedSetDTO, 0, len(s.Main()))
-	for _, v := range s.Main() {
-		main = append(main, toPlannedSetDTO(v))
-	}
-	variation := make([]plannedSetDTO, 0, len(s.Variation()))
-	for _, v := range s.Variation() {
-		variation = append(variation, toPlannedSetDTO(v))
-	}
-	accessories := make([]plannedSetDTO, 0, len(s.Accessories()))
-	for _, v := range s.Accessories() {
-		accessories = append(accessories, toPlannedSetDTO(v))
-	}
-
-	out := sessionDTO{
-		Date:        s.Date().String(),
-		Main:        main,
-		Variation:   variation,
-		Accessories: accessories,
+// toPlannedSetDTOs は1レーンぶんの変換。sessionDTO と forecastSessionDTO の
+// 両方が使う。ここを分けていないと、レーンごとの変換が2箇所に別々の
+// ループとして存在し、片方だけ直して他方を直し忘れる余地ができる。
+func toPlannedSetDTOs(sets []planning.PlannedSet) []plannedSetDTO {
+	out := make([]plannedSetDTO, 0, len(sets))
+	for _, v := range sets {
+		out = append(out, toPlannedSetDTO(v))
 	}
 	return out
+}
+
+func toSessionDTO(s planning.PlannedSession) sessionDTO {
+	return sessionDTO{
+		Date:        s.Date().String(),
+		Main:        toPlannedSetDTOs(s.Main()),
+		Variation:   toPlannedSetDTOs(s.Variation()),
+		Accessories: toPlannedSetDTOs(s.Accessories()),
+	}
 }
 
 // forecastSessionDTO は見込みの1回ぶん。sessionDTO と違い日付を持たない
@@ -86,20 +83,12 @@ func toForecastResponse(sessions []planning.PlannedSession) forecastResponse {
 			name := sp.Name()
 			split = &name
 		}
-		main := make([]plannedSetDTO, 0, len(s.Main()))
-		for _, v := range s.Main() {
-			main = append(main, toPlannedSetDTO(v))
-		}
-		variation := make([]plannedSetDTO, 0, len(s.Variation()))
-		for _, v := range s.Variation() {
-			variation = append(variation, toPlannedSetDTO(v))
-		}
-		accessories := make([]plannedSetDTO, 0, len(s.Accessories()))
-		for _, v := range s.Accessories() {
-			accessories = append(accessories, toPlannedSetDTO(v))
-		}
 		out = append(out, forecastSessionDTO{
-			Index: i, Split: split, Main: main, Variation: variation, Accessories: accessories,
+			Index:       i,
+			Split:       split,
+			Main:        toPlannedSetDTOs(s.Main()),
+			Variation:   toPlannedSetDTOs(s.Variation()),
+			Accessories: toPlannedSetDTOs(s.Accessories()),
 		})
 	}
 	return forecastResponse{Sessions: out}
