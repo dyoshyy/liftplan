@@ -168,7 +168,7 @@ func (p SessionPlanner) selectLineup(
 	// 種目が無く、そういう日が実際にできる。0.88 のスクワットを肩の日に
 	// 出すより、軸の枠が無いほうが正直（2026-09-19 の仕様書）。
 	var lineup []lineupEntry
-	heavy, axisRole := axis(history, prog, pool, declared, today, hasSplit)
+	heavy, axisRole := axis(history, prog, pool, declared, today, hasSplit, date)
 	if heavy != nil {
 		lineup = append(lineup, lineupEntry{exercise: heavy, role: axisRole})
 	}
