@@ -3,6 +3,7 @@ package planning_test
 import (
 	"fmt"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -612,14 +613,49 @@ func TestSessionPlanner_ResidualCarriesOverWithinTheWeek(t *testing.T) {
 // こと。これが受け入れ条件で、ここが守られていれば「終えた種目が消える」
 // 「並びが入れ替わる」「枠が補充されて終わらない」は原理的に起きなくなる。
 // かつて別々に手当てしていた不具合は、すべてこの1点の派生だった（D-116）。
+//
+// 比べるのは種目の並びだけでなく、3レーンの PlannedSet 全体（種目・重量の
+// 有無と値・セット数・目標 RIR）。並びだけだと、推定や上乗せ（overload）に
+// 当日の記録が混ざって「追い込むほど次のセットが重くなる」形に戻っても緑の
+// まま通った（#172）。重量を「どのセットをこなしても」の網羅で守るのは
+// TodaysLogsDoNotMoveTodaysWeight で、こちらは計画の導出を触ったときに
+// 1本回せば分かる入口。
+//
+// 上乗せの判定に当日を混ぜる変異を捕まえるのは「分割も重点種目も無い」と
+// 「バリエーションが出る」の2ケース。分割のケースは履歴が空で推定が立たず、
+// 重点種目の一巡は派生（tempo）の記録が1セッションしか無いので、どちらも
+// 上乗せが発火しうる状態にない。
 func TestSessionPlanner_PlanIsFixedForTheWholeDay(t *testing.T) {
 	cases := []struct {
 		name string
 		req  func(t *testing.T) planning.PlanRequest
+		// wantVariation はバリエーションレーンが出ること。出ない構成のまま
+		// 3レーンを比べても、バリエーションの重量にまつわる退行（推定や
+		// 上乗せに当日の記録が混ざる）は原理的に発火しないので、比較しても
+		// 何も守れない。
+		wantVariation bool
+		// wantMainWeight は軸に重量が出ること。出ない構成（このテーブルでは
+		// 分割のケース。履歴が空で推定が立たない）では、推定や上乗せに当日を
+		// 混ぜる変異が発火せず、重量欄の比較が空振りする。
+		wantMainWeight bool
+		// pinMainIntensity は0でなければ、軸の重量がその種目の推定1RMの
+		// ちょうどこの倍率であることも確認する。上乗せ（overload）がまだ
+		// 発火していない状態から始めていることのピン。0なら確認しない。
+		//
+		// plain だけに立てる。plain が上乗せの当日混入を捕まえるのは、
+		// 軸（ベンチ）の履歴が planHistory の3セッション（-21・-14・-7日、
+		// いずれも同じ85kg・8レップ・RIR2）で overloadSessions=3 をちょうど
+		// 満たし、かつ一度も目標RIRを割っていないため。ここが崩れる
+		// （セッション数が減る、重量やRIRが変わる）と、1本目の記録で
+		// 上乗せが発火する前提そのものが消える。
+		pinMainIntensity float64
 	}{
 		{
-			name: "分割も重点種目も無い",
-			req:  planRequest,
+			name:             "分割も重点種目も無い",
+			req:              planRequest,
+			wantVariation:    false,
+			wantMainWeight:   true,
+			pinMainIntensity: 0.88,
 		},
 		{
 			// 周期の位置を当日込みの出席回数で数えると、1セット記録した瞬間に
@@ -632,8 +668,10 @@ func TestSessionPlanner_PlanIsFixedForTheWholeDay(t *testing.T) {
 			//
 			// 週3回にするのは後者のため。周期の長さ（2）で頻度が割り切れると、
 			// どこから歩いても各区分の回数が同じになって差が出ない。
-			name: "分割がある（周期は出席回数で進む）",
-			req:  fixedDaySplitRequest,
+			name:           "分割がある（周期は出席回数で進む）",
+			req:            fixedDaySplitRequest,
+			wantVariation:  false,
+			wantMainWeight: false,
 		},
 		{
 			// 一巡の位置を当日込みで数えると、派生の番（位置2）で1セット記録した
@@ -643,6 +681,39 @@ func TestSessionPlanner_PlanIsFixedForTheWholeDay(t *testing.T) {
 			req: func(t *testing.T) planning.PlanRequest {
 				return rotationRequest(t, 5)
 			},
+			wantVariation:  false,
+			wantMainWeight: true,
+		},
+		{
+			// バリエーションレーンを踏む唯一のケース。他の3ケースはどれも
+			// バリエーションが出ない構成（重点種目が無い／派生が軸そのもの／
+			// 記録が無い）なので、バリエーションの重量に当日の記録が
+			// 混ざる退行はこのケースでしか捕まらない。
+			//
+			// 軸はBIG3のうち最終実施日が最も古いデッドリフト（planHistory の
+			// 3セッションのまま）、重点種目はベンチ、バリエーションはテンポ
+			// （ラーセンより最終実施日が古い -12日）。テンポにも1セッション
+			// 記録があるので推定が立ち、重量が付く。重量が付く構成にしたのは、
+			// 重量が無いと planDiff の重量比較が variation で
+			// 「有無: false → false」のまま空振りし、推定に当日の記録が
+			// 混ざる変異（バリエーションの重量が動く形の退行）が見えなく
+			// なるため。
+			//
+			// 軸（デッドリフト）も planHistory の3セッションが手つかずなので、
+			// 上乗せの当日混入は plain に加えてここでも捕まる。
+			name: "バリエーションが出る（重点種目あり）",
+			req: func(t *testing.T) planning.PlanRequest {
+				req := planRequest(t)
+				req.Program = focusedProgram(t, "bench")
+				req.History = setlog.NewHistory(append(planHistory(t),
+					mkLogOn(t, "bench-recent", planMonday.AddDays(-3), "bench", 85, 8, 2),
+					mkLogOn(t, "larsen-last", planMonday.AddDays(-10), "larsen", 80, 8, 2),
+					mkLogOn(t, "tempo-last", planMonday.AddDays(-12), "tempo", 80, 8, 2),
+				))
+				return req
+			},
+			wantVariation:  true,
+			wantMainWeight: true,
 		},
 	}
 
@@ -652,25 +723,52 @@ func TestSessionPlanner_PlanIsFixedForTheWholeDay(t *testing.T) {
 			base := req.History.Logs()
 
 			first := mustPlan(t, req)
-			want := lineup(first)
-			if len(want) == 0 {
+
+			// 前提: 種目が1つも出ていないケースを比べても何も守れない。
+			// 3レーンすべて（main・variation・accessories）を数える。
+			total := 0
+			for _, lane := range plannedLanes(first) {
+				total += len(lane.sets)
+			}
+			if total == 0 {
 				t.Fatal("前提: 種目が1つも出ていない")
 			}
 
-			// 提示されたとおりに1セットずつ記録しては、開き直す。
+			// 前提: バリエーションの有無が、このケースが検査しようとしている
+			// ものと一致しているか。ここがずれると、バリエーションの重量欄を
+			// 比べているつもりで何も比べていないケースが混ざる。
+			if got := len(first.Variation()) > 0; got != c.wantVariation {
+				t.Fatalf("前提: バリエーションの有無が %v。%v のはず", got, c.wantVariation)
+			}
+
+			// 前提: 軸の重量の有無。同上、軸の重量欄が生きているかの確認。
+			if len(first.Main()) == 0 {
+				if c.wantMainWeight {
+					t.Fatal("前提: 軸に重量が出るはずだが軸が無い")
+				}
+			} else if _, ok := first.Main()[0].Weight(); ok != c.wantMainWeight {
+				t.Fatalf("前提: 軸の重量の有無が %v。%v のはず", ok, c.wantMainWeight)
+			}
+
+			if c.pinMainIntensity != 0 {
+				assertIntensity(t, req, first.Main()[0], c.pinMainIntensity)
+			}
+
+			// 提示されたとおりに1セットずつ、3レーンすべて記録しては開き直す。
 			logs := append([]*setlog.SetLog{}, base...)
 			n := 0
-			for _, set := range append(first.Main(), first.Accessories()...) {
-				for range set.Sets().Int() {
-					n++
-					logs = append(logs, mkLogOn(t, fmt.Sprintf("d%03d", n), req.Date,
-						string(set.ExerciseID()), 40, 8, 2))
+			for _, lane := range plannedLanes(first) {
+				for _, set := range lane.sets {
+					for range set.Sets().Int() {
+						n++
+						logs = append(logs, mkLogOn(t, fmt.Sprintf("d%03d", n), req.Date,
+							string(set.ExerciseID()), 40, 8, 2))
 
-					req.History = setlog.NewHistory(logs)
-					got := lineup(mustPlan(t, req))
-					if !slices.Equal(got, want) {
-						t.Fatalf("%dセット記録した時点で計画が変わった\n  最初: %v\n  いま: %v",
-							n, want, got)
+						req.History = setlog.NewHistory(logs)
+						if diff := planDiff(first, mustPlan(t, req)); len(diff) > 0 {
+							t.Fatalf("%dセット記録した時点で計画が変わった\n  %s",
+								n, strings.Join(diff, "\n  "))
+						}
 					}
 				}
 			}
@@ -705,11 +803,56 @@ func fixedDaySplitRequest(t *testing.T) planning.PlanRequest {
 	return splitRequest(t, prog)
 }
 
-// lineup は提示された種目を並び順のまま返す。
-func lineup(s planning.PlannedSession) []exercise.ExerciseID {
-	out := make([]exercise.ExerciseID, 0, len(s.Main())+len(s.Accessories()))
-	for _, set := range append(s.Main(), s.Accessories()...) {
-		out = append(out, set.ExerciseID())
+// plannedLane は計画の1レーンと、失敗メッセージに出す名前。
+type plannedLane struct {
+	name string
+	sets []planning.PlannedSet
+}
+
+// plannedLanes は計画の3レーンを提示の順に返す。
+func plannedLanes(s planning.PlannedSession) []plannedLane {
+	return []plannedLane{
+		{"main", s.Main()},
+		{"variation", s.Variation()},
+		{"accessories", s.Accessories()},
+	}
+}
+
+// planDiff は2つの計画を3レーンの PlannedSet 全体で比べ、違いを
+// 「どのレーンの何番目の、どのフィールドが、何から何へ」の形で返す。
+// 同じなら空。
+func planDiff(want, got planning.PlannedSession) []string {
+	var out []string
+	gotLanes := plannedLanes(got)
+	for i, w := range plannedLanes(want) {
+		g := gotLanes[i]
+		if len(w.sets) != len(g.sets) {
+			out = append(out, fmt.Sprintf("%s の件数: %d → %d", w.name, len(w.sets), len(g.sets)))
+			continue
+		}
+		for j := range w.sets {
+			a, b := w.sets[j], g.sets[j]
+			at := fmt.Sprintf("%s[%d]", w.name, j)
+			if a.ExerciseID() != b.ExerciseID() {
+				out = append(out, fmt.Sprintf("%s の種目: %s → %s", at, a.ExerciseID(), b.ExerciseID()))
+				// 種目が違えば残りのフィールドを比べても意味がない。
+				continue
+			}
+			at = fmt.Sprintf("%s（%s）", at, a.ExerciseID())
+			aw, aok := a.Weight()
+			bw, bok := b.Weight()
+			if aok != bok {
+				out = append(out, fmt.Sprintf("%s の重量の有無: %v → %v", at, aok, bok))
+			} else if aok && aw.Kg() != bw.Kg() {
+				out = append(out, fmt.Sprintf("%s の重量: %vkg → %vkg", at, aw.Kg(), bw.Kg()))
+			}
+			if a.Sets().Int() != b.Sets().Int() {
+				out = append(out, fmt.Sprintf("%s のセット数: %d → %d", at, a.Sets().Int(), b.Sets().Int()))
+			}
+			if a.TargetRIR().Int() != b.TargetRIR().Int() {
+				out = append(out, fmt.Sprintf("%s の目標 RIR: %d → %d", at, a.TargetRIR().Int(), b.TargetRIR().Int()))
+			}
+		}
 	}
 	return out
 }
