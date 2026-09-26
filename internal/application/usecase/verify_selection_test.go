@@ -7,6 +7,7 @@ import (
 
 	"github.com/dyoshyy/liftplan/internal/application/apperror"
 	"github.com/dyoshyy/liftplan/internal/application/usecase"
+	"github.com/dyoshyy/liftplan/internal/domain/training"
 	"github.com/dyoshyy/liftplan/internal/domain/training/exercise"
 	"github.com/dyoshyy/liftplan/internal/domain/training/program"
 	"github.com/dyoshyy/liftplan/internal/domain/training/seed"
@@ -105,5 +106,41 @@ func TestSetSelectedExercises_VerifiesAgainstTheExerciseMaster(t *testing.T) {
 				t.Errorf("保存されたか が %v。%v のはず", saved, c.wantSaved)
 			}
 		})
+	}
+}
+
+// 消した種目を選択に戻せないこと。古い画面から PUT /api/program/selected
+// されたときに、計画に消した種目が戻ってくる。
+//
+// verifySelection は非公開で、このファイルは外部テスト
+// （usecase_test）なので直接は呼べない。同じ性質を、それを呼ぶ
+// SetSelectedExercises.Execute から見る。
+func TestSetSelectedExercises_RejectsDeletedExercise(t *testing.T) {
+	pool, err := seed.Exercises()
+	if err != nil {
+		t.Fatalf("シードが不正: %v", err)
+	}
+	e, err := exercise.NewCustomExercise(exercise.CustomExerciseParams{
+		ID:          "u-000000000000000a",
+		Name:        "アイソラテラル・ロー",
+		Primary:     []training.MuscleRegion{training.Lat},
+		IncrementKg: 2.5,
+	})
+	if err != nil {
+		t.Fatalf("種目が不正: %v", err)
+	}
+	pool = append(pool, e.Delete())
+
+	programs := &fakeProgram{program: bicepsProgram(t)}
+	uc := usecase.NewSetSelectedExercises(&fakeExercises{all: pool}, programs, programs)
+
+	ids := []exercise.ExerciseID{"squat", "calf_raise", "barbell_curl", "u-000000000000000a"}
+	err = uc.Execute(context.Background(), testUser, ids)
+
+	if !errors.Is(err, apperror.ErrInvalidInput) {
+		t.Errorf("消した種目が選べた: %v", err)
+	}
+	if programs.savedProgram() != nil {
+		t.Error("拒否したはずなのに保存された")
 	}
 }
