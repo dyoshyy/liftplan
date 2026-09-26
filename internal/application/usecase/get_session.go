@@ -102,6 +102,7 @@ func (u *GetSession) Execute(ctx context.Context, user account.UserID, in GetSes
 
 	return u.planner.Plan(planning.PlanRequest{
 		Program:    prog,
+		Target:     prog.WeeklyTarget(),
 		Pool:       pool,
 		History:    history,
 		Conditions: conditions,

@@ -101,6 +101,7 @@ func TestSessionPlanner_VariationLane(t *testing.T) {
 		t.Run(c.name, func(t *testing.T) {
 			req := planRequest(t)
 			req.Program = focusedProgram(t, c.focus)
+			req.Target = req.Program.WeeklyTarget()
 			req.History = setlog.NewHistory(historyWithLastPerformed(t, c.lastPerformed))
 
 			got := mustPlan(t, req).Variation()
@@ -145,6 +146,7 @@ func TestSessionPlanner_VariationNeedsTheDerivedToBeSelected(t *testing.T) {
 	req := planRequest(t)
 	// 派生を選択から外したプログラム。重点種目はベンチのまま。
 	req.Program = mustProgramWithout(t, "bench", "larsen", "tempo")
+	req.Target = req.Program.WeeklyTarget()
 	req.History = setlog.NewHistory(historyWithLastPerformed(t,
 		map[exercise.ExerciseID]int{"bench": -3, "squat": -7, "deadlift": -7}))
 
@@ -208,6 +210,7 @@ func TestSessionPlanner_VariationWeightComesFromItsOwnRecord(t *testing.T) {
 
 	req := planRequest(t)
 	req.Program = focusedProgram(t, "bench")
+	req.Target = req.Program.WeeklyTarget()
 	req.History = setlog.NewHistory(logs)
 
 	s := mustPlan(t, req)
@@ -259,6 +262,7 @@ func TestSessionPlanner_VariationPrescriptionIsPinned(t *testing.T) {
 
 	req := planRequest(t)
 	req.Program = focusedProgram(t, "bench")
+	req.Target = req.Program.WeeklyTarget()
 	req.History = setlog.NewHistory(logs)
 
 	s := mustPlan(t, req)
@@ -317,6 +321,7 @@ func TestSessionPlanner_VariationTakesTheConditionRIRBump(t *testing.T) {
 
 	req := planRequest(t)
 	req.Program = focusedProgram(t, "bench")
+	req.Target = req.Program.WeeklyTarget()
 	req.History = setlog.NewHistory(logs)
 
 	// 2週間 7h で寝ていた人が当日 5.4h。既定の閾値 1.5h を割る。
@@ -354,6 +359,7 @@ func exerciseByID(t *testing.T, pool []*exercise.Exercise, id exercise.ExerciseI
 func TestSessionPlanner_VariationWithoutRecordHasNoWeight(t *testing.T) {
 	req := planRequest(t)
 	req.Program = focusedProgram(t, "bench")
+	req.Target = req.Program.WeeklyTarget()
 	req.History = setlog.NewHistory(historyWithLastPerformed(t,
 		map[exercise.ExerciseID]int{"bench": -3, "squat": -7, "deadlift": -7}))
 
@@ -376,6 +382,7 @@ func TestSessionPlanner_TodaysLogDoesNotRemoveTheVariation(t *testing.T) {
 
 	req := planRequest(t)
 	req.Program = focusedProgram(t, "bench")
+	req.Target = req.Program.WeeklyTarget()
 	req.History = setlog.NewHistory(base)
 
 	before := mustPlan(t, req).Variation()
@@ -448,9 +455,11 @@ func TestSessionPlanner_SubtractsVariationCoverageFromResidual(t *testing.T) {
 	req.History = setlog.NewHistory(logs)
 
 	req.Program = build("")
+	req.Target = req.Program.WeeklyTarget()
 	without := mustPlan(t, req)
 
 	req.Program = build("bench")
+	req.Target = req.Program.WeeklyTarget()
 	with := mustPlan(t, req)
 
 	if len(with.Variation()) != 1 {
@@ -476,6 +485,7 @@ func TestSessionPlanner_SubtractsVariationCoverageFromResidual(t *testing.T) {
 func TestSessionPlanner_FocusDerivativesNeverAppearAsAccessories(t *testing.T) {
 	req := planRequest(t)
 	req.Program = focusedProgram(t, "bench")
+	req.Target = req.Program.WeeklyTarget()
 	// 胸の残差を大きくして、補助が胸を狙いにいく状況を作る。
 	// 軸はスクワットに寄せ、ベンチ系は今週まだ。
 	req.History = setlog.NewHistory(historyWithLastPerformed(t,
@@ -520,6 +530,7 @@ func TestSessionPlanner_NonFocusDerivativesStayAsAccessories(t *testing.T) {
 
 	req := planRequest(t)
 	req.Pool, req.Program = pool, prog
+	req.Target = prog.WeeklyTarget()
 	// 軸をベンチに寄せる。脚の残差が大きいので補助は大腿四頭筋を狙う。
 	req.History = setlog.NewHistory(historyWithLastPerformed(t,
 		map[exercise.ExerciseID]int{"bench": -7, "squat": -3, "deadlift": -3}))
@@ -536,6 +547,7 @@ func TestSessionPlanner_NonFocusDerivativesStayAsAccessories(t *testing.T) {
 func TestSessionPlanner_VariationIsNotAlsoAnAccessory(t *testing.T) {
 	req := planRequest(t)
 	req.Program = focusedProgram(t, "bench")
+	req.Target = req.Program.WeeklyTarget()
 	req.History = setlog.NewHistory(historyWithLastPerformed(t,
 		map[exercise.ExerciseID]int{"bench": -3, "squat": -7, "deadlift": -7}))
 

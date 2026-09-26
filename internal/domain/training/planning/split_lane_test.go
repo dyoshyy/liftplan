@@ -72,6 +72,7 @@ func splitRequest(t *testing.T, prog *program.Program) planning.PlanRequest {
 	req := planRequest(t)
 	req.Pool = splitPool(t)
 	req.Program = prog
+	req.Target = prog.WeeklyTarget()
 	req.History = setlog.NewHistory(nil)
 	return req
 }

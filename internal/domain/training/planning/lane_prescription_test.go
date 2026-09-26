@@ -54,6 +54,7 @@ func simulateAxis(t *testing.T, prog *program.Program, sessions int) []axisRow {
 
 	req := planRequest(t)
 	req.Program = prog
+	req.Target = req.Program.WeeklyTarget()
 	logs := []*setlog.SetLog{
 		mkLogOn(t, "start", planMonday.AddDays(-7), "bench", 85, 8, 2),
 	}
@@ -233,6 +234,7 @@ func TestSessionPlanner_AxisOverload(t *testing.T) {
 			}
 			req := planRequest(t)
 			req.Program = benchOnlyProgram(t)
+			req.Target = req.Program.WeeklyTarget()
 			req.History = setlog.NewHistory(logs)
 
 			got, ok := plannedWeight(t, mustPlan(t, req), c.exercise)
@@ -288,6 +290,7 @@ func mixedWindowProgram(t *testing.T) *program.Program {
 func TestSessionPlanner_AxisOverload_ExcludesVariationDays(t *testing.T) {
 	req := planRequest(t)
 	req.Program = mixedWindowProgram(t)
+	req.Target = req.Program.WeeklyTarget()
 	req.History = setlog.NewHistory([]*setlog.SetLog{
 		// 軸がベンチとスクワットを交互に回すための最小限の履歴。
 		// ベンチを一度も遠くに離しておくと、スクワットより古いので

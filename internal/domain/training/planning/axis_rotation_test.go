@@ -68,6 +68,7 @@ func TestSessionPlanner_RotationAdvancesOnDerivativeDays(t *testing.T) {
 
 	req := planRequest(t)
 	req.Program = rotationProgram(t)
+	req.Target = req.Program.WeeklyTarget()
 	req.History = setlog.NewHistory(logs)
 
 	set := mustPlan(t, req).Main()[0]
@@ -90,6 +91,7 @@ func TestSessionPlanner_NonFocusAxisKeepsTheHeavyPrescription(t *testing.T) {
 
 	req := planRequest(t)
 	req.Program = focusedProgram(t, "bench")
+	req.Target = req.Program.WeeklyTarget()
 	req.History = setlog.NewHistory(logs)
 
 	set := mustPlan(t, req).Main()[0]
@@ -103,6 +105,7 @@ func TestSessionPlanner_NonFocusAxisKeepsTheHeavyPrescription(t *testing.T) {
 func TestSessionPlanner_NoFocusNoRotation(t *testing.T) {
 	req := planRequest(t)
 	req.Program = benchOnlyProgram(t) // 重点種目なし・宣言はベンチだけ
+	req.Target = req.Program.WeeklyTarget()
 	req.History = setlog.NewHistory(rotationLogs(t, 4))
 
 	set := mustPlan(t, req).Main()[0]
@@ -119,6 +122,7 @@ func TestSessionPlanner_NoFocusNoRotation(t *testing.T) {
 func TestSessionPlanner_RotationSkipsUnselectedDerivatives(t *testing.T) {
 	req := planRequest(t)
 	req.Program = rotationProgramWithout(t, "larsen", "tempo")
+	req.Target = req.Program.WeeklyTarget()
 	req.History = setlog.NewHistory(rotationLogs(t, 5)) // 派生の番
 
 	set := mustPlan(t, req).Main()[0]
@@ -201,6 +205,7 @@ func rotationRequest(t *testing.T, sessions int) planning.PlanRequest {
 	t.Helper()
 	req := planRequest(t)
 	req.Program = rotationProgram(t)
+	req.Target = req.Program.WeeklyTarget()
 	req.History = setlog.NewHistory(rotationLogs(t, sessions))
 	return req
 }
@@ -339,5 +344,6 @@ func splitRotationRequest(t *testing.T, cycle ...program.Split) planning.PlanReq
 	req := planRequest(t)
 	req.Pool = pool
 	req.Program = prog
+	req.Target = req.Program.WeeklyTarget()
 	return req
 }

@@ -113,8 +113,10 @@ func planHistory(t *testing.T) []*setlog.SetLog {
 
 func planRequest(t *testing.T) planning.PlanRequest {
 	t.Helper()
+	prog := planProgram(t)
 	return planning.PlanRequest{
-		Program:    planProgram(t),
+		Program:    prog,
+		Target:     prog.WeeklyTarget(),
 		Pool:       planPool(t),
 		History:    setlog.NewHistory(planHistory(t)),
 		Conditions: condition.NewConditionLog(nil),
@@ -154,6 +156,7 @@ func TestSessionPlanner_DeclaredExercisesNeverAppearAsAccessories(t *testing.T) 
 
 	req := planRequest(t)
 	req.Program = p
+	req.Target = req.Program.WeeklyTarget()
 	req.History = setlog.NewHistory(append(planHistory(t),
 		mkLogOn(t, "b-recent", planMonday.AddDays(-3), "bench", 85, 8, 2)))
 
@@ -229,6 +232,7 @@ func planRequestAt(t *testing.T, days int, done ...int) planning.PlanRequest {
 
 	req := planRequest(t)
 	req.Program = benchOnlyProgram(t)
+	req.Target = req.Program.WeeklyTarget()
 	req.History = setlog.NewHistory(logs)
 	req.Date = planMonday.AddDays(days)
 	return req
@@ -428,6 +432,11 @@ func TestSessionPlanner_RejectsInvalidRequests(t *testing.T) {
 		mutate func(*planning.PlanRequest)
 	}{
 		{"プログラムが nil", func(r *planning.PlanRequest) { r.Program = nil }},
+		// 週目標は Program から取らず、呼び出し側が別に渡す
+		// （seed.DefaultWeeklyTarget）。渡し忘れをここで弾かないと、
+		// ゼロ値のまま SessionResidual に渡り、全区分の残差が0のまま
+		// 補助が1つも選ばれない「静かな空振り」になる。
+		{"週目標が空", func(r *planning.PlanRequest) { r.Target = program.WeeklyVolumeTarget{} }},
 		{"対象日が無い", func(r *planning.PlanRequest) { r.Date = training.Date{} }},
 		{"種目プールが空", func(r *planning.PlanRequest) { r.Pool = nil }},
 	}
@@ -462,6 +471,7 @@ func TestSessionPlanner_AnyDeclaredExerciseCanBeTheAxis(t *testing.T) {
 
 	req := planRequest(t)
 	req.Program = program
+	req.Target = req.Program.WeeklyTarget()
 
 	session, err := planning.DefaultSessionPlanner().Plan(req)
 	if err != nil {
@@ -705,6 +715,7 @@ func TestSessionPlanner_PlanIsFixedForTheWholeDay(t *testing.T) {
 			req: func(t *testing.T) planning.PlanRequest {
 				req := planRequest(t)
 				req.Program = focusedProgram(t, "bench")
+				req.Target = req.Program.WeeklyTarget()
 				req.History = setlog.NewHistory(append(planHistory(t),
 					mkLogOn(t, "bench-recent", planMonday.AddDays(-3), "bench", 85, 8, 2),
 					mkLogOn(t, "larsen-last", planMonday.AddDays(-10), "larsen", 80, 8, 2),
@@ -1027,6 +1038,7 @@ func TestSessionPlanner_SubtractsMainCoverageFromResidual(t *testing.T) {
 
 	req := planRequest(t)
 	req.Pool, req.Program = pool, program
+	req.Target = program.WeeklyTarget()
 
 	got := mustPlan(t, req)
 	for _, set := range got.Accessories() {
@@ -1060,6 +1072,7 @@ func chestUpperRequest(t *testing.T) planning.PlanRequest {
 
 	req := planRequest(t)
 	req.Pool, req.Program = pool, program
+	req.Target = program.WeeklyTarget()
 	return req
 }
 
@@ -1109,6 +1122,7 @@ func inclineDeselectedRequest(t *testing.T) planning.PlanRequest {
 
 	req := chestUpperRequest(t)
 	req.Program = deselected
+	req.Target = req.Program.WeeklyTarget()
 	return req
 }
 
@@ -1492,7 +1506,7 @@ func TestSessionPlanner_DoesNotDoubleCountTodaysMain(t *testing.T) {
 	}
 
 	s := mustPlan(t, planning.PlanRequest{
-		Program: program, Pool: pool,
+		Program: program, Target: program.WeeklyTarget(), Pool: pool,
 		History:    setlog.NewHistory(logs),
 		Conditions: condition.NewConditionLog(nil),
 		Date:       planMonday,
@@ -1645,7 +1659,7 @@ func TestSessionPlanner_PlannedWorkIsConsumedExactly(t *testing.T) {
 	plan := func(t *testing.T) planning.PlannedSession {
 		t.Helper()
 		s, err := planner.Plan(planning.PlanRequest{
-			Program: program, Pool: pool,
+			Program: program, Target: program.WeeklyTarget(), Pool: pool,
 			History:    setlog.NewHistory(logs),
 			Conditions: condition.NewConditionLog(nil),
 			Date:       date,
@@ -1781,6 +1795,7 @@ func chinRequest(t *testing.T, addedKg, bodyweight float64) planning.PlanRequest
 
 	return planning.PlanRequest{
 		Program:    program,
+		Target:     program.WeeklyTarget(),
 		Pool:       append(planPool(t), chin),
 		History:    setlog.NewHistory(logs),
 		Conditions: condition.NewConditionLog(conds),
@@ -1933,7 +1948,7 @@ func TestSessionPlanner_BodyweightSetsStillCountTowardCoverage(t *testing.T) {
 	// 週の半ばを対象日にして、その手前に記録を置けるようにする。
 	date := planMonday.AddDays(2)
 	base := planning.PlanRequest{
-		Program: program, Pool: pool,
+		Program: program, Target: program.WeeklyTarget(), Pool: pool,
 		History:    setlog.NewHistory(planHistory(t)),
 		Conditions: condition.NewConditionLog(nil),
 		Date:       date,
@@ -1990,6 +2005,7 @@ func TestSessionPlanner_BodyweightExerciseFallsBackToDefaultBodyWeight(t *testin
 
 	s := mustPlan(t, planning.PlanRequest{
 		Program:    program,
+		Target:     program.WeeklyTarget(),
 		Pool:       pool,
 		History:    setlog.NewHistory(logs),
 		Conditions: condition.NewConditionLog(nil),
@@ -2067,7 +2083,7 @@ func TestSessionPlanner_ExerciseCountNeverExceedsBudget(t *testing.T) {
 			}
 
 			got, err := planner.Plan(planning.PlanRequest{
-				Program: prog, Pool: pool,
+				Program: prog, Target: prog.WeeklyTarget(), Pool: pool,
 				History: setlog.NewHistory(nil), Date: today(),
 			})
 			if err != nil {

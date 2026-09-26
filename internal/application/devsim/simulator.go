@@ -177,6 +177,7 @@ func (s *Simulator) Run(req Request) (Result, error) {
 
 			planned, err := s.planner.Plan(planning.PlanRequest{
 				Program:    prog,
+				Target:     prog.WeeklyTarget(),
 				Pool:       s.pool,
 				History:    history,
 				Conditions: conditions,
