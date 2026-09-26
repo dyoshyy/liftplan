@@ -72,10 +72,11 @@ func (u *GetSession) Execute(ctx context.Context, user account.UserID, in GetSes
 		return planning.PlannedSession{}, fmt.Errorf(
 			"プログラムの取得: %w", program.ErrProgramNotConfigured)
 	}
-	// 週目標は保存値を使わず、設定から組み直す（理由は seed.WithDerivedTarget）。
-	prog, err = seed.WithDerivedTarget(prog)
+	// 週目標は保存された持ち物ではなく、設定（頻度と1回の量）から組み直す
+	// （D-139、#176）。プログラムはもう週目標を持たない。
+	target, err := seed.DefaultWeeklyTarget(prog.Frequency(), prog.SessionVolume())
 	if err != nil {
-		return planning.PlannedSession{}, err
+		return planning.PlannedSession{}, fmt.Errorf("週目標が組めない: %w", err)
 	}
 	// 途中でキャンセルされたら残りの取得をやめる。履歴は全件を読むので、
 	// クライアントが切断済みでも最後まで走らせると数十MBを無駄に確保する。
@@ -102,7 +103,7 @@ func (u *GetSession) Execute(ctx context.Context, user account.UserID, in GetSes
 
 	return u.planner.Plan(planning.PlanRequest{
 		Program:    prog,
-		Target:     prog.WeeklyTarget(),
+		Target:     target,
 		Pool:       pool,
 		History:    history,
 		Conditions: conditions,

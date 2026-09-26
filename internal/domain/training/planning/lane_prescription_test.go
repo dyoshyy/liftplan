@@ -49,12 +49,12 @@ func steadyReps(t *testing.T, estimate, weight float64, rir int) int {
 // 始まりの履歴はベンチ1セッションだけ（85kg×8 RIR2、推定 113.33kg）。
 // 上乗せには「前の日に推定が立っていたセッション」が overloadSessions 個
 // 要るので、最初の3本は必ず推定どおりの重量になり、比べる起点にできる。
-func simulateAxis(t *testing.T, prog *program.Program, sessions int) []axisRow {
+func simulateAxis(t *testing.T, prog *program.Program, target program.WeeklyVolumeTarget, sessions int) []axisRow {
 	t.Helper()
 
 	req := planRequest(t)
 	req.Program = prog
-	req.Target = req.Program.WeeklyTarget()
+	req.Target = target
 	logs := []*setlog.SetLog{
 		mkLogOn(t, "start", planMonday.AddDays(-7), "bench", 85, 8, 2),
 	}
@@ -112,7 +112,7 @@ func logAxisRows(t *testing.T, rows []axisRow) {
 func TestSessionPlanner_AxisWeightProgresses(t *testing.T) {
 	cases := []struct {
 		name string
-		prog func(t *testing.T) *program.Program
+		prog func(t *testing.T) (*program.Program, program.WeeklyVolumeTarget)
 		// 同じ役割が回ってくる間隔。重点種目の一巡では 3レップ相当と
 		// 6レップ相当が交互に来るので、同じ役割どうしで比べる。
 		period int
@@ -120,7 +120,7 @@ func TestSessionPlanner_AxisWeightProgresses(t *testing.T) {
 		{name: "軸が毎回3レップ相当", prog: benchOnlyProgram, period: 1},
 		{
 			name: "重点種目の一巡（派生なし）",
-			prog: func(t *testing.T) *program.Program {
+			prog: func(t *testing.T) (*program.Program, program.WeeklyVolumeTarget) {
 				return rotationProgramWithout(t, "larsen", "tempo")
 			},
 			period: 3,
@@ -129,7 +129,8 @@ func TestSessionPlanner_AxisWeightProgresses(t *testing.T) {
 
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			rows := simulateAxis(t, c.prog(t), 12)
+			p, target := c.prog(t)
+			rows := simulateAxis(t, p, target, 12)
 			logAxisRows(t, rows)
 
 			// ベンチの刻みは 2.5kg。
@@ -233,8 +234,7 @@ func TestSessionPlanner_AxisOverload(t *testing.T) {
 				}
 			}
 			req := planRequest(t)
-			req.Program = benchOnlyProgram(t)
-			req.Target = req.Program.WeeklyTarget()
+			req.Program, req.Target = benchOnlyProgram(t)
 			req.History = setlog.NewHistory(logs)
 
 			got, ok := plannedWeight(t, mustPlan(t, req), c.exercise)
@@ -255,19 +255,19 @@ func TestSessionPlanner_AxisOverload(t *testing.T) {
 // 番の日は派生（tempo）が一巡の3番目（派生の番）で軸に立ち、スクワットの
 // 番の日は「軸が系統に含まれない」条件が満たされてバリエーションレーンに
 // tempo が出る。同じ種目が2つの役割を行き来する状況を、宣言を絞らずに作る。
-func mixedWindowProgram(t *testing.T) *program.Program {
+func mixedWindowProgram(t *testing.T) (*program.Program, program.WeeklyVolumeTarget) {
 	t.Helper()
 
 	target := mustTarget(t, map[training.MuscleRegion]float64{
 		training.ChestMid: 12, training.ChestUpper: 9, training.Quad: 12, training.Biceps: 9,
 	})
-	p, err := program.NewProgram(mustFrequency(t, 3), planVolume(t), target,
+	p, err := program.NewProgram(mustFrequency(t, 3), planVolume(t),
 		[]exercise.ExerciseID{"bench", "squat", "incline", "curl", "tempo"},
 		[]exercise.ExerciseID{"bench", "squat"}, "bench")
 	if err != nil {
 		t.Fatalf("プログラムの生成に失敗: %v", err)
 	}
-	return p
+	return p, target
 }
 
 // 派生（tempo）が、軸の重い日とバリエーションの軽い日を行き来する窓で、
@@ -289,8 +289,7 @@ func mixedWindowProgram(t *testing.T) *program.Program {
 // 丸まったまま動かない。
 func TestSessionPlanner_AxisOverload_ExcludesVariationDays(t *testing.T) {
 	req := planRequest(t)
-	req.Program = mixedWindowProgram(t)
-	req.Target = req.Program.WeeklyTarget()
+	req.Program, req.Target = mixedWindowProgram(t)
 	req.History = setlog.NewHistory([]*setlog.SetLog{
 		// 軸がベンチとスクワットを交互に回すための最小限の履歴。
 		// ベンチを一度も遠くに離しておくと、スクワットより古いので

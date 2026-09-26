@@ -61,37 +61,41 @@ func planPool(t *testing.T) []*exercise.Exercise {
 	}
 }
 
-func planProgram(t *testing.T) *program.Program {
+// planProgram は既定のプランニング用プログラム。週目標も一緒に返す。
+//
+// Program はもう週目標を持たない（#176）ので、呼び出し側は
+// PlanRequest.Target に別途渡す必要がある。
+func planProgram(t *testing.T) (*program.Program, program.WeeklyVolumeTarget) {
 	t.Helper()
 
 	target := mustTarget(t, map[training.MuscleRegion]float64{
 		training.ChestMid: 12, training.ChestUpper: 9, training.Quad: 12, training.Biceps: 9,
 	})
-	p, err := program.NewProgram(mustFrequency(t, 3), planVolume(t), target,
+	p, err := program.NewProgram(mustFrequency(t, 3), planVolume(t),
 		[]exercise.ExerciseID{"bench", "squat", "deadlift", "incline", "curl"}, big3(), "")
 	if err != nil {
 		t.Fatalf("プログラムの生成に失敗: %v", err)
 	}
-	return p
+	return p, target
 }
 
 // focusedProgram は重点種目を指定したプログラムを返す。
 //
 // 派生（larsen・tempo）も選択に入れる。選択されていない種目は usablePool から
 // 落ちるので、バリエーションレーンの候補にもならない。
-func focusedProgram(t *testing.T, focus exercise.ExerciseID) *program.Program {
+func focusedProgram(t *testing.T, focus exercise.ExerciseID) (*program.Program, program.WeeklyVolumeTarget) {
 	t.Helper()
 
 	target := mustTarget(t, map[training.MuscleRegion]float64{
 		training.ChestMid: 12, training.ChestUpper: 9, training.Quad: 12, training.Biceps: 9,
 	})
-	p, err := program.NewProgram(mustFrequency(t, 3), planVolume(t), target,
+	p, err := program.NewProgram(mustFrequency(t, 3), planVolume(t),
 		[]exercise.ExerciseID{"bench", "squat", "deadlift", "incline", "curl", "larsen", "tempo"},
 		big3(), focus)
 	if err != nil {
 		t.Fatalf("プログラムの生成に失敗: %v", err)
 	}
-	return p
+	return p, target
 }
 
 // planHistory は3週分の履歴（推定1RMが立つ量）。
@@ -113,10 +117,10 @@ func planHistory(t *testing.T) []*setlog.SetLog {
 
 func planRequest(t *testing.T) planning.PlanRequest {
 	t.Helper()
-	prog := planProgram(t)
+	prog, target := planProgram(t)
 	return planning.PlanRequest{
 		Program:    prog,
-		Target:     prog.WeeklyTarget(),
+		Target:     target,
 		Pool:       planPool(t),
 		History:    setlog.NewHistory(planHistory(t)),
 		Conditions: condition.NewConditionLog(nil),
@@ -147,7 +151,8 @@ func mustPlan(t *testing.T, req planning.PlanRequest) planning.PlannedSession {
 // ベンチをやって軸を他へ移し、回復期間（2日）を抜け、胸の残差を大きく
 // した日に初めて候補へ上がる。だからシミュレーションでは数字が動かない。
 func TestSessionPlanner_DeclaredExercisesNeverAppearAsAccessories(t *testing.T) {
-	p, err := program.NewProgram(mustFrequency(t, 3), planVolume(t), mustTarget(t, map[training.MuscleRegion]float64{training.ChestMid: 30}),
+	target := mustTarget(t, map[training.MuscleRegion]float64{training.ChestMid: 30})
+	p, err := program.NewProgram(mustFrequency(t, 3), planVolume(t),
 		[]exercise.ExerciseID{"bench", "squat", "deadlift", "incline", "curl", "larsen"},
 		big3(), "")
 	if err != nil {
@@ -156,7 +161,7 @@ func TestSessionPlanner_DeclaredExercisesNeverAppearAsAccessories(t *testing.T) 
 
 	req := planRequest(t)
 	req.Program = p
-	req.Target = req.Program.WeeklyTarget()
+	req.Target = target
 	req.History = setlog.NewHistory(append(planHistory(t),
 		mkLogOn(t, "b-recent", planMonday.AddDays(-3), "bench", 85, 8, 2)))
 
@@ -201,19 +206,19 @@ func TestSessionPlanner_HeavySlotIsExactlyOne(t *testing.T) {
 // ヘビー枠は宣言のうち最終実施日が最も古いものが取るので、宣言が複数
 // あると「今日どれが軸になるか」が履歴で動く。役割や強度だけを見たい
 // テストでは、宣言を1つにして軸を固定する。
-func benchOnlyProgram(t *testing.T) *program.Program {
+func benchOnlyProgram(t *testing.T) (*program.Program, program.WeeklyVolumeTarget) {
 	t.Helper()
 
 	target := mustTarget(t, map[training.MuscleRegion]float64{
 		training.ChestMid: 12, training.ChestUpper: 9, training.Quad: 12, training.Biceps: 9,
 	})
-	p, err := program.NewProgram(mustFrequency(t, 3), planVolume(t), target,
+	p, err := program.NewProgram(mustFrequency(t, 3), planVolume(t),
 		[]exercise.ExerciseID{"bench", "squat", "deadlift", "incline", "curl"},
 		[]exercise.ExerciseID{"bench"}, "")
 	if err != nil {
 		t.Fatalf("プログラムの生成に失敗: %v", err)
 	}
-	return p
+	return p, target
 }
 
 // planRequestAt は、ベンチを今週すでに done 回やった状態で days 日目の
@@ -231,8 +236,7 @@ func planRequestAt(t *testing.T, days int, done ...int) planning.PlanRequest {
 	}
 
 	req := planRequest(t)
-	req.Program = benchOnlyProgram(t)
-	req.Target = req.Program.WeeklyTarget()
+	req.Program, req.Target = benchOnlyProgram(t)
 	req.History = setlog.NewHistory(logs)
 	req.Date = planMonday.AddDays(days)
 	return req
@@ -463,7 +467,7 @@ func TestSessionPlanner_RejectsInvalidRequests(t *testing.T) {
 // 先頭に出ること。
 func TestSessionPlanner_AnyDeclaredExerciseCanBeTheAxis(t *testing.T) {
 	target := mustTarget(t, map[training.MuscleRegion]float64{training.Biceps: 9})
-	program, err := program.NewProgram(mustFrequency(t, 3), planVolume(t), target,
+	program, err := program.NewProgram(mustFrequency(t, 3), planVolume(t),
 		[]exercise.ExerciseID{"curl"}, []exercise.ExerciseID{"curl"}, "")
 	if err != nil {
 		t.Fatalf("プログラムの生成に失敗: %v", err)
@@ -471,7 +475,7 @@ func TestSessionPlanner_AnyDeclaredExerciseCanBeTheAxis(t *testing.T) {
 
 	req := planRequest(t)
 	req.Program = program
-	req.Target = req.Program.WeeklyTarget()
+	req.Target = target
 
 	session, err := planning.DefaultSessionPlanner().Plan(req)
 	if err != nil {
@@ -714,8 +718,7 @@ func TestSessionPlanner_PlanIsFixedForTheWholeDay(t *testing.T) {
 			name: "バリエーションが出る（重点種目あり）",
 			req: func(t *testing.T) planning.PlanRequest {
 				req := planRequest(t)
-				req.Program = focusedProgram(t, "bench")
-				req.Target = req.Program.WeeklyTarget()
+				req.Program, req.Target = focusedProgram(t, "bench")
 				req.History = setlog.NewHistory(append(planHistory(t),
 					mkLogOn(t, "bench-recent", planMonday.AddDays(-3), "bench", 85, 8, 2),
 					mkLogOn(t, "larsen-last", planMonday.AddDays(-10), "larsen", 80, 8, 2),
@@ -797,9 +800,10 @@ func fixedDaySplitRequest(t *testing.T) planning.PlanRequest {
 	for _, e := range pool {
 		ids = append(ids, e.ID())
 	}
-	prog, err := program.NewProgram(mustFrequency(t, 3), planVolume(t), mustTarget(t, map[training.MuscleRegion]float64{
+	target := mustTarget(t, map[training.MuscleRegion]float64{
 		training.ChestMid: 24, training.Quad: 24,
-	}),
+	})
+	prog, err := program.NewProgram(mustFrequency(t, 3), planVolume(t),
 		ids, []exercise.ExerciseID{"bench", "squat"}, "")
 	if err != nil {
 		t.Fatalf("プログラムの生成に失敗: %v", err)
@@ -811,7 +815,7 @@ func fixedDaySplitRequest(t *testing.T) planning.PlanRequest {
 	if err != nil {
 		t.Fatalf("WithCycle: %v", err)
 	}
-	return splitRequest(t, prog)
+	return splitRequest(t, prog, target)
 }
 
 // plannedLane は計画の1レーンと、失敗メッセージに出す名前。
@@ -1030,7 +1034,7 @@ func TestSessionPlanner_SubtractsMainCoverageFromResidual(t *testing.T) {
 	target := mustTarget(t, map[training.MuscleRegion]float64{
 		training.ChestMid: 6.0 / planning.CoverageWindowWeeks,
 	})
-	program, err := program.NewProgram(mustFrequency(t, 3), planVolume(t), target,
+	program, err := program.NewProgram(mustFrequency(t, 3), planVolume(t),
 		[]exercise.ExerciseID{"bench", "squat", "deadlift", "pec_fly"}, big3(), "")
 	if err != nil {
 		t.Fatalf("プログラムの生成に失敗: %v", err)
@@ -1038,7 +1042,7 @@ func TestSessionPlanner_SubtractsMainCoverageFromResidual(t *testing.T) {
 
 	req := planRequest(t)
 	req.Pool, req.Program = pool, program
-	req.Target = program.WeeklyTarget()
+	req.Target = target
 
 	got := mustPlan(t, req)
 	for _, set := range got.Accessories() {
@@ -1064,7 +1068,8 @@ func chestUpperRequest(t *testing.T) planning.PlanRequest {
 		ids = append(ids, exercise.ExerciseID(id))
 	}
 
-	program, err := program.NewProgram(mustFrequency(t, 3), planVolume(t), mustTarget(t, map[training.MuscleRegion]float64{training.ChestUpper: 12}),
+	target := mustTarget(t, map[training.MuscleRegion]float64{training.ChestUpper: 12})
+	program, err := program.NewProgram(mustFrequency(t, 3), planVolume(t),
 		ids, big3(), "")
 	if err != nil {
 		t.Fatalf("プログラムの生成に失敗: %v", err)
@@ -1072,7 +1077,7 @@ func chestUpperRequest(t *testing.T) planning.PlanRequest {
 
 	req := planRequest(t)
 	req.Pool, req.Program = pool, program
-	req.Target = program.WeeklyTarget()
+	req.Target = target
 	return req
 }
 
@@ -1114,15 +1119,16 @@ func inclineDeselectedRequest(t *testing.T) planning.PlanRequest {
 	for i := range 5 {
 		ids = append(ids, exercise.ExerciseID(fmt.Sprintf("chest_up_%d", i)))
 	}
-	deselected, err := program.NewProgram(mustFrequency(t, 3), planVolume(t), mustTarget(t, map[training.MuscleRegion]float64{training.ChestUpper: 12}),
+	deselected, err := program.NewProgram(mustFrequency(t, 3), planVolume(t),
 		ids, big3(), "")
 	if err != nil {
 		t.Fatalf("プログラムの生成に失敗: %v", err)
 	}
 
+	// req.Target は chestUpperRequest がすでに ChestUpper:12 を持たせて
+	// いる。deselected も同じ週目標のプログラムなので、そのまま使い回せる。
 	req := chestUpperRequest(t)
 	req.Program = deselected
-	req.Target = req.Program.WeeklyTarget()
 	return req
 }
 
@@ -1491,7 +1497,8 @@ func TestSessionPlanner_DoesNotDoubleCountTodaysMain(t *testing.T) {
 		mkAccessory(t, "fly", map[training.MuscleRegion]float64{training.ChestMid: 1.0}),
 		mkAccessory(t, "press", map[training.MuscleRegion]float64{training.ChestMid: 1.0}),
 	}
-	program, err := program.NewProgram(mustFrequency(t, 1), planVolume(t), mustTarget(t, map[training.MuscleRegion]float64{training.ChestMid: 8}),
+	target := mustTarget(t, map[training.MuscleRegion]float64{training.ChestMid: 8})
+	program, err := program.NewProgram(mustFrequency(t, 1), planVolume(t),
 		[]exercise.ExerciseID{"bench", "fly", "press"}, []exercise.ExerciseID{"bench"}, "")
 	if err != nil {
 		t.Fatalf("プログラムの生成に失敗: %v", err)
@@ -1506,7 +1513,7 @@ func TestSessionPlanner_DoesNotDoubleCountTodaysMain(t *testing.T) {
 	}
 
 	s := mustPlan(t, planning.PlanRequest{
-		Program: program, Target: program.WeeklyTarget(), Pool: pool,
+		Program: program, Target: target, Pool: pool,
 		History:    setlog.NewHistory(logs),
 		Conditions: condition.NewConditionLog(nil),
 		Date:       planMonday,
@@ -1647,7 +1654,7 @@ func TestSessionPlanner_PlannedWorkIsConsumedExactly(t *testing.T) {
 	for _, e := range pool {
 		selected = append(selected, e.ID())
 	}
-	program, err := program.NewProgram(freq, planVolume(t), target, selected, big3(), "")
+	program, err := program.NewProgram(freq, planVolume(t), selected, big3(), "")
 	if err != nil {
 		t.Fatalf("プログラムが不正: %v", err)
 	}
@@ -1659,7 +1666,7 @@ func TestSessionPlanner_PlannedWorkIsConsumedExactly(t *testing.T) {
 	plan := func(t *testing.T) planning.PlannedSession {
 		t.Helper()
 		s, err := planner.Plan(planning.PlanRequest{
-			Program: program, Target: program.WeeklyTarget(), Pool: pool,
+			Program: program, Target: target, Pool: pool,
 			History:    setlog.NewHistory(logs),
 			Conditions: condition.NewConditionLog(nil),
 			Date:       date,
@@ -1770,8 +1777,8 @@ func chinRequest(t *testing.T, addedKg, bodyweight float64) planning.PlanRequest
 		BodyweightFactor: 0.95,
 	})
 
+	target := mustTarget(t, map[training.MuscleRegion]float64{training.Lat: 12})
 	program, err := program.NewProgram(mustFrequency(t, 3), planVolume(t),
-		mustTarget(t, map[training.MuscleRegion]float64{training.Lat: 12}),
 		[]exercise.ExerciseID{"bench", "squat", "deadlift", "chin"},
 		big3(), "")
 	if err != nil {
@@ -1795,7 +1802,7 @@ func chinRequest(t *testing.T, addedKg, bodyweight float64) planning.PlanRequest
 
 	return planning.PlanRequest{
 		Program:    program,
-		Target:     program.WeeklyTarget(),
+		Target:     target,
 		Pool:       append(planPool(t), chin),
 		History:    setlog.NewHistory(logs),
 		Conditions: condition.NewConditionLog(conds),
@@ -1940,7 +1947,8 @@ func TestSessionPlanner_BodyweightSetsStillCountTowardCoverage(t *testing.T) {
 		ids = append(ids, exercise.ExerciseID(id))
 	}
 
-	program, err := program.NewProgram(mustFrequency(t, 3), planVolume(t), mustTarget(t, map[training.MuscleRegion]float64{training.Lat: 12}), ids, big3(), "")
+	target := mustTarget(t, map[training.MuscleRegion]float64{training.Lat: 12})
+	program, err := program.NewProgram(mustFrequency(t, 3), planVolume(t), ids, big3(), "")
 	if err != nil {
 		t.Fatalf("プログラムの生成に失敗: %v", err)
 	}
@@ -1948,7 +1956,7 @@ func TestSessionPlanner_BodyweightSetsStillCountTowardCoverage(t *testing.T) {
 	// 週の半ばを対象日にして、その手前に記録を置けるようにする。
 	date := planMonday.AddDays(2)
 	base := planning.PlanRequest{
-		Program: program, Target: program.WeeklyTarget(), Pool: pool,
+		Program: program, Target: target, Pool: pool,
 		History:    setlog.NewHistory(planHistory(t)),
 		Conditions: condition.NewConditionLog(nil),
 		Date:       date,
@@ -1985,8 +1993,8 @@ func TestSessionPlanner_BodyweightExerciseFallsBackToDefaultBodyWeight(t *testin
 	})
 
 	pool := append(planPool(t), chin)
+	target := mustTarget(t, map[training.MuscleRegion]float64{training.Lat: 12})
 	program, err := program.NewProgram(mustFrequency(t, 3), planVolume(t),
-		mustTarget(t, map[training.MuscleRegion]float64{training.Lat: 12}),
 		[]exercise.ExerciseID{"bench", "squat", "deadlift", "chin"},
 		big3(), "")
 	if err != nil {
@@ -2005,7 +2013,7 @@ func TestSessionPlanner_BodyweightExerciseFallsBackToDefaultBodyWeight(t *testin
 
 	s := mustPlan(t, planning.PlanRequest{
 		Program:    program,
-		Target:     program.WeeklyTarget(),
+		Target:     target,
 		Pool:       pool,
 		History:    setlog.NewHistory(logs),
 		Conditions: condition.NewConditionLog(nil),
@@ -2072,18 +2080,18 @@ func TestSessionPlanner_ExerciseCountNeverExceedsBudget(t *testing.T) {
 			if err != nil {
 				t.Fatalf("1回の量が不正: %v", err)
 			}
+			target := mustTarget(t, map[training.MuscleRegion]float64{
+				training.ChestMid: 12, training.ChestUpper: 9,
+				training.Quad: 12, training.Biceps: 9,
+			})
 			prog, err := program.NewProgram(mustFrequency(t, 3), volume,
-				mustTarget(t, map[training.MuscleRegion]float64{
-					training.ChestMid: 12, training.ChestUpper: 9,
-					training.Quad: 12, training.Biceps: 9,
-				}),
 				ids, big3(), "")
 			if err != nil {
 				t.Fatalf("プログラムの生成に失敗: %v", err)
 			}
 
 			got, err := planner.Plan(planning.PlanRequest{
-				Program: prog, Target: prog.WeeklyTarget(), Pool: pool,
+				Program: prog, Target: target, Pool: pool,
 				History: setlog.NewHistory(nil), Date: today(),
 			})
 			if err != nil {

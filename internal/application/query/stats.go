@@ -137,7 +137,13 @@ func (q *Stats) WeeklyVolume(ctx context.Context, user account.UserID, asOf trai
 	coverage := planning.CoverageBetween(h, pool,
 		asOf.AddDays(-(planning.CoverageWindowDays - 1)), asOf)
 
-	target := prog.WeeklyTarget()
+	// 週目標は保存された持ち物ではなく、設定（頻度と1回の量）から組み直す
+	// （D-139、#176）。計画と同じ導き方で比べないと、計画が狙う区分と
+	// 画面が「足りていない」と言う区分が食い違う。
+	target, err := seed.DefaultWeeklyTarget(prog.Frequency(), prog.SessionVolume())
+	if err != nil {
+		return nil, fmt.Errorf("週目標が組めない: %w", err)
+	}
 	out := make([]RegionVolume, 0, len(target.Regions()))
 	for _, r := range target.Regions() {
 		out = append(out, RegionVolume{
@@ -181,12 +187,6 @@ func (q *Stats) load(ctx context.Context, user account.UserID) (
 	if prog == nil {
 		return setlog.History{}, nil, nil,
 			fmt.Errorf("プログラムの取得: %w", program.ErrProgramNotConfigured)
-	}
-	// 週目標は保存値を使わず、設定から組み直す。計画と同じ週目標で比べないと、
-	// 計画が狙う区分と画面が「足りていない」と言う区分が食い違う。
-	prog, err = seed.WithDerivedTarget(prog)
-	if err != nil {
-		return setlog.History{}, nil, nil, err
 	}
 	return h, pool, prog, nil
 }

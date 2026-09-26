@@ -21,7 +21,7 @@ func mustSplit(t *testing.T, name string, regions ...training.MuscleRegion) prog
 
 func mustProgram(t *testing.T) *program.Program {
 	t.Helper()
-	p, err := program.NewProgram(mustFrequency(t, 3), mustVolume(t, 6, 3), simpleTarget(t),
+	p, err := program.NewProgram(mustFrequency(t, 3), mustVolume(t, 6, 3),
 		[]exercise.ExerciseID{"bench", "squat"}, []exercise.ExerciseID{"bench"}, "")
 	if err != nil {
 		t.Fatalf("NewProgram: %v", err)

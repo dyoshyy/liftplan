@@ -67,8 +67,7 @@ func TestSessionPlanner_RotationAdvancesOnDerivativeDays(t *testing.T) {
 	}
 
 	req := planRequest(t)
-	req.Program = rotationProgram(t)
-	req.Target = req.Program.WeeklyTarget()
+	req.Program, req.Target = rotationProgram(t)
 	req.History = setlog.NewHistory(logs)
 
 	set := mustPlan(t, req).Main()[0]
@@ -90,8 +89,7 @@ func TestSessionPlanner_NonFocusAxisKeepsTheHeavyPrescription(t *testing.T) {
 		mkLogOn(t, "dl", planMonday.AddDays(-3), "deadlift", 140, 8, 2))
 
 	req := planRequest(t)
-	req.Program = focusedProgram(t, "bench")
-	req.Target = req.Program.WeeklyTarget()
+	req.Program, req.Target = focusedProgram(t, "bench")
 	req.History = setlog.NewHistory(logs)
 
 	set := mustPlan(t, req).Main()[0]
@@ -104,8 +102,7 @@ func TestSessionPlanner_NonFocusAxisKeepsTheHeavyPrescription(t *testing.T) {
 // 重点種目を指定していなければ、一巡しないこと。
 func TestSessionPlanner_NoFocusNoRotation(t *testing.T) {
 	req := planRequest(t)
-	req.Program = benchOnlyProgram(t) // 重点種目なし・宣言はベンチだけ
-	req.Target = req.Program.WeeklyTarget()
+	req.Program, req.Target = benchOnlyProgram(t) // 重点種目なし・宣言はベンチだけ
 	req.History = setlog.NewHistory(rotationLogs(t, 4))
 
 	set := mustPlan(t, req).Main()[0]
@@ -121,8 +118,7 @@ func TestSessionPlanner_NoFocusNoRotation(t *testing.T) {
 // （選択されていなくてもバリエーションは回る）を開け直さない。
 func TestSessionPlanner_RotationSkipsUnselectedDerivatives(t *testing.T) {
 	req := planRequest(t)
-	req.Program = rotationProgramWithout(t, "larsen", "tempo")
-	req.Target = req.Program.WeeklyTarget()
+	req.Program, req.Target = rotationProgramWithout(t, "larsen", "tempo")
 	req.History = setlog.NewHistory(rotationLogs(t, 5)) // 派生の番
 
 	set := mustPlan(t, req).Main()[0]
@@ -134,19 +130,22 @@ func TestSessionPlanner_RotationSkipsUnselectedDerivatives(t *testing.T) {
 // rotationProgram は宣言がベンチだけ・重点種目もベンチのプログラム。
 //
 // 軸が必ずベンチの番になるので、一巡だけを見られる。
-func rotationProgram(t *testing.T) *program.Program {
+//
+// 週目標も一緒に返す。Program はもう週目標を持たない（#176）ので、
+// 呼び出し側は PlanRequest.Target に別途渡す必要がある。
+func rotationProgram(t *testing.T) (*program.Program, program.WeeklyVolumeTarget) {
 	t.Helper()
 
 	target := mustTarget(t, map[training.MuscleRegion]float64{
 		training.ChestMid: 12, training.ChestUpper: 9, training.Quad: 12, training.Biceps: 9,
 	})
-	p, err := program.NewProgram(mustFrequency(t, 3), planVolume(t), target,
+	p, err := program.NewProgram(mustFrequency(t, 3), planVolume(t),
 		[]exercise.ExerciseID{"bench", "squat", "deadlift", "incline", "curl", "larsen", "tempo"},
 		[]exercise.ExerciseID{"bench"}, "bench")
 	if err != nil {
 		t.Fatalf("プログラムの生成に失敗: %v", err)
 	}
-	return p
+	return p, target
 }
 
 // rotationLogs は系統が軸に来たセッションを sessions 回ぶん積む。
@@ -154,7 +153,7 @@ func rotationProgram(t *testing.T) *program.Program {
 // 派生の最終実施日は本体より古くする（tempo が larsen より古い）。
 // 派生の番にどちらが出るかを「最も古いもの」で決めていることを見るため。
 // rotationProgramWithout は指定した種目を選択から外した rotationProgram。
-func rotationProgramWithout(t *testing.T, drop ...exercise.ExerciseID) *program.Program {
+func rotationProgramWithout(t *testing.T, drop ...exercise.ExerciseID) (*program.Program, program.WeeklyVolumeTarget) {
 	t.Helper()
 
 	dropped := map[exercise.ExerciseID]bool{}
@@ -173,12 +172,12 @@ func rotationProgramWithout(t *testing.T, drop ...exercise.ExerciseID) *program.
 	target := mustTarget(t, map[training.MuscleRegion]float64{
 		training.ChestMid: 12, training.ChestUpper: 9, training.Quad: 12, training.Biceps: 9,
 	})
-	p, err := program.NewProgram(mustFrequency(t, 3), planVolume(t), target, selected,
+	p, err := program.NewProgram(mustFrequency(t, 3), planVolume(t), selected,
 		[]exercise.ExerciseID{"bench"}, "bench")
 	if err != nil {
 		t.Fatalf("プログラムの生成に失敗: %v", err)
 	}
-	return p
+	return p, target
 }
 
 func rotationLogs(t *testing.T, sessions int) []*setlog.SetLog {
@@ -204,8 +203,7 @@ func rotationLogs(t *testing.T, sessions int) []*setlog.SetLog {
 func rotationRequest(t *testing.T, sessions int) planning.PlanRequest {
 	t.Helper()
 	req := planRequest(t)
-	req.Program = rotationProgram(t)
-	req.Target = req.Program.WeeklyTarget()
+	req.Program, req.Target = rotationProgram(t)
 	req.History = setlog.NewHistory(rotationLogs(t, sessions))
 	return req
 }
@@ -330,9 +328,10 @@ func splitRotationRequest(t *testing.T, cycle ...program.Split) planning.PlanReq
 	for _, e := range pool {
 		ids = append(ids, e.ID())
 	}
-	prog, err := program.NewProgram(mustFrequency(t, 3), planVolume(t), mustTarget(t, map[training.MuscleRegion]float64{
+	target := mustTarget(t, map[training.MuscleRegion]float64{
 		training.ChestMid: 12, training.TricepsLateral: 12, training.FrontDelt: 12,
-	}),
+	})
+	prog, err := program.NewProgram(mustFrequency(t, 3), planVolume(t),
 		ids, []exercise.ExerciseID{"bench"}, "bench")
 	if err != nil {
 		t.Fatalf("プログラムの生成に失敗: %v", err)
@@ -344,6 +343,6 @@ func splitRotationRequest(t *testing.T, cycle ...program.Split) planning.PlanReq
 	req := planRequest(t)
 	req.Pool = pool
 	req.Program = prog
-	req.Target = req.Program.WeeklyTarget()
+	req.Target = target
 	return req
 }

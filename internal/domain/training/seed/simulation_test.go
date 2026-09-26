@@ -145,7 +145,7 @@ func simulateWith(t *testing.T, frequency, weeks int, focus exercise.ExerciseID,
 			declared = append(declared, id)
 		}
 	}
-	program, err := program.NewProgram(freq, simVolume(t), target, ids, declared, focus)
+	program, err := program.NewProgram(freq, simVolume(t), ids, declared, focus)
 	if err != nil {
 		t.Fatalf("プログラムの生成に失敗: %v", err)
 	}
@@ -401,7 +401,7 @@ func TestSimulation_WeightsResolveQuickly(t *testing.T) {
 		byID[e.ID()] = e
 		ids = append(ids, e.ID())
 	}
-	program, _ := program.NewProgram(freq, simVolume(t), target, ids,
+	program, _ := program.NewProgram(freq, simVolume(t), ids,
 		[]exercise.ExerciseID{"bench", "squat", "deadlift"}, "")
 	planner := planning.DefaultSessionPlanner()
 

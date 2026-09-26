@@ -70,15 +70,11 @@ func buildRoutes(t *testing.T, configured bool) http.Handler {
 	programs := memory.NewProgramRepository()
 	if configured {
 		freq, _ := program.NewFrequency(3)
-		target, err := seed.DefaultWeeklyTarget(freq, mustVolume(t, 6, 3))
-		if err != nil {
-			t.Fatalf("週目標が不正: %v", err)
-		}
 		selected := make([]exercise.ExerciseID, 0, len(pool))
 		for _, e := range pool {
 			selected = append(selected, e.ID())
 		}
-		program, err := program.NewProgram(freq, mustVolume(t, 6, 3), target, selected, []exercise.ExerciseID{"bench", "squat", "deadlift"}, "")
+		program, err := program.NewProgram(freq, mustVolume(t, 6, 3), selected, []exercise.ExerciseID{"bench", "squat", "deadlift"}, "")
 		if err != nil {
 			t.Fatalf("プログラムが不正: %v", err)
 		}
@@ -636,11 +632,15 @@ func TestPutProgramDeclared_RejectsExerciseWithoutADay(t *testing.T) {
 	}
 }
 
-// 頻度の口は、頻度と週目標だけを動かすこと。
+// 頻度の口は、頻度だけを動かすこと。
 //
-// 週目標を道連れにするのは意図した挙動。1週間に供給できるセット数は
-// 頻度に比例するので、片方だけ動かすと目標が実際の挙動を説明しなくなる。
-func TestPutProgramFrequency_MovesTargetWithIt(t *testing.T) {
+// 以前は「頻度と週目標だけを動かす」ことを見ていた。週目標は
+// 応答（GET /api/program）に含めていたので、頻度に追従して動くことを
+// レスポンス越しに確認できた。週目標は応答から消えた（#176）。計画と
+// 画面の充足は Frequency() と SessionVolume() から都度組み直すので、
+// 追従は保存された値でなくその都度の導出で保証される。導出そのものは
+// seed.DefaultWeeklyTarget の直接のテストと TestSimulation が見る。
+func TestPutProgramFrequency_ChangesOnlyFrequency(t *testing.T) {
 	mux := newServer(t, true)
 	putUpperLowerSplit(t, mux)
 
@@ -662,7 +662,7 @@ func TestPutProgramFrequency_MovesTargetWithIt(t *testing.T) {
 		t.Errorf("フィールドの数が変わった: %d → %d", len(b), len(a))
 	}
 	for k, want := range b {
-		if k == "per_week" || k == "weekly_target" {
+		if k == "per_week" {
 			continue
 		}
 		if string(a[k]) != string(want) {
@@ -672,42 +672,10 @@ func TestPutProgramFrequency_MovesTargetWithIt(t *testing.T) {
 	if string(a["per_week"]) != "4" {
 		t.Errorf("頻度が %s。4 のはず", a["per_week"])
 	}
-
-	// 週目標が新しい頻度の既定と一致すること。頻度に比例して置き直る。
-	freq, err := program.NewFrequency(4)
-	if err != nil {
-		t.Fatalf("NewFrequency: %v", err)
-	}
-	target, err := seed.DefaultWeeklyTarget(freq, mustVolume(t, 6, 3))
-	if err != nil {
-		t.Fatalf("DefaultWeeklyTarget: %v", err)
-	}
-	var got map[string]float64
-	if err := json.Unmarshal(a["weekly_target"], &got); err != nil {
-		t.Fatalf("週目標が壊れている: %v", err)
-	}
-	if len(got) != len(target.Regions()) {
-		t.Fatalf("区分の数が %d。%d のはず", len(got), len(target.Regions()))
-	}
-	for _, r := range target.Regions() {
-		if got[string(r)] != target.Sets(r) {
-			t.Errorf("%s が %v。既定の %v のはず", r, got[string(r)], target.Sets(r))
-		}
-	}
-
-	// 週目標が実際に動いていること。動いていなければ上の一致は
-	// 「もともと同じだった」でも通る。
-	if string(a["weekly_target"]) == string(b["weekly_target"]) {
-		t.Error("週目標が頻度に追従していない")
-	}
 }
 
-// 1回の量の口は、1回の量と週目標だけを動かすこと。
-//
-// 週目標を道連れにするのは頻度の口と同じ理由。週に供給できる量は
-// 「頻度 × 種目数 × セット数」で決まるので、量だけ動かすと目標が
-// 実際の挙動を説明しなくなる。
-func TestPutProgramVolume_MovesTargetWithIt(t *testing.T) {
+// 1回の量の口は、1回の量だけを動かすこと。理由は頻度の口と同じ。
+func TestPutProgramVolume_ChangesOnlyVolume(t *testing.T) {
 	mux := newServer(t, true)
 
 	before := do(t, mux, http.MethodGet, "/api/program", "")
@@ -724,9 +692,7 @@ func TestPutProgramVolume_MovesTargetWithIt(t *testing.T) {
 	if err := json.Unmarshal(after.Body.Bytes(), &a); err != nil {
 		t.Fatalf("JSONが壊れている: %v", err)
 	}
-	moved := map[string]bool{
-		"exercises_per_session": true, "sets_per_exercise": true, "weekly_target": true,
-	}
+	moved := map[string]bool{"exercises_per_session": true, "sets_per_exercise": true}
 	for k, want := range b {
 		if moved[k] {
 			continue
@@ -738,33 +704,6 @@ func TestPutProgramVolume_MovesTargetWithIt(t *testing.T) {
 	if string(a["exercises_per_session"]) != "5" || string(a["sets_per_exercise"]) != "4" {
 		t.Errorf("1回の量が %s種目×%sセット。5×4 のはず",
 			a["exercises_per_session"], a["sets_per_exercise"])
-	}
-
-	// 週目標が「頻度 × 新しい量」の既定と一致すること。
-	var perWeek int
-	if err := json.Unmarshal(a["per_week"], &perWeek); err != nil {
-		t.Fatalf("頻度が壊れている: %v", err)
-	}
-	freq, err := program.NewFrequency(perWeek)
-	if err != nil {
-		t.Fatalf("NewFrequency: %v", err)
-	}
-	target, err := seed.DefaultWeeklyTarget(freq, mustVolume(t, 5, 4))
-	if err != nil {
-		t.Fatalf("DefaultWeeklyTarget: %v", err)
-	}
-	var got map[string]float64
-	if err := json.Unmarshal(a["weekly_target"], &got); err != nil {
-		t.Fatalf("週目標が壊れている: %v", err)
-	}
-	for _, r := range target.Regions() {
-		if got[string(r)] != target.Sets(r) {
-			t.Errorf("%s が %v。既定の %v のはず", r, got[string(r)], target.Sets(r))
-		}
-	}
-	// 動いていなければ上の一致は「もともと同じだった」でも通る。
-	if string(a["weekly_target"]) == string(b["weekly_target"]) {
-		t.Error("週目標が1回の量に追従していない")
 	}
 }
 
@@ -1295,12 +1234,11 @@ func TestGetSession_UnavailableIsNot500(t *testing.T) {
 		t.Fatalf("シードが不正: %v", err)
 	}
 	freq, _ := program.NewFrequency(3)
-	target, _ := seed.DefaultWeeklyTarget(freq, mustVolume(t, 6, 3))
 	selected := make([]exercise.ExerciseID, 0, len(pool))
 	for _, e := range pool {
 		selected = append(selected, e.ID())
 	}
-	prog, err := program.NewProgram(freq, mustVolume(t, 6, 3), target, selected,
+	prog, err := program.NewProgram(freq, mustVolume(t, 6, 3), selected,
 		[]exercise.ExerciseID{"bench", "squat", "deadlift"}, "")
 	if err != nil {
 		t.Fatalf("プログラムが不正: %v", err)
@@ -1371,13 +1309,12 @@ func TestProgram_RoundTrips(t *testing.T) {
 		t.Fatalf("取得に失敗: %d", rec.Code)
 	}
 	var got struct {
-		PerWeek   int                `json:"per_week"`
-		Exercises int                `json:"exercises_per_session"`
-		Sets      int                `json:"sets_per_exercise"`
-		Target    map[string]float64 `json:"weekly_target"`
-		Selected  []string           `json:"selected_exercises"`
-		Declared  []string           `json:"declared_exercises"`
-		Focus     *string            `json:"focus_exercise"`
+		PerWeek   int      `json:"per_week"`
+		Exercises int      `json:"exercises_per_session"`
+		Sets      int      `json:"sets_per_exercise"`
+		Selected  []string `json:"selected_exercises"`
+		Declared  []string `json:"declared_exercises"`
+		Focus     *string  `json:"focus_exercise"`
 	}
 	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
 		t.Fatalf("応答を解釈できない: %v", err)
@@ -1510,12 +1447,11 @@ func TestGetSession_InternalErrorDoesNotLeak(t *testing.T) {
 		t.Fatalf("シードが不正: %v", err)
 	}
 	freq, _ := program.NewFrequency(3)
-	target, _ := seed.DefaultWeeklyTarget(freq, mustVolume(t, 6, 3))
 	selected := make([]exercise.ExerciseID, 0, len(pool))
 	for _, e := range pool {
 		selected = append(selected, e.ID())
 	}
-	program, err := program.NewProgram(freq, mustVolume(t, 6, 3), target, selected, []exercise.ExerciseID{"bench", "squat", "deadlift"}, "")
+	program, err := program.NewProgram(freq, mustVolume(t, 6, 3), selected, []exercise.ExerciseID{"bench", "squat", "deadlift"}, "")
 	if err != nil {
 		t.Fatalf("プログラムが不正: %v", err)
 	}

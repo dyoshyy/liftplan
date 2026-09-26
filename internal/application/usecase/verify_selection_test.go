@@ -7,7 +7,6 @@ import (
 
 	"github.com/dyoshyy/liftplan/internal/application/apperror"
 	"github.com/dyoshyy/liftplan/internal/application/usecase"
-	"github.com/dyoshyy/liftplan/internal/domain/training"
 	"github.com/dyoshyy/liftplan/internal/domain/training/exercise"
 	"github.com/dyoshyy/liftplan/internal/domain/training/program"
 	"github.com/dyoshyy/liftplan/internal/domain/training/seed"
@@ -32,12 +31,7 @@ func bicepsProgram(t *testing.T) *program.Program {
 	if err != nil {
 		t.Fatalf("頻度が不正: %v", err)
 	}
-	target, err := program.NewWeeklyVolumeTarget(
-		map[training.MuscleRegion]float64{training.Biceps: 12})
-	if err != nil {
-		t.Fatalf("週目標が不正: %v", err)
-	}
-	p, err := program.NewProgram(freq, mustVolume(t, 6, 3), target,
+	p, err := program.NewProgram(freq, mustVolume(t, 6, 3),
 		[]exercise.ExerciseID{"squat", "calf_raise", "barbell_curl"},
 		[]exercise.ExerciseID{"squat"}, "")
 	if err != nil {
