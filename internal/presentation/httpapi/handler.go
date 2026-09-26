@@ -501,6 +501,7 @@ func (h *Handler) handleGetSplitPresets(w http.ResponseWriter, r *http.Request) 
 	for _, p := range presets {
 		out = append(out, splitPresetDTO{
 			Key: p.Key, Name: p.Name, Splits: toSplitDTOs(p.Cycle),
+			MinFrequencyPerWeek: p.MinFrequencyPerWeek,
 		})
 	}
 	writeJSON(w, http.StatusOK, splitPresetsResponse{Presets: out})

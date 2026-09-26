@@ -7,12 +7,19 @@ import (
 	"github.com/dyoshyy/liftplan/internal/domain/account"
 
 	"github.com/dyoshyy/liftplan/internal/domain/training/program"
+	"github.com/dyoshyy/liftplan/internal/domain/training/seed"
 )
 
 // SetFrequency は週の頻度を差し替える。
 //
 // 週目標はもう集約の持ち物ではなく、頻度と1回の量から都度導く値
 // （D-139、#176）。頻度を差し替えれば、導いた先の値も自動でついてくる。
+//
+// いまの分割が最小頻度を持つプリセット（いまは five_way だけ）と一致する
+// 場合、下限を下回る頻度への変更は拒否する。フォールバック（自動で分割を
+// 外す）はしない。分割を変えるかどうかは本人が決めることで、頻度を下げた
+// 副作用として黙って外れると、次に設定画面を開くまで気づけない
+// （CLAUDE.md「答えるべき問いと、答えるべきでない問いを分ける」）。
 type SetFrequency struct {
 	reader program.Reader
 	writer program.Writer
@@ -39,6 +46,15 @@ func (u *SetFrequency) Execute(ctx context.Context, user account.UserID, perWeek
 	prog, err := u.reader.Get(ctx, user)
 	if err != nil {
 		return err
+	}
+
+	// 下限0（下限なし）を別条件で弾かない理由は set_split_cycle.go と同じ
+	// （NewFrequency がここより先に perWeek を1以上に検証済み）。
+	if preset, ok, err := seed.MatchPreset(prog.Cycle()); err != nil {
+		return fmt.Errorf("分割プリセットの取得に失敗: %w", err)
+	} else if ok && perWeek < preset.MinFrequencyPerWeek {
+		return fmt.Errorf("%w: %sは週%d回以上が必要である。先に分割を変えること",
+			apperror.ErrInvalidInput, preset.Name, preset.MinFrequencyPerWeek)
 	}
 
 	next, err := prog.WithFrequency(freq)
