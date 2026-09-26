@@ -106,17 +106,17 @@ type errorResponse struct {
 // 書き込みには使わない。全置換の口は、フィールドを足すたびに写し忘れた
 // 設定を黙って消したので無くした（#123）。書くのは1フィールドずつの DTO。
 //
-// 週目標をマップで返すのは、区分ごとに独立して調整するため。
-// 配列だと順序に意味が生まれ、区分の追加でクライアントが壊れる。
+// 週目標は含まない。週目標は設定（頻度と1回の量）から導く値であって
+// プログラムの持ち物ではなく（D-139）、利用者が編集する項目でもないため、
+// 応答に含める理由が無い（#176）。
 type programDTO struct {
-	PerWeek             int                `json:"per_week"`
-	ExercisesPerSession int                `json:"exercises_per_session"`
-	SetsPerExercise     int                `json:"sets_per_exercise"`
-	Target              map[string]float64 `json:"weekly_target"`
-	Selected            []string           `json:"selected_exercises"`
-	Declared            []string           `json:"declared_exercises"`
-	Focus               *string            `json:"focus_exercise"`
-	Splits              []splitDTO         `json:"splits"`
+	PerWeek             int        `json:"per_week"`
+	ExercisesPerSession int        `json:"exercises_per_session"`
+	SetsPerExercise     int        `json:"sets_per_exercise"`
+	Selected            []string   `json:"selected_exercises"`
+	Declared            []string   `json:"declared_exercises"`
+	Focus               *string    `json:"focus_exercise"`
+	Splits              []splitDTO `json:"splits"`
 }
 
 // sessionVolumeDTO は1回の量だけの書き込み。
@@ -191,11 +191,6 @@ func toSplitDTOs(cycle []program.Split) []splitDTO {
 }
 
 func toProgramDTO(p *program.Program) programDTO {
-	target := map[string]float64{}
-	for _, r := range p.WeeklyTarget().Regions() {
-		target[string(r)] = p.WeeklyTarget().Sets(r)
-	}
-
 	selected := make([]string, 0)
 	for _, id := range p.SelectedExercises() {
 		selected = append(selected, string(id))
@@ -218,7 +213,6 @@ func toProgramDTO(p *program.Program) programDTO {
 		PerWeek:             p.Frequency().PerWeek(),
 		ExercisesPerSession: p.SessionVolume().Exercises(),
 		SetsPerExercise:     p.SessionVolume().Sets(),
-		Target:              target,
 		Selected:            selected,
 		Declared:            declared,
 		Focus:               focus,

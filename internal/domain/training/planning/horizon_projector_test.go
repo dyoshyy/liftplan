@@ -23,6 +23,7 @@ import (
 type horizonFixture struct {
 	name    string
 	prog    *program.Program
+	target  program.WeeklyVolumeTarget
 	pool    []*exercise.Exercise
 	history []*setlog.SetLog
 }
@@ -60,10 +61,10 @@ func pplFixture(t *testing.T) horizonFixture {
 		ids = append(ids, e.ID())
 	}
 
+	target := mustTarget(t, map[training.MuscleRegion]float64{
+		training.ChestMid: 12, training.Lat: 12, training.Quad: 12, training.Biceps: 6, training.Hamstring: 6,
+	})
 	prog, err := program.NewProgram(mustFrequency(t, 6), planVolume(t),
-		mustTarget(t, map[training.MuscleRegion]float64{
-			training.ChestMid: 12, training.Lat: 12, training.Quad: 12, training.Biceps: 6, training.Hamstring: 6,
-		}),
 		ids, []exercise.ExerciseID{"bench", "row", "squat"}, "")
 	if err != nil {
 		t.Fatalf("プログラムの生成に失敗: %v", err)
@@ -72,7 +73,7 @@ func pplFixture(t *testing.T) horizonFixture {
 	if err != nil {
 		t.Fatalf("WithCycle: %v", err)
 	}
-	return horizonFixture{name: "ppl", prog: prog, pool: pool}
+	return horizonFixture{name: "ppl", prog: prog, target: target, pool: pool}
 }
 
 // rotationFixture は分割なし・重点種目つき。頻度7で1週間ぶん予測すると、
@@ -96,31 +97,34 @@ func rotationFixture(t *testing.T) horizonFixture {
 		derived("tempo"),
 		mkAccessory(t, "curl", map[training.MuscleRegion]float64{training.Biceps: 1.0}),
 	}
+	target := mustTarget(t, map[training.MuscleRegion]float64{
+		training.ChestMid: 21, training.Quad: 21, training.Hamstring: 21, training.Biceps: 7,
+	})
 	prog, err := program.NewProgram(mustFrequency(t, 7), planVolume(t),
-		mustTarget(t, map[training.MuscleRegion]float64{
-			training.ChestMid: 21, training.Quad: 21, training.Hamstring: 21, training.Biceps: 7,
-		}),
 		[]exercise.ExerciseID{"bench", "squat", "deadlift", "larsen", "tempo", "curl"},
 		big3(), "bench")
 	if err != nil {
 		t.Fatalf("プログラムの生成に失敗: %v", err)
 	}
-	return horizonFixture{name: "rotation", prog: prog, pool: pool}
+	return horizonFixture{name: "rotation", prog: prog, target: target, pool: pool}
 }
 
 func horizonFixtures(t *testing.T) []horizonFixture {
 	t.Helper()
+	noSplit, noSplitTarget := planProgram(t)
+	upperLower, upperLowerTarget := splitProgram(t, mkSplit(t, "上", training.ChestMid), mkSplit(t, "下", training.Quad))
 	return []horizonFixture{
 		// 3週ぶんの実績つき。ProjectHorizon が受け取った history をそのまま
 		// 使わず、空の履歴として扱っても（軸は毎回宣言の先頭に戻るだけで）
 		// 気づけないケースが混ざらないようにする。
-		{name: "no-split", prog: planProgram(t), pool: planPool(t), history: planHistory(t)},
+		{name: "no-split", prog: noSplit, target: noSplitTarget, pool: planPool(t), history: planHistory(t)},
 		// 出席1回ぶんの実績つき。周期の先頭（上）から1つ進めた「下」が
 		// 回0の分割になる。履歴を無視すると回0が「上」のまま出て気づける。
 		{
-			name: "upper-lower",
-			prog: splitProgram(t, mkSplit(t, "上", training.ChestMid), mkSplit(t, "下", training.Quad)),
-			pool: splitPool(t),
+			name:   "upper-lower",
+			prog:   upperLower,
+			target: upperLowerTarget,
+			pool:   splitPool(t),
 			history: []*setlog.SetLog{
 				mkLogOn(t, "upper-lower-seed", planMonday.AddDays(-2), "bench", 60, 8, 2),
 			},
@@ -176,7 +180,7 @@ func TestProjectHorizon_MatchesPlanWhenFollowedExactly(t *testing.T) {
 				}
 
 				actual, err := planner.Plan(planning.PlanRequest{
-					Program: fx.prog, Pool: fx.pool, History: before,
+					Program: fx.prog, Target: fx.target, Pool: fx.pool, History: before,
 					Conditions: condition.NewConditionLog(nil), Date: sess.Date(),
 				})
 				if err != nil {
@@ -257,8 +261,7 @@ func TestHorizonDates_SpacingByFrequency(t *testing.T) {
 
 	for _, c := range cases {
 		t.Run(fmt.Sprintf("週%d回", c.freq), func(t *testing.T) {
-			target := mustTarget(t, map[training.MuscleRegion]float64{training.ChestMid: 10})
-			prog, err := program.NewProgram(mustFrequency(t, c.freq), planVolume(t), target,
+			prog, err := program.NewProgram(mustFrequency(t, c.freq), planVolume(t),
 				[]exercise.ExerciseID{"bench"}, []exercise.ExerciseID{"bench"}, "")
 			if err != nil {
 				t.Fatalf("プログラムの生成に失敗: %v", err)

@@ -52,16 +52,11 @@ func DefaultProgram(pool []*exercise.Exercise) (*program.Program, error) {
 		return nil, fmt.Errorf("既定の1回の量が不正: %w", err)
 	}
 
-	target, err := DefaultWeeklyTarget(freq, volume)
-	if err != nil {
-		return nil, fmt.Errorf("週目標シードが不正: %w", err)
-	}
-
 	// 全種目を選んでおく。外したいものはあとから設定で外せる。
 	selected := make([]exercise.ExerciseID, 0, len(pool))
 	for _, e := range pool {
 		selected = append(selected, e.ID())
 	}
 	// 重点種目は既定では指定しない。バリエーションレーンは空のまま回る。
-	return program.NewProgram(freq, volume, target, selected, DefaultDeclared(), "")
+	return program.NewProgram(freq, volume, selected, DefaultDeclared(), "")
 }

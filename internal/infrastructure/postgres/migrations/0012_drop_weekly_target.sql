@@ -1,0 +1,14 @@
+-- 保存列 weekly_target を落とす。
+--
+-- 週目標はもう集約の持ち物ではなく、設定（頻度 × 1回の量）から都度導く
+-- 値になった（D-139、#175）。この列は書かれるだけで読まれなくなっていた
+-- （#176）。GetSession・Stats.WeeklyVolume は #175 で先に読むのをやめ、
+-- get_program.go と verify_selection.go（stimulatesAnyTarget、実際は
+-- 到達しない検査だったので削除）が最後まで読んでいた2か所だった。
+--
+-- デプロイ順の制約：web が GET /api/program の weekly_target を読まなく
+-- なってから、このマイグレーションを含むサーバーを出す（web/stop-reading-
+-- weekly-target を先にマージ・デプロイする、別PR）。逆だと、まだ更新
+-- されていない古い web（PWA でキャッシュされたものを含む）がフィールドの
+-- 欠落で落ちる。
+ALTER TABLE program DROP COLUMN weekly_target;

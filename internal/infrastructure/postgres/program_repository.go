@@ -42,7 +42,7 @@ func (r *ProgramRepository) Get(
 	var (
 		perWeek                              int
 		exercisesPerSession, setsPerExercise int
-		rawTarget, rawSelected, rawDeclared  []byte
+		rawSelected, rawDeclared             []byte
 		// 重点種目は指定なしが正当な既定値なので NULL を許す。
 		rawFocus *string
 		// 分割なしが正当な既定値なので NULL を許す。
@@ -50,10 +50,10 @@ func (r *ProgramRepository) Get(
 	)
 	err := r.pool.QueryRow(ctx, `
 		SELECT per_week, exercises_per_session, sets_per_exercise,
-		       weekly_target, selected, declared, focus, split_cycle
+		       selected, declared, focus, split_cycle
 		FROM program WHERE user_id = $1`, userID.String()).
 		Scan(&perWeek, &exercisesPerSession, &setsPerExercise,
-			&rawTarget, &rawSelected, &rawDeclared, &rawFocus, &rawCycle)
+			&rawSelected, &rawDeclared, &rawFocus, &rawCycle)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, program.ErrProgramNotConfigured
 	}
@@ -61,10 +61,6 @@ func (r *ProgramRepository) Get(
 		return nil, wrapUnavailable(err, "プログラムを読めない")
 	}
 
-	var target map[training.MuscleRegion]float64
-	if err := json.Unmarshal(rawTarget, &target); err != nil {
-		return nil, fmt.Errorf("週目標を解釈できない: %w", err)
-	}
 	var selected []exercise.ExerciseID
 	if err := json.Unmarshal(rawSelected, &selected); err != nil {
 		return nil, fmt.Errorf("選択種目を解釈できない: %w", err)
@@ -88,15 +84,11 @@ func (r *ProgramRepository) Get(
 	if err != nil {
 		return nil, fmt.Errorf("保存された1回の量が不正: %w", err)
 	}
-	weeklyTarget, err := program.NewWeeklyVolumeTarget(target)
-	if err != nil {
-		return nil, fmt.Errorf("保存された週目標が不正: %w", err)
-	}
 	var focus exercise.ExerciseID
 	if rawFocus != nil {
 		focus = exercise.ExerciseID(*rawFocus)
 	}
-	prog, err := program.NewProgram(frequency, volume, weeklyTarget, selected, declared, focus)
+	prog, err := program.NewProgram(frequency, volume, selected, declared, focus)
 	if err != nil {
 		return nil, fmt.Errorf("保存されたプログラムが不正: %w", err)
 	}
@@ -137,14 +129,6 @@ func (r *ProgramRepository) Save(
 		return fmt.Errorf("プログラムが nil である")
 	}
 
-	target := map[training.MuscleRegion]float64{}
-	for _, region := range p.WeeklyTarget().Regions() {
-		target[region] = p.WeeklyTarget().Sets(region)
-	}
-	rawTarget, err := json.Marshal(target)
-	if err != nil {
-		return fmt.Errorf("週目標を書き出せない: %w", err)
-	}
 	rawSelected, err := json.Marshal(p.SelectedExercises())
 	if err != nil {
 		return fmt.Errorf("選択種目を書き出せない: %w", err)
@@ -177,20 +161,19 @@ func (r *ProgramRepository) Save(
 
 	if _, err := r.pool.Exec(ctx, `
 		INSERT INTO program (user_id, per_week, exercises_per_session, sets_per_exercise,
-		                     weekly_target, selected, declared, focus, split_cycle)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+		                     selected, declared, focus, split_cycle)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 		ON CONFLICT (user_id) DO UPDATE SET
 			per_week              = EXCLUDED.per_week,
 			exercises_per_session = EXCLUDED.exercises_per_session,
 			sets_per_exercise     = EXCLUDED.sets_per_exercise,
-			weekly_target         = EXCLUDED.weekly_target,
 			selected              = EXCLUDED.selected,
 			declared              = EXCLUDED.declared,
 			focus                 = EXCLUDED.focus,
 			split_cycle           = EXCLUDED.split_cycle`,
 		userID.String(), p.Frequency().PerWeek(),
 		p.SessionVolume().Exercises(), p.SessionVolume().Sets(),
-		rawTarget, rawSelected, rawDeclared, rawFocus, rawCycle); err != nil {
+		rawSelected, rawDeclared, rawFocus, rawCycle); err != nil {
 		return fmt.Errorf("プログラムを書き込めない: %w", err)
 	}
 	return nil

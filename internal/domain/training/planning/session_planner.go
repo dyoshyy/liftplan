@@ -13,8 +13,14 @@ import (
 )
 
 // PlanRequest は導出の入力すべて。ドメインは自分でデータを取りに行かない。
+//
+// Target は週目標。Program から取らないのは、週目標が「設定（頻度と
+// 1回の量）から導く値」であって、集約の持ち物ではなくなったため
+// （呼び出し側が seed.DefaultWeeklyTarget で組む。理由は seed パッケージの
+// DefaultWeeklyTarget のコメント）。
 type PlanRequest struct {
 	Program    *program.Program
+	Target     program.WeeklyVolumeTarget
 	Pool       []*exercise.Exercise
 	History    setlog.History
 	Conditions condition.ConditionLog
@@ -69,6 +75,9 @@ func (p SessionPlanner) Plan(req PlanRequest) (PlannedSession, error) {
 	if req.Program == nil {
 		return PlannedSession{}, errors.New("プログラムが指定されていない")
 	}
+	if req.Target.IsEmpty() {
+		return PlannedSession{}, errors.New("週目標が指定されていない")
+	}
 	if req.Date.IsZero() {
 		return PlannedSession{}, errors.New("対象日が指定されていない")
 	}
@@ -118,7 +127,7 @@ func (p SessionPlanner) Plan(req PlanRequest) (PlannedSession, error) {
 	// 重量の側から種目の側への依存は無い。逆向きは残差に使うセット数だけで、
 	// それは役割の表から引くので処方の結果を待たない。種目の決め方を変える
 	// PR と重量の決め方を変える PR が同じ流れを触らずに済む。
-	lineup, err := p.selectLineup(history, req.Program, pool, req.Pool, req.Date)
+	lineup, err := p.selectLineup(history, req.Program, req.Target, pool, req.Pool, req.Date)
 	if err != nil {
 		return PlannedSession{}, err
 	}
@@ -137,7 +146,7 @@ type lineupEntry struct {
 // history は前日まで（Plan が切る）。pool は選択された種目、master は
 // マスタ全件。カバレッジと補助の選択にはマスタ全件を渡す（理由は各所）。
 func (p SessionPlanner) selectLineup(
-	history setlog.History, prog *program.Program,
+	history setlog.History, prog *program.Program, target program.WeeklyVolumeTarget,
 	pool, master []*exercise.Exercise, date training.Date,
 ) ([]lineupEntry, error) {
 	// 今日の分割。周期は暦ではなく出席回数で進む。休んだ日に飛ぶと、
@@ -203,7 +212,7 @@ func (p SessionPlanner) selectLineup(
 	if hasSplit {
 		active = activeCount(history, prog)
 	}
-	gaps := SessionResidual(prog.WeeklyTarget(), coverage, thisSession, active)
+	gaps := SessionResidual(target, coverage, thisSession, active)
 
 	// 今日の分割に属さない区分は狙わない。残差から落とすのは補助の
 	// 選択に効かせるためで、週目標そのものは変えない。窓が1週なので、
@@ -257,7 +266,7 @@ func (p SessionPlanner) selectLineup(
 	// Select が返すのは pool の中の種目に限る。候補は master から exclude を
 	// 引いたもので、pool（選択された種目）に無いものは全て exclude に入れて
 	// あるので、findExercise が nil を返す経路は無い。
-	for _, id := range selector.Select(prog.WeeklyTarget(), gaps, master, history, date, exclude) {
+	for _, id := range selector.Select(target, gaps, master, history, date, exclude) {
 		if e := findExercise(pool, id); e != nil {
 			lineup = append(lineup, lineupEntry{exercise: e, role: accessoryRole})
 		}

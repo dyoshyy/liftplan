@@ -18,13 +18,7 @@ func samplePrograms(t *testing.T) *program.Program {
 	if err != nil {
 		t.Fatalf("NewFrequency: %v", err)
 	}
-	target, err := program.NewWeeklyVolumeTarget(map[training.MuscleRegion]float64{
-		training.ChestMid: 12, training.Quad: 12, training.Hamstring: 10,
-	})
-	if err != nil {
-		t.Fatalf("NewWeeklyVolumeTarget: %v", err)
-	}
-	p, err := program.NewProgram(freq, mustVolume(t, 6, 3), target,
+	p, err := program.NewProgram(freq, mustVolume(t, 6, 3),
 		[]exercise.ExerciseID{"bench", "squat", "deadlift"},
 		[]exercise.ExerciseID{"bench", "squat"}, "bench")
 	if err != nil {
@@ -35,8 +29,9 @@ func samplePrograms(t *testing.T) *program.Program {
 
 // プログラムが往復すること。
 //
-// jsonb の列が3つ（週目標・選択・宣言）と分割で4つある。形を変えたときに
+// jsonb の列が2つ（選択・宣言）と分割で3つある。形を変えたときに
 // 読み出し側だけ直し忘れると、保存はできるのに起動後に読めなくなる。
+// 週目標はもう保存しない（#176）。
 func TestProgramRepository_RoundTrips(t *testing.T) {
 	pool := migratedDB(t)
 	ctx := context.Background()
@@ -62,9 +57,6 @@ func TestProgramRepository_RoundTrips(t *testing.T) {
 	}
 	if id, ok := got.FocusExercise(); !ok || id != "bench" {
 		t.Errorf("重点種目が %v(%v)", id, ok)
-	}
-	if got.WeeklyTarget().Sets(training.ChestMid) != 12 {
-		t.Errorf("週目標が %v", got.WeeklyTarget().Sets(training.ChestMid))
 	}
 	// 分割を設定していないので空。既存の行は NULL で読めること。
 	if c := got.Cycle(); len(c) != 0 {
