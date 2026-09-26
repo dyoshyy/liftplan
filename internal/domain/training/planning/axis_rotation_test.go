@@ -183,10 +183,13 @@ func rotationLogs(t *testing.T, sessions int) []*setlog.SetLog {
 		t.Fatalf("派生の日を含められない: %d", sessions)
 	}
 
+	// ベンチは RIR0（軸の目標 RIR1 を割っている）で積む。同じ重量で目標を
+	// 割らずに4セッション並ぶと進行の規則（D-138）が刻みを1つ乗せ、ここで
+	// 見たい強度の比が刻みぶんずれる。一巡の位置は RIR に関係しない。
 	logs := make([]*setlog.SetLog, 0, sessions+2)
 	for i := 1; i <= sessions; i++ {
 		logs = append(logs, mkLogOn(t, fmt.Sprintf("bench-%d", i),
-			planMonday.AddDays(-7*i), "bench", 85, 8, 2))
+			planMonday.AddDays(-7*i), "bench", 85, 8, 0))
 	}
 	logs = append(logs,
 		mkLogOn(t, "larsen-1", planMonday.AddDays(-14), "larsen", 75, 8, 2),
