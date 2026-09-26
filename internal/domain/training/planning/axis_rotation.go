@@ -17,12 +17,19 @@ import (
 // 軸が系統に含まれる日は出ない（D-125）ので、上半身の日が毎回ベンチになる
 // 構成では派生がどこにも出ない。
 //
+// 重点種目の系統は、中1日空けてから軸に立てる（focusRested）。
+//
 // history は前日まで（Plan が切る）。
 func axis(
 	history setlog.History, prog *program.Program, pool, declared []*exercise.Exercise,
-	today program.Split, hasSplit bool,
+	today program.Split, hasSplit bool, date training.Date,
 ) (*exercise.Exercise, laneRole) {
-	lift := heavyLift(history, declared, today, hasSplit)
+	lift := heavyLift(history, focusRested(history, prog, pool, declared, date), today, hasSplit)
+	if lift == nil {
+		// 休ませたい系統しか今日の候補に無ければ、それを出す。軸を空に
+		// すると、その日の主役が消える。
+		lift = heavyLift(history, declared, today, hasSplit)
+	}
 	if lift == nil {
 		return nil, heavyRole
 	}
@@ -50,6 +57,42 @@ func axis(
 		}
 	}
 	return lift, heavyRole
+}
+
+// focusRested は宣言のうち、重点種目の系統を直近 variationRecoveryDays 日に
+// やっていれば、その系統に属するものを除いて返す。
+//
+// バリエーションレーンは系統を中1日空けて出す（variationLift）。軸の側が
+// それを見ないと、月曜にバリエーションで派生、火曜に軸で本体が出る。
+// 軸は「宣言のうち最も古いもの」なので、派生をやっても本体は古いまま
+// 選ばれる。
+//
+// 重点種目の系統だけを見る。重点でない宣言の派生が補助で出た翌日に本体が
+// 軸に立つことは止めない。それを止めるには補助の予測まで履歴に入れる
+// 必要があるが、ProjectHorizon は軸とバリエーションしか予測に書かないので、
+// 予測と実際の計画がずれる。
+//
+// 除く対象は宣言の中の系統なので、RDL を宣言して重点をデッドリフトに
+// した場合は RDL も休ませる（lineage に含まれる）。
+func focusRested(
+	history setlog.History, prog *program.Program, pool, declared []*exercise.Exercise,
+	date training.Date,
+) []*exercise.Exercise {
+	focus, ok := prog.FocusExercise()
+	if !ok {
+		return declared
+	}
+	family := lineage(pool, focus)
+	if !recentlyPerformed(history, family, date) {
+		return declared
+	}
+	out := make([]*exercise.Exercise, 0, len(declared))
+	for _, e := range declared {
+		if !containsExercise(family, e.ID()) {
+			out = append(out, e)
+		}
+	}
+	return out
 }
 
 // focusCyclePosition は重点種目の一巡のうち、今日がどこかを返す。
