@@ -2,7 +2,6 @@ package planning_test
 
 import (
 	"fmt"
-	"strings"
 	"testing"
 
 	"github.com/dyoshyy/liftplan/internal/domain/training"
@@ -394,17 +393,27 @@ func TestSessionPlanner_TodaysLogDoesNotRemoveTheVariation(t *testing.T) {
 	}
 }
 
-// バリエーションが埋めた分は残差から引かれる。
+// バリエーションが埋めた分は割り振り器の損失計算に織り込まれ、
+// 他の区分の補助に枠を回す。
 //
-// 引かないと、胸をラーセンで埋めたうえに補助でも埋める。台帳への加算は
-// 残差を出す前に済んでいる必要がある。
+// PR 3（AccessoryAllocator への置き換え）で、この性質を検査していた元の
+// テストは「補助の候補が5つ、狙う区分は大胸筋中部だけ」という単一区分の
+// 設定だった。その設定では新しい割り振り器は必ず空き枠を使い切るまで
+// 大胸筋中部の候補で埋める（軸＋バリエーションの有無に関わらず、余った
+// 枠がすべて同じ区分の候補で埋まる）。1枠＝3セットは常に一定なので、
+// 「バリエーションが1枠を占めて補助が1つ減る」ケースと「バリエーションが
+// 無く補助が1つ多い」ケースの大胸筋中部の合計セット数は数式的に必ず
+// 一致し、「差し引かれている」ことと「差し引かれていない」ことを区別
+// できなかった（実測でも 12→12 のまま変わらなかった）。
 //
-// 補助の「件数」で見ると、バリエーションが除外されたぶん1件減るだけでも
-// 通ってしまう。減ったのが残差のせいだと分かるよう、同じ区分を狙う補助を
-// 十分に用意して、その区分に割り当てられたセット数を見る。
-func TestSessionPlanner_SubtractsVariationCoverageFromResidual(t *testing.T) {
-	// 大胸筋中部を狙う補助を5つ足す。1つだと、残差が減っても「候補が
-	// 尽きた」のか「残差が尽きた」のか区別できない。
+// 区別するには、バリエーションの有無で「どの区分に枠が回るか」が
+// 変わる、複数区分の設定が要る。大胸筋中部（候補5つ・週目標24）と
+// 二頭筋（候補1つ=curl・週目標2、小さい）を両方狙う設定にすると、
+// バリエーション（ラーセン、大胸筋中部）が無い日は大胸筋中部の候補が
+// 枠を独占して curl が出ない。バリエーションがある日は、その3セットぶん
+// 大胸筋中部の遅れが小さくなり、相対的に小さい二頭筋の遅れが勝って
+// curl が出る。
+func TestSessionPlanner_VariationCoverageFreesSlotsForOtherRegions(t *testing.T) {
 	pool := planPool(t)
 	ids := []exercise.ExerciseID{
 		"bench", "squat", "deadlift", "incline", "curl", "larsen", "tempo",
@@ -416,33 +425,18 @@ func TestSessionPlanner_SubtractsVariationCoverageFromResidual(t *testing.T) {
 		ids = append(ids, exercise.ExerciseID(id))
 	}
 
-	// 大胸筋中部だけを週目標に置く。ここの消化だけを見る。
-	//
-	// 12セットにしているのは、補助が3セット刻みで割り当てられるため。
-	// 24だと残差が 8 → 6.7 に減っても同じ3種目（9セット）が出て、差が
-	// 出力に現れない。
-	target := mustTarget(t, map[training.MuscleRegion]float64{training.ChestMid: 12})
+	target := mustTarget(t, map[training.MuscleRegion]float64{
+		training.ChestMid: 24, training.Biceps: 2,
+	})
 	build := func(focus exercise.ExerciseID) *program.Program {
-		t.Helper()
 		p, err := program.NewProgram(mustFrequency(t, 3), planVolume(t), ids, big3(), focus)
 		if err != nil {
 			t.Fatalf("プログラムの生成に失敗: %v", err)
 		}
 		return p
 	}
-
 	logs := historyWithLastPerformed(t,
 		map[exercise.ExerciseID]int{"bench": -3, "squat": -7, "deadlift": -7})
-
-	chestSets := func(s planning.PlannedSession) int {
-		total := 0
-		for _, a := range s.Accessories() {
-			if strings.HasPrefix(string(a.ExerciseID()), "chest_") {
-				total += a.Sets().Int()
-			}
-		}
-		return total
-	}
 
 	req := planRequest(t)
 	req.Pool = pool
@@ -451,16 +445,19 @@ func TestSessionPlanner_SubtractsVariationCoverageFromResidual(t *testing.T) {
 
 	req.Program = build("")
 	without := mustPlan(t, req)
+	if containsAccessory(without, "curl") {
+		t.Fatalf("前提が崩れている: バリエーションが無い日から curl が出ている: %v",
+			accessoryIDs(without))
+	}
 
 	req.Program = build("bench")
 	with := mustPlan(t, req)
-
 	if len(with.Variation()) != 1 {
 		t.Fatalf("前提: バリエーションが出ること: %v", with.Variation())
 	}
-	if got, base := chestSets(with), chestSets(without); got >= base {
-		t.Errorf("バリエーションが残差から引かれていない: 胸の補助が %d → %d セット",
-			base, got)
+	if !containsAccessory(with, "curl") {
+		t.Errorf("バリエーションがある日の補助が %v。バリエーションの3セットぶん"+
+			"大胸筋中部の遅れが小さくなり、curl に枠が回るはず", accessoryIDs(with))
 	}
 }
 

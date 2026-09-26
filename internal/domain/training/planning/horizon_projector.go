@@ -131,6 +131,38 @@ func (p SessionPlanner) ProjectHorizon(
 	return out, nil
 }
 
+// toHorizonSessions は ProjectHorizon の出力を、割り振り器
+// （accessory_allocator.go）の入力へ変換する。
+//
+// 空き枠は「1回の種目数 − 軸があれば1 − バリエーションがあれば1」。
+// selectLineup が回0の枠を確定するのと同じ式だが、回0については
+// 呼び出し側（selectLineup）がその場で確定した slots で上書きする
+// （TestProjectHorizon_MatchesPlanWhenFollowedExactly が両者の一致を守る）。
+func toHorizonSessions(sessions []ProjectedSession, exercisesPerSession int) []HorizonSession {
+	out := make([]HorizonSession, len(sessions))
+	for i, s := range sessions {
+		axis, _, hasAxis := s.Axis()
+		variation, _, hasVariation := s.Variation()
+		slots := exercisesPerSession
+		if hasAxis {
+			slots--
+		}
+		if hasVariation {
+			slots--
+		}
+		if slots < 0 {
+			slots = 0
+		}
+		split, hasSplit := s.Split()
+		out[i] = HorizonSession{
+			Date: s.Date(), Split: split, HasSplit: hasSplit,
+			Axis: axis, Variation: variation,
+			Stimulus: s.Stimulus(), Slots: slots,
+		}
+	}
+	return out
+}
+
 // horizonDates は今日を含めて f 回ぶんの日付を返す。
 //
 // 頻度から 7/f 日ごとの等間隔を仮定する（設計書「今日から 7/f 日ごとの

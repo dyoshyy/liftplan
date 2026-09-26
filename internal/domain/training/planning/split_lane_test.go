@@ -206,7 +206,20 @@ func TestSessionPlanner_AxisIsEmptyWhenNoDeclaredFitsTheDay(t *testing.T) {
 	// 「その日の分割に属する区分だけを狙う」は
 	// TestSessionPlanner_AffiliatedRegionsStayInsideTheirDay が守る。
 	// あちらは周期が2日あり、胸も脚もどこかの日に属している。
-	if !containsAccessory(got, "up_0") {
+	//
+	// 特定の1種目（up_0）を固定で見ない。up_0〜up_5 はどれも大胸筋中部に
+	// 同じ寄与を持つ同点の候補で、どれが選ばれるかは割り振り器の同点処理
+	// （最終実施日・空き枠・日付・種目ID）が決める。ここで守りたいのは
+	// 「大胸筋中部（どの日にも属さない区分）が落ちていないこと」であって、
+	// 「up_0 が選ばれること」ではない。
+	hasUnaffiliatedChest := false
+	for i := range 6 {
+		if containsAccessory(got, exercise.ExerciseID(fmt.Sprintf("up_%d", i))) {
+			hasUnaffiliatedChest = true
+			break
+		}
+	}
+	if !hasUnaffiliatedChest {
 		t.Errorf("どの日にも属さない区分が落ちている: %v", accessoryIDs(got))
 	}
 }
