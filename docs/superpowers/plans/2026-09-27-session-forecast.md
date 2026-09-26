@@ -6,7 +6,7 @@
 
 **Architecture:** ドメイン層（`internal/domain/training/planning`）に `SessionPlanner.Forecast(req) ([]PlannedSession, error)` を追加し、既存の `selectLineup`（今日だけを組み立てていた部分）を削除して `Forecast` へ一本化する。`Plan` は `Forecast(req)[0]` を返すだけになる。アプリケーション層に `GetForecast`、プレゼンテーション層に `GET /api/sessions/forecast` を足し、`index`（0=今日）と `split`（分割の日の名前、無ければ null）だけを返す（日付は返さない）。画面は `features/forecast/` を3層（判断 `forecast.ts` ／ 手順 `useForecast.ts` ／ 描画 `Forecast.tsx`）で新設し、`Today.tsx` に1行リンクを足す。既存の一覧タブには出さない。
 
-**Tech Stack:** Go 1.22+（標準ライブラリの `net/http` ルーティング）、React 19 + TypeScript + Vite + Vitest、Playwright（`web/scripts/*-check.mjs`）。
+**Tech Stack:** Go 1.26（標準ライブラリの `net/http` ルーティング）、React 19 + TypeScript + Vite + Vitest、Playwright（`web/scripts/*-check.mjs`）。
 
 **Spec:** `docs/specs/2026-09-27-session-forecast-design.md`
 
