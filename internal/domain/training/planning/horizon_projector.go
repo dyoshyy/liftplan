@@ -11,7 +11,9 @@ import (
 	"github.com/dyoshyy/liftplan/internal/domain/training/setlog"
 )
 
-// ProjectedSession は先の回1つぶんの予測。割り振り器（次のPR）が読む形だけを持つ。
+// ProjectedSession は先の回1つぶんの予測。toHorizonSessions が
+// HorizonSession に変換し、割り振り器（AccessoryAllocator）に渡す
+// （Forecast が全回ぶん呼ぶ）。
 //
 // 重量は付けない。Plan の2段（何をやるか→何kgでやるか）のうち、予測が
 // 要るのは前段だけ。後段（prescribeSet）は当日の推定1RMに依存し、実際に
@@ -58,8 +60,8 @@ func (s ProjectedSession) Variation() (*exercise.Exercise, training.SetCount, bo
 }
 
 // Stimulus はその回に軸・バリエーションがすでに入れる刺激。割り振り器が
-// 損失を計算する材料の一部になる（補助はまだ載っていない。回0だけが
-// 補助込みの実際の刺激を Plan から得る）。
+// 損失を計算する材料の一部になる（補助はまだ載っていない。割り振り器が
+// 回ごとに補助を足した実際の刺激は Forecast の戻り値から得る）。
 func (s ProjectedSession) Stimulus() StimulusCoverage { return s.stimulus }
 
 // ProjectHorizon は今日を含めて頻度ぶんの先の回を予測する。Forecast が
