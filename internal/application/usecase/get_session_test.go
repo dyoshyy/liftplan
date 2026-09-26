@@ -159,15 +159,11 @@ func buildProgram(t *testing.T, pool []*exercise.Exercise) *program.Program {
 	if err != nil {
 		t.Fatalf("頻度が不正: %v", err)
 	}
-	target, err := seed.DefaultWeeklyTarget(freq, mustVolume(t, 6, 3))
-	if err != nil {
-		t.Fatalf("週目標が不正: %v", err)
-	}
 	selected := make([]exercise.ExerciseID, 0, len(pool))
 	for _, e := range pool {
 		selected = append(selected, e.ID())
 	}
-	p, err := program.NewProgram(freq, mustVolume(t, 6, 3), target, selected, []exercise.ExerciseID{"bench", "squat", "deadlift"}, "")
+	p, err := program.NewProgram(freq, mustVolume(t, 6, 3), selected, []exercise.ExerciseID{"bench", "squat", "deadlift"}, "")
 	if err != nil {
 		t.Fatalf("プログラムが不正: %v", err)
 	}
@@ -379,53 +375,17 @@ func mustVolume(t *testing.T, exercises, sets int) program.SessionVolume {
 	return v
 }
 
-// 計画は、保存された週目標ではなく、設定（頻度 × 1回の量）から組み直した
-// 週目標で立てること。
+// TestGetSession_DerivesTheTargetFromSettings は無くなった。
 //
-// 週目標は設定から導く値で、利用者は触れない（D-139）。保存値を信用すると、
-// 導き方を変えたとき（1日9種目から1回の量へ、など）に、頻度も量も触って
-// いない既存の行だけが古い目標で動き続ける。
+// このテストは「計画は、保存された週目標ではなく設定（頻度 × 1回の量）から
+// 組み直した週目標で立てる」ことを、わざと既定と違う保存値（胸だけ最小）を
+// 持つプログラムで確かめていた。Program はもう週目標を保持しない（#176）ので、
+// 「保存された週目標」というプログラム自体が作れなくなり、検査する対象が
+// 無くなった。
 //
-// 保存値をわざと胸だけ・最小にしておく。これを使うと補助は胸を埋める1本で
-// 止まる。設定から組み直せば全区分が狙えるので、枠いっぱいまで出る。
-func TestGetSession_DerivesTheTargetFromSettings(t *testing.T) {
-	pool, err := seed.Exercises()
-	if err != nil {
-		t.Fatalf("シードが不正: %v", err)
-	}
-	freq, err := program.NewFrequency(3)
-	if err != nil {
-		t.Fatalf("頻度が不正: %v", err)
-	}
-	stale, err := program.NewWeeklyVolumeTarget(map[training.MuscleRegion]float64{training.ChestUpper: 1})
-	if err != nil {
-		t.Fatalf("週目標が不正: %v", err)
-	}
-	selected := make([]exercise.ExerciseID, 0, len(pool))
-	for _, e := range pool {
-		selected = append(selected, e.ID())
-	}
-	volume := mustVolume(t, 6, 3)
-	prog, err := program.NewProgram(freq, volume, stale, selected,
-		[]exercise.ExerciseID{"bench", "squat", "deadlift"}, "")
-	if err != nil {
-		t.Fatalf("プログラムが不正: %v", err)
-	}
-
-	uc := newGetSession(t,
-		&fakeLogs{history: setlog.NewHistory(nil)},
-		&fakeConditions{log: condition.NewConditionLog(nil)},
-		&fakeProgram{program: prog},
-	)
-	got, err := uc.Execute(context.Background(), testUser, usecase.GetSessionInput{Date: testDate})
-	if err != nil {
-		t.Fatalf("実行に失敗: %v", err)
-	}
-
-	// 軸とバリエーションを引いた残りが、補助の枠いっぱいまで埋まる。
-	slots := volume.Exercises() - len(got.Main()) - len(got.Variation())
-	if len(got.Accessories()) != slots {
-		t.Errorf("補助が %d 本。枠いっぱいの %d 本のはず（保存された週目標で立てている）",
-			len(got.Accessories()), slots)
-	}
-}
+// 組み直した値が空でないことは、SessionPlanner.Plan が Target の空を弾く
+// ため（TestSessionPlanner_RejectsInvalidRequests）、この GetSession が
+// 空の Target を渡していれば他の成功系テスト（
+// TestGetSession_ReturnsPlannedSession 等）が軒並み落ちる形で守られる。
+// 組み直し方そのもの（頻度・1回の量からの配分）は seed パッケージの
+// TestSimulation が数字で守る。

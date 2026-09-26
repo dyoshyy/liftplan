@@ -151,7 +151,7 @@ func TestWeeklyVolumeTarget_ZeroValueIsEmpty(t *testing.T) {
 }
 
 func TestNewProgram(t *testing.T) {
-	p, err := program.NewProgram(mustFrequency(t, 3), mustVolume(t, 6, 3), simpleTarget(t),
+	p, err := program.NewProgram(mustFrequency(t, 3), mustVolume(t, 6, 3),
 		[]exercise.ExerciseID{"bench", "squat"}, []exercise.ExerciseID{"bench"}, "")
 	if err != nil {
 		t.Fatalf("生成に失敗: %v", err)
@@ -172,7 +172,7 @@ func TestNewProgram(t *testing.T) {
 
 // 重点種目を指定すると往復すること。指定なしと区別できること。
 func TestNewProgram_Focus(t *testing.T) {
-	p, err := program.NewProgram(mustFrequency(t, 3), mustVolume(t, 6, 3), simpleTarget(t),
+	p, err := program.NewProgram(mustFrequency(t, 3), mustVolume(t, 6, 3),
 		[]exercise.ExerciseID{"bench", "squat"}, []exercise.ExerciseID{"bench"}, "bench")
 	if err != nil {
 		t.Fatalf("生成に失敗: %v", err)
@@ -186,38 +186,40 @@ func TestNewProgram_Focus(t *testing.T) {
 	}
 }
 
+// 「週目標が未設定」というケースは無くなった。週目標はもう NewProgram の
+// 引数ではなく、PlanRequest.Target として計画に渡す（#176）。渡し忘れの
+// 検査は SessionPlanner.Plan 側に移った
+// （TestSessionPlanner_RejectsInvalidRequests の「週目標が空」）。
 func TestNewProgram_RejectsInvalid(t *testing.T) {
 	cases := []struct {
 		name     string
 		freq     program.Frequency
-		target   program.WeeklyVolumeTarget
 		selected []exercise.ExerciseID
 		declared []exercise.ExerciseID
 		focus    exercise.ExerciseID
 	}{
-		{"頻度が未設定", program.Frequency{}, simpleTarget(t), []exercise.ExerciseID{"bench"}, []exercise.ExerciseID{"bench"}, ""},
-		{"週目標が未設定", mustFrequency(t, 3), program.WeeklyVolumeTarget{}, []exercise.ExerciseID{"bench"}, []exercise.ExerciseID{"bench"}, ""},
-		{"種目が空", mustFrequency(t, 3), simpleTarget(t), nil, nil, ""},
-		{"空の種目ID", mustFrequency(t, 3), simpleTarget(t), []exercise.ExerciseID{"bench", ""}, []exercise.ExerciseID{"bench", ""}, ""},
-		{"種目が重複", mustFrequency(t, 3), simpleTarget(t), []exercise.ExerciseID{"bench", "bench"}, []exercise.ExerciseID{"bench", "bench"}, ""},
-		{"宣言が空", mustFrequency(t, 3), simpleTarget(t), []exercise.ExerciseID{"bench"}, nil, ""},
-		{"宣言が選択に含まれていない", mustFrequency(t, 3), simpleTarget(t), []exercise.ExerciseID{"bench"}, []exercise.ExerciseID{"squat"}, ""},
+		{"頻度が未設定", program.Frequency{}, []exercise.ExerciseID{"bench"}, []exercise.ExerciseID{"bench"}, ""},
+		{"種目が空", mustFrequency(t, 3), nil, nil, ""},
+		{"空の種目ID", mustFrequency(t, 3), []exercise.ExerciseID{"bench", ""}, []exercise.ExerciseID{"bench", ""}, ""},
+		{"種目が重複", mustFrequency(t, 3), []exercise.ExerciseID{"bench", "bench"}, []exercise.ExerciseID{"bench", "bench"}, ""},
+		{"宣言が空", mustFrequency(t, 3), []exercise.ExerciseID{"bench"}, nil, ""},
+		{"宣言が選択に含まれていない", mustFrequency(t, 3), []exercise.ExerciseID{"bench"}, []exercise.ExerciseID{"squat"}, ""},
 		{
 			// 宣言していない種目を重点にできると、「伸ばしたい種目の中で
 			// さらに重点」という意味が崩れる。
 			"重点種目が伸ばしたい種目に含まれていない",
-			mustFrequency(t, 3), simpleTarget(t),
+			mustFrequency(t, 3),
 			[]exercise.ExerciseID{"bench", "squat"}, []exercise.ExerciseID{"bench"}, "squat",
 		},
 		{
 			"重点種目の前後に空白",
-			mustFrequency(t, 3), simpleTarget(t),
+			mustFrequency(t, 3),
 			[]exercise.ExerciseID{"bench"}, []exercise.ExerciseID{"bench"}, " bench ",
 		},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			got, err := program.NewProgram(c.freq, mustVolume(t, 6, 3), c.target, c.selected, c.declared, c.focus)
+			got, err := program.NewProgram(c.freq, mustVolume(t, 6, 3), c.selected, c.declared, c.focus)
 			if err == nil {
 				t.Fatalf("不正なプログラムが通ってしまう: %+v", got)
 			}
@@ -229,7 +231,7 @@ func TestNewProgram_RejectsInvalid(t *testing.T) {
 }
 
 func TestProgram_SelectedExercisesIsACopy(t *testing.T) {
-	p, err := program.NewProgram(mustFrequency(t, 3), mustVolume(t, 6, 3), simpleTarget(t), []exercise.ExerciseID{"bench"}, []exercise.ExerciseID{"bench"}, "")
+	p, err := program.NewProgram(mustFrequency(t, 3), mustVolume(t, 6, 3), []exercise.ExerciseID{"bench"}, []exercise.ExerciseID{"bench"}, "")
 	if err != nil {
 		t.Fatalf("生成に失敗: %v", err)
 	}
@@ -243,7 +245,7 @@ func TestProgram_SelectedExercisesIsACopy(t *testing.T) {
 
 func TestProgram_IsImmutableAgainstInputMutation(t *testing.T) {
 	input := []exercise.ExerciseID{"bench", "squat"}
-	p, err := program.NewProgram(mustFrequency(t, 3), mustVolume(t, 6, 3), simpleTarget(t), input, []exercise.ExerciseID{"bench"}, "")
+	p, err := program.NewProgram(mustFrequency(t, 3), mustVolume(t, 6, 3), input, []exercise.ExerciseID{"bench"}, "")
 	if err != nil {
 		t.Fatalf("生成に失敗: %v", err)
 	}
@@ -259,10 +261,6 @@ func TestProgram_IsImmutableAgainstInputMutation(t *testing.T) {
 // 長さではなく中身を写す。分割が1日ぶんだけ残る、並びが変わる、といった
 // 壊れ方でも周期は狂う。
 func fieldsOf(p *program.Program) map[string]string {
-	target := ""
-	for _, r := range p.WeeklyTarget().Regions() {
-		target += fmt.Sprintf("%s=%v ", r, p.WeeklyTarget().Sets(r))
-	}
 	focus, _ := p.FocusExercise()
 	cycle := ""
 	for _, s := range p.Cycle() {
@@ -270,7 +268,6 @@ func fieldsOf(p *program.Program) map[string]string {
 	}
 	return map[string]string{
 		"frequency": strconv.Itoa(p.Frequency().PerWeek()),
-		"target":    target,
 		"selected":  fmt.Sprint(p.SelectedExercises()),
 		"declared":  fmt.Sprint(p.DeclaredExercises()),
 		"focus":     string(focus),
@@ -292,8 +289,6 @@ func fieldsOf(p *program.Program) map[string]string {
 //
 // 分割だけを見ていた TestProgram_WithKeepsCycle（#136）はここに含めた。
 func TestProgram_WithKeepsOtherFields(t *testing.T) {
-	quadOnly := map[training.MuscleRegion]float64{training.Quad: 10}
-
 	cases := []struct {
 		name string
 		// changed は、その With* が動かしてよいフィールド。ほかは動かない。
@@ -314,10 +309,9 @@ func TestProgram_WithKeepsOtherFields(t *testing.T) {
 			},
 		},
 		{
-			// 頻度は週目標を道連れにするが、それ以外は道連れにしない。
-			name: "WithFrequency", changed: []string{"frequency", "target"},
+			name: "WithFrequency", changed: []string{"frequency"},
 			apply: func(p *program.Program) (*program.Program, error) {
-				return p.WithFrequency(mustFrequency(t, 4), mustTarget(t, quadOnly))
+				return p.WithFrequency(mustFrequency(t, 4))
 			},
 		},
 		{
@@ -337,7 +331,7 @@ func TestProgram_WithKeepsOtherFields(t *testing.T) {
 
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			base, err := program.NewProgram(mustFrequency(t, 3), mustVolume(t, 6, 3), simpleTarget(t),
+			base, err := program.NewProgram(mustFrequency(t, 3), mustVolume(t, 6, 3),
 				big3(), []exercise.ExerciseID{"bench", "squat"}, "bench")
 			if err != nil {
 				t.Fatalf("NewProgram: %v", err)
@@ -382,35 +376,19 @@ func TestProgram_WithKeepsOtherFields(t *testing.T) {
 	}
 }
 
-// 週目標のアクセサ。Task 16 の入口で使われるので、空を返すと
-// 全セッションの補助種目が消える。
-func TestProgram_WeeklyTarget(t *testing.T) {
-	target := simpleTarget(t)
-	p, err := program.NewProgram(mustFrequency(t, 3), mustVolume(t, 6, 3), target, []exercise.ExerciseID{"bench"}, []exercise.ExerciseID{"bench"}, "")
-	if err != nil {
-		t.Fatalf("生成に失敗: %v", err)
-	}
-
-	got := p.WeeklyTarget()
-	if got.IsEmpty() {
-		t.Fatal("週目標が空で返る")
-	}
-	if len(got.Regions()) != len(target.Regions()) {
-		t.Errorf("区分数が誤り: got %d, want %d", len(got.Regions()), len(target.Regions()))
-	}
-	for _, r := range target.Regions() {
-		if math.Abs(got.Sets(r)-target.Sets(r)) > 1e-9 {
-			t.Errorf("%s の目標が誤り: got %v, want %v", r, got.Sets(r), target.Sets(r))
-		}
-	}
-}
+// TestProgram_WeeklyTarget は無くなった。WeeklyTarget() というアクセサ
+// ごと Program から消えた（#176）。週目標はもう集約の持ち物ではなく、
+// 呼び出し側が Frequency() と SessionVolume() から都度
+// seed.DefaultWeeklyTarget で組む値になった。組んだ値が計画へ渡っている
+// ことは TestSessionPlanner_RejectsInvalidRequests の「週目標が空」と、
+// TestSimulation（seed パッケージ）の数字が守る。
 
 // 種目IDの検証を NewExerciseID に委ねていること。
 // 独自判定だと前後に空白のあるIDが通り、種目マスタと永久に一致しない。
 // 一致しないIDは黙って無視されるので、選んだ種目が理由なく消える。
 func TestNewProgram_ValidatesExerciseIDs(t *testing.T) {
 	for _, id := range []exercise.ExerciseID{"   ", " bench", "bench ", "\tbench"} {
-		got, err := program.NewProgram(mustFrequency(t, 3), mustVolume(t, 6, 3), simpleTarget(t),
+		got, err := program.NewProgram(mustFrequency(t, 3), mustVolume(t, 6, 3),
 			[]exercise.ExerciseID{id}, []exercise.ExerciseID{id}, "")
 		if err == nil {
 			t.Errorf("不正な種目ID %q が通ってしまう: %+v", id, got)

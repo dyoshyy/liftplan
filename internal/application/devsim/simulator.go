@@ -170,6 +170,13 @@ func (s *Simulator) Run(req Request) (Result, error) {
 	if err != nil {
 		return Result{}, err
 	}
+	// 週目標はプログラムの持ち物ではなく、設定（頻度と1回の量）から導く
+	// 値（D-139、#176）。頻度も量も週の途中で動かないので、ループの外で
+	// 一度組めば足りる。
+	target, err := seed.DefaultWeeklyTarget(prog.Frequency(), prog.SessionVolume())
+	if err != nil {
+		return Result{}, fmt.Errorf("週目標が組めない: %w", err)
+	}
 
 	offsets, err := req.offsets()
 	if err != nil {
@@ -208,6 +215,7 @@ func (s *Simulator) Run(req Request) (Result, error) {
 
 			planned, err := s.planner.Plan(planning.PlanRequest{
 				Program:    prog,
+				Target:     target,
 				Pool:       s.pool,
 				History:    history,
 				Conditions: conditions,
@@ -260,7 +268,6 @@ func (s *Simulator) Run(req Request) (Result, error) {
 			out.Days = append(out.Days, day)
 		}
 
-		target := prog.WeeklyTarget()
 		for _, r := range target.Regions() {
 			week.Regions = append(week.Regions, RegionVolume{
 				Region: r, Target: target.Sets(r), Done: done[r],
@@ -281,10 +288,6 @@ func (s *Simulator) buildProgram(req Request) (*program.Program, error) {
 	if err != nil {
 		return nil, fmt.Errorf("1回の量が不正: %w", err)
 	}
-	target, err := seed.DefaultWeeklyTarget(freq, volume)
-	if err != nil {
-		return nil, fmt.Errorf("週目標が不正: %w", err)
-	}
 
 	// 使う種目は全件。外したときの挙動を見たいときは宣言と重点種目で足りる。
 	selected := make([]exercise.ExerciseID, 0, len(s.pool))
@@ -292,7 +295,7 @@ func (s *Simulator) buildProgram(req Request) (*program.Program, error) {
 		selected = append(selected, e.ID())
 	}
 
-	prog, err := program.NewProgram(freq, volume, target, selected, req.Declared, req.Focus)
+	prog, err := program.NewProgram(freq, volume, selected, req.Declared, req.Focus)
 	if err != nil {
 		return nil, fmt.Errorf("プログラムが不正: %w", err)
 	}

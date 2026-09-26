@@ -25,17 +25,13 @@ func (s *stubProgram) Get(context.Context, account.UserID) (*program.Program, er
 }
 func (s *stubProgram) Save(context.Context, account.UserID, *program.Program) error { return nil }
 
-func newProgram(t *testing.T, sets map[training.MuscleRegion]float64, selected []exercise.ExerciseID) *program.Program {
+func newProgram(t *testing.T, selected []exercise.ExerciseID) *program.Program {
 	t.Helper()
 	freq, err := program.NewFrequency(3)
 	if err != nil {
 		t.Fatalf("頻度が不正: %v", err)
 	}
-	target, err := program.NewWeeklyVolumeTarget(sets)
-	if err != nil {
-		t.Fatalf("週目標が不正: %v", err)
-	}
-	p, err := program.NewProgram(freq, mustVolume(t, 6, 3), target, selected, selected, "")
+	p, err := program.NewProgram(freq, mustVolume(t, 6, 3), selected, selected, "")
 	if err != nil {
 		t.Fatalf("プログラムが不正: %v", err)
 	}
@@ -54,10 +50,7 @@ func newStats(t *testing.T, logs []*setlog.SetLog, pool []*exercise.Exercise, p 
 
 func defaultProgram(t *testing.T) *program.Program {
 	t.Helper()
-	return newProgram(t,
-		map[training.MuscleRegion]float64{training.ChestMid: 10, training.Lat: 8},
-		[]exercise.ExerciseID{"bench"},
-	)
+	return newProgram(t, []exercise.ExerciseID{"bench"})
 }
 
 // 推移は古い順に並ぶ。現在値は最後の点で、増減は最初との差。
@@ -238,35 +231,11 @@ func mustVolume(t *testing.T, exercises, sets int) program.SessionVolume {
 	return v
 }
 
-// 充足は、保存された週目標ではなく、設定（頻度 × 1回の量）から組み直した
-// 週目標と比べること。
+// TestWeeklyVolume_設定から組み直した週目標と比べる は無くなった。
 //
-// 計画と同じ理由（D-139）。画面だけ保存値を見ると、計画が狙っている区分と
-// 画面が「足りていない」と言う区分が食い違う。
-//
-// 保存値はわざと胸中部だけ・既定と違う数にしておく。
-func TestWeeklyVolume_設定から組み直した週目標と比べる(t *testing.T) {
-	stale := newProgram(t,
-		map[training.MuscleRegion]float64{training.ChestMid: 30},
-		[]exercise.ExerciseID{"bench"},
-	)
-	q := newStats(t, nil, []*exercise.Exercise{newExercise(t, "bench", "ベンチプレス")}, stale)
-
-	vols, err := q.WeeklyVolume(context.Background(), testUser, date(t, "2026-08-18"))
-	if err != nil {
-		t.Fatalf("読めない: %v", err)
-	}
-
-	want, err := seed.DefaultWeeklyTarget(stale.Frequency(), stale.SessionVolume())
-	if err != nil {
-		t.Fatalf("既定の週目標が組めない: %v", err)
-	}
-	if len(vols) != len(want.Regions()) {
-		t.Fatalf("区分が %d 個。設定から組み直せば %d 個のはず", len(vols), len(want.Regions()))
-	}
-	for _, v := range vols {
-		if v.TargetSet != want.Sets(v.Region) {
-			t.Errorf("%s の目標が %v。設定から組み直した %v のはず", v.Region, v.TargetSet, want.Sets(v.Region))
-		}
-	}
-}
+// このテストは「保存された週目標が既定と違っていても、画面はそれを無視して
+// 設定から組み直した値を見る」ことを、わざと既定と違う保存値（胸中部だけ
+// 30）を持つプログラムで確かめていた。Program はもう週目標を保持しない
+// （#176）ので、「既定と違う保存値」というプログラム自体が作れなくなり、
+// 検査する対象が無くなった。組み直しそのもの（Frequency・SessionVolume
+// から導く）は TestWeeklyVolume_埋まっていない順に並ぶ が同じ形で見ている。

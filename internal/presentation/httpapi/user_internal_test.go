@@ -126,15 +126,11 @@ func someProgram(t *testing.T) *program.Program {
 	if err != nil {
 		t.Fatalf("頻度が不正: %v", err)
 	}
-	target, err := seed.DefaultWeeklyTarget(freq, mustVolume(t, 6, 3))
-	if err != nil {
-		t.Fatalf("週目標が不正: %v", err)
-	}
 	selected := make([]exercise.ExerciseID, 0, len(pool))
 	for _, e := range pool {
 		selected = append(selected, e.ID())
 	}
-	prog, err := program.NewProgram(freq, mustVolume(t, 6, 3), target, selected,
+	prog, err := program.NewProgram(freq, mustVolume(t, 6, 3), selected,
 		[]exercise.ExerciseID{"bench", "squat", "deadlift"}, "")
 	if err != nil {
 		t.Fatalf("プログラムが不正: %v", err)

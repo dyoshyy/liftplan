@@ -177,7 +177,7 @@ func runSim(t *testing.T, cfg simConfig) simResult {
 			declared = append(declared, id)
 		}
 	}
-	prog, err := program.NewProgram(freq, simVolume(t), target, ids, declared, cfg.focus)
+	prog, err := program.NewProgram(freq, simVolume(t), ids, declared, cfg.focus)
 	if err != nil {
 		t.Fatalf("プログラムの生成に失敗: %v", err)
 	}
@@ -203,7 +203,7 @@ func runSim(t *testing.T, cfg simConfig) simResult {
 		for _, off := range weekdays[cfg.frequency] {
 			date := simStart.AddDays(w*7 + off)
 			s, err := planner.Plan(planning.PlanRequest{
-				Program: prog, Pool: all,
+				Program: prog, Target: target, Pool: all,
 				History:    setlog.NewHistory(logs),
 				Conditions: condition.NewConditionLog(nil),
 				Date:       date,
@@ -467,7 +467,7 @@ func TestSimulation_WeightsResolveQuickly(t *testing.T) {
 		byID[e.ID()] = e
 		ids = append(ids, e.ID())
 	}
-	program, _ := program.NewProgram(freq, simVolume(t), target, ids,
+	program, _ := program.NewProgram(freq, simVolume(t), ids,
 		[]exercise.ExerciseID{"bench", "squat", "deadlift"}, "")
 	planner := planning.DefaultSessionPlanner()
 
@@ -484,7 +484,7 @@ func TestSimulation_WeightsResolveQuickly(t *testing.T) {
 	for i := range 12 {
 		date := simStart.AddDays(i / 3 * 7).AddDays((i % 3) * 2)
 		s, err := planner.Plan(planning.PlanRequest{
-			Program: program, Pool: all,
+			Program: program, Target: target, Pool: all,
 			History:    setlog.NewHistory(logs),
 			Conditions: conditions,
 			Date:       date,

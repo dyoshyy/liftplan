@@ -7,15 +7,12 @@ import (
 	"github.com/dyoshyy/liftplan/internal/application/apperror"
 	"github.com/dyoshyy/liftplan/internal/domain/account"
 	"github.com/dyoshyy/liftplan/internal/domain/training/program"
-	"github.com/dyoshyy/liftplan/internal/domain/training/seed"
 )
 
 // SetSessionVolume は1回の量（種目数 × 1種目あたりのセット数）を差し替える。
-// 週目標も1回の量に合わせて置き直す。
 //
-// 週目標を道連れにするのは SetFrequency と同じ理由。週に供給できる量は
-// 「頻度 × 種目数 × セット数」で決まるので、量だけ動かすと目標が実際の
-// 挙動を説明しなくなる。
+// 週目標はもう集約の持ち物ではなく、頻度と1回の量から都度導く値
+// （D-139、#176）。量を差し替えれば、導いた先の値も自動でついてくる。
 type SetSessionVolume struct {
 	reader program.Reader
 	writer program.Writer
@@ -44,11 +41,7 @@ func (u *SetSessionVolume) Execute(ctx context.Context, user account.UserID, exe
 		return err
 	}
 
-	target, err := seed.DefaultWeeklyTarget(prog.Frequency(), volume)
-	if err != nil {
-		return fmt.Errorf("%w: 週目標: %w", apperror.ErrInvalidInput, err)
-	}
-	next, err := prog.WithSessionVolume(volume, target)
+	next, err := prog.WithSessionVolume(volume)
 	if err != nil {
 		return fmt.Errorf("%w: 1回の量: %w", apperror.ErrInvalidInput, err)
 	}

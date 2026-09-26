@@ -6,7 +6,6 @@ import (
 	"testing"
 
 	"github.com/dyoshyy/liftplan/internal/domain/account"
-	"github.com/dyoshyy/liftplan/internal/domain/training"
 	"github.com/dyoshyy/liftplan/internal/domain/training/condition"
 	"github.com/dyoshyy/liftplan/internal/domain/training/exercise"
 	"github.com/dyoshyy/liftplan/internal/domain/training/program"
@@ -166,13 +165,7 @@ func sampleProgram(t *testing.T) *program.Program {
 	if err != nil {
 		t.Fatalf("NewFrequency: %v", err)
 	}
-	target, err := program.NewWeeklyVolumeTarget(map[training.MuscleRegion]float64{
-		training.ChestMid: 12, training.Quad: 12, training.Hamstring: 10,
-	})
-	if err != nil {
-		t.Fatalf("NewWeeklyVolumeTarget: %v", err)
-	}
-	p, err := program.NewProgram(freq, mustVolume(t, 6, 3), target,
+	p, err := program.NewProgram(freq, mustVolume(t, 6, 3),
 		[]exercise.ExerciseID{"bench", "squat", "deadlift"},
 		[]exercise.ExerciseID{"bench", "squat"}, "bench")
 	if err != nil {
