@@ -59,6 +59,11 @@ export function ProgramSettings({ nameOf, exercises, onChanged }: Props) {
 
   return (
     <>
+      {/* 失敗の文言は先頭に出す。以前は全節のあとにあり、上の節で失敗しても
+          画面のずっと下に出て気づけなかった。下の節（伸ばしたい種目・使う種目）は
+          失敗すると保存ボタンが残るので、節ごとに出し分けるのはまだしない。 */}
+      {note && <p className="mb-3 text-[13px] text-red">{note}</p>}
+
       <Section
         title="分割"
         summary={program ? (isWholeBody(program) ? "全身法" : program.splits.map((s) => s.name).join(' → ')) : ""}
@@ -248,8 +253,6 @@ export function ProgramSettings({ nameOf, exercises, onChanged }: Props) {
       )}
 
       </Section>
-
-      {note && <p className="mt-2.5 text-[13px] text-red">{note}</p>}
     </>
   );
 }
