@@ -7,6 +7,7 @@ import {
   defaultForm,
   parseForm,
   setOneRepMax,
+  toggleDay,
   formatPct,
   formatPerformed,
   formatWeight,
@@ -42,7 +43,9 @@ describe('buildQuery', () => {
   // ように、触っていない項目は送らずサーバーに任せる。
   it('模擬ユーザーは触った項目だけ送る', () => {
     const q = new URLSearchParams(buildQuery(defaultForm));
-    for (const k of ['growth', 'first_pct', 'body_weight', 'orm']) expect(q.has(k)).toBe(false);
+    for (const k of ['growth', 'first_pct', 'body_weight', 'orm', 'exercises', 'sets', 'days', 'start']) {
+      expect(q.has(k)).toBe(false);
+    }
 
     const got = new URLSearchParams(
       buildQuery({ ...defaultForm, growth: 0, firstPct: 60, bodyWeight: 82, orm: { squat: 150, bench: 110 } }),
@@ -53,6 +56,46 @@ describe('buildQuery', () => {
     expect(got.get('body_weight')).toBe('82');
     // 並びを固定する。同じ設定が同じ URL になる。
     expect(got.get('orm')).toBe('bench:110,squat:150');
+  });
+});
+
+describe('buildQuery（予定）', () => {
+  // 曜日を指定したら頻度はその数。食い違って送るとサーバーが 400 を返す。
+  it('曜日を送るときは、頻度を曜日の数に揃える', () => {
+    const q = new URLSearchParams(buildQuery({ ...defaultForm, frequency: 4, days: [1, 3] }));
+    expect(q.get('days')).toBe('1,3');
+    expect(q.get('frequency')).toBe('2');
+  });
+
+  it('量と開始日は触ったときだけ送る', () => {
+    const q = new URLSearchParams(buildQuery({ ...defaultForm, exercises: 5, sets: 4, start: '2026-09-07' }));
+    expect(q.get('exercises')).toBe('5');
+    expect(q.get('sets')).toBe('4');
+    expect(q.get('start')).toBe('2026-09-07');
+  });
+});
+
+describe('toggleDay', () => {
+  const defaults = { '2': [0, 3], '3': [0, 2, 4] };
+
+  // 未指定（既定の曜日）から1つ外すと、既定を起点に外した曜日が残る。
+  // 空から始めると、既定の曜日が全部外れて1日だけになる。
+  it('既定の曜日を起点に切り替え、頻度をその数にする', () => {
+    const got = toggleDay({ ...defaultForm, frequency: 3, days: null }, 2, defaults);
+    expect(got.days).toEqual([0, 4]);
+    expect(got.frequency).toBe(2);
+  });
+
+  it('足した曜日は並べて持つ', () => {
+    const got = toggleDay({ ...defaultForm, frequency: 2, days: [0, 3] }, 1, defaults);
+    expect(got.days).toEqual([0, 1, 3]);
+    expect(got.frequency).toBe(3);
+  });
+
+  // 0日は頻度として成り立たない。最後の1日は外せない。
+  it('最後の1日は外さない', () => {
+    const form = { ...defaultForm, frequency: 1, days: [4] };
+    expect(toggleDay(form, 4, defaults)).toBe(form);
   });
 });
 
@@ -70,7 +113,12 @@ describe('parseForm', () => {
       firstPct: 55,
       bodyWeight: 68,
       orm: { pull_up: 0, squat: 160 },
+      exercises: 5,
+      sets: 2,
+      days: [1, 5, 6],
+      start: '2026-09-07',
     };
+    form.frequency = 3;
     expect(parseForm(buildQuery(form), defaultForm)).toEqual(form);
   });
 

@@ -10,6 +10,7 @@ import {
   formatWeight,
   setOneRepMax,
   toggle,
+  toggleDay,
   type DevDay,
   type DevExercise,
   type DevOptions,
@@ -17,7 +18,7 @@ import {
   type DevSet,
   type Form,
 } from './simulate';
-import { liftLine, settingsLine, weekLine } from './summary';
+import { liftLine, settingsLine, weekdayName, weekLine } from './summary';
 import { useSimulation } from './useSimulation';
 import { WeightTrend } from './WeightTrend';
 
@@ -133,7 +134,8 @@ function Settings({
           <select
             id="frequency"
             value={form.frequency}
-            onChange={(ev) => setForm({ ...form, frequency: Number(ev.target.value) })}
+            // 頻度を選び直したら、曜日は頻度ごとの既定に戻す。
+            onChange={(ev) => setForm({ ...form, frequency: Number(ev.target.value), days: null })}
             className={FIELD}
           >
             {[1, 2, 3, 4, 5, 6, 7].map((n) => (
@@ -158,6 +160,38 @@ function Settings({
             ))}
           </select>
         </Row>
+      </div>
+
+      <div className="grid grid-cols-4 gap-4">
+        <Row label="通う曜日（押すと頻度もその数になる）">
+          <Weekdays options={options} form={form} setForm={setForm} />
+        </Row>
+        <NumberField
+          id="exercises"
+          label="1回の種目数"
+          step={1}
+          value={form.exercises}
+          fallback={options?.schedule_defaults.exercises_per_session}
+          onChange={(v) => setForm({ ...form, exercises: v })}
+        />
+        <NumberField
+          id="sets"
+          label="1種目のセット数"
+          step={1}
+          value={form.sets}
+          fallback={options?.schedule_defaults.sets_per_exercise}
+          onChange={(v) => setForm({ ...form, sets: v })}
+        />
+        <label htmlFor="start" className="grid gap-1.5">
+          <span className="text-[12px] font-bold text-muted">開始日</span>
+          <input
+            id="start"
+            type="date"
+            value={form.start ?? options?.schedule_defaults.start ?? ''}
+            onChange={(ev) => setForm({ ...form, start: ev.target.value || null })}
+            className={`num ${FIELD}`}
+          />
+        </label>
       </div>
 
       <div className="grid gap-3 border-t border-line-soft pt-4">
@@ -208,6 +242,30 @@ function Settings({
 }
 
 const FIELD = 'w-full rounded-md border border-line bg-ground px-2 py-1 text-[13px]';
+
+/** Weekdays は通う曜日。未指定なら頻度ごとの既定の曜日を点けて出す。 */
+function Weekdays({ options, form, setForm }: { options: DevOptions | null; form: Form; setForm: (f: Form) => void }) {
+  const defaults = options?.schedule_defaults.weekdays_by_frequency ?? {};
+  const on = form.days ?? defaults[String(form.frequency)] ?? [];
+  const start = form.start ?? options?.schedule_defaults.start ?? '';
+  return (
+    <div className="flex gap-1">
+      {[0, 1, 2, 3, 4, 5, 6].map((d) => (
+        <button
+          key={d}
+          type="button"
+          aria-pressed={on.includes(d)}
+          onClick={() => setForm(toggleDay(form, d, defaults))}
+          className={`h-7 w-7 rounded-md border text-[12px] ${
+            on.includes(d) ? 'border-amber text-amber' : 'border-line text-muted'
+          }`}
+        >
+          {weekdayName(start, d)}
+        </button>
+      ))}
+    </div>
+  );
+}
 
 /** NumberField は null（既定）を空欄で表す数値欄。既定値は placeholder に出す。 */
 function NumberField({

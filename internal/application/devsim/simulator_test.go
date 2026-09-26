@@ -35,6 +35,9 @@ func baseRequest() devsim.Request {
 		Weeks:     4,
 		Start:     simStart,
 		Athlete:   devsim.DefaultAthlete(),
+
+		ExercisesPerSession: seed.DefaultExercisesPerSession,
+		SetsPerExercise:     seed.DefaultSetsPerExercise,
 	}
 }
 
@@ -431,5 +434,71 @@ func TestSimulator_PctOfOneRMUsesEffectiveLoad(t *testing.T) {
 	// 自重種目を1つも踏んでいなければ、この検査は何も守らない。
 	if !checked["back_extension"] && !checked["dip"] && !checked["pull_up"] {
 		t.Fatal("自重種目の推定比を1つも検査していない")
+	}
+}
+
+// 通う曜日を指定すると、その曜日にだけセッションが立つ。
+//
+// 既定は頻度ごとに決まった並び（月水金日など）。週2でも月木と火金では
+// 回復の間隔が違い、補助の選び方（回復中の区分を避ける）が変わりうる。
+func TestSimulator_UsesTheGivenWeekdays(t *testing.T) {
+	req := baseRequest()
+	req.Weekdays = []int{1, 3} // 火・木
+	req.Frequency = 2
+	req.Weeks = 3
+
+	got := mustRun(t, req)
+	if len(got.Days) != 6 {
+		t.Fatalf("セッションが %d 件。週2×3週で 6 件のはず", len(got.Days))
+	}
+	for _, d := range got.Days {
+		off := d.Date.DaysSince(req.Start) % 7
+		if off != 1 && off != 3 {
+			t.Errorf("%v は開始から %d 日目の曜日。火（1）か木（3）のはず", d.Date, off)
+		}
+	}
+}
+
+// 1回の種目数とセット数を指定すると、その量で組まれる。
+func TestSimulator_UsesTheGivenSessionVolume(t *testing.T) {
+	req := baseRequest()
+	req.ExercisesPerSession = 5
+	req.SetsPerExercise = 4
+
+	top := 0
+	for _, d := range mustRun(t, req).Days {
+		for _, s := range allSets(d) {
+			if s.Sets != 4 {
+				t.Fatalf("%v %s が %d セット。4 のはず", d.Date, s.ExerciseID, s.Sets)
+			}
+		}
+		top = max(top, d.TotalSets)
+	}
+	// 1回の予算は 5種目 × 4セット。埋まる日は予算ちょうどになる。
+	if top != 20 {
+		t.Errorf("1回の最大セット数が %d。5×4=20 のはず", top)
+	}
+}
+
+// 曜日と量が成り立たないときはエラー。画面に 400 を返すため。
+func TestSimulator_RejectsBadSchedule(t *testing.T) {
+	cases := []struct {
+		name   string
+		mutate func(*devsim.Request)
+	}{
+		{"曜日が範囲外", func(r *devsim.Request) { r.Weekdays, r.Frequency = []int{0, 7}, 2 }},
+		{"曜日が重複", func(r *devsim.Request) { r.Weekdays, r.Frequency = []int{2, 2}, 2 }},
+		{"曜日の数と頻度が違う", func(r *devsim.Request) { r.Weekdays, r.Frequency = []int{0, 2, 4}, 2 }},
+		{"種目数が0", func(r *devsim.Request) { r.ExercisesPerSession = 0 }},
+		{"セット数が大きすぎる", func(r *devsim.Request) { r.SetsPerExercise = 99 }},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			req := baseRequest()
+			c.mutate(&req)
+			if _, err := newSimulator(t).Run(req); err == nil {
+				t.Error("エラーにならない")
+			}
+		})
 	}
 }

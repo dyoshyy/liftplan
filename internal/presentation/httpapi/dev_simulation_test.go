@@ -2,8 +2,10 @@ package httpapi_test
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/dyoshyy/liftplan/internal/application/devsim"
@@ -306,6 +308,118 @@ func TestDevSimulation_EmptySplitAndFocusMeanNone(t *testing.T) {
 	for _, d := range got.Days {
 		if d.Split != "" {
 			t.Errorf("分割なしのはずが %q", d.Split)
+		}
+	}
+}
+
+// 1回の量・曜日・開始日もクエリで変えられ、応答は解決した値を返す。
+func TestDevSimulation_TakesScheduleAndEchoesIt(t *testing.T) {
+	// 曜日は順不同で受け、並べて返す。
+	rec := devGet(t, "/api/dev/simulate?declared=bench&weeks=1&days=3,1&exercises=5&sets=4&start=2026-09-07")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("%d が返った。200 のはず: %s", rec.Code, rec.Body.String())
+	}
+	var got struct {
+		Settings struct {
+			Frequency int    `json:"frequency"`
+			Start     string `json:"start"`
+			Exercises int    `json:"exercises_per_session"`
+			Sets      int    `json:"sets_per_exercise"`
+			Weekdays  []int  `json:"weekdays"`
+		} `json:"settings"`
+		Days []struct {
+			Date string `json:"date"`
+		} `json:"days"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatalf("応答が JSON でない: %v", err)
+	}
+	s := got.Settings
+	// 曜日を指定したら、頻度はその数。
+	if s.Frequency != 2 || s.Exercises != 5 || s.Sets != 4 || s.Start != "2026-09-07" {
+		t.Errorf("設定が返っていない: %+v", s)
+	}
+	if len(s.Weekdays) != 2 || s.Weekdays[0] != 1 || s.Weekdays[1] != 3 {
+		t.Errorf("曜日が %v。[1 3] のはず", s.Weekdays)
+	}
+	if len(got.Days) != 2 || got.Days[0].Date != "2026-09-08" {
+		t.Errorf("日が %+v。2026-09-08 から2件のはず", got.Days)
+	}
+}
+
+// 曜日を指定しなければ、頻度ごとの既定の曜日を返す。応答だけで分かるように。
+func TestDevSimulation_EchoesDefaultWeekdays(t *testing.T) {
+	rec := devGet(t, "/api/dev/simulate?declared=bench&weeks=1&frequency=3")
+	var got struct {
+		Settings struct {
+			Weekdays  []int `json:"weekdays"`
+			Exercises int   `json:"exercises_per_session"`
+		} `json:"settings"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatalf("応答が JSON でない: %v", err)
+	}
+	want, _ := devsim.DefaultWeekdays(3)
+	if fmt.Sprint(got.Settings.Weekdays) != fmt.Sprint(want) {
+		t.Errorf("曜日が %v。既定の %v のはず", got.Settings.Weekdays, want)
+	}
+	if got.Settings.Exercises != seed.DefaultExercisesPerSession {
+		t.Errorf("種目数が %d。既定の %d のはず", got.Settings.Exercises, seed.DefaultExercisesPerSession)
+	}
+}
+
+// 形の壊れた値は 400。黙って既定値に倒すと、書き間違えた URL が
+// 別の設定の結果を返し、読む側（人も Claude も）が気づけない。
+//
+// 本文は、どの項目が悪いかを名指しする。「400」だけでは、URL を組んだ側が
+// どこを直せばよいか分からない。
+func TestDevSimulation_RejectsBadSchedule(t *testing.T) {
+	for _, c := range []struct{ query, names string }{
+		{"exercises=many", "exercises"},
+		{"sets=", "sets"},
+		{"days=mon", "days"},
+		{"days=1,,3", "days"},
+		{"days=1,3&frequency=4", "頻度"},
+		{"start=someday", "start"},
+	} {
+		t.Run(c.query, func(t *testing.T) {
+			rec := devGet(t, "/api/dev/simulate?declared=bench&"+c.query)
+			if rec.Code != http.StatusBadRequest {
+				t.Errorf("%d が返った。400 のはず: %s", rec.Code, rec.Body.String())
+			}
+			if !strings.Contains(rec.Body.String(), c.names) {
+				t.Errorf("本文が %q を名指ししていない: %s", c.names, rec.Body.String())
+			}
+		})
+	}
+}
+
+// 画面が曜日と量の初期値に使う既定値を返す。
+func TestDevSimulation_OptionsCarryScheduleDefaults(t *testing.T) {
+	rec := devGet(t, "/api/dev/options")
+	var got struct {
+		Schedule struct {
+			Exercises int              `json:"exercises_per_session"`
+			Sets      int              `json:"sets_per_exercise"`
+			Weekdays  map[string][]int `json:"weekdays_by_frequency"`
+			Start     string           `json:"start"`
+		} `json:"schedule_defaults"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatalf("応答が JSON でない: %v", err)
+	}
+	s := got.Schedule
+	// 開始日の既定。画面が欄の初期値に出す（二重に持たない）。
+	if s.Start != "2026-08-03" {
+		t.Errorf("開始日の既定が %q。2026-08-03 のはず", s.Start)
+	}
+	if s.Exercises != seed.DefaultExercisesPerSession || s.Sets != seed.DefaultSetsPerExercise {
+		t.Errorf("量の既定が %+v", s)
+	}
+	for f := 1; f <= 7; f++ {
+		want, _ := devsim.DefaultWeekdays(f)
+		if fmt.Sprint(s.Weekdays[fmt.Sprint(f)]) != fmt.Sprint(want) {
+			t.Errorf("週%d の曜日が %v。%v のはず", f, s.Weekdays[fmt.Sprint(f)], want)
 		}
 	}
 }

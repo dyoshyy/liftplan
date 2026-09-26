@@ -29,10 +29,20 @@ export type DevAthlete = {
   one_rep_max_kg?: Record<string, number>;
 };
 
+export type DevSchedule = {
+  exercises_per_session: number;
+  sets_per_exercise: number;
+  /** 頻度（"1"〜"7"）ごとの既定の曜日（開始日からの日数）。 */
+  weekdays_by_frequency: Record<string, number[]>;
+  /** 開始日の既定（YYYY-MM-DD）。 */
+  start: string;
+};
+
 export type DevOptions = {
   exercises: DevExercise[];
   presets: DevPreset[];
   athlete_defaults: DevAthlete;
+  schedule_defaults: DevSchedule;
 };
 
 export type DevSet = {
@@ -71,6 +81,10 @@ export type DevSettings = {
   weeks: number;
   start: string;
   athlete: DevAthlete;
+  /** 通った曜日（開始日からの日数）。 */
+  weekdays: number[];
+  exercises_per_session: number;
+  sets_per_exercise: number;
 };
 
 export type DevResult = {
@@ -94,6 +108,13 @@ export type Form = {
   firstPct: number | null;
   bodyWeight: number | null;
   orm: Record<string, number>;
+  /** 1回の種目数とセット数。null はサーバーの既定。 */
+  exercises: number | null;
+  sets: number | null;
+  /** 通う曜日（開始日からの日数）。null は頻度ごとの既定。 */
+  days: number[] | null;
+  /** 開始日（YYYY-MM-DD）。null はサーバーの既定。 */
+  start: string | null;
 };
 
 export const defaultForm: Form = {
@@ -106,6 +127,10 @@ export const defaultForm: Form = {
   firstPct: null,
   bodyWeight: null,
   orm: {},
+  exercises: null,
+  sets: null,
+  days: null,
+  start: null,
 };
 
 /** buildQuery は設定を問い合わせ文字列にする。空の項目は送らない。
@@ -118,8 +143,13 @@ export function buildQuery(form: Form): string {
   // 空も送る。キーごと落とすと、URL を読み戻したときに既定に戻る。
   q.set('focus', form.focus);
   q.set('split', form.split);
-  q.set('frequency', String(form.frequency));
+  // 曜日を指定したら頻度はその数。食い違うとサーバーが 400 を返す。
+  q.set('frequency', String(form.days?.length ?? form.frequency));
   q.set('weeks', String(form.weeks));
+  if (form.days !== null) q.set('days', form.days.join(','));
+  if (form.exercises !== null) q.set('exercises', String(form.exercises));
+  if (form.sets !== null) q.set('sets', String(form.sets));
+  if (form.start !== null) q.set('start', form.start);
   // 模擬ユーザーは触った項目だけ。null はサーバーの既定に任せる。
   if (form.growth !== null) q.set('growth', String(form.growth));
   if (form.firstPct !== null) q.set('first_pct', String(form.firstPct));
@@ -164,7 +194,31 @@ export function parseForm(search: string, fallback: Form): Form {
     firstPct: q.has('first_pct') ? num(q.get('first_pct')) : fallback.firstPct,
     bodyWeight: q.has('body_weight') ? num(q.get('body_weight')) : fallback.bodyWeight,
     orm: q.has('orm') ? orm : fallback.orm,
+    exercises: q.has('exercises') ? num(q.get('exercises')) : fallback.exercises,
+    sets: q.has('sets') ? num(q.get('sets')) : fallback.sets,
+    days: q.has('days') ? days(q.get('days') ?? '') : fallback.days,
+    start: q.get('start') || fallback.start,
   };
+}
+
+/** days は "1,3" を曜日の並びにする。1つでも読めなければ null（既定）。 */
+function days(v: string): number[] | null {
+  const out = v.split(',').map((d) => num(d));
+  return out.length > 0 && out.every((d) => d !== null) ? (out as number[]) : null;
+}
+
+/** toggleDay は通う曜日を1つ切り替え、頻度をその数に揃える。
+ *
+ *  未指定（null）なら頻度ごとの既定の曜日を起点にする。空から始めると、
+ *  1つ押しただけで既定の曜日が全部外れる。最後の1日は外さない（0日は
+ *  頻度として成り立たない）。 */
+export function toggleDay(form: Form, day: number, defaults: Record<string, number[]>): Form {
+  const current = form.days ?? defaults[String(form.frequency)] ?? [];
+  const next = current.includes(day)
+    ? current.filter((d) => d !== day)
+    : [...current, day].sort((a, b) => a - b);
+  if (next.length === 0) return form;
+  return { ...form, days: next, frequency: next.length };
 }
 
 /** setOneRepMax は種目の1RMを変える。既定値に戻したら上書きを消す。

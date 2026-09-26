@@ -91,6 +91,9 @@ describe('settingsLine', () => {
     frequency: 4,
     weeks: 12,
     start: '2026-08-03',
+    weekdays: [0, 2, 4, 6],
+    exercises_per_session: 4,
+    sets_per_exercise: 3,
     athlete: {
       growth_pct_per_week: 0.5,
       first_session_pct: 70,
@@ -103,10 +106,16 @@ describe('settingsLine', () => {
   // 応答が解決した設定をそのまま書く。どの仮定から出た数字かを先に読ませる。
   it('前提を1行にする。1RMは宣言種目だけ', () => {
     expect(settingsLine(settings, names, '上下2分割')).toBe(
-      '前提: 2026-08-03 から12週・週4回・分割 上下2分割・重点 ベンチプレス。' +
+      '前提: 2026-08-03 から12週・週4回（月水金日）・1回 4種目×3セット・分割 上下2分割・重点 ベンチプレス。' +
         '模擬ユーザー: 伸び 0.5%/週・初回は実力の70%・体重75kg。' +
         '初日の1RM: ベンチプレス 100kg, スクワット 140kg',
     );
+  });
+
+  // 曜日は開始日からの日数で返ってくる。開始日が月曜でなくても、実際の曜日名で書く。
+  it('曜日は開始日から数えた実際の曜日名で書く', () => {
+    const got = settingsLine({ ...settings, start: '2026-09-09', weekdays: [0, 2] }, names, '');
+    expect(got).toContain('週4回（水金）');
   });
 
   it('分割と重点が無ければ「なし」', () => {

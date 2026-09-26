@@ -69,10 +69,21 @@ export function settingsLine(
   const name = (id: string) => names[id] ?? id;
   const a = s.athlete;
   const orm = s.declared.map((id) => `${name(id)} ${kg(a.one_rep_max_kg?.[id] ?? 0)}`);
+  const days = s.weekdays.map((d) => weekdayName(s.start, d)).join('');
   return (
-    `前提: ${s.start} から${s.weeks}週・週${s.frequency}回・分割 ${splitName || 'なし'}・` +
+    `前提: ${s.start} から${s.weeks}週・週${s.frequency}回（${days}）・` +
+    `1回 ${s.exercises_per_session}種目×${s.sets_per_exercise}セット・分割 ${splitName || 'なし'}・` +
     `重点 ${s.focus ? name(s.focus) : 'なし'}。` +
     `模擬ユーザー: 伸び ${a.growth_pct_per_week}%/週・初回は実力の${a.first_session_pct}%・` +
     `体重${a.body_weight_kg}kg。初日の1RM: ${orm.join(', ')}`
   );
+}
+
+const WEEKDAY = ['日', '月', '火', '水', '木', '金', '土'];
+
+/** weekdayName は開始日から offset 日目の曜日名。曜日は開始日からの日数で
+ *  返ってくるので、開始日が月曜でなくても実際の曜日で書く。 */
+export function weekdayName(start: string, offset: number): string {
+  const [y, m, d] = start.split('-').map(Number) as [number, number, number];
+  return WEEKDAY[new Date(Date.UTC(y, m - 1, d + offset)).getUTCDay()]!;
 }

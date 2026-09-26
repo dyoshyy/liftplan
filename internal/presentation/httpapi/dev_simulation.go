@@ -2,12 +2,14 @@ package httpapi
 
 import (
 	"net/http"
+	"slices"
 	"strconv"
 	"strings"
 
 	"github.com/dyoshyy/liftplan/internal/application/devsim"
 	"github.com/dyoshyy/liftplan/internal/domain/training"
 	"github.com/dyoshyy/liftplan/internal/domain/training/exercise"
+	"github.com/dyoshyy/liftplan/internal/domain/training/seed"
 )
 
 // DevSimulation は設定を変えたときに計画がどう変わるかを見る口。
@@ -62,10 +64,19 @@ type devAthleteDTO struct {
 	OneRepMaxKg map[string]float64 `json:"one_rep_max_kg,omitempty"`
 }
 
+type devScheduleDTO struct {
+	Exercises int `json:"exercises_per_session"`
+	Sets      int `json:"sets_per_exercise"`
+	// Weekdays は頻度（"1"〜"7"）ごとの既定の曜日（開始日からの日数）。
+	Weekdays map[string][]int `json:"weekdays_by_frequency"`
+	Start    string           `json:"start"`
+}
+
 type devOptionsDTO struct {
 	Exercises []devExerciseDTO `json:"exercises"`
 	Presets   []devPresetDTO   `json:"presets"`
 	Athlete   devAthleteDTO    `json:"athlete_defaults"`
+	Schedule  devScheduleDTO   `json:"schedule_defaults"`
 }
 
 type devSetDTO struct {
@@ -98,6 +109,10 @@ type devSettingsDTO struct {
 	Weeks     int           `json:"weeks"`
 	Start     string        `json:"start"`
 	Athlete   devAthleteDTO `json:"athlete"`
+	// Weekdays は通った曜日（開始日からの日数）。指定が無ければ頻度ごとの既定。
+	Weekdays  []int `json:"weekdays"`
+	Exercises int   `json:"exercises_per_session"`
+	Sets      int   `json:"sets_per_exercise"`
 }
 
 type devDayDTO struct {
@@ -152,6 +167,17 @@ func (d *DevSimulation) handleOptions(w http.ResponseWriter, _ *http.Request) {
 		FirstSessionPct:  a.FirstSessionPct,
 		BodyWeightKg:     a.BodyWeightKg,
 	}
+	out.Schedule = devScheduleDTO{
+		Exercises: seed.DefaultExercisesPerSession,
+		Sets:      seed.DefaultSetsPerExercise,
+		Weekdays:  map[string][]int{},
+		Start:     devDefaultStart.String(),
+	}
+	for f := 1; f <= 7; f++ {
+		if days, ok := devsim.DefaultWeekdays(f); ok {
+			out.Schedule.Weekdays[strconv.Itoa(f)] = days
+		}
+	}
 	writeJSON(w, http.StatusOK, out)
 }
 
@@ -179,6 +205,12 @@ const (
 	devMaxWeeks         = 12
 )
 
+// devDefaultStart は開始日の既定（月曜）。
+//
+// 固定の月曜から始めるのは、同じ設定なら同じ結果を出すため。今日から
+// 始めると曜日で結果が変わり、画面を見ながらの比較にならない。
+var devDefaultStart = training.MustDate(2026, 8, 3)
+
 func parseDevRequest(r *http.Request) (devsim.Request, error) {
 	q := r.URL.Query()
 
@@ -187,8 +219,18 @@ func parseDevRequest(r *http.Request) (devsim.Request, error) {
 		SplitKey:  q.Get("split"),
 		Frequency: devDefaultFrequency,
 		Weeks:     devDefaultWeeks,
-		Start:     devStartDate(q.Get("start")),
+		Start:     devDefaultStart,
 		Athlete:   devsim.DefaultAthlete(),
+
+		ExercisesPerSession: seed.DefaultExercisesPerSession,
+		SetsPerExercise:     seed.DefaultSetsPerExercise,
+	}
+	if v := q.Get("start"); q.Has("start") {
+		d, err := training.ParseDate(v)
+		if err != nil {
+			return devsim.Request{}, errDevQuery("start", v)
+		}
+		out.Start = d
 	}
 
 	for _, id := range strings.Split(q.Get("declared"), ",") {
@@ -210,6 +252,39 @@ func parseDevRequest(r *http.Request) (devsim.Request, error) {
 			return devsim.Request{}, errDevQuery("weeks", v)
 		}
 		out.Weeks = n
+	}
+
+	for _, f := range []struct {
+		name string
+		into *int
+	}{
+		{"exercises", &out.ExercisesPerSession},
+		{"sets", &out.SetsPerExercise},
+	} {
+		if !q.Has(f.name) {
+			continue
+		}
+		v := q.Get(f.name)
+		n, err := strconv.Atoi(v)
+		if err != nil {
+			return devsim.Request{}, errDevQuery(f.name, v)
+		}
+		*f.into = n
+	}
+
+	// 曜日を指定したら、頻度はその数。frequency も渡されて数が違えば、
+	// どちらかが書き間違いなので devsim がエラーにする。
+	if v := q.Get("days"); q.Has("days") {
+		for _, part := range strings.Split(v, ",") {
+			n, err := strconv.Atoi(strings.TrimSpace(part))
+			if err != nil {
+				return devsim.Request{}, errDevQuery("days", v)
+			}
+			out.Weekdays = append(out.Weekdays, n)
+		}
+		if !q.Has("frequency") {
+			out.Frequency = len(out.Weekdays)
+		}
 	}
 
 	// 模擬ユーザー。形だけ見て、範囲は devsim が見る（400 の理由も向こうが書く）。
@@ -255,17 +330,6 @@ func parseDevOneRepMax(v string) (map[exercise.ExerciseID]float64, error) {
 		out[exercise.ExerciseID(strings.TrimSpace(id))] = n
 	}
 	return out, nil
-}
-
-// devStartDate は開始日。指定が無ければ 2026-08-03（月曜）。
-//
-// 固定の月曜から始めるのは、同じ設定なら同じ結果を出すため。今日から
-// 始めると曜日で結果が変わり、画面を見ながらの比較にならない。
-func devStartDate(v string) training.Date {
-	if d, err := training.ParseDate(v); err == nil {
-		return d
-	}
-	return training.MustDate(2026, 8, 3)
 }
 
 type devQueryError struct{ name, value string }
@@ -321,6 +385,12 @@ func toDevSettingsDTO(req devsim.Request, pool []*exercise.Exercise) devSettings
 	}
 	for _, id := range req.Declared {
 		out.Declared = append(out.Declared, string(id))
+	}
+	out.Exercises, out.Sets = req.ExercisesPerSession, req.SetsPerExercise
+	out.Weekdays = append([]int(nil), req.Weekdays...)
+	slices.Sort(out.Weekdays)
+	if len(out.Weekdays) == 0 {
+		out.Weekdays, _ = devsim.DefaultWeekdays(req.Frequency)
 	}
 	for _, e := range pool {
 		out.Athlete.OneRepMaxKg[string(e.ID())] = req.Athlete.OneRepMax(e.ID())

@@ -44,6 +44,9 @@ const settings: DevResult['settings'] = {
   weeks: 4,
   start: '2026-01-05',
   athlete: { growth_pct_per_week: 0, first_session_pct: 70, body_weight_kg: 75 },
+  weekdays: [0, 2, 4, 6],
+  exercises_per_session: 4,
+  sets_per_exercise: 3,
 };
 
 const result = (days: DevDay[], weeks: DevWeek[] = []): DevResult => ({ settings, days, weeks });

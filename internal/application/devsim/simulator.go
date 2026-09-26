@@ -10,6 +10,7 @@ package devsim
 
 import (
 	"fmt"
+	"slices"
 
 	"github.com/dyoshyy/liftplan/internal/domain/training"
 	"github.com/dyoshyy/liftplan/internal/domain/training/condition"
@@ -29,6 +30,12 @@ type Request struct {
 	Weeks     int
 	Start     training.Date
 	Athlete   AthleteParams
+
+	// ExercisesPerSession と SetsPerExercise は1回の量。
+	ExercisesPerSession int
+	SetsPerExercise     int
+	// Weekdays は通う曜日（開始日からの日数 0〜6）。空なら頻度ごとの既定。
+	Weekdays []int
 }
 
 // Set は計画された1種目。
@@ -93,6 +100,39 @@ var weekdays = map[int][]int{
 	7: {0, 1, 2, 3, 4, 5, 6},
 }
 
+// DefaultWeekdays は頻度ごとの既定の曜日（開始日からの日数）。
+func DefaultWeekdays(frequency int) ([]int, bool) {
+	days, ok := weekdays[frequency]
+	return append([]int(nil), days...), ok
+}
+
+// offsets は通う曜日。指定が無ければ頻度ごとの既定。
+//
+// 指定するときは頻度と数を揃える。頻度は週目標の割り付けに効くので、
+// 曜日の数と食い違うと「週4の目標を週2でこなす」ことになる。
+func (r Request) offsets() ([]int, error) {
+	if len(r.Weekdays) == 0 {
+		days, ok := DefaultWeekdays(r.Frequency)
+		if !ok {
+			return nil, fmt.Errorf("頻度が範囲外である: %d", r.Frequency)
+		}
+		return days, nil
+	}
+	if len(r.Weekdays) != r.Frequency {
+		return nil, fmt.Errorf("曜日の数（%d）が頻度（%d）と違う", len(r.Weekdays), r.Frequency)
+	}
+	seen := map[int]bool{}
+	for _, d := range r.Weekdays {
+		if d < 0 || d > 6 || seen[d] {
+			return nil, fmt.Errorf("曜日は 0〜6 を重複なく指定する: %v", r.Weekdays)
+		}
+		seen[d] = true
+	}
+	days := append([]int(nil), r.Weekdays...)
+	slices.Sort(days)
+	return days, nil
+}
+
 // Simulator は処方どおり実施し続けた場合の計画を作る。
 type Simulator struct {
 	pool      []*exercise.Exercise
@@ -131,9 +171,9 @@ func (s *Simulator) Run(req Request) (Result, error) {
 		return Result{}, err
 	}
 
-	offsets, ok := weekdays[req.Frequency]
-	if !ok {
-		return Result{}, fmt.Errorf("頻度が範囲外である: %d", req.Frequency)
+	offsets, err := req.offsets()
+	if err != nil {
+		return Result{}, err
 	}
 
 	byID := make(map[exercise.ExerciseID]*exercise.Exercise, len(s.pool))
@@ -237,11 +277,9 @@ func (s *Simulator) buildProgram(req Request) (*program.Program, error) {
 	if err != nil {
 		return nil, fmt.Errorf("頻度が不正: %w", err)
 	}
-	// 1回の量は出荷時の既定で回す。入力に足すのは、設定の変化を見る画面が
-	// 要ったときでよい。
-	volume, err := seed.DefaultSessionVolume()
+	volume, err := program.NewSessionVolume(req.ExercisesPerSession, req.SetsPerExercise)
 	if err != nil {
-		return nil, fmt.Errorf("既定の1回の量が不正: %w", err)
+		return nil, fmt.Errorf("1回の量が不正: %w", err)
 	}
 	target, err := seed.DefaultWeeklyTarget(freq, volume)
 	if err != nil {
