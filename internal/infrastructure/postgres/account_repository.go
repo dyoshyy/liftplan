@@ -123,6 +123,46 @@ func (r *AccountRepository) FindUserByEmail(
 	}
 }
 
+// FindByUser はその利用者のアカウントをプロバイダ名の順に返す。
+//
+// 索引は使わない（user_id に索引は無い）。0010 で email に索引を付けな
+// かったのと同じ理由で、この表は利用者1人につき多くても2行しか無い。
+func (r *AccountRepository) FindByUser(
+	ctx context.Context, userID account.UserID,
+) ([]*account.Account, error) {
+	rows, err := r.pool.Query(ctx, `
+		SELECT provider, subject, coalesce(email, '') FROM accounts
+		WHERE user_id = $1
+		ORDER BY provider, subject`,
+		userID.String())
+	if err != nil {
+		return nil, wrapUnavailable(err, "利用者のアカウントを読めない")
+	}
+	defer rows.Close()
+
+	out := []*account.Account{}
+	for rows.Next() {
+		var storedProvider, storedSubject, storedEmail string
+		if err := rows.Scan(&storedProvider, &storedSubject, &storedEmail); err != nil {
+			return nil, wrapUnavailable(err, "利用者のアカウントを読めない")
+		}
+		// Find と同じく、保存されている値もコンストラクタを通す。
+		p, err := account.NewProvider(storedProvider)
+		if err != nil {
+			return nil, fmt.Errorf("保存されたプロバイダが不正: %w", err)
+		}
+		a, err := account.NewAccount(p, storedSubject, userID, account.NewEmail(storedEmail))
+		if err != nil {
+			return nil, fmt.Errorf("保存されたアカウントが不正: %w", err)
+		}
+		out = append(out, a)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, wrapUnavailable(err, "利用者のアカウントを読めない")
+	}
+	return out, nil
+}
+
 // Create はアカウントを作る。
 //
 // ON CONFLICT DO NOTHING にせず一意制約違反を受けるのは、「既にあった」を

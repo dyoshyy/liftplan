@@ -5,6 +5,8 @@ import { Section } from '../../ui/Section';
 import { Stepper } from '../../ui/Stepper';
 import type { RestTimer } from '../timer/useRestTimer';
 import { ProgramSettings } from './ProgramSettings';
+import { accountLine, accountSummary } from './account';
+import { useAccount } from './useAccount';
 import { useLogout } from './useLogout';
 import type { Exercise } from '../../api/types';
 
@@ -27,6 +29,8 @@ const STEP_MIN = 0.25;
 export function SettingsScreen({ nameOf, exercises, onChanged, timer, onForget }: Props) {
   const [confirming, setConfirming] = useState(false);
   const { logout, busy } = useLogout(onForget);
+  const logins = useAccount();
+  const signedInAs = accountLine(logins);
 
   return (
     <>
@@ -47,7 +51,8 @@ export function SettingsScreen({ nameOf, exercises, onChanged, timer, onForget }
         </Note>
       </Section>
 
-      <Section title="アカウント">
+      <Section title="アカウント" summary={accountSummary(logins)}>
+        {signedInAs && <Note className="mb-3">{signedInAs}</Note>}
         {/* confirm() は使わない。ページ全体が止まるうえ、記録の途中なら
             入力中の値が消える。取り消せない操作はその場で二段階にする。 */}
         {confirming ? (

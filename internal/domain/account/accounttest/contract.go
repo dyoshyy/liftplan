@@ -206,6 +206,87 @@ func RunAccountContract(t *testing.T, newRepos func(t *testing.T) Repos) {
 	})
 
 	runFindUserByEmailContract(t, newRepos)
+	runFindByUserContract(t, newRepos)
+}
+
+// runFindByUserContract は利用者から、その人のアカウントを引く口の契約。
+//
+// 設定画面の「アカウント」に、どのアドレスでログインしているかを出すのに
+// 使う。守るのは**他人のアカウントを返さないこと**。混ざると、他人の
+// メールアドレスが画面に出る。
+func runFindByUserContract(t *testing.T, newRepos func(t *testing.T) Repos) {
+	t.Helper()
+
+	ctx := context.Background()
+
+	// 同じ人が GitHub と Google の両方で入っている形と、別の人が同じ
+	// プロバイダにいる形を並べる。userB の行が返ったら他人が混ざっている。
+	t.Run("その人のアカウントだけをプロバイダ順に返す", func(t *testing.T) {
+		repos := newRepos(t)
+		createAll(t, repos,
+			mustAccount(t, account.Google(), "g-1", userA, emailA),
+			mustAccount(t, account.GitHub(), "1", userB, emailB),
+			mustAccount(t, account.GitHub(), "2", userA, emailA),
+		)
+
+		got, err := repos.Accounts.FindByUser(ctx, userA)
+		if err != nil {
+			t.Fatalf("取得に失敗: %v", err)
+		}
+		if len(got) != 2 {
+			t.Fatalf("%d 件返った。userA の2件のはず: %+v", len(got), got)
+		}
+		// 並びを決めておくのは、画面の表示が読み込むたびに入れ替わらないため。
+		want := []struct {
+			provider account.Provider
+			subject  string
+		}{{account.GitHub(), "2"}, {account.Google(), "g-1"}}
+		for i, w := range want {
+			if got[i].Provider() != w.provider || got[i].Subject() != w.subject {
+				t.Errorf("%d 件目が %s/%s。%s/%s のはず",
+					i, got[i].Provider(), got[i].Subject(), w.provider, w.subject)
+			}
+			if got[i].UserID() != userA {
+				t.Errorf("%d 件目の利用者が %q。%q のはず", i, got[i].UserID(), userA)
+			}
+			if got[i].Email() != emailA {
+				t.Errorf("%d 件目のアドレスが %q。%q のはず", i, got[i].Email(), emailA)
+			}
+		}
+	})
+
+	// アドレスを取っていないアカウントも返す。落とすと、ログインしている
+	// のに「アカウントが無い」ように見える。
+	t.Run("アドレスの無いアカウントも返す", func(t *testing.T) {
+		repos := newRepos(t)
+		createAll(t, repos, mustAccount(t, account.GitHub(), "1", userA, noEmail))
+
+		got, err := repos.Accounts.FindByUser(ctx, userA)
+		if err != nil {
+			t.Fatalf("取得に失敗: %v", err)
+		}
+		if len(got) != 1 {
+			t.Fatalf("%d 件返った。1件のはず", len(got))
+		}
+		if !got[0].Email().IsZero() {
+			t.Errorf("アドレスが %q。空のはず", got[0].Email())
+		}
+	})
+
+	// アカウントを持たない利用者は、エラーではなく空で返す。開発用の
+	// セッションはアカウントを通らずに入るので、この形になる。
+	t.Run("アカウントが無ければ空", func(t *testing.T) {
+		repos := newRepos(t)
+		createAll(t, repos, mustAccount(t, account.GitHub(), "1", userB, emailB))
+
+		got, err := repos.Accounts.FindByUser(ctx, userA)
+		if err != nil {
+			t.Fatalf("取得に失敗: %v", err)
+		}
+		if len(got) != 0 {
+			t.Errorf("%d 件返った。空のはず: %+v", len(got), got)
+		}
+	})
 }
 
 // runFindUserByEmailContract はメールアドレスから利用者を引く口の契約。

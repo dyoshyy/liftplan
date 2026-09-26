@@ -182,6 +182,12 @@ type AccountReader interface {
 	// （同じ人が GitHub と Google の両方で入った形）なので、
 	// 行数ではなく UserID の種類を数える。
 	FindUserByEmail(ctx context.Context, email Email) (UserID, error)
+
+	// FindByUser はその利用者のアカウントをプロバイダ名の順に返す。
+	//
+	// 無ければ空を返し、エラーにはしない。アカウントを通らずに入る
+	// 利用者（開発用のセッション）がいるので、無いことは正常な形。
+	FindByUser(ctx context.Context, userID UserID) ([]*Account, error)
 }
 
 // AccountWriter はアカウントの書き込み口。

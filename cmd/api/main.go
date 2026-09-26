@@ -253,6 +253,7 @@ func buildHandler(ctx context.Context) (http.Handler, func(), error) {
 		Exercises:        query.NewExercises(exercises),
 		History:          query.NewHistory(logs, exercises),
 		Stats:            query.NewStats(logs, exercises, programs, planning.DefaultOneRepMaxEstimator()),
+		Accounts:         query.NewAccounts(repos.accounts),
 	})
 	if err != nil {
 		repos.close()

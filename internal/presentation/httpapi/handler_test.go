@@ -114,6 +114,7 @@ func dependencies(
 		Exercises:        query.NewExercises(exercises),
 		History:          query.NewHistory(logs, exercises),
 		Stats:            query.NewStats(logs, exercises, programs, planning.DefaultOneRepMaxEstimator()),
+		Accounts:         query.NewAccounts(memory.NewAccountRepository()),
 	}
 }
 

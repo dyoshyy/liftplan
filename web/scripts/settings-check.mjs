@@ -16,6 +16,11 @@ const auth = { Authorization: `Bearer ${TOKEN}` };
 const program = () => fetch(`${API}/api/program`, { headers: auth }).then((r) => r.json());
 
 const before = await program();
+// 開発用のセッションはアカウントを持たないので、本物の応答は空になる。
+// 空であることをここで見てから、画面へは作った応答を渡す。アドレスが
+// 出る側の配線は、実際に出る応答でしか確かめられない。
+const realAccount = await fetch(`${API}/api/account`, { headers: auth }).then((r) => r.json());
+console.log('本物の /api/account:', JSON.stringify(realAccount), '（期待 {"accounts":[]}）');
 console.log('保存前: per_week =', before.per_week, '/ declared =', before.declared_exercises.length, '件');
 
 const browser = await chromium.launch({ executablePath: process.env.CHROME ?? '/usr/bin/chromium', args: ['--no-sandbox'] });
@@ -23,6 +28,13 @@ const page = await (await browser.newContext({ viewport: { width: 390, height: 8
 const errs = [];
 page.on('pageerror', (e) => errs.push(e.message));
 page.on('console', (m) => { if (m.type() === 'error') errs.push(m.text()); });
+await page.route('**/api/account', (route) => route.fulfill({
+  contentType: 'application/json',
+  body: JSON.stringify({ accounts: [
+    { provider: 'github', email: 'gym@example.com' },
+    { provider: 'google', email: 'gym@example.com' },
+  ] }),
+}));
 
 // ログインはフラグメントで済ませる。/auth/* を通すとプロバイダの画面が
 // 挟まり、自動では抜けられない。#token= はサーバーがコールバックで戻して
@@ -92,6 +104,14 @@ await page.waitForTimeout(1500);
 const repicked = await program();
 console.log('入れ直した後: selected =', repicked.selected_exercises.length, '件');
 
+// アカウント。畳んだ見出しにアドレス、開くとログイン方法が出るか。
+const accountHeader = page.locator('button[aria-expanded]', { hasText: /^アカウント/ });
+const accountSummary = (await accountHeader.textContent()) ?? '';
+await accountHeader.click();
+await page.waitForTimeout(300);
+const signedInAs = await page.getByText('gym@example.com（GitHub・Google）でログインしています').isVisible();
+console.log('アカウント: 畳んだ見出し =', accountSummary, '/ 開いた中の1行', signedInAs, '（期待 true）');
+
 console.log('エラー:', errs.length ? errs.join('\n') : '(なし)');
 const ok = after.per_week === want && after.declared_exercises.length === before.declared_exercises.length && restored.per_week === before.per_week
   && vol.exercises_per_session === wantEx && vol.sets_per_exercise === restored.sets_per_exercise
@@ -100,7 +120,9 @@ const ok = after.per_week === want && after.declared_exercises.length === before
   && unpicked.selected_exercises.length === before.selected_exercises.length - 1
   && leftInGrow === 0
   && summary.includes(`使う${before.selected_exercises.length - 1}・`)
-  && repicked.selected_exercises.length === before.selected_exercises.length;
+  && repicked.selected_exercises.length === before.selected_exercises.length
+  && Array.isArray(realAccount.accounts) && realAccount.accounts.length === 0
+  && accountSummary.includes('gym@example.com') && signedInAs;
 console.log(ok ? '\n✓ 設定の保存は壊れていない' : '\n✗ 壊れている');
 await browser.close();
 process.exit(ok ? 0 : 1);

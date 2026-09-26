@@ -3,6 +3,7 @@ package memory
 import (
 	"context"
 	"fmt"
+	"sort"
 	"sync"
 	"time"
 
@@ -78,6 +79,31 @@ func (r *AccountRepository) FindUserByEmail(
 		return account.UserID{}, fmt.Errorf("%w: %s", account.ErrAccountNotFound, email)
 	}
 	return found, nil
+}
+
+// FindByUser はその利用者のアカウントをプロバイダ名の順に返す。
+//
+// map の反復順は毎回変わるので、並べ直してから返す。Postgres 側の
+// ORDER BY と同じ並び。
+func (r *AccountRepository) FindByUser(
+	_ context.Context, userID account.UserID,
+) ([]*account.Account, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	out := []*account.Account{}
+	for _, a := range r.byKey {
+		if a.UserID() == userID {
+			out = append(out, a)
+		}
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Provider() != out[j].Provider() {
+			return out[i].Provider().String() < out[j].Provider().String()
+		}
+		return out[i].Subject() < out[j].Subject()
+	})
+	return out, nil
 }
 
 // Create はアカウントを作る。既にあれば ErrAccountAlreadyExists を返す。

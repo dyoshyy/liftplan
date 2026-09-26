@@ -19,6 +19,9 @@ func (stubRepo) Find(context.Context, account.Provider, string) (*account.Accoun
 func (stubRepo) FindUserByEmail(context.Context, account.Email) (account.UserID, error) {
 	return account.UserID{}, account.ErrAccountNotFound
 }
+func (stubRepo) FindByUser(context.Context, account.UserID) ([]*account.Account, error) {
+	return nil, nil
+}
 func (stubRepo) Create(context.Context, *account.Account) error { return nil }
 
 type stubSessionRepo struct{}
@@ -50,6 +53,7 @@ func TestRepository_KeepsItsShape(t *testing.T) {
 	var (
 		_ func(context.Context, account.Provider, string) (*account.Account, error)     = ar.Find
 		_ func(context.Context, account.Email) (account.UserID, error)                  = ar.FindUserByEmail
+		_ func(context.Context, account.UserID) ([]*account.Account, error)             = ar.FindByUser
 		_ func(context.Context, *account.Account) error                                 = aw.Create
 		_ func(context.Context, account.TokenHash, time.Time) (*account.Session, error) = sr.Find
 		_ func(context.Context, *account.Session) error                                 = sw.Create
@@ -72,7 +76,7 @@ func TestRepository_ReadAndWriteStaySeparate(t *testing.T) {
 		{
 			"AccountReader",
 			reflect.TypeOf((*account.AccountReader)(nil)).Elem(),
-			[]string{"Find", "FindUserByEmail"},
+			[]string{"Find", "FindByUser", "FindUserByEmail"},
 		},
 		{
 			"AccountWriter",

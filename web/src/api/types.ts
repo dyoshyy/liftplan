@@ -41,6 +41,11 @@ export type SplitPreset = {
 
 export type SplitPresetsResponse = { presets: SplitPreset[] };
 
+/** Login はログイン方法の1つ。email は取っていなければ null。 */
+export type Login = { provider: string; email: string | null };
+
+export type AccountResponse = { accounts: Login[] };
+
 export type Program = {
   per_week: number;
   /** 1回に出る種目の数（2〜6）。利用者が時間に合わせて選ぶ。 */

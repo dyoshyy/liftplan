@@ -35,6 +35,7 @@ type Handler struct {
 	exercises        *query.Exercises
 	history          *query.History
 	stats            *query.Stats
+	accounts         *query.Accounts
 }
 
 // Dependencies は Handler を組むための材料。
@@ -56,6 +57,7 @@ type Dependencies struct {
 	Exercises        *query.Exercises
 	History          *query.History
 	Stats            *query.Stats
+	Accounts         *query.Accounts
 }
 
 // NewHandler は依存を受け取って Handler を組む。
@@ -97,6 +99,8 @@ func NewHandler(d Dependencies) (*Handler, error) {
 		return nil, errMissingDependency("History")
 	case d.Stats == nil:
 		return nil, errMissingDependency("Stats")
+	case d.Accounts == nil:
+		return nil, errMissingDependency("Accounts")
 	}
 
 	return &Handler{
@@ -114,6 +118,7 @@ func NewHandler(d Dependencies) (*Handler, error) {
 		exercises:        d.Exercises,
 		history:          d.History,
 		stats:            d.Stats,
+		accounts:         d.Accounts,
 	}, nil
 }
 

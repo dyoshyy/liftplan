@@ -241,3 +241,41 @@ func toVolumeDTOs(volume []query.RegionVolume) []volumeDTO {
 	}
 	return out
 }
+
+// loginDTO はログイン方法の1つ。
+//
+// email がポインタなのは、取っていないアドレスを null で返すため。空文字に
+// すると、画面が「空という値のアドレス」と「取っていない」を区別できない。
+type loginDTO struct {
+	Provider string  `json:"provider"`
+	Email    *string `json:"email"`
+}
+
+// handleGetAccount は認証した本人のログイン方法を返す。
+//
+// 設定画面の「アカウント」に、どのアドレスで入っているかを出すのに使う。
+// アカウントを持たない利用者（開発用のセッション）には空の配列を返す。
+func (h *Handler) handleGetAccount(w http.ResponseWriter, r *http.Request) {
+	user, ok := requireUser(w, r)
+	if !ok {
+		return
+	}
+	logins, err := h.accounts.Of(r.Context(), user)
+	if err != nil {
+		respondError(w, err)
+		return
+	}
+
+	out := make([]loginDTO, 0, len(logins))
+	for _, l := range logins {
+		dto := loginDTO{Provider: l.Provider}
+		if l.Email != "" {
+			email := l.Email
+			dto.Email = &email
+		}
+		out = append(out, dto)
+	}
+	writeJSON(w, http.StatusOK, struct {
+		Accounts []loginDTO `json:"accounts"`
+	}{out})
+}
