@@ -1,6 +1,7 @@
 package seed_test
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/dyoshyy/liftplan/internal/domain/training"
@@ -355,6 +356,20 @@ func TestDefaultWeeklyTarget_DistributionIsUnchanged(t *testing.T) {
 		gotRatio := got.Sets(r) / base
 		if d := gotRatio - wantRatio; d > 1e-6 || d < -1e-6 {
 			t.Errorf("%s の比が %.6f。%.6f のはず", r, gotRatio, wantRatio)
+		}
+	}
+}
+
+// シードの ID は自分の種目の接頭辞で始まらないこと。
+//
+// 自分の種目の ID はサーバーが "u-" ＋乱数で採番する。シードに "u-" で
+// 始まる ID を置くと、いつか採番した ID とぶつかる。実行時に採番し直す
+// 仕組みを持たない代わりに、ここで守る。
+func TestExercises_NoIDUsesTheCustomPrefix(t *testing.T) {
+	all, _ := seed.Exercises()
+	for _, e := range all {
+		if strings.HasPrefix(string(e.ID()), exercise.CustomExerciseIDPrefix) {
+			t.Errorf("%s が自分の種目の接頭辞で始まっている", e.ID())
 		}
 	}
 }
