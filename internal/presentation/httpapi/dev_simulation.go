@@ -2,12 +2,14 @@ package httpapi
 
 import (
 	"net/http"
+	"slices"
 	"strconv"
 	"strings"
 
 	"github.com/dyoshyy/liftplan/internal/application/devsim"
 	"github.com/dyoshyy/liftplan/internal/domain/training"
 	"github.com/dyoshyy/liftplan/internal/domain/training/exercise"
+	"github.com/dyoshyy/liftplan/internal/domain/training/seed"
 )
 
 // DevSimulation は設定を変えたときに計画がどう変わるかを見る口。
@@ -42,6 +44,10 @@ type devExerciseDTO struct {
 	ID      string `json:"id"`
 	Name    string `json:"name"`
 	Derived string `json:"derived_from,omitempty"`
+	// DefaultOneRepMax は模擬ユーザーの初日の実力の既定値（加重の1RM）。
+	DefaultOneRepMax float64 `json:"default_1rm_kg"`
+	// Bodyweight は自重が負荷に乗る種目か。1RM は加重の分だけで表す。
+	Bodyweight bool `json:"bodyweight"`
 }
 
 type devPresetDTO struct {
@@ -50,9 +56,27 @@ type devPresetDTO struct {
 	Days []string `json:"days"`
 }
 
+type devAthleteDTO struct {
+	GrowthPctPerWeek float64 `json:"growth_pct_per_week"`
+	FirstSessionPct  float64 `json:"first_session_pct"`
+	BodyWeightKg     float64 `json:"body_weight_kg"`
+	// OneRepMaxKg は種目ごとの初日の実力。応答では全種目を既定値で埋めて返す。
+	OneRepMaxKg map[string]float64 `json:"one_rep_max_kg,omitempty"`
+}
+
+type devScheduleDTO struct {
+	Exercises int `json:"exercises_per_session"`
+	Sets      int `json:"sets_per_exercise"`
+	// Weekdays は頻度（"1"〜"7"）ごとの既定の曜日（開始日からの日数）。
+	Weekdays map[string][]int `json:"weekdays_by_frequency"`
+	Start    string           `json:"start"`
+}
+
 type devOptionsDTO struct {
 	Exercises []devExerciseDTO `json:"exercises"`
 	Presets   []devPresetDTO   `json:"presets"`
+	Athlete   devAthleteDTO    `json:"athlete_defaults"`
+	Schedule  devScheduleDTO   `json:"schedule_defaults"`
 }
 
 type devSetDTO struct {
@@ -63,6 +87,32 @@ type devSetDTO struct {
 	TargetRIR  int      `json:"target_rir"`
 	// PctOf1RM は推定1RMに対する比。推定が立たない初出の日は null。
 	PctOf1RM *float64 `json:"pct_of_1rm"`
+	// Athlete1RM はその日の模擬ユーザーの実力（加重の1RM）。
+	Athlete1RM float64 `json:"athlete_1rm_kg"`
+	// Performed は模擬ユーザーが記録した値（全セット同じ）。
+	Performed devPerformedDTO `json:"performed"`
+}
+
+type devPerformedDTO struct {
+	WeightKg float64 `json:"weight_kg"`
+	Reps     int     `json:"reps"`
+	RIR      int     `json:"rir"`
+}
+
+// devSettingsDTO は結果を作った設定。既定値を解決したあとの値を返し、
+// 応答だけでどの仮定から出た数字かが分かるようにする。
+type devSettingsDTO struct {
+	Declared  []string      `json:"declared"`
+	Focus     string        `json:"focus"`
+	Split     string        `json:"split"`
+	Frequency int           `json:"frequency"`
+	Weeks     int           `json:"weeks"`
+	Start     string        `json:"start"`
+	Athlete   devAthleteDTO `json:"athlete"`
+	// Weekdays は通った曜日（開始日からの日数）。指定が無ければ頻度ごとの既定。
+	Weekdays  []int `json:"weekdays"`
+	Exercises int   `json:"exercises_per_session"`
+	Sets      int   `json:"sets_per_exercise"`
 }
 
 type devDayDTO struct {
@@ -86,14 +136,19 @@ type devWeekDTO struct {
 }
 
 type devResultDTO struct {
-	Days  []devDayDTO  `json:"days"`
-	Weeks []devWeekDTO `json:"weeks"`
+	Settings devSettingsDTO `json:"settings"`
+	Days     []devDayDTO    `json:"days"`
+	Weeks    []devWeekDTO   `json:"weeks"`
 }
 
 func (d *DevSimulation) handleOptions(w http.ResponseWriter, _ *http.Request) {
 	out := devOptionsDTO{}
 	for _, e := range d.sim.Pool() {
-		dto := devExerciseDTO{ID: string(e.ID()), Name: e.Name()}
+		dto := devExerciseDTO{
+			ID: string(e.ID()), Name: e.Name(),
+			DefaultOneRepMax: devsim.DefaultOneRepMax(e.ID()),
+			Bodyweight:       e.BodyweightFactor().Float() > 0,
+		}
 		if from, ok := e.DerivedFrom(); ok {
 			dto.Derived = string(from)
 		}
@@ -105,6 +160,23 @@ func (d *DevSimulation) handleOptions(w http.ResponseWriter, _ *http.Request) {
 			dto.Days = append(dto.Days, day.Name())
 		}
 		out.Presets = append(out.Presets, dto)
+	}
+	a := devsim.DefaultAthlete()
+	out.Athlete = devAthleteDTO{
+		GrowthPctPerWeek: a.GrowthPctPerWeek,
+		FirstSessionPct:  a.FirstSessionPct,
+		BodyWeightKg:     a.BodyWeightKg,
+	}
+	out.Schedule = devScheduleDTO{
+		Exercises: seed.DefaultExercisesPerSession,
+		Sets:      seed.DefaultSetsPerExercise,
+		Weekdays:  map[string][]int{},
+		Start:     devDefaultStart.String(),
+	}
+	for f := 1; f <= 7; f++ {
+		if days, ok := devsim.DefaultWeekdays(f); ok {
+			out.Schedule.Weekdays[strconv.Itoa(f)] = days
+		}
 	}
 	writeJSON(w, http.StatusOK, out)
 }
@@ -123,7 +195,7 @@ func (d *DevSimulation) handleSimulate(w http.ResponseWriter, r *http.Request) {
 		respondError(w, invalidInput(err.Error()))
 		return
 	}
-	writeJSON(w, http.StatusOK, toDevResultDTO(got))
+	writeJSON(w, http.StatusOK, toDevResultDTO(req, d.sim.Pool(), got))
 }
 
 // devDefaults は指定が無いときの既定。1ヶ月ぶんを週4で見る。
@@ -133,6 +205,12 @@ const (
 	devMaxWeeks         = 12
 )
 
+// devDefaultStart は開始日の既定（月曜）。
+//
+// 固定の月曜から始めるのは、同じ設定なら同じ結果を出すため。今日から
+// 始めると曜日で結果が変わり、画面を見ながらの比較にならない。
+var devDefaultStart = training.MustDate(2026, 8, 3)
+
 func parseDevRequest(r *http.Request) (devsim.Request, error) {
 	q := r.URL.Query()
 
@@ -141,7 +219,18 @@ func parseDevRequest(r *http.Request) (devsim.Request, error) {
 		SplitKey:  q.Get("split"),
 		Frequency: devDefaultFrequency,
 		Weeks:     devDefaultWeeks,
-		Start:     devStartDate(q.Get("start")),
+		Start:     devDefaultStart,
+		Athlete:   devsim.DefaultAthlete(),
+
+		ExercisesPerSession: seed.DefaultExercisesPerSession,
+		SetsPerExercise:     seed.DefaultSetsPerExercise,
+	}
+	if v := q.Get("start"); q.Has("start") {
+		d, err := training.ParseDate(v)
+		if err != nil {
+			return devsim.Request{}, errDevQuery("start", v)
+		}
+		out.Start = d
 	}
 
 	for _, id := range strings.Split(q.Get("declared"), ",") {
@@ -164,18 +253,83 @@ func parseDevRequest(r *http.Request) (devsim.Request, error) {
 		}
 		out.Weeks = n
 	}
+
+	for _, f := range []struct {
+		name string
+		into *int
+	}{
+		{"exercises", &out.ExercisesPerSession},
+		{"sets", &out.SetsPerExercise},
+	} {
+		if !q.Has(f.name) {
+			continue
+		}
+		v := q.Get(f.name)
+		n, err := strconv.Atoi(v)
+		if err != nil {
+			return devsim.Request{}, errDevQuery(f.name, v)
+		}
+		*f.into = n
+	}
+
+	// 曜日を指定したら、頻度はその数。frequency も渡されて数が違えば、
+	// どちらかが書き間違いなので devsim がエラーにする。
+	if v := q.Get("days"); q.Has("days") {
+		for _, part := range strings.Split(v, ",") {
+			n, err := strconv.Atoi(strings.TrimSpace(part))
+			if err != nil {
+				return devsim.Request{}, errDevQuery("days", v)
+			}
+			out.Weekdays = append(out.Weekdays, n)
+		}
+		if !q.Has("frequency") {
+			out.Frequency = len(out.Weekdays)
+		}
+	}
+
+	// 模擬ユーザー。形だけ見て、範囲は devsim が見る（400 の理由も向こうが書く）。
+	for _, f := range []struct {
+		name string
+		into *float64
+	}{
+		{"growth", &out.Athlete.GrowthPctPerWeek},
+		{"first_pct", &out.Athlete.FirstSessionPct},
+		{"body_weight", &out.Athlete.BodyWeightKg},
+	} {
+		if !q.Has(f.name) {
+			continue
+		}
+		v := q.Get(f.name)
+		n, err := strconv.ParseFloat(v, 64)
+		if err != nil {
+			return devsim.Request{}, errDevQuery(f.name, v)
+		}
+		*f.into = n
+	}
+	orm, err := parseDevOneRepMax(q.Get("orm"))
+	if err != nil {
+		return devsim.Request{}, err
+	}
+	out.Athlete.OneRepMaxKg = orm
 	return out, nil
 }
 
-// devStartDate は開始日。指定が無ければ 2026-08-03（月曜）。
-//
-// 固定の月曜から始めるのは、同じ設定なら同じ結果を出すため。今日から
-// 始めると曜日で結果が変わり、画面を見ながらの比較にならない。
-func devStartDate(v string) training.Date {
-	if d, err := training.ParseDate(v); err == nil {
-		return d
+// parseDevOneRepMax は "bench:100,squat:140" を種目ごとの1RMにする。
+func parseDevOneRepMax(v string) (map[exercise.ExerciseID]float64, error) {
+	out := map[exercise.ExerciseID]float64{}
+	for _, pair := range strings.Split(v, ",") {
+		if pair = strings.TrimSpace(pair); pair == "" {
+			continue
+		}
+		// ":" が無ければ kg が空になり、数値の変換で落ちる。
+		id, kg, _ := strings.Cut(pair, ":")
+		n, err := strconv.ParseFloat(strings.TrimSpace(kg), 64)
+		if err != nil {
+			return nil, errDevQuery("orm", pair)
+		}
+		out[exercise.ExerciseID(strings.TrimSpace(id))] = n
 	}
-	return training.MustDate(2026, 8, 3)
+	return out, nil
 }
 
 type devQueryError struct{ name, value string }
@@ -186,10 +340,11 @@ func (e devQueryError) Error() string {
 
 func errDevQuery(name, value string) error { return devQueryError{name: name, value: value} }
 
-func toDevResultDTO(in devsim.Result) devResultDTO {
+func toDevResultDTO(req devsim.Request, pool []*exercise.Exercise, in devsim.Result) devResultDTO {
 	out := devResultDTO{
-		Days:  make([]devDayDTO, 0, len(in.Days)),
-		Weeks: make([]devWeekDTO, 0, len(in.Weeks)),
+		Settings: toDevSettingsDTO(req, pool),
+		Days:     make([]devDayDTO, 0, len(in.Days)),
+		Weeks:    make([]devWeekDTO, 0, len(in.Weeks)),
 	}
 	for _, d := range in.Days {
 		out.Days = append(out.Days, devDayDTO{
@@ -213,6 +368,36 @@ func toDevResultDTO(in devsim.Result) devResultDTO {
 	return out
 }
 
+func toDevSettingsDTO(req devsim.Request, pool []*exercise.Exercise) devSettingsDTO {
+	out := devSettingsDTO{
+		Declared:  make([]string, 0, len(req.Declared)),
+		Focus:     string(req.Focus),
+		Split:     req.SplitKey,
+		Frequency: req.Frequency,
+		Weeks:     req.Weeks,
+		Start:     req.Start.String(),
+		Athlete: devAthleteDTO{
+			GrowthPctPerWeek: req.Athlete.GrowthPctPerWeek,
+			FirstSessionPct:  req.Athlete.FirstSessionPct,
+			BodyWeightKg:     req.Athlete.BodyWeightKg,
+			OneRepMaxKg:      make(map[string]float64, len(pool)),
+		},
+	}
+	for _, id := range req.Declared {
+		out.Declared = append(out.Declared, string(id))
+	}
+	out.Exercises, out.Sets = req.ExercisesPerSession, req.SetsPerExercise
+	out.Weekdays = append([]int(nil), req.Weekdays...)
+	slices.Sort(out.Weekdays)
+	if len(out.Weekdays) == 0 {
+		out.Weekdays, _ = devsim.DefaultWeekdays(req.Frequency)
+	}
+	for _, e := range pool {
+		out.Athlete.OneRepMaxKg[string(e.ID())] = req.Athlete.OneRepMax(e.ID())
+	}
+	return out
+}
+
 func toDevSetDTOs(in []devsim.Set) []devSetDTO {
 	out := make([]devSetDTO, 0, len(in))
 	for _, s := range in {
@@ -221,6 +406,10 @@ func toDevSetDTOs(in []devsim.Set) []devSetDTO {
 			Name:       s.Name,
 			Sets:       s.Sets,
 			TargetRIR:  s.TargetRIR,
+			Athlete1RM: s.AthleteOneRepMaxKg,
+			Performed: devPerformedDTO{
+				WeightKg: s.Performed.WeightKg, Reps: s.Performed.Reps, RIR: s.Performed.RIR,
+			},
 		}
 		if s.HasWeight {
 			kg := s.WeightKg

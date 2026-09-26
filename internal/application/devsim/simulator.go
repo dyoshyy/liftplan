@@ -10,6 +10,7 @@ package devsim
 
 import (
 	"fmt"
+	"slices"
 
 	"github.com/dyoshyy/liftplan/internal/domain/training"
 	"github.com/dyoshyy/liftplan/internal/domain/training/condition"
@@ -28,6 +29,13 @@ type Request struct {
 	Frequency int
 	Weeks     int
 	Start     training.Date
+	Athlete   AthleteParams
+
+	// ExercisesPerSession と SetsPerExercise は1回の量。
+	ExercisesPerSession int
+	SetsPerExercise     int
+	// Weekdays は通う曜日（開始日からの日数 0〜6）。空なら頻度ごとの既定。
+	Weekdays []int
 }
 
 // Set は計画された1種目。
@@ -41,6 +49,12 @@ type Set struct {
 	// PctOfOneRM は推定1RMに対する比。一巡が回っているかはこれで見る。
 	// 推定が立たない初出の日は 0。
 	PctOfOneRM float64
+	// Performed は模擬ユーザーが実際に記録した値。処方の重量が無い日も
+	// 本人が選んだ重さで埋まる。全セット同じ値で記録する。
+	Performed Performed
+	// AthleteOneRepMaxKg はその日の模擬ユーザーの実力（加重の1RM）。
+	// 処方が実力を追えているかは、これと WeightKg を比べて見る。
+	AthleteOneRepMaxKg float64
 }
 
 // Day は1セッション。
@@ -86,31 +100,38 @@ var weekdays = map[int][]int{
 	7: {0, 1, 2, 3, 4, 5, 6},
 }
 
-// assumedBodyWeightKg は自重種目を計算できるようにするための体重。
-// 体重が無いとチンニングとディップスが推定にも処方にも乗らない。
-const assumedBodyWeightKg = 75
-
-// assumedOneRepMax は「まだ記録が無い種目を、本人がどれくらい扱えるか」。
-//
-// 処方の重量が未確定のときだけ使う。実力そのものを測りたいのではなく、
-// 履歴を進めるために何か置く必要があるだけ。`seed` の通し検証と同じ値。
-func assumedOneRepMax(id exercise.ExerciseID) float64 {
-	switch id {
-	case "squat":
-		return 140
-	case "bench":
-		return 100
-	case "deadlift":
-		return 180
-	}
-	return 50
+// DefaultWeekdays は頻度ごとの既定の曜日（開始日からの日数）。
+func DefaultWeekdays(frequency int) ([]int, bool) {
+	days, ok := weekdays[frequency]
+	return append([]int(nil), days...), ok
 }
 
-// assumedReps は捏造する記録のレップ数。
+// offsets は通う曜日。指定が無ければ頻度ごとの既定。
 //
-// 処方は強度と目標RIRを決めるが、レップ数は決めない（本人が決める）。
-// 推定1RMを動かすために何か置く必要があるので、8 で固定する。
-const assumedReps = 8
+// 指定するときは頻度と数を揃える。頻度は週目標の割り付けに効くので、
+// 曜日の数と食い違うと「週4の目標を週2でこなす」ことになる。
+func (r Request) offsets() ([]int, error) {
+	if len(r.Weekdays) == 0 {
+		days, ok := DefaultWeekdays(r.Frequency)
+		if !ok {
+			return nil, fmt.Errorf("頻度が範囲外である: %d", r.Frequency)
+		}
+		return days, nil
+	}
+	if len(r.Weekdays) != r.Frequency {
+		return nil, fmt.Errorf("曜日の数（%d）が頻度（%d）と違う", len(r.Weekdays), r.Frequency)
+	}
+	seen := map[int]bool{}
+	for _, d := range r.Weekdays {
+		if d < 0 || d > 6 || seen[d] {
+			return nil, fmt.Errorf("曜日は 0〜6 を重複なく指定する: %v", r.Weekdays)
+		}
+		seen[d] = true
+	}
+	days := append([]int(nil), r.Weekdays...)
+	slices.Sort(days)
+	return days, nil
+}
 
 // Simulator は処方どおり実施し続けた場合の計画を作る。
 type Simulator struct {
@@ -157,21 +178,30 @@ func (s *Simulator) Run(req Request) (Result, error) {
 		return Result{}, fmt.Errorf("週目標が組めない: %w", err)
 	}
 
-	offsets, ok := weekdays[req.Frequency]
-	if !ok {
-		return Result{}, fmt.Errorf("頻度が範囲外である: %d", req.Frequency)
+	offsets, err := req.offsets()
+	if err != nil {
+		return Result{}, err
 	}
 
-	conditions := condition.NewConditionLog([]condition.DailyCondition{
-		condition.NewDailyCondition(req.Start).WithBodyWeight(assumedBodyWeightKg),
-	})
 	byID := make(map[exercise.ExerciseID]*exercise.Exercise, len(s.pool))
 	for _, e := range s.pool {
 		byID[e.ID()] = e
 	}
+	if err := req.Athlete.validate(byID); err != nil {
+		return Result{}, err
+	}
+	who := athlete{params: req.Athlete, start: req.Start}
+
+	conditions := condition.NewConditionLog([]condition.DailyCondition{
+		condition.NewDailyCondition(req.Start).WithBodyWeight(req.Athlete.BodyWeightKg),
+	})
 
 	out := Result{}
 	var logs []*setlog.SetLog
+	// effective は同じ記録を体重込みの負荷に直したもの。推定比を出すのに
+	// だけ使う。プランナーも推定は体重込みで行う（planning.effectiveHistory）。
+	// 記録のままで推定すると、自重種目の比が意味の無い値になる。
+	var effective []*setlog.SetLog
 	n := 0
 
 	for w := range req.Weeks {
@@ -181,6 +211,7 @@ func (s *Simulator) Run(req Request) (Result, error) {
 		for _, off := range offsets {
 			date := req.Start.AddDays(w*7 + off)
 			history := setlog.NewHistory(logs)
+			estimable := setlog.NewHistory(effective)
 
 			planned, err := s.planner.Plan(planning.PlanRequest{
 				Program:    prog,
@@ -204,19 +235,31 @@ func (s *Simulator) Run(req Request) (Result, error) {
 				{planned.Accessories(), &day.Accessories},
 			} {
 				for _, set := range lane.sets {
-					*lane.into = append(*lane.into, s.describe(set, byID, history, date))
 					day.TotalSets += set.Sets().Int()
 
-					kg, ok := set.Weight()
-					weightKg := assumedOneRepMax(set.ExerciseID()) * 0.7
-					if ok {
+					// 処方の重量が無い回（履歴の無い初回）は本人が選ぶ。
+					e := byID[set.ExerciseID()]
+					weightKg := who.firstWeight(e, date)
+					if kg, ok := set.Weight(); ok {
 						weightKg = kg.Kg()
 					}
+					did := who.perform(e, date, weightKg, set.TargetRIR().Int())
+
+					described := s.describe(set, e, estimable, date, who.bodyLoad(e))
+					described.Performed = did
+					described.AthleteOneRepMaxKg = who.strength(e, date) - who.bodyLoad(e)
+					*lane.into = append(*lane.into, described)
+
 					// 1セットずつ積む。まとめて1件にすると、残差が
 					// 「1セットしかやっていない」と見て補助が増える。
+					asLoad := did
+					asLoad.WeightKg += who.bodyLoad(e)
 					for range set.Sets().Int() {
-						if l := s.log(&n, date, set, weightKg); l != nil {
+						if l := s.log(&n, date, set.ExerciseID(), did); l != nil {
 							logs = append(logs, l)
+						}
+						if l := s.log(&n, date, set.ExerciseID(), asLoad); l != nil {
+							effective = append(effective, l)
 						}
 					}
 					addStimulus(done, byID[set.ExerciseID()], set.Sets().Int())
@@ -241,11 +284,9 @@ func (s *Simulator) buildProgram(req Request) (*program.Program, error) {
 	if err != nil {
 		return nil, fmt.Errorf("頻度が不正: %w", err)
 	}
-	// 1回の量は出荷時の既定で回す。入力に足すのは、設定の変化を見る画面が
-	// 要ったときでよい。
-	volume, err := seed.DefaultSessionVolume()
+	volume, err := program.NewSessionVolume(req.ExercisesPerSession, req.SetsPerExercise)
 	if err != nil {
-		return nil, fmt.Errorf("既定の1回の量が不正: %w", err)
+		return nil, fmt.Errorf("1回の量が不正: %w", err)
 	}
 
 	// 使う種目は全件。外したときの挙動を見たいときは宣言と重点種目で足りる。
@@ -287,17 +328,18 @@ func (s *Simulator) splitNameOn(
 }
 
 // describe は処方を画面に出す形に直す。
+//
+// estimable は体重込みの負荷の履歴。推定比は、処方（加重）に体重の分
+// （bodyLoad）を足して、体重込みの推定1RMで割る。プランナーと同じ物差し。
 func (s *Simulator) describe(
-	set planning.PlannedSet, byID map[exercise.ExerciseID]*exercise.Exercise,
-	history setlog.History, date training.Date,
+	set planning.PlannedSet, e *exercise.Exercise,
+	estimable setlog.History, date training.Date, bodyLoad float64,
 ) Set {
 	out := Set{
 		ExerciseID: set.ExerciseID(),
+		Name:       e.Name(),
 		Sets:       set.Sets().Int(),
 		TargetRIR:  set.TargetRIR().Int(),
-	}
-	if e, ok := byID[set.ExerciseID()]; ok {
-		out.Name = e.Name()
 	}
 	w, ok := set.Weight()
 	if !ok {
@@ -305,28 +347,26 @@ func (s *Simulator) describe(
 	}
 	out.WeightKg, out.HasWeight = w.Kg(), true
 
-	if orm, ok := s.estimator.Estimate(history, set.ExerciseID(), date); ok && orm.Kg() > 0 {
-		out.PctOfOneRM = w.Kg() / orm.Kg()
+	if orm, ok := s.estimator.Estimate(estimable, set.ExerciseID(), date); ok && orm.Kg() > 0 {
+		out.PctOfOneRM = (w.Kg() + bodyLoad) / orm.Kg()
 	}
 	return out
 }
 
-// log は捏造した記録を1セットぶん作る。
-func (s *Simulator) log(
-	n *int, date training.Date, set planning.PlannedSet, weightKg float64,
-) *setlog.SetLog {
+// log は模擬ユーザーの記録を1セットぶん作る。
+func (s *Simulator) log(n *int, date training.Date, id exercise.ExerciseID, did Performed) *setlog.SetLog {
 	*n++
 	l, err := setlog.NewSetLog(setlog.SetLogParams{
 		ID:          fmt.Sprintf("sim-%06d", *n),
 		PerformedOn: date,
-		ExerciseID:  string(set.ExerciseID()),
-		WeightKg:    weightKg,
-		Reps:        assumedReps,
-		RIR:         set.TargetRIR().Int(),
+		ExerciseID:  string(id),
+		WeightKg:    did.WeightKg,
+		Reps:        did.Reps,
+		RIR:         did.RIR,
 	})
 	if err != nil {
-		// 処方から作った値なので、ここは通らない。通ったら記録が積まれず
-		// 推定1RMが立たないので、画面が「ずっと未確定」になって気づく。
+		// 処方と実力から作った値なので、ここは通らない。通ったら記録が
+		// 積まれず推定1RMが立たないので、画面が「ずっと未確定」になって気づく。
 		return nil
 	}
 	return l
