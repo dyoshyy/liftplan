@@ -346,3 +346,79 @@ func splitRotationRequest(t *testing.T, cycle ...program.Split) planning.PlanReq
 	req.Target = target
 	return req
 }
+
+// 重点種目の系統を中1日空けずに軸へ立てないこと。
+//
+// バリエーションレーンは系統を中1日空けて出す（variationRecoveryDays）が、
+// 軸の側はその間隔を見ていなかった。重点デッドリフト・週5回で、月曜に
+// バリエーションでデフィシット、火曜に軸で床引きが出た（開発用シミュ
+// レーション）。軸は「宣言のうち最も古いもの」なので、派生を昨日やっても
+// 本体は古いまま選ばれる。
+//
+// 軸を空にはしない。今日立てられる宣言が系統の本体しか無ければ、それを
+// 出す。空にすると、その日は分割の意味どおりの主役が消える
+// （heavyLift のフォールバックしない方針とは別の話で、あちらは分割に
+// 合わない種目を出さないため）。
+//
+// 【変異1】focusRested が常に declared をそのまま返すようにする。
+// 「昨日派生をやったら…」が bench になって落ちる。
+// 【変異2】axis のフォールバック（2度目の heavyLift）を外す。
+// 「宣言が本体だけなら…」が軸なしになって落ちる。
+func TestSessionPlanner_AxisWaitsForTheFocusLineage(t *testing.T) {
+	cases := []struct {
+		name string
+		// program は宣言と重点種目。どちらも重点はベンチ。
+		program func(t *testing.T) (*program.Program, program.WeeklyVolumeTarget)
+		// larsenDaysAgo はバリエーション（ベンチの派生）をやった日。
+		larsenDaysAgo int
+		want          exercise.ExerciseID
+	}{
+		{
+			// ベンチが最も古い（9日前）ので、規則が無ければベンチが立つ。
+			// 次に古いのはデッドリフト（4日前）。
+			name: "昨日派生をやったら、本体は次に古い宣言に譲る",
+			program: func(t *testing.T) (*program.Program, program.WeeklyVolumeTarget) {
+				return focusedProgram(t, "bench")
+			},
+			larsenDaysAgo: 1, want: "deadlift",
+		},
+		{
+			// 開区間 (date-2, date) の外。月曜にやったら水曜から出してよい。
+			name: "中1日空いていれば本体が立つ",
+			program: func(t *testing.T) (*program.Program, program.WeeklyVolumeTarget) {
+				return focusedProgram(t, "bench")
+			},
+			larsenDaysAgo: 2, want: "bench",
+		},
+		{
+			name:          "宣言が本体だけなら、昨日派生をやっていても本体が立つ",
+			program:       rotationProgram,
+			larsenDaysAgo: 1, want: "bench",
+		},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			req := planRequest(t)
+			req.Program, req.Target = c.program(t)
+			// 系統の実施はベンチ2回＋ラーセン1回の3セッションで、一巡の
+			// 先頭（本体・3レップ相当）に来る。2セッションだと派生の番に
+			// なり、軸にテンポが立って見たいものと混ざる。
+			req.History = setlog.NewHistory([]*setlog.SetLog{
+				mkLogOn(t, "b0", planMonday.AddDays(-16), "bench", 85, 8, 2),
+				mkLogOn(t, "b", planMonday.AddDays(-9), "bench", 85, 8, 2),
+				mkLogOn(t, "d", planMonday.AddDays(-4), "deadlift", 140, 8, 2),
+				mkLogOn(t, "s", planMonday.AddDays(-3), "squat", 110, 8, 2),
+				mkLogOn(t, "l", planMonday.AddDays(-c.larsenDaysAgo), "larsen", 75, 8, 2),
+			})
+
+			got := mustPlan(t, req).Main()
+			if len(got) != 1 {
+				t.Fatalf("軸が %d 件。1件のはず: %v", len(got), got)
+			}
+			if got[0].ExerciseID() != c.want {
+				t.Errorf("軸が %s。%s のはず", got[0].ExerciseID(), c.want)
+			}
+		})
+	}
+}

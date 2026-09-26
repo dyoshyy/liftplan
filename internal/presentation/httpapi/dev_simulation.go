@@ -1,6 +1,8 @@
 package httpapi
 
 import (
+	"fmt"
+	"maps"
 	"net/http"
 	"slices"
 	"strconv"
@@ -211,8 +213,30 @@ const (
 // 始めると曜日で結果が変わり、画面を見ながらの比較にならない。
 var devDefaultStart = training.MustDate(2026, 8, 3)
 
+// devQueryKeys は /api/dev/simulate が読むキー。画面の buildQuery
+// （web/src/dev/simulate.ts）が送るキーと同じ顔ぶれ。
+var devQueryKeys = map[string]bool{
+	"declared": true, "focus": true, "split": true,
+	"frequency": true, "weeks": true, "days": true, "start": true,
+	"exercises": true, "sets": true,
+	"growth": true, "first_pct": true, "body_weight": true, "orm": true,
+}
+
 func parseDevRequest(r *http.Request) (devsim.Request, error) {
 	q := r.URL.Query()
+
+	// 知らないキーと2回指定は弾く。読み飛ばすと、書き間違えたキー
+	// （growt=0）は既定値（伸び 0.5%/週）のまま 200 で走り、別の条件の
+	// 結果を読むことになる。2回指定は q.Get が先頭だけを取り、後ろが消える。
+	// 複数あるときに毎回同じキーを名指しするよう、キーの順で見る。
+	for _, key := range slices.Sorted(maps.Keys(q)) {
+		if !devQueryKeys[key] {
+			return devsim.Request{}, fmt.Errorf("クエリ %s は知らないキーである", key)
+		}
+		if len(q[key]) > 1 {
+			return devsim.Request{}, fmt.Errorf("クエリ %s が2回以上指定されている", key)
+		}
+	}
 
 	out := devsim.Request{
 		Focus:     exercise.ExerciseID(q.Get("focus")),
