@@ -308,11 +308,14 @@ func TestSessionPlanner_Forecast_ExerciseCountNeverExceedsBudget(t *testing.T) {
 // （PlanIsFixedForTheWholeDay の考え方を Forecast 全体へ広げたもの）。
 //
 // 分割の日の比較は planDiff に足した（PR1 タスク4）。planRequest（分割
-// 無し）だけでは hasSplit が常に false のままで名前の食い違いを検出
-// できないので、fixedDaySplitRequest（上下2分割・周期が回ごとに進む）も
-// 加える。この構成なら回0=上・回1=下・回2=上と回によって分割の日の名前が
-// 変わるので、その回の分割を別の回のものにすり替える退行が実際に
-// 「分割の日」の行として検出できる。
+// 無し）だけでは hasSplit が常に false のままで、分割名が食い違う退行を
+// 検出できない。fixedDaySplitRequest（上下2分割・周期が出席回数で進む）を
+// もう1ケース加えることで、回0=上・回1=下・回2=上と回ごとに分割名が
+// 変わる構成でも見る。history のカット漏れ（当日の記録を落とさずに使う
+// 退行）はこの構成では回1のレーン（補助の入れ替わり）で捕まる。分割の
+// 日そのものが将来の回で食い違う退行（例：回kの分割を別の回のものに
+// すり替える）を「分割の日」の行が実際に検出できることは、手動の変異で
+// 別途確認済み（タスク4の報告に記録）。
 func TestSessionPlanner_Forecast_IsFixedForTheWholeDay(t *testing.T) {
 	cases := []struct {
 		name string
