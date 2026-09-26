@@ -967,7 +967,8 @@ func TestAccessorySelector_IgnoresResidualForRegionWithoutTarget(t *testing.T) {
 		mkLog(t, "q", 6, "for_quad", 60, 10, 2),
 	})
 	// 週目標には大腿四頭筋しかない。カーフは目標が無いのに残差だけが残っている
-	// （分割の周期外に落ちた区分などで起こりうる形）。
+	// ——target と residual を別々に組んで渡せば起こる形（Select の入力契約の話であり、
+	// いまのプランナーの呼び出し方でこれが起きると主張するものではない）。
 	target := mustTarget(t, map[training.MuscleRegion]float64{training.Quad: 10})
 	residual := map[training.MuscleRegion]float64{training.Calf: 1, training.Quad: 40}
 
