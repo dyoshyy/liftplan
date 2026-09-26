@@ -391,3 +391,45 @@ func topAxisWeight(r devsim.Result, id exercise.ExerciseID) float64 {
 	}
 	return top
 }
+
+// 推定比（処方 ÷ 推定1RM）は、自重種目でも体重込みの負荷で出す。
+//
+// プランナーは体重込みで推定して処方し、出口で加重に戻す。比を加重だけで
+// 出すと、バックエクステンション（加重 1.25kg）で 1.41 のような意味の無い
+// 値になる。体重込みで見れば、どの種目も役割の強度（補助 0.71・軸 0.81〜
+// 0.88）の近くに並ぶ。加重0に倒した回（自重だけで強度を超える）は除く。
+func TestSimulator_PctOfOneRMUsesEffectiveLoad(t *testing.T) {
+	// 画面で 1.41 が出た設定。自重種目に加重が付く回を踏む。
+	req := baseRequest()
+	req.SplitKey = "upper_lower"
+	req.Focus = "bench"
+	req.Weeks = 12
+
+	checked := map[exercise.ExerciseID]bool{}
+	for _, d := range mustRun(t, req).Days {
+		lanes := []struct {
+			sets     []devsim.Set
+			lo, hi   float64
+			laneName string
+		}{
+			{d.Main, 0.76, 0.95, "軸"},
+			{d.Accessories, 0.64, 0.80, "補助"},
+		}
+		for _, l := range lanes {
+			for _, s := range l.sets {
+				if s.PctOfOneRM == 0 || s.WeightKg == 0 {
+					continue
+				}
+				if s.PctOfOneRM < l.lo || s.PctOfOneRM > l.hi {
+					t.Errorf("%v %s（%s）: 推定比 %.2f。%.2f〜%.2f のはず",
+						d.Date, s.ExerciseID, l.laneName, s.PctOfOneRM, l.lo, l.hi)
+				}
+				checked[s.ExerciseID] = true
+			}
+		}
+	}
+	// 自重種目を1つも踏んでいなければ、この検査は何も守らない。
+	if !checked["back_extension"] && !checked["dip"] && !checked["pull_up"] {
+		t.Fatal("自重種目の推定比を1つも検査していない")
+	}
+}

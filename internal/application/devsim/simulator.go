@@ -151,6 +151,10 @@ func (s *Simulator) Run(req Request) (Result, error) {
 
 	out := Result{}
 	var logs []*setlog.SetLog
+	// effective は同じ記録を体重込みの負荷に直したもの。推定比を出すのに
+	// だけ使う。プランナーも推定は体重込みで行う（planning.effectiveHistory）。
+	// 記録のままで推定すると、自重種目の比が意味の無い値になる。
+	var effective []*setlog.SetLog
 	n := 0
 
 	for w := range req.Weeks {
@@ -160,6 +164,7 @@ func (s *Simulator) Run(req Request) (Result, error) {
 		for _, off := range offsets {
 			date := req.Start.AddDays(w*7 + off)
 			history := setlog.NewHistory(logs)
+			estimable := setlog.NewHistory(effective)
 
 			planned, err := s.planner.Plan(planning.PlanRequest{
 				Program:    prog,
@@ -192,16 +197,21 @@ func (s *Simulator) Run(req Request) (Result, error) {
 					}
 					did := who.perform(e, date, weightKg, set.TargetRIR().Int())
 
-					described := s.describe(set, byID, history, date)
+					described := s.describe(set, e, estimable, date, who.bodyLoad(e))
 					described.Performed = did
 					described.AthleteOneRepMaxKg = who.strength(e, date) - who.bodyLoad(e)
 					*lane.into = append(*lane.into, described)
 
 					// 1セットずつ積む。まとめて1件にすると、残差が
 					// 「1セットしかやっていない」と見て補助が増える。
+					asLoad := did
+					asLoad.WeightKg += who.bodyLoad(e)
 					for range set.Sets().Int() {
 						if l := s.log(&n, date, set.ExerciseID(), did); l != nil {
 							logs = append(logs, l)
+						}
+						if l := s.log(&n, date, set.ExerciseID(), asLoad); l != nil {
+							effective = append(effective, l)
 						}
 					}
 					addStimulus(done, byID[set.ExerciseID()], set.Sets().Int())
@@ -277,17 +287,18 @@ func (s *Simulator) splitNameOn(
 }
 
 // describe は処方を画面に出す形に直す。
+//
+// estimable は体重込みの負荷の履歴。推定比は、処方（加重）に体重の分
+// （bodyLoad）を足して、体重込みの推定1RMで割る。プランナーと同じ物差し。
 func (s *Simulator) describe(
-	set planning.PlannedSet, byID map[exercise.ExerciseID]*exercise.Exercise,
-	history setlog.History, date training.Date,
+	set planning.PlannedSet, e *exercise.Exercise,
+	estimable setlog.History, date training.Date, bodyLoad float64,
 ) Set {
 	out := Set{
 		ExerciseID: set.ExerciseID(),
+		Name:       e.Name(),
 		Sets:       set.Sets().Int(),
 		TargetRIR:  set.TargetRIR().Int(),
-	}
-	if e, ok := byID[set.ExerciseID()]; ok {
-		out.Name = e.Name()
 	}
 	w, ok := set.Weight()
 	if !ok {
@@ -295,8 +306,8 @@ func (s *Simulator) describe(
 	}
 	out.WeightKg, out.HasWeight = w.Kg(), true
 
-	if orm, ok := s.estimator.Estimate(history, set.ExerciseID(), date); ok && orm.Kg() > 0 {
-		out.PctOfOneRM = w.Kg() / orm.Kg()
+	if orm, ok := s.estimator.Estimate(estimable, set.ExerciseID(), date); ok && orm.Kg() > 0 {
+		out.PctOfOneRM = (w.Kg() + bodyLoad) / orm.Kg()
 	}
 	return out
 }
