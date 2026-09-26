@@ -15,6 +15,7 @@ status: 出発点。技術選定とメイン種目の組み立ては後続の仕
 | 推定1RMにヒステリシス（2%以上動いたら変更） | 入れていない。重量は刻みへ丸められるので不要だった | `internal/domain/training/planning/one_rep_max_estimator.go` |
 | 停滞を検知してデロードを提案する | やめた。落とすかどうかは本人が決める | `DeloadPolicy` 等一式を削除済み |
 | 分析UIは MVP に入れない | 履歴の画面を戻した | `docs/user-stories.md`（D節） |
+| 筋区分ごとの週目標セット数はプリセット同梱で、不満が出た区分だけ後から調整する | 手編集の口ごと廃止。頻度×1回の量（種目数×セット数）から導く | `internal/domain/training/program/session_volume.go`、`internal/domain/training/seed/weekly_target.go` |
 
 ---
 

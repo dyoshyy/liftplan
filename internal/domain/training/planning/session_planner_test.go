@@ -67,7 +67,7 @@ func planProgram(t *testing.T) *program.Program {
 	target := mustTarget(t, map[training.MuscleRegion]float64{
 		training.ChestMid: 12, training.ChestUpper: 9, training.Quad: 12, training.Biceps: 9,
 	})
-	p, err := program.NewProgram(mustFrequency(t, 3), target,
+	p, err := program.NewProgram(mustFrequency(t, 3), planVolume(t), target,
 		[]exercise.ExerciseID{"bench", "squat", "deadlift", "incline", "curl"}, big3(), "")
 	if err != nil {
 		t.Fatalf("プログラムの生成に失敗: %v", err)
@@ -85,7 +85,7 @@ func focusedProgram(t *testing.T, focus exercise.ExerciseID) *program.Program {
 	target := mustTarget(t, map[training.MuscleRegion]float64{
 		training.ChestMid: 12, training.ChestUpper: 9, training.Quad: 12, training.Biceps: 9,
 	})
-	p, err := program.NewProgram(mustFrequency(t, 3), target,
+	p, err := program.NewProgram(mustFrequency(t, 3), planVolume(t), target,
 		[]exercise.ExerciseID{"bench", "squat", "deadlift", "incline", "curl", "larsen", "tempo"},
 		big3(), focus)
 	if err != nil {
@@ -145,8 +145,7 @@ func mustPlan(t *testing.T, req planning.PlanRequest) planning.PlannedSession {
 // ベンチをやって軸を他へ移し、回復期間（2日）を抜け、胸の残差を大きく
 // した日に初めて候補へ上がる。だからシミュレーションでは数字が動かない。
 func TestSessionPlanner_DeclaredExercisesNeverAppearAsAccessories(t *testing.T) {
-	p, err := program.NewProgram(mustFrequency(t, 3),
-		mustTarget(t, map[training.MuscleRegion]float64{training.ChestMid: 30}),
+	p, err := program.NewProgram(mustFrequency(t, 3), planVolume(t), mustTarget(t, map[training.MuscleRegion]float64{training.ChestMid: 30}),
 		[]exercise.ExerciseID{"bench", "squat", "deadlift", "incline", "curl", "larsen"},
 		big3(), "")
 	if err != nil {
@@ -205,7 +204,7 @@ func benchOnlyProgram(t *testing.T) *program.Program {
 	target := mustTarget(t, map[training.MuscleRegion]float64{
 		training.ChestMid: 12, training.ChestUpper: 9, training.Quad: 12, training.Biceps: 9,
 	})
-	p, err := program.NewProgram(mustFrequency(t, 3), target,
+	p, err := program.NewProgram(mustFrequency(t, 3), planVolume(t), target,
 		[]exercise.ExerciseID{"bench", "squat", "deadlift", "incline", "curl"},
 		[]exercise.ExerciseID{"bench"}, "")
 	if err != nil {
@@ -455,7 +454,7 @@ func TestSessionPlanner_RejectsInvalidRequests(t *testing.T) {
 // 先頭に出ること。
 func TestSessionPlanner_AnyDeclaredExerciseCanBeTheAxis(t *testing.T) {
 	target := mustTarget(t, map[training.MuscleRegion]float64{training.Biceps: 9})
-	program, err := program.NewProgram(mustFrequency(t, 3), target,
+	program, err := program.NewProgram(mustFrequency(t, 3), planVolume(t), target,
 		[]exercise.ExerciseID{"curl"}, []exercise.ExerciseID{"curl"}, "")
 	if err != nil {
 		t.Fatalf("プログラムの生成に失敗: %v", err)
@@ -575,9 +574,10 @@ func TestSessionPlanner_ResidualCarriesOverWithinTheWeek(t *testing.T) {
 		t.Fatalf("前提が崩れている（1本目の補助）: %v", firstIDs)
 	}
 
-	// 月曜に大胸筋上部の週目標（9セット）を全部こなしたことにする。
+	// 月曜に大胸筋上部の窓ぶんの目標（週9セット × 窓の週数）を全部
+	// こなしたことにする。窓は4週なので、週目標ぶんでは満たされない。
 	logs := planHistory(t)
-	for i := range 9 {
+	for i := range 9 * planning.CoverageWindowWeeks {
 		logs = append(logs, mkLogOn(t, fmt.Sprintf("inc-%d", i),
 			planMonday, "incline", 30, 10, 2))
 	}
@@ -587,7 +587,7 @@ func TestSessionPlanner_ResidualCarriesOverWithinTheWeek(t *testing.T) {
 	second := mustPlan(t, req)
 	for _, set := range second.Accessories() {
 		if set.ExerciseID() == "incline" {
-			t.Errorf("週目標を満たした区分がまだ狙われている: %v", set.ExerciseID())
+			t.Errorf("目標を満たした区分がまだ狙われている: %v", set.ExerciseID())
 		}
 	}
 
@@ -786,10 +786,9 @@ func fixedDaySplitRequest(t *testing.T) planning.PlanRequest {
 	for _, e := range pool {
 		ids = append(ids, e.ID())
 	}
-	prog, err := program.NewProgram(mustFrequency(t, 3),
-		mustTarget(t, map[training.MuscleRegion]float64{
-			training.ChestMid: 24, training.Quad: 24,
-		}),
+	prog, err := program.NewProgram(mustFrequency(t, 3), planVolume(t), mustTarget(t, map[training.MuscleRegion]float64{
+		training.ChestMid: 24, training.Quad: 24,
+	}),
 		ids, []exercise.ExerciseID{"bench", "squat"}, "")
 	if err != nil {
 		t.Fatalf("プログラムの生成に失敗: %v", err)
@@ -1014,10 +1013,13 @@ func TestSessionPlanner_SubtractsMainCoverageFromResidual(t *testing.T) {
 	pool := append(planPool(t),
 		mkAccessory(t, "pec_fly", map[training.MuscleRegion]float64{training.ChestMid: 1.0}))
 
-	// 週目標3・頻度3。ベンチが1セッションで3セット埋めるので、
-	// メインの刺激を差し引けば残差は0になる。
-	target := mustTarget(t, map[training.MuscleRegion]float64{training.ChestMid: 3})
-	program, err := program.NewProgram(mustFrequency(t, 3), target,
+	// 窓（4週）ぶんの目標をちょうど6にする。planHistory が窓の中にベンチを
+	// 3セット置いていて、今日の軸（ベンチ）が3セット埋めるので、メインの
+	// 刺激を差し引けば残差は0になる。
+	target := mustTarget(t, map[training.MuscleRegion]float64{
+		training.ChestMid: 6.0 / planning.CoverageWindowWeeks,
+	})
+	program, err := program.NewProgram(mustFrequency(t, 3), planVolume(t), target,
 		[]exercise.ExerciseID{"bench", "squat", "deadlift", "pec_fly"}, big3(), "")
 	if err != nil {
 		t.Fatalf("プログラムの生成に失敗: %v", err)
@@ -1050,8 +1052,7 @@ func chestUpperRequest(t *testing.T) planning.PlanRequest {
 		ids = append(ids, exercise.ExerciseID(id))
 	}
 
-	program, err := program.NewProgram(mustFrequency(t, 3),
-		mustTarget(t, map[training.MuscleRegion]float64{training.ChestUpper: 12}),
+	program, err := program.NewProgram(mustFrequency(t, 3), planVolume(t), mustTarget(t, map[training.MuscleRegion]float64{training.ChestUpper: 12}),
 		ids, big3(), "")
 	if err != nil {
 		t.Fatalf("プログラムの生成に失敗: %v", err)
@@ -1062,7 +1063,7 @@ func chestUpperRequest(t *testing.T) planning.PlanRequest {
 	return req
 }
 
-// 直近1週で埋まったぶんだけ、補助が減ること。
+// 直近4週で埋まったぶんだけ、補助が減ること。
 //
 // 暦週のころは「残りセッション数で割る」だったので、同じ不足でも週の
 // 後半ほど1回あたりの量が増えた。ローリング窓では窓から落ちた分が
@@ -1070,12 +1071,12 @@ func chestUpperRequest(t *testing.T) planning.PlanRequest {
 func TestSessionPlanner_AccessoriesFollowTheRollingGap(t *testing.T) {
 	req := chestUpperRequest(t)
 
-	// 直近1週に何も無い。週目標12を埋めにいくので上限近くまで出る。
+	// 直近4週に何も無い。窓ぶんの目標を埋めにいくので上限まで出る。
 	empty := mustPlan(t, req)
 
-	// 直近1週で9セット埋まっている。残りは3で、1種目ぶん。
+	// 直近4週で「窓ぶんの目標 − 3」埋まっている。残りは3で、1種目ぶん。
 	logs := planHistory(t)
-	for i := range 9 {
+	for i := range 12*planning.CoverageWindowWeeks - 3 {
 		logs = append(logs, mkLogOn(t, fmt.Sprintf("c-%d", i),
 			planMonday.AddDays(-2), "incline", 30, 10, 2))
 	}
@@ -1100,8 +1101,7 @@ func inclineDeselectedRequest(t *testing.T) planning.PlanRequest {
 	for i := range 5 {
 		ids = append(ids, exercise.ExerciseID(fmt.Sprintf("chest_up_%d", i)))
 	}
-	deselected, err := program.NewProgram(mustFrequency(t, 3),
-		mustTarget(t, map[training.MuscleRegion]float64{training.ChestUpper: 12}),
+	deselected, err := program.NewProgram(mustFrequency(t, 3), planVolume(t), mustTarget(t, map[training.MuscleRegion]float64{training.ChestUpper: 12}),
 		ids, big3(), "")
 	if err != nil {
 		t.Fatalf("プログラムの生成に失敗: %v", err)
@@ -1116,7 +1116,7 @@ func inclineDeselectedRequest(t *testing.T) planning.PlanRequest {
 //
 // 選択から外した種目の記録を読み飛ばすと、外した瞬間にその区分の残差が
 // ふくらみ、前日にやっていても回復中にならず、同じ区分の補助が余計に出る。
-// 画面の「今週の充足」（query.Stats.WeeklyVolume）はマスタ全件で数えるので、
+// 画面の「充足」（query.Stats.WeeklyVolume）はマスタ全件で数えるので、
 // 画面では埋まっているのに補助だけが出続ける、という食い違いにもなる。
 //
 // 選択が決めるのは「これから何を出すか」で、「何をやったか」ではない。
@@ -1135,14 +1135,16 @@ func TestSessionPlanner_DeselectedExercisesStillCountAsDone(t *testing.T) {
 		sets           int
 	}{
 		{
-			// 数える経路（CoverageBetween）。週目標12を使い切っているので
-			// 残差は 0。2日前は回復期間 (date-2, date) の外なので、補助が
-			// 出ないのは残差が埋まっているからでしかない。
-			name: "2日前に外した種目で週目標を埋めていたら補助は出ない", daysFromMonday: -2, sets: 12,
+			// 数える経路（CoverageBetween）。窓ぶんの目標（12 × 窓の週数）を
+			// 使い切っているので残差は 0。2日前は回復期間 (date-2, date) の外
+			// なので、補助が出ないのは残差が埋まっているからでしかない。
+			name: "2日前に外した種目で目標を埋めていたら補助は出ない", daysFromMonday: -2,
+			sets: 12 * planning.CoverageWindowWeeks,
 		},
 		{
-			// 回復を見る経路（Select の辞書）。残差は 12 − 3 = 9 残って
-			// いるので、補助が出ないのは胸上部が回復中だからでしかない。
+			// 回復を見る経路（Select の辞書）。残差は窓ぶんの目標から3を
+			// 引いたぶん残っているので、補助が出ないのは胸上部が回復中だから
+			// でしかない。
 			name: "前日に外した種目でやっていたら回復中として補助は出ない", daysFromMonday: -1, sets: 3,
 		},
 	}
@@ -1178,11 +1180,11 @@ func TestSessionPlanner_DeselectedExercisesStillCountAsDone(t *testing.T) {
 func TestSessionPlanner_DeselectedExercisesAreNeverCandidates(t *testing.T) {
 	req := inclineDeselectedRequest(t)
 
-	// 10日前はカバレッジの窓（6日）の外。残差は 12 のまま。
+	// 窓（28日）の外に置く。残差は窓ぶんの目標のまま。
 	logs := planHistory(t)
 	for i := range 5 {
 		logs = append(logs, mkLogOn(t, fmt.Sprintf("old-%d", i),
-			planMonday.AddDays(-10), fmt.Sprintf("chest_up_%d", i), 30, 10, 2))
+			planMonday.AddDays(-(planning.CoverageWindowDays+2)), fmt.Sprintf("chest_up_%d", i), 30, 10, 2))
 	}
 	req.History = setlog.NewHistory(logs)
 
@@ -1195,27 +1197,30 @@ func TestSessionPlanner_DeselectedExercisesAreNeverCandidates(t *testing.T) {
 	}
 }
 
-// カバレッジの窓は直近1週。前日までの6日ぶんを数え、当日を足して7日。
+// カバレッジの窓は直近4週。前日までの27日ぶんを数え、当日を足して28日。
 func TestSessionPlanner_RollingCoverageWindow(t *testing.T) {
 	base := chestUpperRequest(t)
 	want := len(mustPlan(t, base).Accessories())
 
 	cases := []struct {
 		name string
-		// 12セットぶんの記録を置く日（月曜からの日数）。
+		// 窓ぶんの目標（12 × 窓の週数）の記録を置く日（月曜からの日数）。
 		daysFromMonday int
-		// 窓に入っていれば週目標12を使い切り、補助が減る。
+		// 窓に入っていれば目標を使い切り、補助が減る。
 		inWindow bool
 	}{
 		{
-			// 境界。ここを -7 にすると、同じ曜日に通う人は先週の同じ
+			// 境界。ここを -28 にすると、同じ曜日に通う人は4週前の同じ
 			// セッションが常に窓に残り、定常状態で残差がほぼ 0 になって
 			// 補助が出なくなる。黙って壊れるので固定する。
-			name: "7日前は数えない", daysFromMonday: -7, inWindow: false,
+			name: "28日前は数えない", daysFromMonday: -planning.CoverageWindowDays, inWindow: false,
 		},
 		{
-			// 暦週のころは「先週」として捨てていた。ローリングでは入る。
-			name: "6日前は数える", daysFromMonday: -6, inWindow: true,
+			name: "27日前は数える", daysFromMonday: -(planning.CoverageWindowDays - 1), inWindow: true,
+		},
+		{
+			// 窓が1週だったころは窓の外だった。
+			name: "7日前は数える", daysFromMonday: -7, inWindow: true,
 		},
 		{
 			name: "3日前は数える", daysFromMonday: -3, inWindow: true,
@@ -1231,7 +1236,7 @@ func TestSessionPlanner_RollingCoverageWindow(t *testing.T) {
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			logs := planHistory(t)
-			for i := range 12 {
+			for i := range 12 * planning.CoverageWindowWeeks {
 				logs = append(logs, mkLogOn(t, fmt.Sprintf("out-%d", i),
 					planMonday.AddDays(c.daysFromMonday), "incline", 30, 10, 2))
 			}
@@ -1472,8 +1477,7 @@ func TestSessionPlanner_DoesNotDoubleCountTodaysMain(t *testing.T) {
 		mkAccessory(t, "fly", map[training.MuscleRegion]float64{training.ChestMid: 1.0}),
 		mkAccessory(t, "press", map[training.MuscleRegion]float64{training.ChestMid: 1.0}),
 	}
-	program, err := program.NewProgram(mustFrequency(t, 1),
-		mustTarget(t, map[training.MuscleRegion]float64{training.ChestMid: 8}),
+	program, err := program.NewProgram(mustFrequency(t, 1), planVolume(t), mustTarget(t, map[training.MuscleRegion]float64{training.ChestMid: 8}),
 		[]exercise.ExerciseID{"bench", "fly", "press"}, []exercise.ExerciseID{"bench"}, "")
 	if err != nil {
 		t.Fatalf("プログラムの生成に失敗: %v", err)
@@ -1621,7 +1625,7 @@ func TestSessionPlanner_PlannedWorkIsConsumedExactly(t *testing.T) {
 		t.Fatalf("シードが不正: %v", err)
 	}
 	freq := mustFrequency(t, 3)
-	target, err := seed.DefaultWeeklyTarget(freq)
+	target, err := seed.DefaultWeeklyTarget(freq, mustVolume(t, 6, 3))
 	if err != nil {
 		t.Fatalf("週目標が不正: %v", err)
 	}
@@ -1629,7 +1633,7 @@ func TestSessionPlanner_PlannedWorkIsConsumedExactly(t *testing.T) {
 	for _, e := range pool {
 		selected = append(selected, e.ID())
 	}
-	program, err := program.NewProgram(freq, target, selected, big3(), "")
+	program, err := program.NewProgram(freq, planVolume(t), target, selected, big3(), "")
 	if err != nil {
 		t.Fatalf("プログラムが不正: %v", err)
 	}
@@ -1752,8 +1756,7 @@ func chinRequest(t *testing.T, addedKg, bodyweight float64) planning.PlanRequest
 		BodyweightFactor: 0.95,
 	})
 
-	program, err := program.NewProgram(
-		mustFrequency(t, 3),
+	program, err := program.NewProgram(mustFrequency(t, 3), planVolume(t),
 		mustTarget(t, map[training.MuscleRegion]float64{training.Lat: 12}),
 		[]exercise.ExerciseID{"bench", "squat", "deadlift", "chin"},
 		big3(), "")
@@ -1922,8 +1925,7 @@ func TestSessionPlanner_BodyweightSetsStillCountTowardCoverage(t *testing.T) {
 		ids = append(ids, exercise.ExerciseID(id))
 	}
 
-	program, err := program.NewProgram(mustFrequency(t, 3),
-		mustTarget(t, map[training.MuscleRegion]float64{training.Lat: 12}), ids, big3(), "")
+	program, err := program.NewProgram(mustFrequency(t, 3), planVolume(t), mustTarget(t, map[training.MuscleRegion]float64{training.Lat: 12}), ids, big3(), "")
 	if err != nil {
 		t.Fatalf("プログラムの生成に失敗: %v", err)
 	}
@@ -1941,10 +1943,10 @@ func TestSessionPlanner_BodyweightSetsStillCountTowardCoverage(t *testing.T) {
 		t.Fatal("前提: 補助が提示されること")
 	}
 
-	// 今週すでに自重で12セットこなした。ただし体重は一度も測っていないので、
-	// 実効負荷が出せず、推定用の履歴からは落ちる。
+	// 窓の中ですでに自重で窓ぶん（12 × 窓の週数）こなした。ただし体重は一度も
+	// 測っていないので、実効負荷が出せず、推定用の履歴からは落ちる。
 	logs := planHistory(t)
-	for i := range 12 {
+	for i := range 12 * planning.CoverageWindowWeeks {
 		logs = append(logs, mkLogOn(t, fmt.Sprintf("chin-%d", i),
 			planMonday, "chin", 0, 8, 2))
 	}
@@ -1968,8 +1970,7 @@ func TestSessionPlanner_BodyweightExerciseFallsBackToDefaultBodyWeight(t *testin
 	})
 
 	pool := append(planPool(t), chin)
-	program, err := program.NewProgram(
-		mustFrequency(t, 3),
+	program, err := program.NewProgram(mustFrequency(t, 3), planVolume(t),
 		mustTarget(t, map[training.MuscleRegion]float64{training.Lat: 12}),
 		[]exercise.ExerciseID{"bench", "squat", "deadlift", "chin"},
 		big3(), "")
@@ -2028,5 +2029,68 @@ func TestSessionPlanner_BodyweightExerciseFallsBackToDefaultBodyWeight(t *testin
 	}
 	if !decided {
 		t.Error("体重の欠落が、自重の乗らない種目まで巻き込んでいる")
+	}
+}
+
+// 1日の種目数が予算を超えないこと。
+//
+// 予算は利用者の設定（1回の種目数 × 1種目あたりのセット数）。以前は上限が
+// AccessorySelector の maxSlots = 8 という定数で、軸を足した9種目27セットが
+// 全頻度・全セッションで固定的に出ていた。頻度を上げても1日は短くならず、
+// 週7回なら週189セットになる。それでも「1セッション9〜36セット」の検査は
+// 通っていた（週の合計を誰も見ていなかった）。
+//
+// 予算を超えないことだけを見る。届かない日は正当にある（補助が全部回復
+// 期間に当たる、分割で狙う区分が尽きる）ので、下回ることは責めない。
+func TestSessionPlanner_ExerciseCountNeverExceedsBudget(t *testing.T) {
+	pool := planPool(t)
+	ids := make([]exercise.ExerciseID, 0, len(pool))
+	for _, e := range pool {
+		ids = append(ids, e.ID())
+	}
+	planner := planning.DefaultSessionPlanner()
+
+	for exercises := 2; exercises <= 6; exercises++ {
+		for sets := 2; sets <= 6; sets++ {
+			volume, err := program.NewSessionVolume(exercises, sets)
+			if err != nil {
+				t.Fatalf("1回の量が不正: %v", err)
+			}
+			prog, err := program.NewProgram(mustFrequency(t, 3), volume,
+				mustTarget(t, map[training.MuscleRegion]float64{
+					training.ChestMid: 12, training.ChestUpper: 9,
+					training.Quad: 12, training.Biceps: 9,
+				}),
+				ids, big3(), "")
+			if err != nil {
+				t.Fatalf("プログラムの生成に失敗: %v", err)
+			}
+
+			got, err := planner.Plan(planning.PlanRequest{
+				Program: prog, Pool: pool,
+				History: setlog.NewHistory(nil), Date: today(),
+			})
+			if err != nil {
+				t.Fatalf("%d種目×%dセット: 計画に失敗: %v", exercises, sets, err)
+			}
+
+			n := len(got.Main()) + len(got.Variation()) + len(got.Accessories())
+			if n > exercises {
+				t.Errorf("%d種目×%dセット: %d種目が出た（予算%d）",
+					exercises, sets, n, exercises)
+			}
+			// セット数は全レーンで利用者の設定。補助だけでなく軸と
+			// バリエーションも見る。
+			lanes := map[string][]planning.PlannedSet{
+				"軸": got.Main(), "バリエーション": got.Variation(), "補助": got.Accessories(),
+			}
+			for lane, planned := range lanes {
+				for _, s := range planned {
+					if s.Sets().Int() != sets {
+						t.Errorf("%d種目×%dセット: %sが%dセット", exercises, sets, lane, s.Sets().Int())
+					}
+				}
+			}
+		}
 	}
 }

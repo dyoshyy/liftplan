@@ -40,17 +40,20 @@ func (r *ProgramRepository) Get(
 	ctx context.Context, userID account.UserID,
 ) (*program.Program, error) {
 	var (
-		perWeek                             int
-		rawTarget, rawSelected, rawDeclared []byte
+		perWeek                              int
+		exercisesPerSession, setsPerExercise int
+		rawTarget, rawSelected, rawDeclared  []byte
 		// 重点種目は指定なしが正当な既定値なので NULL を許す。
 		rawFocus *string
 		// 分割なしが正当な既定値なので NULL を許す。
 		rawCycle []byte
 	)
 	err := r.pool.QueryRow(ctx, `
-		SELECT per_week, weekly_target, selected, declared, focus, split_cycle
+		SELECT per_week, exercises_per_session, sets_per_exercise,
+		       weekly_target, selected, declared, focus, split_cycle
 		FROM program WHERE user_id = $1`, userID.String()).
-		Scan(&perWeek, &rawTarget, &rawSelected, &rawDeclared, &rawFocus, &rawCycle)
+		Scan(&perWeek, &exercisesPerSession, &setsPerExercise,
+			&rawTarget, &rawSelected, &rawDeclared, &rawFocus, &rawCycle)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, program.ErrProgramNotConfigured
 	}
@@ -81,6 +84,10 @@ func (r *ProgramRepository) Get(
 	if err != nil {
 		return nil, fmt.Errorf("保存された頻度が不正: %w", err)
 	}
+	volume, err := program.NewSessionVolume(exercisesPerSession, setsPerExercise)
+	if err != nil {
+		return nil, fmt.Errorf("保存された1回の量が不正: %w", err)
+	}
 	weeklyTarget, err := program.NewWeeklyVolumeTarget(target)
 	if err != nil {
 		return nil, fmt.Errorf("保存された週目標が不正: %w", err)
@@ -89,7 +96,7 @@ func (r *ProgramRepository) Get(
 	if rawFocus != nil {
 		focus = exercise.ExerciseID(*rawFocus)
 	}
-	prog, err := program.NewProgram(frequency, weeklyTarget, selected, declared, focus)
+	prog, err := program.NewProgram(frequency, volume, weeklyTarget, selected, declared, focus)
 	if err != nil {
 		return nil, fmt.Errorf("保存されたプログラムが不正: %w", err)
 	}
@@ -169,16 +176,20 @@ func (r *ProgramRepository) Save(
 	}
 
 	if _, err := r.pool.Exec(ctx, `
-		INSERT INTO program (user_id, per_week, weekly_target, selected, declared, focus, split_cycle)
-		VALUES ($1, $2, $3, $4, $5, $6, $7)
+		INSERT INTO program (user_id, per_week, exercises_per_session, sets_per_exercise,
+		                     weekly_target, selected, declared, focus, split_cycle)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 		ON CONFLICT (user_id) DO UPDATE SET
-			per_week      = EXCLUDED.per_week,
-			weekly_target = EXCLUDED.weekly_target,
-			selected      = EXCLUDED.selected,
-			declared      = EXCLUDED.declared,
-			focus         = EXCLUDED.focus,
-			split_cycle   = EXCLUDED.split_cycle`,
+			per_week              = EXCLUDED.per_week,
+			exercises_per_session = EXCLUDED.exercises_per_session,
+			sets_per_exercise     = EXCLUDED.sets_per_exercise,
+			weekly_target         = EXCLUDED.weekly_target,
+			selected              = EXCLUDED.selected,
+			declared              = EXCLUDED.declared,
+			focus                 = EXCLUDED.focus,
+			split_cycle           = EXCLUDED.split_cycle`,
 		userID.String(), p.Frequency().PerWeek(),
+		p.SessionVolume().Exercises(), p.SessionVolume().Sets(),
 		rawTarget, rawSelected, rawDeclared, rawFocus, rawCycle); err != nil {
 		return fmt.Errorf("プログラムを書き込めない: %w", err)
 	}

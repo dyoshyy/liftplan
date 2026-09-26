@@ -136,7 +136,7 @@ func rotationProgram(t *testing.T) *program.Program {
 	target := mustTarget(t, map[training.MuscleRegion]float64{
 		training.ChestMid: 12, training.ChestUpper: 9, training.Quad: 12, training.Biceps: 9,
 	})
-	p, err := program.NewProgram(mustFrequency(t, 3), target,
+	p, err := program.NewProgram(mustFrequency(t, 3), planVolume(t), target,
 		[]exercise.ExerciseID{"bench", "squat", "deadlift", "incline", "curl", "larsen", "tempo"},
 		[]exercise.ExerciseID{"bench"}, "bench")
 	if err != nil {
@@ -169,7 +169,7 @@ func rotationProgramWithout(t *testing.T, drop ...exercise.ExerciseID) *program.
 	target := mustTarget(t, map[training.MuscleRegion]float64{
 		training.ChestMid: 12, training.ChestUpper: 9, training.Quad: 12, training.Biceps: 9,
 	})
-	p, err := program.NewProgram(mustFrequency(t, 3), target, selected,
+	p, err := program.NewProgram(mustFrequency(t, 3), planVolume(t), target, selected,
 		[]exercise.ExerciseID{"bench"}, "bench")
 	if err != nil {
 		t.Fatalf("プログラムの生成に失敗: %v", err)
@@ -325,10 +325,9 @@ func splitRotationRequest(t *testing.T, cycle ...program.Split) planning.PlanReq
 	for _, e := range pool {
 		ids = append(ids, e.ID())
 	}
-	prog, err := program.NewProgram(mustFrequency(t, 3),
-		mustTarget(t, map[training.MuscleRegion]float64{
-			training.ChestMid: 12, training.TricepsLateral: 12, training.FrontDelt: 12,
-		}),
+	prog, err := program.NewProgram(mustFrequency(t, 3), planVolume(t), mustTarget(t, map[training.MuscleRegion]float64{
+		training.ChestMid: 12, training.TricepsLateral: 12, training.FrontDelt: 12,
+	}),
 		ids, []exercise.ExerciseID{"bench"}, "bench")
 	if err != nil {
 		t.Fatalf("プログラムの生成に失敗: %v", err)

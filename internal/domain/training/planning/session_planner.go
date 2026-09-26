@@ -2,6 +2,7 @@ package planning
 
 import (
 	"errors"
+	"fmt"
 	"sort"
 
 	"github.com/dyoshyy/liftplan/internal/domain/training"
@@ -101,8 +102,8 @@ func (p SessionPlanner) Plan(req PlanRequest) (PlannedSession, error) {
 	// 種目が消える、並びが入れ替わる、枠が補充されて終わらない）は、すべて
 	// この1点の派生だった。
 	//
-	// 当日を含めるのは画面の「今週の充足」だけで、あれは query 側の別経路。
-	// 表示は「今週どれだけやったか」、計画は「今日やると決めたこと」。
+	// 当日を含めるのは画面の「充足」だけで、あれは query 側の別経路。
+	// 表示は「どれだけやったか」、計画は「今日やると決めたこと」。
 	//
 	// 受け入れ条件は TestSessionPlanner_PlanIsFixedForTheWholeDay。
 	//
@@ -121,7 +122,7 @@ func (p SessionPlanner) Plan(req PlanRequest) (PlannedSession, error) {
 	if err != nil {
 		return PlannedSession{}, err
 	}
-	return p.prescribe(lineup, estimable, req.Conditions, req.Date), nil
+	return p.prescribe(lineup, estimable, req.Conditions, req.Date, req.Program.SessionVolume().Sets()), nil
 }
 
 // lineupEntry は今日やる種目1つと、その役割。重量はまだ付いていない。
@@ -160,9 +161,10 @@ func (p SessionPlanner) selectLineup(
 	var lineup []lineupEntry
 	heavy, axisRole := axis(history, prog, pool, declared, today, hasSplit)
 
-	// 直近1週のカバレッジ。窓は前日までの6日ぶんで、当日を足して7日。
+	// 直近4週のカバレッジ。窓は前日までの27日ぶんで、当日を足して28日。
+	// 長さの理由は CoverageWindowWeeks に書いた。
 	//
-	// date-7 にしてはいけない。先週の同じ曜日のセッションが窓に残り、
+	// date-28 にしてはいけない。4週前の同じ曜日のセッションが窓に残り、
 	// 同じ曜日に通う人は定常状態で不足が 0 になって補助が出なくなる。
 	//
 	// 暦週をやめたのは、週の先頭でリセットされるため。埋めきった週末は
@@ -170,28 +172,29 @@ func (p SessionPlanner) selectLineup(
 	// 最大になって一日で使い尽くしていた。
 	//
 	// 当日の記録は見ない。history が前日までなのに加えて、窓の上端も
-	// 前日で切る。CoverageBetween は画面の「今週の充足」が当日込みで使う
+	// 前日で切る。CoverageBetween は画面の「充足」が当日込みで使う
 	// 公開関数なので、当日を外すのは呼ぶ側の窓で言う。
 	//
 	// 数えるのはマスタ全件（master）で、選択された種目だけではない。
 	// やったセットは、いま選択しているかに関係なく、やったセット。pool で
 	// 数えると、種目を選択から外した瞬間にその記録が読み飛ばされ、区分の
-	// 残差が最大1週間ふくらむ。画面の「今週の充足」もマスタ全件で数えて
+	// 残差が窓の長さのあいだふくらむ。画面の「充足」もマスタ全件で数えて
 	// いるので、そちらとも食い違う（#133）。
-	coverage := CoverageBetween(history, master, date.AddDays(-6), date.AddDays(-1))
+	coverage := CoverageBetween(history, master, date.AddDays(-(CoverageWindowDays - 1)), date.AddDays(-1))
 
 	// 今日すでに積む分（軸とバリエーション）。セット数は役割の表から引く。
 	// 処方を待たないのは、重量の側へ依存を作らないため。
+	sets := prog.SessionVolume().Sets()
 	thisSession := StimulusCoverage{}
 	if heavy != nil {
 		lineup = append(lineup, lineupEntry{exercise: heavy, role: axisRole})
-		thisSession = thisSession.Plus(heavy.Stimulus(), p.prescriptionFor(axisRole).setCount())
+		thisSession = thisSession.Plus(heavy.Stimulus(), p.prescriptionFor(axisRole, sets).setCount())
 	}
 
 	exclude := accessoryExcluded(pool, prog)
 	if v := variationLift(history, prog, pool, heavy, date, today, hasSplit); v != nil {
 		lineup = append(lineup, lineupEntry{exercise: v, role: variationRole})
-		thisSession = thisSession.Plus(v.Stimulus(), p.prescriptionFor(variationRole).setCount())
+		thisSession = thisSession.Plus(v.Stimulus(), p.prescriptionFor(variationRole, sets).setCount())
 		exclude = append(exclude, v.ID())
 	}
 
@@ -230,10 +233,31 @@ func (p SessionPlanner) selectLineup(
 			exclude = append(exclude, e.ID())
 		}
 	}
+	// 補助に割ける枠は、1回の種目数から、すでに並んだ軸とバリエーションを
+	// 引いた残り。
+	//
+	// 取り分を先に決め打ちしない。軸が立たない日（分割で狙う区分に宣言種目が
+	// 無い）もバリエーションが出ない日もあるので、実際に並んだぶんを引く。
+	// 決め打ちにすると、軸が空の日に予算が余ったまま終わる。
+	//
+	// 以前は枠が AccessorySelector の maxSlots = 8 という定数で、軸を足した
+	// 9種目27セットが全頻度・全セッションで固定的に出ていた。
+	//
+	// 選択器を毎回組み直すのは、枠数とセット数が利用者の設定だから。回復
+	// 日数だけが方針で、組み立て時のものをそのまま使う。
+	slots := prog.SessionVolume().Exercises() - len(lineup)
+	if slots <= 0 {
+		return lineup, nil
+	}
+	selector, err := NewAccessorySelector(p.accessory.RecoveryDays(), sets, slots)
+	if err != nil {
+		return nil, fmt.Errorf("補助の枠が組めない: %w", err)
+	}
+
 	// Select が返すのは pool の中の種目に限る。候補は master から exclude を
 	// 引いたもので、pool（選択された種目）に無いものは全て exclude に入れて
 	// あるので、findExercise が nil を返す経路は無い。
-	for _, id := range p.accessory.Select(gaps, master, history, date, exclude) {
+	for _, id := range selector.Select(prog.WeeklyTarget(), gaps, master, history, date, exclude) {
 		if e := findExercise(pool, id); e != nil {
 			lineup = append(lineup, lineupEntry{exercise: e, role: accessoryRole})
 		}

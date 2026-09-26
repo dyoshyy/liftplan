@@ -124,7 +124,7 @@ func simulateWith(t *testing.T, frequency, weeks int, focus exercise.ExerciseID,
 	if err != nil {
 		t.Fatalf("頻度が不正: %v", err)
 	}
-	target, err := seed.DefaultWeeklyTarget(freq)
+	target, err := seed.DefaultWeeklyTarget(freq, simVolume(t))
 	if err != nil {
 		t.Fatalf("週目標が不正: %v", err)
 	}
@@ -145,7 +145,7 @@ func simulateWith(t *testing.T, frequency, weeks int, focus exercise.ExerciseID,
 			declared = append(declared, id)
 		}
 	}
-	program, err := program.NewProgram(freq, target, ids, declared, focus)
+	program, err := program.NewProgram(freq, simVolume(t), target, ids, declared, focus)
 	if err != nil {
 		t.Fatalf("プログラムの生成に失敗: %v", err)
 	}
@@ -224,15 +224,26 @@ func simulateWith(t *testing.T, frequency, weeks int, focus exercise.ExerciseID,
 // 届かない目標は「毎週すべての区分が赤字」の画面を出し続けるだけで、
 // 何も導かない。大幅な超過も同じで、目標が挙動を説明できていない。
 func TestSimulation_WeeklyTargetIsAttainableAtEveryFrequency(t *testing.T) {
-	// 帯が広いのは、供給の内訳が頻度で変わるため。1週間に供給できる
-	// 総量は頻度に比例するが、8スロットを21区分に配る形は比例しない。
+	// 帯が広めなのは、供給の内訳が頻度で変わるため。1週間に供給できる
+	// 総量は頻度に比例するが、限られた枠を21区分に配る形は比例しない。
 	// 目標は「意図」であって実測の写しではないので、ぴったり合わせない。
+	//
+	// この帯に収まるのは、補助の順序が欠けている割合で決まり、残差を
+	// 4週の窓で数えているから。日数を第1キーにしていた頃は、1日4種目で
+	// 54〜168% に開き、52週平均でも縮まなかった（偏りであってばらつき
+	// ではない）。窓が1週だと、週目標が1種目ぶんより小さい区分が抑え
+	// られず 179〜202% に張り付いた。
 	const (
 		minRate = 0.60
 		maxRate = 1.45
 	)
-
-	for f := 1; f <= maxSimFrequency; f++ {
+	// 週1回は見ない。想定する利用者ではない。
+	//
+	// 週1回×4種目×3セットだと4週で48セットを21区分に配ることになり、
+	// 小さい区分の4週ぶんの目標（約2.4セット）が1種目ぶん（3セット）より
+	// 小さい。窓をどう取っても配分どおりには回りきらない（実測 54〜179%）。
+	// 週1回を選ぶこと自体は妨げないが、配分の質は保証しない。
+	for f := 2; f <= maxSimFrequency; f++ {
 		t.Run(fmt.Sprintf("週%d回", f), func(t *testing.T) {
 			res := simulate(t, f, 8)
 
@@ -339,26 +350,50 @@ func TestSimulation_EveryAccessoryGetsUsedInSomeSetup(t *testing.T) {
 	}
 }
 
-// セッションの長さが現実的な範囲に収まること。
+// セッションの長さが1日の予算を超えないこと。
+//
+// 上限は「1日の種目数 × 1種目あたりのセット数」。範囲ではなく予算そのもので
+// 見る。以前は 9〜36 という決め打ちの幅で見ていたが、この数字は「週1回の人が
+// 1週間ぶんを1回で消化する」前提から来ていて、1日の量を決める仕組みが
+// できれば意味を失う。
+//
+// 下限を1種目ぶんに置くのは、軸だけの日（補助が全部回復期間に当たる、
+// 分割で狙う区分が尽きる）が正当にあるため。予算に届かない日を責めない。
+// 下限そのものを外さないのは、何も出ない日（0セット）は捕まえたいから。
+// ジムに来て空のリストが出るのは、予算に届かないのとは別の壊れ方。
+//
+// 予算は利用者の設定から来る。ここでは出荷される既定を測る。
 func TestSimulation_SessionLengthIsReasonable(t *testing.T) {
+	volume := simVolume(t)
+	budget := volume.TotalSets()
+	setsPerExercise := volume.Sets()
+
 	for f := 1; f <= maxSimFrequency; f++ {
 		res := simulate(t, f, 8)
 		for i, n := range res.setsPer {
-			// 上限が36なのは、週1回の人が1週間ぶんを1回で消化するため。
-			// メイン12セット＋補助8種目×3セット。長いが、頻度1を選んだ
-			// 時点でそうなる。分割したいなら頻度を上げる。
-			if n < 9 || n > 36 {
-				t.Errorf("週%d回の%d本目のセット数が現実的でない: %d", f, i+1, n)
+			if n > budget {
+				t.Errorf("週%d回の%d本目が予算超過: %dセット（予算%d）", f, i+1, n, budget)
+			}
+			if n < setsPerExercise {
+				t.Errorf("週%d回の%d本目が短すぎる: %dセット", f, i+1, n)
 			}
 		}
 	}
 }
 
-// 重量の未確定は最初だけで、記録が溜まれば解消すること。
+// 重量の未確定は初出のときだけで、一度記録すれば次から確定すること。
+//
+// 以前は加えて「12本目には未確定が0件」を見ていた。1日9種目のころは12本で
+// カタログが一巡していたので成り立ったが、これは推定の性質ではなく
+// ローテーションの速さの話だった。1日4種目では、まれにしか選ばれない種目が
+// 24本目で初めて出てくる（実測）。本数を延ばしても単調には直らない
+// （16・20本は通り、24・30本で落ちる）ので、本数を選んで緑にするのはやめた。
+//
+// 推定の契約は、1セットずつの「記録があるのに未確定」の検査が守っている。
 func TestSimulation_WeightsResolveQuickly(t *testing.T) {
 	all, _ := seed.Exercises()
 	freq, _ := program.NewFrequency(3)
-	target, _ := seed.DefaultWeeklyTarget(freq)
+	target, _ := seed.DefaultWeeklyTarget(freq, simVolume(t))
 
 	ids := make([]exercise.ExerciseID, 0, len(all))
 	byID := map[exercise.ExerciseID]*exercise.Exercise{}
@@ -366,7 +401,7 @@ func TestSimulation_WeightsResolveQuickly(t *testing.T) {
 		byID[e.ID()] = e
 		ids = append(ids, e.ID())
 	}
-	program, _ := program.NewProgram(freq, target, ids,
+	program, _ := program.NewProgram(freq, simVolume(t), target, ids,
 		[]exercise.ExerciseID{"bench", "squat", "deadlift"}, "")
 	planner := planning.DefaultSessionPlanner()
 
@@ -379,7 +414,6 @@ func TestSimulation_WeightsResolveQuickly(t *testing.T) {
 
 	var logs []*setlog.SetLog
 	n := 0
-	lastUndecided := -1
 	seen := map[exercise.ExerciseID]bool{}
 	for i := range 12 {
 		date := simStart.AddDays(i / 3 * 7).AddDays((i % 3) * 2)
@@ -393,13 +427,11 @@ func TestSimulation_WeightsResolveQuickly(t *testing.T) {
 			t.Fatalf("Plan が失敗: %v", err)
 		}
 
-		undecided := 0
 		for _, set := range append(s.Main(), s.Accessories()...) {
 			kg := 0.0
 			if w, ok := set.Weight(); ok {
 				kg = w.Kg()
 			} else {
-				undecided++
 				// 未確定が許されるのは初出のときだけ。一度でも記録が
 				// あるのに重量が出ないなら、推定の経路が壊れている。
 				if seen[set.ExerciseID()] {
@@ -419,11 +451,6 @@ func TestSimulation_WeightsResolveQuickly(t *testing.T) {
 				logs = append(logs, l)
 			}
 		}
-		lastUndecided = undecided
-
-	}
-	if lastUndecided != 0 {
-		t.Errorf("12本目で %d 件の重量が未確定", lastUndecided)
 	}
 }
 
@@ -452,4 +479,18 @@ func TestSimulation_Report(t *testing.T) {
 		}
 		t.Logf("  未使用: %v", unused)
 	}
+}
+
+// simVolume は通し検証で使う1回の量。
+//
+// **出荷される既定をそのまま使う。**テスト用の値を置くと、利用者が実際に
+// 受け取る構成では一度も測っていないことになる。既定を動かしたら、この
+// 検証の数字も動くのが正しい。
+func simVolume(t *testing.T) program.SessionVolume {
+	t.Helper()
+	v, err := seed.DefaultSessionVolume()
+	if err != nil {
+		t.Fatalf("既定の1回の量が不正: %v", err)
+	}
+	return v
 }

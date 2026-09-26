@@ -55,8 +55,7 @@ func TestNewWeeklyVolumeTarget_RejectsInvalid(t *testing.T) {
 		{"空", nil},
 		{"0セット", map[training.MuscleRegion]float64{training.ChestMid: 0}},
 		{"負のセット数", map[training.MuscleRegion]float64{training.ChestMid: -5}},
-		{"下限未満", map[training.MuscleRegion]float64{training.ChestMid: 0.4}},
-		{"上限超", map[training.MuscleRegion]float64{training.ChestMid: 41}},
+		{"量子化で0に潰れる", map[training.MuscleRegion]float64{training.ChestMid: 4e-7}},
 		{"NaN", map[training.MuscleRegion]float64{training.ChestMid: math.NaN()}},
 		{"無限大", map[training.MuscleRegion]float64{training.ChestMid: math.Inf(1)}},
 		{"未知の筋区分", map[training.MuscleRegion]float64{"NOPE": 10}},
@@ -70,19 +69,17 @@ func TestNewWeeklyVolumeTarget_RejectsInvalid(t *testing.T) {
 	}
 }
 
-func TestNewWeeklyVolumeTarget_BoundaryConstants(t *testing.T) {
-	for _, v := range []float64{0.5, 40} {
+// 正の値なら大きさによらず受け付けること。
+//
+// 以前は 0.5〜40 に収めていた。利用者が手で入力していた頃の防波堤で、週目標が
+// 設定から導く値になった時点で理由が消えた。残すと週1回の少量設定や週7回
+// 6種目6セットで週目標が組めず、その設定を選んだ瞬間に保存が落ちる。
+func TestNewWeeklyVolumeTarget_AcceptsAnyPositive(t *testing.T) {
+	for _, v := range []float64{training.SmallestPositive, 0.2, 41, 1000} {
 		if _, err := program.NewWeeklyVolumeTarget(map[training.MuscleRegion]float64{
 			training.ChestMid: v,
 		}); err != nil {
-			t.Errorf("境界ちょうど %v が弾かれた: %v", v, err)
-		}
-	}
-	for _, v := range []float64{0.499999, 40.000001} {
-		if _, err := program.NewWeeklyVolumeTarget(map[training.MuscleRegion]float64{
-			training.ChestMid: v,
-		}); err == nil {
-			t.Errorf("境界をわずかに外れる %v が通ってしまう", v)
+			t.Errorf("正の値 %v が弾かれた: %v", v, err)
 		}
 	}
 }
@@ -90,7 +87,7 @@ func TestNewWeeklyVolumeTarget_BoundaryConstants(t *testing.T) {
 func TestNewWeeklyVolumeTarget_ErrorIdentifiesTheRegion(t *testing.T) {
 	// 21区分のシードのうちどれが不正か分からないと直せない。
 	_, err := program.NewWeeklyVolumeTarget(map[training.MuscleRegion]float64{
-		training.ChestMid: 100,
+		training.ChestMid: -1,
 	})
 	if err == nil {
 		t.Fatal("エラーにならない")
@@ -154,7 +151,7 @@ func TestWeeklyVolumeTarget_ZeroValueIsEmpty(t *testing.T) {
 }
 
 func TestNewProgram(t *testing.T) {
-	p, err := program.NewProgram(mustFrequency(t, 3), simpleTarget(t),
+	p, err := program.NewProgram(mustFrequency(t, 3), mustVolume(t, 6, 3), simpleTarget(t),
 		[]exercise.ExerciseID{"bench", "squat"}, []exercise.ExerciseID{"bench"}, "")
 	if err != nil {
 		t.Fatalf("生成に失敗: %v", err)
@@ -175,7 +172,7 @@ func TestNewProgram(t *testing.T) {
 
 // 重点種目を指定すると往復すること。指定なしと区別できること。
 func TestNewProgram_Focus(t *testing.T) {
-	p, err := program.NewProgram(mustFrequency(t, 3), simpleTarget(t),
+	p, err := program.NewProgram(mustFrequency(t, 3), mustVolume(t, 6, 3), simpleTarget(t),
 		[]exercise.ExerciseID{"bench", "squat"}, []exercise.ExerciseID{"bench"}, "bench")
 	if err != nil {
 		t.Fatalf("生成に失敗: %v", err)
@@ -220,7 +217,7 @@ func TestNewProgram_RejectsInvalid(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			got, err := program.NewProgram(c.freq, c.target, c.selected, c.declared, c.focus)
+			got, err := program.NewProgram(c.freq, mustVolume(t, 6, 3), c.target, c.selected, c.declared, c.focus)
 			if err == nil {
 				t.Fatalf("不正なプログラムが通ってしまう: %+v", got)
 			}
@@ -232,7 +229,7 @@ func TestNewProgram_RejectsInvalid(t *testing.T) {
 }
 
 func TestProgram_SelectedExercisesIsACopy(t *testing.T) {
-	p, err := program.NewProgram(mustFrequency(t, 3), simpleTarget(t), []exercise.ExerciseID{"bench"}, []exercise.ExerciseID{"bench"}, "")
+	p, err := program.NewProgram(mustFrequency(t, 3), mustVolume(t, 6, 3), simpleTarget(t), []exercise.ExerciseID{"bench"}, []exercise.ExerciseID{"bench"}, "")
 	if err != nil {
 		t.Fatalf("生成に失敗: %v", err)
 	}
@@ -246,7 +243,7 @@ func TestProgram_SelectedExercisesIsACopy(t *testing.T) {
 
 func TestProgram_IsImmutableAgainstInputMutation(t *testing.T) {
 	input := []exercise.ExerciseID{"bench", "squat"}
-	p, err := program.NewProgram(mustFrequency(t, 3), simpleTarget(t), input, []exercise.ExerciseID{"bench"}, "")
+	p, err := program.NewProgram(mustFrequency(t, 3), mustVolume(t, 6, 3), simpleTarget(t), input, []exercise.ExerciseID{"bench"}, "")
 	if err != nil {
 		t.Fatalf("生成に失敗: %v", err)
 	}
@@ -331,12 +328,6 @@ func TestProgram_WithKeepsOtherFields(t *testing.T) {
 			},
 		},
 		{
-			name: "WithTarget", changed: []string{"target"},
-			apply: func(p *program.Program) (*program.Program, error) {
-				return p.WithTarget(mustTarget(t, quadOnly))
-			},
-		},
-		{
 			name: "WithCycle", changed: []string{"cycle"},
 			apply: func(p *program.Program) (*program.Program, error) {
 				return p.WithCycle([]program.Split{mustSplit(t, "脚", training.Quad)})
@@ -346,7 +337,7 @@ func TestProgram_WithKeepsOtherFields(t *testing.T) {
 
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			base, err := program.NewProgram(mustFrequency(t, 3), simpleTarget(t),
+			base, err := program.NewProgram(mustFrequency(t, 3), mustVolume(t, 6, 3), simpleTarget(t),
 				big3(), []exercise.ExerciseID{"bench", "squat"}, "bench")
 			if err != nil {
 				t.Fatalf("NewProgram: %v", err)
@@ -395,7 +386,7 @@ func TestProgram_WithKeepsOtherFields(t *testing.T) {
 // 全セッションの補助種目が消える。
 func TestProgram_WeeklyTarget(t *testing.T) {
 	target := simpleTarget(t)
-	p, err := program.NewProgram(mustFrequency(t, 3), target, []exercise.ExerciseID{"bench"}, []exercise.ExerciseID{"bench"}, "")
+	p, err := program.NewProgram(mustFrequency(t, 3), mustVolume(t, 6, 3), target, []exercise.ExerciseID{"bench"}, []exercise.ExerciseID{"bench"}, "")
 	if err != nil {
 		t.Fatalf("生成に失敗: %v", err)
 	}
@@ -419,7 +410,7 @@ func TestProgram_WeeklyTarget(t *testing.T) {
 // 一致しないIDは黙って無視されるので、選んだ種目が理由なく消える。
 func TestNewProgram_ValidatesExerciseIDs(t *testing.T) {
 	for _, id := range []exercise.ExerciseID{"   ", " bench", "bench ", "\tbench"} {
-		got, err := program.NewProgram(mustFrequency(t, 3), simpleTarget(t),
+		got, err := program.NewProgram(mustFrequency(t, 3), mustVolume(t, 6, 3), simpleTarget(t),
 			[]exercise.ExerciseID{id}, []exercise.ExerciseID{id}, "")
 		if err == nil {
 			t.Errorf("不正な種目ID %q が通ってしまう: %+v", id, got)
@@ -428,14 +419,14 @@ func TestNewProgram_ValidatesExerciseIDs(t *testing.T) {
 }
 
 // 量子化がコンストラクタで効いていること。
-// 境界のすぐ外側でも、量子化して境界に乗る値は通す。
+//
+// 量子化してから検査するので、量子化で最小の正の値に切り上がる値は通り、
+// 0に潰れる値は弾かれる。順序を逆にすると、検査を通った値が量子化で0になる。
 func TestNewWeeklyVolumeTarget_Quantizes(t *testing.T) {
-	for _, v := range []float64{0.4999996, 40.0000004} {
-		if _, err := program.NewWeeklyVolumeTarget(map[training.MuscleRegion]float64{
-			training.ChestMid: v,
-		}); err != nil {
-			t.Errorf("量子化すれば境界に収まる %v が弾かれた: %v", v, err)
-		}
+	if _, err := program.NewWeeklyVolumeTarget(map[training.MuscleRegion]float64{
+		training.ChestMid: 5e-7,
+	}); err != nil {
+		t.Errorf("量子化すれば最小の正の値になる 5e-7 が弾かれた: %v", err)
 	}
 
 	target := mustTarget(t, map[training.MuscleRegion]float64{
@@ -445,4 +436,14 @@ func TestNewWeeklyVolumeTarget_Quantizes(t *testing.T) {
 	if n := decimalPlaces(strconv.FormatFloat(got, 'f', -1, 64)); n > 6 {
 		t.Errorf("量子化されていない: %v（小数点以下 %d 桁）", got, n)
 	}
+}
+
+// mustVolume はテスト用の1回の量。
+func mustVolume(t *testing.T, exercises, sets int) program.SessionVolume {
+	t.Helper()
+	v, err := program.NewSessionVolume(exercises, sets)
+	if err != nil {
+		t.Fatalf("NewSessionVolume(%d, %d): %v", exercises, sets, err)
+	}
+	return v
 }

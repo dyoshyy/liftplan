@@ -242,12 +242,11 @@ func changeFrequency(t *testing.T, f *signInFixture, userID account.UserID) int 
 	if err != nil {
 		t.Fatalf("頻度が不正: %v", err)
 	}
-	target, err := seed.DefaultWeeklyTarget(freq)
+	target, err := seed.DefaultWeeklyTarget(freq, mustVolume(t, 6, 3))
 	if err != nil {
 		t.Fatalf("週目標シードが不正: %v", err)
 	}
-	changed, err := program.NewProgram(
-		freq, target, prog.SelectedExercises(), prog.DeclaredExercises(), "")
+	changed, err := program.NewProgram(freq, mustVolume(t, 6, 3), target, prog.SelectedExercises(), prog.DeclaredExercises(), "")
 	if err != nil {
 		t.Fatalf("プログラムが不正: %v", err)
 	}

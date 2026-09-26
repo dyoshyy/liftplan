@@ -11,6 +11,7 @@ import (
 	"github.com/dyoshyy/liftplan/internal/domain/training/exercise"
 	"github.com/dyoshyy/liftplan/internal/domain/training/planning"
 	"github.com/dyoshyy/liftplan/internal/domain/training/program"
+	"github.com/dyoshyy/liftplan/internal/domain/training/seed"
 	"github.com/dyoshyy/liftplan/internal/domain/training/setlog"
 )
 
@@ -33,7 +34,7 @@ type Trend struct {
 	ChangeKg float64
 }
 
-// RegionVolume は筋区分ごとの、今週の充足。
+// RegionVolume は筋区分ごとの充足（直近4週の週あたり）。
 type RegionVolume struct {
 	Region    training.MuscleRegion
 	TargetSet float64
@@ -109,7 +110,7 @@ func (q *Stats) Trends(ctx context.Context, user account.UserID, from, to traini
 	return out, nil
 }
 
-// WeeklyVolume は今週の週目標に対する充足を返す。
+// WeeklyVolume は週目標に対する充足を、直近4週の週あたり平均で返す。
 //
 // これはアプリの中心概念なのに、これまでどこにも表示されていなかった。
 // 週目標と残差で補助種目を選んでいるのに、利用者にはその存在すら
@@ -127,7 +128,14 @@ func (q *Stats) WeeklyVolume(ctx context.Context, user account.UserID, asOf trai
 
 	// 数え方はエンジンと同じものを使う。別々に実装すると、画面に出る
 	// 数字とエンジンが使う数字がずれて、どちらが正しいか分からなくなる。
-	coverage := planning.CoverageBetween(h, pool, asOf.AddDays(-6), asOf)
+	//
+	// 窓もエンジンと同じ4週。1週で見せると、エンジンが4週で均している
+	// ものを週ごとの凸凹で見せることになり、「足りていない区分から選ばれる」
+	// が画面の上で成り立たなくなる。週目標と並べるので週あたりに直す。
+	// 当日を含めるのは、今日やったぶんが画面に反映されないと記録した実感が
+	// 無いため（エンジンは当日を見ないが、画面は見せる）。
+	coverage := planning.CoverageBetween(h, pool,
+		asOf.AddDays(-(planning.CoverageWindowDays - 1)), asOf)
 
 	target := prog.WeeklyTarget()
 	out := make([]RegionVolume, 0, len(target.Regions()))
@@ -135,7 +143,7 @@ func (q *Stats) WeeklyVolume(ctx context.Context, user account.UserID, asOf trai
 		out = append(out, RegionVolume{
 			Region:    r,
 			TargetSet: target.Sets(r),
-			DoneSet:   coverage.Sets(r),
+			DoneSet:   training.Quantize(coverage.Sets(r) / planning.CoverageWindowWeeks),
 		})
 	}
 
@@ -173,6 +181,12 @@ func (q *Stats) load(ctx context.Context, user account.UserID) (
 	if prog == nil {
 		return setlog.History{}, nil, nil,
 			fmt.Errorf("プログラムの取得: %w", program.ErrProgramNotConfigured)
+	}
+	// 週目標は保存値を使わず、設定から組み直す。計画と同じ週目標で比べないと、
+	// 計画が狙う区分と画面が「足りていない」と言う区分が食い違う。
+	prog, err = seed.WithDerivedTarget(prog)
+	if err != nil {
+		return setlog.History{}, nil, nil, err
 	}
 	return h, pool, prog, nil
 }

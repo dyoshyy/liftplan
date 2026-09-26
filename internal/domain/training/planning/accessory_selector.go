@@ -7,6 +7,7 @@ import (
 
 	"github.com/dyoshyy/liftplan/internal/domain/training"
 	"github.com/dyoshyy/liftplan/internal/domain/training/exercise"
+	"github.com/dyoshyy/liftplan/internal/domain/training/program"
 	"github.com/dyoshyy/liftplan/internal/domain/training/setlog"
 )
 
@@ -96,6 +97,7 @@ func (s AccessorySelector) IsZero() bool { return s == AccessorySelector{} }
 // 「今日その種目が出るかどうか」を決める場所が1つになるので、補助の
 // 残差計算を変えても軸の頻度が動かない。
 func (s AccessorySelector) Select(
+	target program.WeeklyVolumeTarget,
 	residual map[training.MuscleRegion]float64,
 	pool []*exercise.Exercise,
 	h setlog.History,
@@ -130,14 +132,14 @@ func (s AccessorySelector) Select(
 	sort.Slice(accessories, func(i, j int) bool { return accessories[i].ID() < accessories[j].ID() })
 
 	recovering := s.recovering(h, byID, date)
-	remaining := s.trackable(residual, recovering)
+	remaining := s.trackable(target, residual, recovering)
 	staleness := s.regionStaleness(h, byID, date)
 
 	chosen := make([]exercise.ExerciseID, 0, s.maxSlots)
 	taken := make(map[exercise.ExerciseID]bool, s.maxSlots)
 
 	for len(chosen) < s.maxSlots && len(remaining) > 0 {
-		region, ok := nextRegion(remaining, staleness)
+		region, ok := nextRegion(remaining, staleness, target)
 		if !ok {
 			break
 		}
@@ -161,12 +163,25 @@ func (s AccessorySelector) Select(
 // 非有限値を落とすのは、+Inf の残差が常に最優先になったうえ、
 // 有限値を引いても減らずスロットを食い尽くすため。
 func (s AccessorySelector) trackable(
+	target program.WeeklyVolumeTarget,
 	residual map[training.MuscleRegion]float64,
 	recovering map[training.MuscleRegion]bool,
 ) map[training.MuscleRegion]float64 {
 	out := make(map[training.MuscleRegion]float64, len(residual))
 	for region, gap := range residual {
 		if gap <= 0 || math.IsNaN(gap) || math.IsInf(gap, 0) {
+			continue
+		}
+		// 目標の無い区分は、欠けている割合を定義できないので狙わない。
+		//
+		// nextRegion の shortfall は remaining[r] / windowSets(target, r) で
+		// 割る。target と residual は Select が別々の引数として受け取るだけで、
+		// 両者が同じ区分の集合を指すことは呼び出し側の責務（いまはプランナーが
+		// SessionResidual と Select に同じ週目標を渡していること）でしか
+		// 保証されておらず、Select 自身の入力契約としては保証されない。
+		// このガードを消すと、目標0の区分は分母0で shortfall が +Inf になり、
+		// 常に最優先で選ばれる（TestAccessorySelector_IgnoresResidualForRegionWithoutTarget）。
+		if target.Sets(region) <= 0 {
 			continue
 		}
 		if recovering[region] {
@@ -298,9 +313,26 @@ func (s AccessorySelector) hitsRecoveringPrimaryMover(e *exercise.Exercise, reco
 
 // nextRegion は次に埋める筋区分。
 //
-// 最も長く刺激していない区分を優先し、同じなら残差の大きい方、
-// それも同じなら名前の昇順（再現性のため）。
-func nextRegion(remaining map[training.MuscleRegion]float64, staleness map[training.MuscleRegion]int) (training.MuscleRegion, bool) {
+//  1. 一度も刺激していない区分
+//  2. 目標に対して欠けている割合（残り ÷ 窓ぶんの目標）の大きい区分
+//  3. 最後に刺激してから長い区分
+//  4. 名前の昇順（再現性のため）
+//
+// **割合で並べる。**残りの絶対値で並べると週目標の大きい区分が常に勝ち、
+// 小さい区分にスロットが回らない。以前はそれを避けるために日数を第1キーに
+// していたが、日数ではどの区分にもほぼ均等に順番が回り、配分表が同点処理に
+// しか効かなかった。目標の小さい区分は必ず超過し、大きい区分は必ず不足した
+// （1日4種目で達成率 54〜168%、52週平均でも縮まない）。割合なら目標の大小が
+// 打ち消されるので、飢餓を避けつつ配分表が配分を支配する。
+//
+// 一度も刺激していない区分を割合より先に置くのは、初回を後回しにしないため。
+// 割合が小さく出る区分（分割の天井で残りが削られた区分など）が、いつまでも
+// 1回目を迎えないことを防ぐ。
+func nextRegion(
+	remaining map[training.MuscleRegion]float64,
+	staleness map[training.MuscleRegion]int,
+	target program.WeeklyVolumeTarget,
+) (training.MuscleRegion, bool) {
 	regions := make([]training.MuscleRegion, 0, len(remaining))
 	for r := range remaining {
 		regions = append(regions, r)
@@ -315,14 +347,22 @@ func nextRegion(remaining map[training.MuscleRegion]float64, staleness map[train
 		}
 		return neverStimulated
 	}
+	// 残りは窓（4週）ぶんの目標から引いた値なので、分母も窓ぶんで取る。
+	// trackable が目標0の区分を落としているので、分母は正。
+	shortfall := func(r training.MuscleRegion) float64 {
+		return remaining[r] / windowSets(target, r)
+	}
 
 	sort.Slice(regions, func(i, j int) bool {
 		a, b := regions[i], regions[j]
+		if na, nb := daysAgo(a) == neverStimulated, daysAgo(b) == neverStimulated; na != nb {
+			return na
+		}
+		if sa, sb := shortfall(a), shortfall(b); sa != sb {
+			return sa > sb
+		}
 		if da, db := daysAgo(a), daysAgo(b); da != db {
 			return da > db
-		}
-		if remaining[a] != remaining[b] {
-			return remaining[a] > remaining[b]
 		}
 		return a < b
 	})

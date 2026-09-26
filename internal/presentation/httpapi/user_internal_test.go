@@ -99,8 +99,8 @@ func routesForUserTest(t *testing.T) (http.Handler, *memory.ProgramRepository) {
 		SetFocus:         usecase.NewSetFocusExercise(programs, programs),
 		SetDeclared:      usecase.NewSetDeclaredExercises(exercises, programs, programs),
 		SetFrequency:     usecase.NewSetFrequency(programs, programs),
+		SetVolume:        usecase.NewSetSessionVolume(programs, programs),
 		SetSelected:      usecase.NewSetSelectedExercises(exercises, programs, programs),
-		SetTarget:        usecase.NewSetWeeklyTarget(exercises, programs, programs),
 		SetSplit:         usecase.NewSetSplitCycle(exercises, programs, programs),
 		GetProgram:       usecase.NewGetProgram(programs),
 		DeleteSetLog:     usecase.NewDeleteSetLog(logs),
@@ -126,7 +126,7 @@ func someProgram(t *testing.T) *program.Program {
 	if err != nil {
 		t.Fatalf("頻度が不正: %v", err)
 	}
-	target, err := seed.DefaultWeeklyTarget(freq)
+	target, err := seed.DefaultWeeklyTarget(freq, mustVolume(t, 6, 3))
 	if err != nil {
 		t.Fatalf("週目標が不正: %v", err)
 	}
@@ -134,10 +134,20 @@ func someProgram(t *testing.T) *program.Program {
 	for _, e := range pool {
 		selected = append(selected, e.ID())
 	}
-	prog, err := program.NewProgram(freq, target, selected,
+	prog, err := program.NewProgram(freq, mustVolume(t, 6, 3), target, selected,
 		[]exercise.ExerciseID{"bench", "squat", "deadlift"}, "")
 	if err != nil {
 		t.Fatalf("プログラムが不正: %v", err)
 	}
 	return prog
+}
+
+// mustVolume はテスト用の1回の量。
+func mustVolume(t *testing.T, exercises, sets int) program.SessionVolume {
+	t.Helper()
+	v, err := program.NewSessionVolume(exercises, sets)
+	if err != nil {
+		t.Fatalf("NewSessionVolume(%d, %d): %v", exercises, sets, err)
+	}
+	return v
 }

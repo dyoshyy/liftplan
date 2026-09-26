@@ -15,10 +15,6 @@ import (
 // 週目標を道連れにするのは、1週間に供給できるセット数が頻度に比例する
 // ため（seed.DefaultWeeklyTarget のコメント）。頻度だけ動かすと、目標が
 // 実際の挙動を説明しなくなる。
-//
-// 手で調整した週目標があれば上書きされる。「不満が出た区分だけ後から
-// 調整すればよく、最初から自分で全部決める必要はない」という既定値の
-// 設計意図（seed）に沿った扱いで、頻度を変えたら調整もやり直しになる。
 type SetFrequency struct {
 	reader program.Reader
 	writer program.Writer
@@ -42,14 +38,16 @@ func (u *SetFrequency) Execute(ctx context.Context, user account.UserID, perWeek
 	if err != nil {
 		return fmt.Errorf("%w: 頻度: %w", apperror.ErrInvalidInput, err)
 	}
-	target, err := seed.DefaultWeeklyTarget(freq)
-	if err != nil {
-		return fmt.Errorf("%w: 週目標: %w", apperror.ErrInvalidInput, err)
-	}
-
 	prog, err := u.reader.Get(ctx, user)
 	if err != nil {
 		return err
+	}
+
+	// 1回の量はそのまま。週目標は「頻度 × 1回の量」で決まるので、
+	// 量を読んでから組み直す。
+	target, err := seed.DefaultWeeklyTarget(freq, prog.SessionVolume())
+	if err != nil {
+		return fmt.Errorf("%w: 週目標: %w", apperror.ErrInvalidInput, err)
 	}
 
 	next, err := prog.WithFrequency(freq, target)

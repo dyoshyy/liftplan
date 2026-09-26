@@ -27,8 +27,8 @@ type Handler struct {
 	setFocus         *usecase.SetFocusExercise
 	setDeclared      *usecase.SetDeclaredExercises
 	setFrequency     *usecase.SetFrequency
+	setVolume        *usecase.SetSessionVolume
 	setSelected      *usecase.SetSelectedExercises
-	setTarget        *usecase.SetWeeklyTarget
 	setSplit         *usecase.SetSplitCycle
 	getProgram       *usecase.GetProgram
 	deleteSetLog     *usecase.DeleteSetLog
@@ -48,8 +48,8 @@ type Dependencies struct {
 	SetFocus         *usecase.SetFocusExercise
 	SetDeclared      *usecase.SetDeclaredExercises
 	SetFrequency     *usecase.SetFrequency
+	SetVolume        *usecase.SetSessionVolume
 	SetSelected      *usecase.SetSelectedExercises
-	SetTarget        *usecase.SetWeeklyTarget
 	SetSplit         *usecase.SetSplitCycle
 	GetProgram       *usecase.GetProgram
 	DeleteSetLog     *usecase.DeleteSetLog
@@ -81,10 +81,10 @@ func NewHandler(d Dependencies) (*Handler, error) {
 		return nil, errMissingDependency("SetDeclared")
 	case d.SetFrequency == nil:
 		return nil, errMissingDependency("SetFrequency")
+	case d.SetVolume == nil:
+		return nil, errMissingDependency("SetVolume")
 	case d.SetSelected == nil:
 		return nil, errMissingDependency("SetSelected")
-	case d.SetTarget == nil:
-		return nil, errMissingDependency("SetTarget")
 	case d.SetSplit == nil:
 		return nil, errMissingDependency("SetSplit")
 	case d.GetProgram == nil:
@@ -106,8 +106,8 @@ func NewHandler(d Dependencies) (*Handler, error) {
 		setFocus:         d.SetFocus,
 		setDeclared:      d.SetDeclared,
 		setFrequency:     d.SetFrequency,
+		setVolume:        d.SetVolume,
 		setSelected:      d.SetSelected,
-		setTarget:        d.SetTarget,
 		setSplit:         d.SetSplit,
 		getProgram:       d.GetProgram,
 		deleteSetLog:     d.DeleteSetLog,
@@ -407,6 +407,25 @@ func (h *Handler) handlePutProgramFrequency(w http.ResponseWriter, r *http.Reque
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// handlePutProgramVolume は1回の量を差し替える。週目標も道連れに置き直る
+// （頻度の口と同じ）。
+func (h *Handler) handlePutProgramVolume(w http.ResponseWriter, r *http.Request) {
+	user, ok := requireUser(w, r)
+	if !ok {
+		return
+	}
+	var req sessionVolumeDTO
+	if err := decodeJSON(r, &req); err != nil {
+		respondError(w, err)
+		return
+	}
+	if err := h.setVolume.Execute(r.Context(), user, req.ExercisesPerSession, req.SetsPerExercise); err != nil {
+		respondError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
 // handlePutProgramSelected は使う種目だけを差し替える。
 //
 // 伸ばしたい種目が外れる選択は 400。黙って宣言を削ると、軸の顔ぶれが
@@ -428,30 +447,6 @@ func (h *Handler) handlePutProgramSelected(w http.ResponseWriter, r *http.Reques
 	}
 
 	if err := h.setSelected.Execute(r.Context(), user, ids); err != nil {
-		respondError(w, err)
-		return
-	}
-	w.WriteHeader(http.StatusNoContent)
-}
-
-// handlePutProgramTarget は週目標だけを差し替える。
-func (h *Handler) handlePutProgramTarget(w http.ResponseWriter, r *http.Request) {
-	user, ok := requireUser(w, r)
-	if !ok {
-		return
-	}
-	var req targetDTO
-	if err := decodeJSON(r, &req); err != nil {
-		respondError(w, err)
-		return
-	}
-
-	sets := make(map[training.MuscleRegion]float64, len(req.Target))
-	for k, v := range req.Target {
-		sets[training.MuscleRegion(k)] = v
-	}
-
-	if err := h.setTarget.Execute(r.Context(), user, sets); err != nil {
 		respondError(w, err)
 		return
 	}

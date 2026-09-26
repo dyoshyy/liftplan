@@ -16,8 +16,8 @@ import (
 // 種目マスタとの突合（verifySelection）を、それを呼ぶ狭い口から見る。
 //
 // 元は全置換の ConfigureProgram のテストが見ていた。全置換の口を消した
-// （#123）ので、同じ性質を SetSelectedExercises と SetWeeklyTarget の側で
-// 固定する。HTTP 越しのテスト（handler_test.go）はステータスしか見ておらず、
+// （#123）ので、同じ性質を SetSelectedExercises の側で固定する。
+// SetWeeklyTarget の側でも見ていたが、週目標を手で変える口ごと消した（D-139）。HTTP 越しのテスト（handler_test.go）はステータスしか見ておらず、
 // 「弾いたうえで保存していない」「nil 混じりのマスタで落ちない」
 // 「マスタが読めないときに入力の不正と言わない」は観測できない。
 
@@ -36,7 +36,7 @@ func bicepsProgram(t *testing.T) *program.Program {
 	if err != nil {
 		t.Fatalf("週目標が不正: %v", err)
 	}
-	p, err := program.NewProgram(freq, target,
+	p, err := program.NewProgram(freq, mustVolume(t, 6, 3), target,
 		[]exercise.ExerciseID{"squat", "calf_raise", "barbell_curl"},
 		[]exercise.ExerciseID{"squat"}, "")
 	if err != nil {
@@ -102,71 +102,6 @@ func TestSetSelectedExercises_VerifiesAgainstTheExerciseMaster(t *testing.T) {
 			uc := usecase.NewSetSelectedExercises(c.exercises, programs, programs)
 
 			err := uc.Execute(context.Background(), testUser, c.ids)
-
-			if len(c.wantIs) == 0 && err != nil {
-				t.Fatalf("実行に失敗: %v", err)
-			}
-			for _, want := range c.wantIs {
-				if !errors.Is(err, want) {
-					t.Errorf("エラーから %v が辿れない: %v", want, err)
-				}
-			}
-			if c.wantNot != nil && errors.Is(err, c.wantNot) {
-				t.Errorf("エラーから %v が辿れてしまう: %v", c.wantNot, err)
-			}
-			if saved := programs.savedProgram() != nil; saved != c.wantSaved {
-				t.Errorf("保存されたか が %v。%v のはず", saved, c.wantSaved)
-			}
-		})
-	}
-}
-
-// 週目標の側からも同じ穴に落ちるので、同じ突合を通ること。
-func TestSetWeeklyTarget_VerifiesAgainstTheExerciseMaster(t *testing.T) {
-	pool, err := seed.Exercises()
-	if err != nil {
-		t.Fatalf("シードが不正: %v", err)
-	}
-	boom := errors.New("読めない")
-
-	cases := []struct {
-		name      string
-		exercises *fakeExercises
-		sets      map[training.MuscleRegion]float64
-		wantIs    []error
-		wantNot   error
-		wantSaved bool
-	}{
-		{
-			// 選択は squat / calf_raise / barbell_curl。胸を刺激する種目が無い。
-			name:      "選択がどの区分も刺激しない週目標は弾き、保存しない",
-			exercises: &fakeExercises{all: pool},
-			sets:      map[training.MuscleRegion]float64{training.ChestMid: 10},
-			wantIs:    []error{apperror.ErrInvalidInput},
-		},
-		{
-			// 区分ごとに種目を要求はしない。胸は埋まらないが、大腿四頭筋が
-			// 噛み合っているので通す。
-			name:      "1区分でも噛み合っていれば保存する",
-			exercises: &fakeExercises{all: pool},
-			sets:      map[training.MuscleRegion]float64{training.ChestMid: 10, training.Quad: 12},
-			wantSaved: true,
-		},
-		{
-			name:      "種目マスタが読めないなら保存せず、入力の不正とも言わない",
-			exercises: &fakeExercises{err: boom},
-			sets:      map[training.MuscleRegion]float64{training.Quad: 12},
-			wantIs:    []error{boom},
-			wantNot:   apperror.ErrInvalidInput,
-		},
-	}
-
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
-			programs := &fakeProgram{program: bicepsProgram(t)}
-			uc := usecase.NewSetWeeklyTarget(c.exercises, programs, programs)
-
-			err := uc.Execute(context.Background(), testUser, c.sets)
 
 			if len(c.wantIs) == 0 && err != nil {
 				t.Fatalf("実行に失敗: %v", err)
