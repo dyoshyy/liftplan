@@ -165,87 +165,97 @@ export function ProgramSettings({ nameOf, exercises, onChanged }: Props) {
         )}
       </Section>
 
-      <Section title="伸ばしたい種目" summary={program ? `${program.declared_exercises.length}種目` : ""}>
-      <Note className="mb-3">
-        毎回1種目ずつ、しばらくやっていないものから出ます。
-        増やすほど1種目あたりの間隔があきます。
-      </Note>
+      {/*
+        使う種目 ⊇ 伸ばしたい種目 ⊇ 重点種目 の包含順に並べる。逆だと、
+        まだ使っていない種目を伸ばしたいにするために一番下（使う種目）で
+        追加・保存してから上へ戻る必要があった。
+      */}
+      <Section
+        title="使う種目"
+        summary={program ? `${program.selected_exercises.length}種目` : ""}
+      >
+        <Note className="mb-3">
+          ここで選んだ種目だけが補助として出ます。
+          下の「伸ばしたい種目」に入れた種目は外せません。
+        </Note>
 
-      {program && draft && (
-        <ExercisePicker
-          exercises={exercises.filter((e) => program.selected_exercises.includes(e.id))}
-          chosen={draft}
-          lockedReason={locked}
-          disabled={busy}
-          onToggle={(id) => setDraft(toggleDeclared(draft, id))}
-        />
-      )}
+        {program && pick && (
+          <ExercisePicker
+            exercises={exercises}
+            chosen={pick}
+            lockedReason={lockedSelected(pick, program.declared_exercises)}
+            disabled={busy}
+            onToggle={(id) => setPick(toggleDeclared(pick, id))}
+          />
+        )}
 
-      {dirty && (
-        <Button
-          className="mt-3"
-          disabled={busy}
-          onClick={() => void saveDeclared()}
-        >
-          伸ばしたい種目を保存する
-        </Button>
-      )}
+        {pickDirty && (
+          <Button
+            className="mt-3"
+            disabled={busy}
+            onClick={() => void saveSelected()}
+          >
+            使う種目を保存する
+          </Button>
+        )}
+      </Section>
 
+      <Section
+        title="伸ばしたい種目"
+        summary={program ? `${program.declared_exercises.length}種目` : ""}
+      >
+        <Note className="mb-3">
+          毎回1種目ずつ、しばらくやっていないものから出ます。
+          増やすほど1種目あたりの間隔があきます。
+          候補は上の「使う種目」で保存した種目に限ります。
+        </Note>
+
+        {program && draft && (
+          <ExercisePicker
+            exercises={exercises.filter((e) => program.selected_exercises.includes(e.id))}
+            chosen={draft}
+            lockedReason={locked}
+            disabled={busy}
+            onToggle={(id) => setDraft(toggleDeclared(draft, id))}
+          />
+        )}
+
+        {dirty && (
+          <Button
+            className="mt-3"
+            disabled={busy}
+            onClick={() => void saveDeclared()}
+          >
+            伸ばしたい種目を保存する
+          </Button>
+        )}
       </Section>
 
       <Section title="重点種目" summary={program?.focus_exercise ? nameOf(program.focus_exercise) : "指定なし"}>
-      <Note className="mb-3">
-        選んだ種目の派生（ナローグリップ、テンポなど）が、軸とは別の枠で
-        中1日以上あけて出ます。指定しなければバリエーションは出ません。
-      </Note>
+        <Note className="mb-3">
+          上の「伸ばしたい種目」から選びます。選んだ種目の派生
+          （ナローグリップ、テンポなど）が、軸とは別の枠で中1日以上あけて
+          出ます。指定しなければバリエーションは出ません。
+        </Note>
 
-      {program && (
-        <div className="flex flex-wrap gap-2">
-          {focusOptions(program.declared_exercises).map((id) => {
-            const chosen = (program.focus_exercise ?? NO_FOCUS) === id;
-            return (
-              <Button
-                key={id || 'none'}
-                size="chip"
-                variant={chosen ? 'primary' : 'quiet'}
-                disabled={busy}
-                onClick={() => void chooseFocus(id)}
-              >
-                {id === NO_FOCUS ? '指定しない' : nameOf(id)}
-              </Button>
-            );
-          })}
-        </div>
-      )}
-
-      </Section>
-
-      <Section title="使う種目" summary={program ? `${program.selected_exercises.length}種目` : ""}>
-      <Note className="mb-3">
-        ここで選んだ種目だけが補助として出ます。
-        伸ばしたい種目は外せません。
-      </Note>
-
-      {program && pick && (
-        <ExercisePicker
-          exercises={exercises}
-          chosen={pick}
-          lockedReason={lockedSelected(pick, program.declared_exercises)}
-          disabled={busy}
-          onToggle={(id) => setPick(toggleDeclared(pick, id))}
-        />
-      )}
-
-      {pickDirty && (
-        <Button
-          className="mt-3"
-          disabled={busy}
-          onClick={() => void saveSelected()}
-        >
-          使う種目を保存する
-        </Button>
-      )}
-
+        {program && (
+          <div className="flex flex-wrap gap-2">
+            {focusOptions(program.declared_exercises).map((id) => {
+              const chosen = (program.focus_exercise ?? NO_FOCUS) === id;
+              return (
+                <Button
+                  key={id || 'none'}
+                  size="chip"
+                  variant={chosen ? 'primary' : 'quiet'}
+                  disabled={busy}
+                  onClick={() => void chooseFocus(id)}
+                >
+                  {id === NO_FOCUS ? '指定しない' : nameOf(id)}
+                </Button>
+              );
+            })}
+          </div>
+        )}
       </Section>
     </>
   );
