@@ -29,7 +29,8 @@ export const isDirty = (draft: readonly string[], saved: readonly string[]): boo
 
 // 設定の手順を束ねる。
 //
-// **判断は program.ts に置き、ここは順に実行するだけ。**
+// **判断はこのファイル先頭と split.ts・../today/focus.ts・
+// ../today/declared.ts に置き、ここは順に実行するだけ。**
 //
 // 待ち行列を通さずその場で送る。待ち行列は記録を守るための仕組みで、
 // 設定を混ぜると圏外で押した変更がジムを出たあとに流れ、その日の
@@ -50,7 +51,8 @@ export function useProgramSettings(onChanged: () => Promise<void>) {
   // 設定画面そのものが「開いた」の意味を持つようになった。
   useEffect(() => {
     void load();
-    // load は program を見て二度読みを避けるだけなので、初回に1回でよい。
+    // load は描画ごとに作り直されるので、依存に入れると読むたびに読み直す。
+    // load 自体は二度読みを見張らない（下記）ので、初回だけに絞るのはこの [] の役目。
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
