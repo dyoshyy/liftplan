@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { formatLast, formatSets } from './sets';
+import { formatLast, formatSets, parseSetInput } from './sets';
 
 describe('formatSets', () => {
   // 1セット目の重量で代表させると、落とした重量も上げた重量も履歴から消える。
@@ -45,5 +45,37 @@ describe('formatLast', () => {
     expect(formatLast({ weight_kg: 80, weights: [80, 70], reps: [8, 10], days_ago: 3 })).toBe(
       '80kg × 8　/　70kg × 10',
     );
+  });
+});
+
+describe('parseSetInput', () => {
+  it('数として読めれば値を返す', () => {
+    expect(parseSetInput('102.5', '8', '2')).toEqual({ ok: true, values: { weight: 102.5, reps: 8, rir: 2 } });
+  });
+
+  // RIR 0 は「限界まで」で、正しい記録。0 を弾くと限界まで追い込んだ日が
+  // 記録できない。
+  it('RIR は 0 を通す', () => {
+    expect(parseSetInput('100', '5', '0')).toEqual({ ok: true, values: { weight: 100, reps: 5, rir: 0 } });
+  });
+
+  it.each([
+    { weight: '', reps: '8', rir: '2' },
+    { weight: '100', reps: '', rir: '2' },
+    { weight: '100', reps: '8', rir: '' },
+  ])('空欄があれば止める（$weight / $reps / $rir）', ({ weight, reps, rir }) => {
+    expect(parseSetInput(weight, reps, rir)).toEqual({ ok: false, warning: '重量・レップ・RIR を入れてください' });
+  });
+
+  // 0kg や 0レップが通ると、推定1RM が 0 に引きずられる。
+  it.each([
+    { weight: '0', reps: '8', rir: '2' },
+    { weight: '100', reps: '0', rir: '2' },
+    { weight: '100', reps: '8', rir: '-1' },
+  ])('0 以下は止める（$weight / $reps / $rir）', ({ weight, reps, rir }) => {
+    expect(parseSetInput(weight, reps, rir)).toEqual({
+      ok: false,
+      warning: '0 より大きい重量とレップを入れてください',
+    });
   });
 });

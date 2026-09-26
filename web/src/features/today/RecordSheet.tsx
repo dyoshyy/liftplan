@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import type { RecordedSet } from '../../api/types';
-import type { LastPerformance } from '../../domain/sets';
+import { parseSetInput, type LastPerformance } from '../../domain/sets';
 import { Button } from '../../ui/Button';
 import { Stepper } from '../../ui/Stepper';
 import { defaultsForSet } from './defaults';
@@ -39,18 +39,12 @@ export function RecordSheet({ target, name, last, doneToday, onRecord, onUndo, o
   }, []);
 
   const submit = () => {
-    const w = Number.parseFloat(weight);
-    const r = Number.parseInt(reps, 10);
-    const i = Number.parseInt(rir, 10);
-    if (!Number.isFinite(w) || !Number.isInteger(r) || !Number.isInteger(i)) {
-      setWarning('重量・レップ・RIR を入れてください');
+    const parsed = parseSetInput(weight, reps, rir);
+    if (!parsed.ok) {
+      setWarning(parsed.warning);
       return;
     }
-    if (w <= 0 || r <= 0 || i < 0) {
-      setWarning('0 より大きい重量とレップを入れてください');
-      return;
-    }
-    onRecord({ weight: w, reps: r, rir: i });
+    onRecord(parsed.values);
   };
 
   return (

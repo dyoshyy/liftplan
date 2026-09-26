@@ -65,10 +65,12 @@ type PreviousInput = {
 
 // previousSets は比べる相手を集める。
 //
-// **今日のぶんは `days` ではなく `doneToday` から取る。**`days` はサーバー
-// から取ったままで `recordLocally` では進まない。落とさずに使うと、今日
-// 1セット目で出した自己ベストが2セット目の判定から消え、同じ重量で
-// もう一度祝うことになる。
+// **今日のぶんは `days` ではなく `doneToday` から取る。**`days` の今日の
+// 分と `doneToday` は同じ記録を指す（どちらも applyDayChange が進める）。
+// 両方から取ると同じセットが2回入るので片方に寄せる。寄せる先は、今日の
+// 画面が記録のたびに見ている `doneToday`。以前は `days` が記録で進まず、
+// こちらを見ていたら今日 1セット目の自己ベストが2セット目の判定から消えて、
+// 同じ重量でもう一度祝うことになっていた。
 export function previousSets({
   days,
   doneToday,

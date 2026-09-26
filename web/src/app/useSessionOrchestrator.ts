@@ -74,7 +74,7 @@ export function sessionReducer(state: SessionState, action: SessionAction): Sess
 // 結果を dispatch するだけ。
 export function useSessionOrchestrator() {
   const [state, dispatch] = useReducer(sessionReducer, getToken() !== '', initialSession);
-  const { data, loadAll, loadToday, recordLocally, forgetLocally } = useLiftplan();
+  const { data, loadAll, loadToday, recordLocally, forgetLocally, applyLocally } = useLiftplan();
 
   // 捨てた記録の説明に種目名が要る。名前は読み込みで手に入るので、
   // ここで繋ぐ。外から渡す形にすると、名前を持っているのは中なのに
@@ -150,6 +150,7 @@ export function useSessionOrchestrator() {
     loadToday,
     recordLocally,
     forgetLocally,
+    applyLocally,
     signOut,
   };
 }

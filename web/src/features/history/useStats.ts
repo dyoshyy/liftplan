@@ -40,7 +40,7 @@ export function useStats(enabled = true): Stats {
     try {
       setStats(await getJSON<StatsResponse>(`/api/stats?from=${addDays(to, -WINDOW_DAYS)}&to=${to}`));
     } catch {
-      setError('履歴を読めませんでした');
+      setError('推移を読めませんでした');
     }
   }, [enabled]);
 

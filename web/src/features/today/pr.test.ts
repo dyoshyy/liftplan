@@ -17,8 +17,8 @@ const day = (date: string, sets: RecordedSet[]): Day => ({
 });
 
 describe('previousSets', () => {
-  // days の今日のぶんはサーバーから取ったままで、recordLocally では
-  // 進まない。落とさずに使うと、今日 1セット目で出した自己ベストが
+  // 今日の画面が記録のたびに見ているのは doneToday。days の今日のぶんを
+  // 見ると、両者がずれたときに今日 1セット目で出した自己ベストが
   // 2セット目の判定で見えず、同じ重量でもう一度祝うことになる。
   it('今日のぶんは days ではなく doneToday から取る', () => {
     const days = [day(today, [set('stale', 200, 5)]), day('2026-09-14', [set('old', 100, 5)])];

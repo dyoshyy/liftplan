@@ -35,6 +35,22 @@ export function LockIcon(props: SVGProps<SVGSVGElement>) {
   );
 }
 
+export function ChevronLeftIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg {...base} {...props}>
+      <path d="M15 18l-6-6 6-6" />
+    </svg>
+  );
+}
+
+export function ChevronRightIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg {...base} {...props}>
+      <path d="M9 18l6-6-6-6" />
+    </svg>
+  );
+}
+
 // ここから下はブランドマーク。上の base（線で描く）は使わない。
 // 塗りで描かれた形に 1.8px の線を足すと、輪郭が潰れる。
 const brand = {
