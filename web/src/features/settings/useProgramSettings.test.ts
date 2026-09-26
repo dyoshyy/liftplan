@@ -1,22 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { describePutFailure, exerciseCountSummary, isDirty } from './useProgramSettings';
-
-describe('isDirty', () => {
-  // 並び順の違いだけで「変わった」にすると、押していないのに保存ボタンが
-  // 出続ける。逆に中身の違いを見落とすと、変えたのに保存できない。
-  it('並び順が違うだけなら変わっていない', () => {
-    expect(isDirty(['squat', 'bench'], ['bench', 'squat'])).toBe(false);
-  });
-
-  it('中身が違えば変わっている', () => {
-    expect(isDirty(['bench'], ['bench', 'squat'])).toBe(true);
-  });
-
-  it('片方が空でも比べられる', () => {
-    expect(isDirty([], ['bench'])).toBe(true);
-    expect(isDirty([], [])).toBe(false);
-  });
-});
+import { describePutFailure, exercisesSummary } from './useProgramSettings';
+import type { Program } from '../../api/types';
 
 // サーバーが本文に書いた理由（5分割の頻度下限のような、状態コードだけでは
 // 本人に伝わらない理由）をそのまま出す。理由が無ければ状態コードだけを出す
@@ -36,18 +20,25 @@ describe('describePutFailure', () => {
   });
 });
 
-describe('exerciseCountSummary', () => {
-  // チェックを動かして畳むと、保存したように見えていた。畳んだ summary が
-  // 保存済みの件数しか出さないため。未保存の変更があることをここで示す。
-  it('未保存の変更が無ければ件数だけ', () => {
-    expect(exerciseCountSummary(3, false)).toBe('3種目');
+const program = (focus: string | null): Program => ({
+  per_week: 3,
+  exercises_per_session: 4,
+  sets_per_exercise: 3,
+  selected_exercises: ['bench', 'row', 'squat'],
+  declared_exercises: ['bench', 'squat'],
+  focus_exercise: focus,
+  splits: [],
+});
+
+const nameOf = (id: string) => ({ bench: 'ベンチプレス', squat: 'スクワット' })[id] ?? id;
+
+describe('exercisesSummary', () => {
+  // 名前は長さが決まっていないので最後に置く。狭い画面で切れても件数は残る。
+  it('使う・伸ばす・重点の順に並べる', () => {
+    expect(exercisesSummary(program('bench'), nameOf)).toBe('使う3・伸ばす2・重点 ベンチプレス');
   });
 
-  it('未保存の変更があれば添える', () => {
-    expect(exerciseCountSummary(3, true)).toBe('3種目（未保存）');
-  });
-
-  it('0件でも未保存なら添える', () => {
-    expect(exerciseCountSummary(0, true)).toBe('0種目（未保存）');
+  it('重点が無ければ「重点なし」と出す', () => {
+    expect(exercisesSummary(program(null), nameOf)).toBe('使う3・伸ばす2・重点なし');
   });
 });

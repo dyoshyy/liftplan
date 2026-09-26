@@ -1,8 +1,8 @@
 import { focusOptions, NO_FOCUS } from '../today/focus';
-import { lockedSelected, toggleDeclared } from '../today/declared';
+import { lockedSelected } from '../today/declared';
 import { ExercisePicker } from './ExercisePicker';
 import { isWholeBody, scheduleSummary } from './split';
-import { exerciseCountSummary, useProgramSettings } from './useProgramSettings';
+import { exercisesSummary, useProgramSettings } from './useProgramSettings';
 import { Button } from '../../ui/Button';
 import { Note } from '../../ui/Card';
 import { Section } from '../../ui/Section';
@@ -38,18 +38,12 @@ type Props = {
 export function ProgramSettings({ nameOf, exercises, onChanged }: Props) {
   const {
     program,
-    draft,
-    setDraft,
-    pick,
-    setPick,
     note,
     busy,
     locked,
-    dirty,
-    pickDirty,
     chooseFocus,
-    saveDeclared,
-    saveSelected,
+    toggleSelectedExercise,
+    toggleDeclaredExercise,
     saveFrequency,
     saveVolume,
     splitOptions,
@@ -59,10 +53,14 @@ export function ProgramSettings({ nameOf, exercises, onChanged }: Props) {
 
   return (
     <>
-      {/* 失敗の文言は先頭に出す。以前は全節のあとにあり、上の節で失敗しても
-          画面のずっと下に出て気づけなかった。下の節（伸ばしたい種目・使う種目）は
-          失敗すると保存ボタンが残るので、節ごとに出し分けるのはまだしない。 */}
-      {note && <p className="mb-3 text-[13px] text-red">{note}</p>}
+      {/* 失敗の文言はヘッダーの真下に貼り付ける。どの節も押したその場で
+          保存するので、下のほうの種目を押して失敗したとき、先頭に置いただけ
+          ではスクロールの外に出て気づけない。top はヘッダーの高さ（App.tsx）。 */}
+      {note && (
+        <p className="sticky top-[73px] z-20 -mx-4 bg-ground/95 px-4 py-2 text-[13px] text-red backdrop-blur-[10px]">
+          {note}
+        </p>
+      )}
 
       {/* 回数・量・分割は「どう通うか」という1つの問いへの答えで、互いに
           縛り合う（5分割は週4回以上でしか選べない）。別々の節に畳むと、
@@ -165,74 +163,47 @@ export function ProgramSettings({ nameOf, exercises, onChanged }: Props) {
         )}
       </Section>
 
-      {/*
-        使う種目 ⊇ 伸ばしたい種目 ⊇ 重点種目 の包含順に並べる。逆だと、
-        まだ使っていない種目を伸ばしたいにするために一番下（使う種目）で
-        追加・保存してから上へ戻る必要があった。
-      */}
-      <Section
-        title="使う種目"
-        summary={program ? exerciseCountSummary(program.selected_exercises.length, pickDirty) : ""}
-      >
-        <Note className="mb-3">
+      {/* 使う種目 ⊇ 伸ばしたい種目 ⊇ 重点種目 の順に並べる。上から絞り込んで
+          いくので、上で足した種目がそのまま下の候補に出る。3つとも押したその場で
+          保存するので、節を分けて畳む理由も無い。 */}
+      <Section title="種目" summary={program ? exercisesSummary(program, nameOf) : ''}>
+        <p className="text-[13px] font-bold">使う種目</p>
+        <Note className="mb-3 mt-1">
           ここで選んだ種目だけが補助として出ます。
           下の「伸ばしたい種目」に入れた種目は外せません。
         </Note>
 
-        {program && pick && (
+        {program && (
           <ExercisePicker
+            label="使う種目"
             exercises={exercises}
-            chosen={pick}
-            lockedReason={lockedSelected(pick, program.declared_exercises)}
+            chosen={program.selected_exercises}
+            lockedReason={lockedSelected(program.selected_exercises, program.declared_exercises)}
             disabled={busy}
-            onToggle={(id) => setPick(toggleDeclared(pick, id))}
+            onToggle={(id) => void toggleSelectedExercise(id)}
           />
         )}
 
-        {pickDirty && (
-          <Button
-            className="mt-3"
-            disabled={busy}
-            onClick={() => void saveSelected()}
-          >
-            使う種目を保存する
-          </Button>
-        )}
-      </Section>
-
-      <Section
-        title="伸ばしたい種目"
-        summary={program ? exerciseCountSummary(program.declared_exercises.length, dirty) : ""}
-      >
-        <Note className="mb-3">
+        <p className="mt-6 text-[13px] font-bold">伸ばしたい種目</p>
+        <Note className="mb-3 mt-1">
           毎回1種目ずつ、しばらくやっていないものから出ます。
           増やすほど1種目あたりの間隔があきます。
-          候補は上の「使う種目」で保存した種目に限ります。
+          候補は上の「使う種目」で選んだ種目です。
         </Note>
 
-        {program && draft && (
+        {program && (
           <ExercisePicker
+            label="伸ばしたい種目"
             exercises={exercises.filter((e) => program.selected_exercises.includes(e.id))}
-            chosen={draft}
+            chosen={program.declared_exercises}
             lockedReason={locked}
             disabled={busy}
-            onToggle={(id) => setDraft(toggleDeclared(draft, id))}
+            onToggle={(id) => void toggleDeclaredExercise(id)}
           />
         )}
 
-        {dirty && (
-          <Button
-            className="mt-3"
-            disabled={busy}
-            onClick={() => void saveDeclared()}
-          >
-            伸ばしたい種目を保存する
-          </Button>
-        )}
-      </Section>
-
-      <Section title="重点種目" summary={program?.focus_exercise ? nameOf(program.focus_exercise) : "指定なし"}>
-        <Note className="mb-3">
+        <p className="mt-6 text-[13px] font-bold">重点種目</p>
+        <Note className="mb-3 mt-1">
           上の「伸ばしたい種目」から選びます。選んだ種目の派生
           （ナローグリップ、テンポなど）が、軸とは別の枠で中1日以上あけて
           出ます。指定しなければバリエーションは出ません。

@@ -4,6 +4,8 @@ import { Button } from '../../ui/Button';
 import { LockIcon } from '../../ui/icons';
 
 type Props = {
+  /** label は一覧の名前。同じ節に一覧が2つ並ぶので、読み上げで区別する。 */
+  label: string;
   exercises: readonly Exercise[];
   /** chosen は選ばれている種目ID。 */
   chosen: readonly string[];
@@ -20,9 +22,9 @@ type Props = {
 //
 // **まとめる単位は21の筋区分ではなく6つの部位。**36種目を21個の見出しに
 // 割ると1グループが平均2種目未満になり、一覧として読めない（domain/parts.ts）。
-export function ExercisePicker({ exercises, chosen, lockedReason, disabled, onToggle }: Props) {
+export function ExercisePicker({ label, exercises, chosen, lockedReason, disabled, onToggle }: Props) {
   return (
-    <div className="grid gap-3">
+    <div role="group" aria-label={label} className="grid gap-3">
       {groupByPart(exercises).map((group) => (
         <div key={group.part}>
           <p className="mb-1.5 text-xs tracking-[0.08em] text-faint">{group.part}</p>
