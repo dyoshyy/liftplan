@@ -21,6 +21,7 @@ type ProjectedSession struct {
 	split         program.Split
 	hasSplit      bool
 	axis          *exercise.Exercise
+	axisRole      laneRole
 	axisSets      training.SetCount
 	variation     *exercise.Exercise
 	variationSets training.SetCount
@@ -41,6 +42,14 @@ func (s ProjectedSession) Split() (program.Split, bool) { return s.split, s.hasS
 func (s ProjectedSession) Axis() (*exercise.Exercise, training.SetCount, bool) {
 	return s.axis, s.axisSets, s.axis != nil
 }
+
+// axisLaneRole はその回の軸が担う役割（重い日・重点種目の一巡の
+// ボリュームの日）。パッケージの外には出さない。Forecast がその回を
+// prescribe するときに、軸を heavyRole 固定ではなく実際の役割で処方する
+// ために要る（設計書「役割（重い日・ボリュームの日・派生）も使う」）。
+// 役割が外へ与える効果は Axis() が既に表現しているので、公開はしない
+// （必要になるまで作らない）。
+func (s ProjectedSession) axisLaneRole() laneRole { return s.axisRole }
 
 // Variation はその回のバリエーションと、その処方のセット数。出ない日は
 // 3番目の戻り値が false。
@@ -116,6 +125,7 @@ func (p SessionPlanner) ProjectHorizon(
 		session := ProjectedSession{date: d, split: today, hasSplit: hasSplit}
 		if heavy != nil {
 			session.axis = heavy
+			session.axisRole = axisRole
 			session.axisSets = p.prescriptionFor(axisRole, sets).setCount()
 			session.stimulus = session.stimulus.Plus(heavy.Stimulus(), session.axisSets)
 			logs = append(logs, projectedLog(k, "axis", d, heavy.ID()))
