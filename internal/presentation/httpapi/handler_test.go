@@ -587,8 +587,9 @@ func TestPutProgramDeclared_RejectsExerciseWithoutADay(t *testing.T) {
 	}
 	var presets struct {
 		Presets []struct {
-			Key    string          `json:"key"`
-			Splits json.RawMessage `json:"splits"`
+			Key                 string          `json:"key"`
+			Splits              json.RawMessage `json:"splits"`
+			MinFrequencyPerWeek int             `json:"min_frequency_per_week"`
 		} `json:"presets"`
 	}
 	if err := json.Unmarshal(rec.Body.Bytes(), &presets); err != nil {
@@ -598,6 +599,17 @@ func TestPutProgramDeclared_RejectsExerciseWithoutADay(t *testing.T) {
 	for _, p := range presets.Presets {
 		t.Run(p.Key, func(t *testing.T) {
 			mux := newServer(t, true)
+
+			// 5分割のように最小頻度を持つプリセットは、既定の週3回のままだと
+			// 分割の保存そのものが弾かれる。ここで見たいのは分割を保存した
+			// あとの declared 側の検証なので、先に頻度を満たしておく。
+			if p.MinFrequencyPerWeek > 0 {
+				body := fmt.Sprintf(`{"per_week":%d}`, p.MinFrequencyPerWeek)
+				if rec := do(t, mux, http.MethodPut, "/api/program/frequency", body); rec.Code != http.StatusNoContent {
+					t.Fatalf("頻度の変更に失敗: %d body=%s", rec.Code, rec.Body.String())
+				}
+			}
+
 			if rec := do(t, mux, http.MethodPut, "/api/program/split",
 				`{"splits":`+string(p.Splits)+`}`); rec.Code != http.StatusNoContent {
 				t.Fatalf("分割の保存に失敗: %d body=%s", rec.Code, rec.Body.String())
@@ -998,6 +1010,7 @@ func TestGetSplitPresets(t *testing.T) {
 				Name    string   `json:"name"`
 				Regions []string `json:"regions"`
 			} `json:"splits"`
+			MinFrequencyPerWeek int `json:"min_frequency_per_week"`
 		} `json:"presets"`
 	}
 	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
@@ -1008,11 +1021,13 @@ func TestGetSplitPresets(t *testing.T) {
 	}
 
 	keys := map[string]int{}
+	minFreqs := map[string]int{}
 	for _, p := range got.Presets {
 		if p.Key == "" || p.Name == "" {
 			t.Errorf("キーか名前が空: %+v", p)
 		}
 		keys[p.Key] = len(p.Splits)
+		minFreqs[p.Key] = p.MinFrequencyPerWeek
 	}
 	for key, want := range map[string]int{
 		"upper_lower": 2, "ppl": 3, "five_way": 5,
@@ -1020,6 +1035,107 @@ func TestGetSplitPresets(t *testing.T) {
 		if got := keys[key]; got != want {
 			t.Errorf("%s の日数が %d。%d のはず", key, got, want)
 		}
+	}
+
+	// 5分割だけが週4回以上を要求する。画面が押す前に選べない理由を出す
+	// には、この最小頻度が応答に載っている必要がある。
+	for key, want := range map[string]int{
+		"upper_lower": 0, "ppl": 0, "five_way": 4,
+	} {
+		if got := minFreqs[key]; got != want {
+			t.Errorf("%s の最小頻度が %d。%d のはず", key, got, want)
+		}
+	}
+}
+
+// fiveWaySplitBody は GET /api/split-presets の five_way をそのまま
+// PUT /api/program/split のボディにする。
+//
+// 区分コードを手で書き写すと、シードの区分が増減したときにテストだけが
+// 古いままになる。プリセットの応答から組むことで、いま実際に選べる
+// five_way と同じ中身を送れる。
+func fiveWaySplitBody(t *testing.T, mux http.Handler) string {
+	t.Helper()
+	rec := do(t, mux, http.MethodGet, "/api/split-presets", "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("プリセットの取得に失敗: %d", rec.Code)
+	}
+	var got struct {
+		Presets []struct {
+			Key    string          `json:"key"`
+			Splits json.RawMessage `json:"splits"`
+		} `json:"presets"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatalf("JSONが壊れている: %v", err)
+	}
+	for _, p := range got.Presets {
+		if p.Key == "five_way" {
+			return `{"splits":` + string(p.Splits) + `}`
+		}
+	}
+	t.Fatal("five_way プリセットが見つからない")
+	return ""
+}
+
+// 5分割は週4回未満では選べず、選んだあとに週4回未満へは戻せない。
+//
+// 補助の割り振り（PR #185）の計測が根拠（docs/specs/2026-09-26-accessory-
+// allocation-design.md）。UI はプリセットのキーではなく展開済みの周期を
+// 送る（GET /api/split-presets の応答と同じ形）ので、サーバー側は周期の
+// 中身で five_way を引き当てて検証する。応答のメッセージを画面がそのまま
+// 出すので、理由が読み取れることも確かめる。
+func TestPutProgramSplit_FiveWayNeedsMinimumFrequency(t *testing.T) {
+	// 既定（newServer(t, true)）は週3回。
+	mux := newServer(t, true)
+	body := fiveWaySplitBody(t, mux)
+
+	rec := do(t, mux, http.MethodPut, "/api/program/split", body)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("ステータスが %d。400 のはず: %s", rec.Code, rec.Body.String())
+	}
+	var got struct {
+		Error string `json:"error"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatalf("JSONが壊れている: %v", err)
+	}
+	if !strings.Contains(got.Error, "週4回") {
+		t.Errorf("メッセージに理由（週4回）が無い: %q", got.Error)
+	}
+
+	// 週4回に上げれば5分割を選べる。
+	if rec := do(t, mux, http.MethodPut, "/api/program/frequency", `{"per_week":4}`); rec.Code != http.StatusNoContent {
+		t.Fatalf("頻度の変更に失敗: %d %s", rec.Code, rec.Body.String())
+	}
+	if rec := do(t, mux, http.MethodPut, "/api/program/split", body); rec.Code != http.StatusNoContent {
+		t.Fatalf("週4回でも5分割が通らない: %d %s", rec.Code, rec.Body.String())
+	}
+
+	// 5分割のまま週3回へ戻そうとすると弾かれる。フォールバックで分割を
+	// 外すのではなく拒否し、先に分割を変えるよう案内する。
+	rec = do(t, mux, http.MethodPut, "/api/program/frequency", `{"per_week":3}`)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("ステータスが %d。400 のはず: %s", rec.Code, rec.Body.String())
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatalf("JSONが壊れている: %v", err)
+	}
+	if !strings.Contains(got.Error, "分割") {
+		t.Errorf("メッセージに分割を変える案内が無い: %q", got.Error)
+	}
+
+	// 分割が5分割のまま変わっていないこと（拒否されたのに保存されていた
+	// ら、次に開いたときに矛盾した状態になる）。
+	after := do(t, mux, http.MethodGet, "/api/program", "")
+	var prog struct {
+		PerWeek int `json:"per_week"`
+	}
+	if err := json.Unmarshal(after.Body.Bytes(), &prog); err != nil {
+		t.Fatalf("JSONが壊れている: %v", err)
+	}
+	if prog.PerWeek != 4 {
+		t.Errorf("頻度が %d。拒否されたので4のままのはず", prog.PerWeek)
 	}
 }
 

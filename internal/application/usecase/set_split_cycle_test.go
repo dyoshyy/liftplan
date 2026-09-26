@@ -10,6 +10,7 @@ import (
 	"github.com/dyoshyy/liftplan/internal/domain/training"
 	"github.com/dyoshyy/liftplan/internal/domain/training/exercise"
 	"github.com/dyoshyy/liftplan/internal/domain/training/program"
+	"github.com/dyoshyy/liftplan/internal/domain/training/seed"
 )
 
 // 保存のときの「出られる日があるか」は、計画のときの「今日の軸の候補か」と
@@ -89,6 +90,97 @@ func TestSetSplitCycle_PrimaryBoundary(t *testing.T) {
 			}
 			if programs.savedProgram() != nil {
 				t.Error("弾いたのに保存された")
+			}
+		})
+	}
+}
+
+// 5分割は週4回未満では選べない。他のプリセットには下限が無いことも確かめる。
+//
+// 補助の割り振り（PR #185）の計測で、週2回では five_way の各日が4週目標を
+// 満たせない。選べる設定を残したまま本人に判断を押し戻すのではなく、
+// 選べる選択肢から外す（CLAUDE.md）。プリセットキーはサーバーに送られない
+// （周期の中身だけが送られる）ので、周期の突き合わせで判定できることも
+// 併せて確かめる。
+func TestSetSplitCycle_FiveWayNeedsMinimumFrequency(t *testing.T) {
+	pool, err := seed.Exercises()
+	if err != nil {
+		t.Fatalf("シードが不正: %v", err)
+	}
+	presets, err := seed.SplitPresets()
+	if err != nil {
+		t.Fatalf("プリセットが不正: %v", err)
+	}
+	var fiveWay, upperLower []program.Split
+	for _, p := range presets {
+		switch p.Key {
+		case "five_way":
+			fiveWay = p.Cycle
+		case "upper_lower":
+			upperLower = p.Cycle
+		}
+	}
+	if fiveWay == nil || upperLower == nil {
+		t.Fatal("必要なプリセットが見つからない")
+	}
+
+	selected := make([]exercise.ExerciseID, 0, len(pool))
+	for _, e := range pool {
+		selected = append(selected, e.ID())
+	}
+	// bench/squat/deadlift はどちらの周期でも出られる日を持つ
+	// （TestSplitPresets_AreUsableWithTheSeed で確かめている組み合わせ）。
+	declared := []exercise.ExerciseID{"bench", "squat", "deadlift"}
+
+	cases := []struct {
+		name    string
+		perWeek int
+		cycle   []program.Split
+		wantErr bool
+	}{
+		{
+			name:    "5分割を週3回で設定しようとすると弾かれる",
+			perWeek: 3, cycle: fiveWay, wantErr: true,
+		},
+		{
+			name:    "5分割は週4回なら通る",
+			perWeek: 4, cycle: fiveWay, wantErr: false,
+		},
+		{
+			name:    "上下2分割には下限が無いので週2回でも通る",
+			perWeek: 2, cycle: upperLower, wantErr: false,
+		},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			freq, err := program.NewFrequency(c.perWeek)
+			if err != nil {
+				t.Fatalf("頻度が不正: %v", err)
+			}
+			prog, err := program.NewProgram(freq, mustVolume(t, 6, 3), selected, declared, "")
+			if err != nil {
+				t.Fatalf("プログラムの生成に失敗: %v", err)
+			}
+
+			programs := &fakeProgram{program: prog}
+			u := usecase.NewSetSplitCycle(&fakeExercises{all: pool}, programs, programs)
+			err = u.Execute(context.Background(), testUser, c.cycle)
+
+			if c.wantErr {
+				if !errors.Is(err, apperror.ErrInvalidInput) {
+					t.Fatalf("エラーが %v。%v のはず", err, apperror.ErrInvalidInput)
+				}
+				if programs.savedProgram() != nil {
+					t.Error("弾いたのに保存された")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("通るはずが失敗: %v", err)
+			}
+			if programs.savedProgram() == nil {
+				t.Error("保存されていない")
 			}
 		})
 	}

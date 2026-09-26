@@ -172,6 +172,10 @@ type splitPresetDTO struct {
 	Key    string     `json:"key"`
 	Name   string     `json:"name"`
 	Splits []splitDTO `json:"splits"`
+	// MinFrequencyPerWeek はこのプリセットを選ぶために必要な週の最小頻度。
+	// 0 は下限なし。画面が押す前に選べない理由を出せるよう、選択の可否を
+	// サーバーの応答にだけ書く（seed.SplitPreset.MinFrequencyPerWeek）。
+	MinFrequencyPerWeek int `json:"min_frequency_per_week"`
 }
 
 type splitPresetsResponse struct {

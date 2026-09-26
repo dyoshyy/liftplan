@@ -35,6 +35,8 @@ export type SplitPreset = {
   key: string;
   name: string;
   splits: Split[];
+  /** このプリセットを選ぶために必要な週の最小頻度。0 は下限なし。 */
+  min_frequency_per_week: number;
 };
 
 export type SplitPresetsResponse = { presets: SplitPreset[] };
