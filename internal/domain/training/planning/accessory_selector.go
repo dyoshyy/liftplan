@@ -173,7 +173,14 @@ func (s AccessorySelector) trackable(
 			continue
 		}
 		// 目標の無い区分は、欠けている割合を定義できないので狙わない。
-		// 計画からは起きない（残差は週目標の区分からしか作られない）。
+		//
+		// nextRegion の shortfall は remaining[r] / windowSets(target, r) で
+		// 割る。target と residual は Select が別々の引数として受け取るだけで、
+		// 両者が同じ区分の集合を指すことは呼び出し側の責務（いまはプランナーが
+		// SessionResidual と Select に同じ週目標を渡していること）でしか
+		// 保証されておらず、Select 自身の入力契約としては保証されない。
+		// このガードを消すと、目標0の区分は分母0で shortfall が +Inf になり、
+		// 常に最優先で選ばれる（TestAccessorySelector_IgnoresResidualForRegionWithoutTarget）。
 		if target.Sets(region) <= 0 {
 			continue
 		}

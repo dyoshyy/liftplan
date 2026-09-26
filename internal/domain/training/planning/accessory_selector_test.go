@@ -941,3 +941,38 @@ func TestAccessorySelector_ShortfallOutranksStaleness(t *testing.T) {
 		t.Errorf("欠けている割合より日数が優先されている: %v", got)
 	}
 }
+
+// 週目標に無い区分は、残差があっても Select が狙わないこと。
+//
+// target と residual は Select が受け取る別々の引数であり、両者の対応
+// （区分ごとの目標と残差が同じ集合を指すこと）は呼び出し側の責務でしかない。
+// いまはプランナーが SessionResidual と Select に同じ週目標を渡しているから
+// 一致しているだけで、Select 自身の入力契約として構造的に保証されてはいない。
+// trackable の「目標が正でない区分を落とす」ガードを消すと、nextRegion の
+// shortfall = remaining[r] / windowSets(target, r) が 0 除算で +Inf になり、
+// 目標の無い区分が常に最優先で選ばれる。
+func TestAccessorySelector_IgnoresResidualForRegionWithoutTarget(t *testing.T) {
+	s, err := planning.NewAccessorySelector(2, 3, 1) // 1スロットだけ
+	if err != nil {
+		t.Fatalf("NewAccessorySelector: %v", err)
+	}
+	pool := []*exercise.Exercise{
+		mkAccessory(t, "for_calf", map[training.MuscleRegion]float64{training.Calf: 1.0}),
+		mkAccessory(t, "for_quad", map[training.MuscleRegion]float64{training.Quad: 1.0}),
+	}
+	// 両方とも同じ日にやっている。日数でも割合でも差がつかない。差は
+	// 0除算だけが作る。
+	h := setlog.NewHistory([]*setlog.SetLog{
+		mkLog(t, "c", 6, "for_calf", 40, 15, 2),
+		mkLog(t, "q", 6, "for_quad", 60, 10, 2),
+	})
+	// 週目標には大腿四頭筋しかない。カーフは目標が無いのに残差だけが残っている
+	// （分割の周期外に落ちた区分などで起こりうる形）。
+	target := mustTarget(t, map[training.MuscleRegion]float64{training.Quad: 10})
+	residual := map[training.MuscleRegion]float64{training.Calf: 1, training.Quad: 40}
+
+	got := s.Select(target, residual, pool, h, today(), nil)
+	if len(got) != 1 || got[0] != exercise.ExerciseID("for_quad") {
+		t.Errorf("目標の無い区分が選ばれた（0除算で最優先になった疑い）: %v", got)
+	}
+}
