@@ -4,6 +4,7 @@ import (
 	"github.com/dyoshyy/liftplan/internal/domain/training"
 	"github.com/dyoshyy/liftplan/internal/domain/training/condition"
 	"github.com/dyoshyy/liftplan/internal/domain/training/exercise"
+	"github.com/dyoshyy/liftplan/internal/domain/training/program"
 	"github.com/dyoshyy/liftplan/internal/domain/training/setlog"
 )
 
@@ -116,11 +117,14 @@ func (l lanePrescription) setCount() training.SetCount {
 func (p SessionPlanner) prescribe(
 	lineup []lineupEntry, estimable setlog.History,
 	conditions condition.ConditionLog, date training.Date, sets int,
+	split program.Split, hasSplit bool,
 ) PlannedSession {
 	rirBump := p.analyzer.RIRAdjustment(conditions, date)
 
 	session := PlannedSession{
 		date:        date,
+		split:       split,
+		hasSplit:    hasSplit,
 		main:        make([]PlannedSet, 0, 1),
 		variation:   make([]PlannedSet, 0, 1),
 		accessories: make([]PlannedSet, 0, len(lineup)),

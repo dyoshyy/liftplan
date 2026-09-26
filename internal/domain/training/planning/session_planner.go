@@ -122,6 +122,11 @@ func (p SessionPlanner) Plan(req PlanRequest) (PlannedSession, error) {
 	history := req.History.Before(req.Date)
 	estimable := effectiveHistory(history, pool, req.Conditions)
 
+	// selectLineup が内部で使うのと同じ式（純粋関数なので二重に呼んでも
+	// ずれない）。次のタスクで Plan は Forecast(req)[0] に置き換わり、
+	// この行は消える。
+	splitToday, hasSplit := req.Program.SplitOn(history.SessionCount())
+
 	// 2段。何をやるか（種目と役割）を決めてから、何kgでやるかを付ける。
 	//
 	// 重量の側から種目の側への依存は無い。逆向きは残差に使うセット数だけで、
@@ -131,7 +136,8 @@ func (p SessionPlanner) Plan(req PlanRequest) (PlannedSession, error) {
 	if err != nil {
 		return PlannedSession{}, err
 	}
-	return p.prescribe(lineup, estimable, req.Conditions, req.Date, req.Program.SessionVolume().Sets()), nil
+	return p.prescribe(lineup, estimable, req.Conditions, req.Date,
+		req.Program.SessionVolume().Sets(), splitToday, hasSplit), nil
 }
 
 // lineupEntry は今日やる種目1つと、その役割。重量はまだ付いていない。

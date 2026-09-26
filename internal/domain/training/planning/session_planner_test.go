@@ -790,6 +790,36 @@ func TestSessionPlanner_PlanIsFixedForTheWholeDay(t *testing.T) {
 	}
 }
 
+// Plan の結果に、その日の分割の日が乗ること。
+//
+// 今日の sessionDTO はまだこの値を読まない（読み始めるのは見込みの画面
+// から、PR2・PR3）。ここで先に固定するのは、次のタスクで Forecast が
+// Plan の回0をそのまま返す形になったとき、分割の日だけがすり抜けて
+// null になる退行を早期に潰すため。
+func TestSessionPlanner_Plan_CarriesTheSplitDay(t *testing.T) {
+	cases := []struct {
+		name      string
+		req       func(t *testing.T) planning.PlanRequest
+		wantHas   bool
+		wantSplit string
+	}{
+		{"分割なしは false", planRequest, false, ""},
+		{"分割ありは周期の先頭", fixedDaySplitRequest, true, "上"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			got := mustPlan(t, c.req(t))
+			split, hasSplit := got.Split()
+			if hasSplit != c.wantHas {
+				t.Fatalf("分割の有無が %v。%v のはず", hasSplit, c.wantHas)
+			}
+			if hasSplit && split.Name() != c.wantSplit {
+				t.Errorf("分割の日が %q。%q のはず", split.Name(), c.wantSplit)
+			}
+		})
+	}
+}
+
 // fixedDaySplitRequest は上下2分割・週3回で、まだ1度も通っていない入力。
 // 周期の先頭＝上の日で、軸はベンチ。
 func fixedDaySplitRequest(t *testing.T) planning.PlanRequest {
