@@ -928,6 +928,16 @@ func knownRedSplitAttainment(presetKey string, frequency int, r training.MuscleR
 // 帯は分割なしと同じ 60〜145%。分割は「同じ週の量を日で割り振る型」で
 // あって、量そのものを変える設定ではない。届かないなら、それは型が
 // 週目標を配りきれていない。
+//
+// **週1回はどのプリセットも見ない。**帯を動かす変更ではなく、対象の
+// 範囲を絞る変更。理由は分割なしの
+// TestSimulation_WeeklyTargetIsAttainableAtEveryFrequency と同じ
+// （週1回は狙う対象にしない）：週1回×4種目×3セットだと4週で48セットを
+// 21区分に配ることになり、小さい区分の4週ぶんの目標（約2.4セット）が
+// 1種目ぶん（3セット）より小さい。窓をどう取っても配分どおりには
+// 回りきらない。週1回を選ぶこと自体は妨げないが、配分の質は保証しない。
+// これで five_way・週1回（1区分が5週に1度しか来ず構造的に届かない、
+// 「受け入れない構成」）を個別に除外する必要も無くなる。
 func TestSimulation_SplitWeeklyTargetIsAttainable(t *testing.T) {
 	const (
 		minRate = 0.60
@@ -935,17 +945,8 @@ func TestSimulation_SplitWeeklyTargetIsAttainable(t *testing.T) {
 	)
 
 	for _, p := range splitCycles(t) {
-		for f := 1; f <= maxSimFrequency; f++ {
+		for f := 2; f <= maxSimFrequency; f++ {
 			t.Run(fmt.Sprintf("%s/週%d回", p.Key, f), func(t *testing.T) {
-				// 5分割・週1回は対象外。1区分が5週に1度しか来ず、4週の窓には
-				// どう割り振っても構造的に届かない
-				// （docs/specs/2026-09-26-accessory-allocation-design.md
-				// 「受け入れない構成」）。帯を広げるのではなく、この構成
-				// だけを外す。
-				if p.Key == "five_way" && f == 1 {
-					t.Skip("5分割・週1回は1区分が5週に1度しか来ず、4週の窓に構造的に届かない。達成率の帯の対象外（docs/specs/2026-09-26-accessory-allocation-design.md 受け入れない構成）")
-				}
-
 				res := runSim(t, simConfig{
 					frequency: f, weeks: splitWeeks(f, len(p.Cycle)), cycle: p.Cycle,
 				})
