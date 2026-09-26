@@ -191,6 +191,26 @@ func (r *AccountRepository) Create(ctx context.Context, a *account.Account) erro
 	return nil
 }
 
+// UpdateEmail はアカウントのアドレスだけを書き直す。
+//
+// user_id の列には触れない。受け取らないのは、書き換えられる口を
+// そもそも作らないため。空は Create と同じく NULLIF で NULL に落とす。
+func (r *AccountRepository) UpdateEmail(
+	ctx context.Context, provider account.Provider, subject string, email account.Email,
+) error {
+	tag, err := r.pool.Exec(ctx, `
+		UPDATE accounts SET email = NULLIF($3, '')
+		WHERE provider = $1 AND subject = $2`,
+		provider.String(), subject, email.String())
+	if err != nil {
+		return wrapUnavailable(err, "アカウントのアドレスを書き直せない")
+	}
+	if tag.RowsAffected() == 0 {
+		return fmt.Errorf("%w: %s/%s", account.ErrAccountNotFound, provider, subject)
+	}
+	return nil
+}
+
 var (
 	_ account.AccountReader = (*AccountRepository)(nil)
 	_ account.AccountWriter = (*AccountRepository)(nil)

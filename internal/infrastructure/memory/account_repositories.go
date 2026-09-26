@@ -127,6 +127,29 @@ func (r *AccountRepository) Create(_ context.Context, a *account.Account) error 
 	return nil
 }
 
+// UpdateEmail はアカウントのアドレスだけを書き直す。
+//
+// 利用者は元の行から持ち越す。受け取らないのは、書き換えられる口を
+// そもそも作らないため。
+func (r *AccountRepository) UpdateEmail(
+	_ context.Context, provider account.Provider, subject string, email account.Email,
+) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	key := accountKey{provider: provider, subject: subject}
+	a, ok := r.byKey[key]
+	if !ok {
+		return fmt.Errorf("%w: %s/%s", account.ErrAccountNotFound, provider, subject)
+	}
+	updated, err := account.NewAccount(a.Provider(), a.Subject(), a.UserID(), email)
+	if err != nil {
+		return fmt.Errorf("アカウントを組み直せない: %w", err)
+	}
+	r.byKey[key] = updated
+	return nil
+}
+
 // SessionRepository はセッションをトークンのハッシュをキーに保持する。
 type SessionRepository struct {
 	mu     sync.RWMutex
