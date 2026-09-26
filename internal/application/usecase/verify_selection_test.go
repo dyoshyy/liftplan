@@ -23,8 +23,9 @@ import (
 
 // bicepsProgram は「上腕二頭筋だけを狙い、カールで埋める」プログラム。
 //
-// シードの既定のプログラムは全種目を選んでいて全区分を刺激するので、
-// そこからは「週目標と噛み合わない選択」に辿り着けない。
+// 週目標が入力できた頃は「週目標と噛み合わない選択」を作るために使って
+// いたが、その検査は削った（#176、verifySelection のコメント参照）。
+// 種目マスタとの突合だけを見る他のケースにも使い回せるよう、名前は残す。
 func bicepsProgram(t *testing.T) *program.Program {
 	t.Helper()
 	freq, err := program.NewFrequency(3)
@@ -69,14 +70,6 @@ func TestSetSelectedExercises_VerifiesAgainstTheExerciseMaster(t *testing.T) {
 			exercises: &fakeExercises{all: pool},
 			ids:       []exercise.ExerciseID{"squat", "barbell_curl", "存在しない種目"},
 			wantIs:    []error{apperror.ErrInvalidInput, exercise.ErrExerciseNotFound},
-		},
-		{
-			// 受理すると補助種目が毎回ゼロになり、設定した週目標が永久に
-			// 埋まらない。スクワットもカーフレイズも上腕二頭筋を刺激しない。
-			name:      "週目標のどの区分も刺激しない選択は弾き、保存しない",
-			exercises: &fakeExercises{all: pool},
-			ids:       []exercise.ExerciseID{"squat", "calf_raise"},
-			wantIs:    []error{apperror.ErrInvalidInput},
 		},
 		{
 			// nil を読み飛ばさないと e.ID() で panic する。
