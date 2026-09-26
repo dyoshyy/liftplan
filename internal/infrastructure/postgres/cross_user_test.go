@@ -10,6 +10,7 @@ import (
 	"github.com/dyoshyy/liftplan/internal/domain/training"
 	"github.com/dyoshyy/liftplan/internal/domain/training/condition"
 	"github.com/dyoshyy/liftplan/internal/domain/training/program"
+	"github.com/dyoshyy/liftplan/internal/domain/training/seed"
 	"github.com/dyoshyy/liftplan/internal/domain/training/setlog"
 	"github.com/dyoshyy/liftplan/internal/infrastructure/postgres"
 )
@@ -162,6 +163,34 @@ func TestConditionRepository_KeepsUsersApart(t *testing.T) {
 	}
 	if kg != 70 {
 		t.Errorf("A の体重が %v kg。B の 90 に上書きされている", kg)
+	}
+}
+
+// 別のユーザーが足した種目は見えない。
+func TestExerciseRepository_ReturnsSeedPlusOwnCustoms(t *testing.T) {
+	ctx := context.Background()
+	seedAll, _ := seed.Exercises()
+	repo := postgres.NewExerciseRepository(migratedDB(t), seedAll)
+	a, b := newUser(t), newUser(t)
+
+	mine := mustCustom(t, "u-000000000000000a", "アイソラテラル・ロー")
+	if err := repo.Save(ctx, a, mine); err != nil {
+		t.Fatal(err)
+	}
+
+	gotA, err := repo.FindAll(ctx, a)
+	if err != nil {
+		t.Fatalf("A の取得に失敗: %v", err)
+	}
+	if len(gotA) != len(seedAll)+1 || gotA[len(gotA)-1].ID() != mine.ID() {
+		t.Errorf("A の一覧に自分の種目が末尾に1件足されていない（%d 件）", len(gotA))
+	}
+	gotB, err := repo.FindAll(ctx, b)
+	if err != nil {
+		t.Fatalf("B の取得に失敗: %v", err)
+	}
+	if len(gotB) != len(seedAll) {
+		t.Errorf("B に A の種目が見えている（%d 件）", len(gotB))
 	}
 }
 

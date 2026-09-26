@@ -160,3 +160,34 @@ func TestExerciseRepository_NameIsUniqueAmongAliveCustoms(t *testing.T) {
 		t.Errorf("消した種目と同名が弾かれた: %v", err)
 	}
 }
+
+// 保存した順序に関わらず、FindAll はシードの後ろに自分の種目を ID の
+// 昇順で並べて返す。ID の降順で保存しても結果は昇順になること。
+func TestExerciseRepository_OrdersCustomsByIDRegardlessOfSaveOrder(t *testing.T) {
+	ctx := context.Background()
+	seedAll, _ := seed.Exercises()
+	repo := memory.NewExerciseRepository(seedAll)
+	a := newUser(t)
+
+	second := mustCustom(t, "u-000000000000000b", "アイソラテラル・ロー")
+	first := mustCustom(t, "u-000000000000000a", "シーテッドロー")
+	// b を先に、a を後に保存する（ID の降順）。
+	if err := repo.Save(ctx, a, second); err != nil {
+		t.Fatal(err)
+	}
+	if err := repo.Save(ctx, a, first); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := repo.FindAll(ctx, a)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != len(seedAll)+2 {
+		t.Fatalf("%d 件（期待 %d）", len(got), len(seedAll)+2)
+	}
+	tail := got[len(seedAll):]
+	if tail[0].ID() != first.ID() || tail[1].ID() != second.ID() {
+		t.Errorf("保存順のまま返っている（ID 昇順のはず）: %v, %v", tail[0].ID(), tail[1].ID())
+	}
+}
