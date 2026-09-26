@@ -1,4 +1,5 @@
 import type { Day } from '../../api/types';
+import { patchDays, type DayChange } from '../../domain/days';
 
 /** Month は `YYYY-MM`。文字列のまま比べると時系列の順になる。 */
 export type Month = string;
@@ -84,4 +85,19 @@ export function pickMonthDays(
 ): Day[] | null {
   if (m === monthOf(today)) return daysIn(recent, m);
   return fetched.get(m) ?? null;
+}
+
+/** patchFetched は取ってある月に変更を当てる。
+ *
+ *  取ってある月は取り直さないので、当てないと開き直すまで直す前の値が出る。
+ *  **まだ取っていない月は作らない。**「1日だけの月」を作ると取ってきた
+ *  ことになり、その月の残りの日が出なくなる。 */
+export function patchFetched(
+  fetched: ReadonlyMap<Month, Day[]>,
+  change: DayChange,
+): ReadonlyMap<Month, Day[]> {
+  const m = monthOf(change.date);
+  const days = fetched.get(m);
+  if (!days) return fetched;
+  return new Map(fetched).set(m, patchDays(days, change));
 }

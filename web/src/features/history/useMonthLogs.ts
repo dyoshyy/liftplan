@@ -2,7 +2,8 @@ import { useCallback, useEffect, useState } from 'react';
 import { getJSON } from '../../api/client';
 import type { Day, HistoryResponse } from '../../api/types';
 import { today } from '../../domain/date';
-import { canGoNext, monthOf, pickMonthDays, planMonthLoad, shiftMonth, type Month } from './month';
+import type { DayChange } from '../../domain/days';
+import { canGoNext, monthOf, patchFetched, pickMonthDays, planMonthLoad, shiftMonth, type Month } from './month';
 
 export type MonthLogs = {
   month: Month;
@@ -14,6 +15,8 @@ export type MonthLogs = {
   prev: () => void;
   next: () => void;
   reload: () => void;
+  /** patch は取ってある月に変更を当てる。今月は直近の記録の側で進む。 */
+  patch: (change: DayChange) => void;
 };
 
 /**
@@ -57,6 +60,8 @@ export function useMonthLogs(enabled: boolean, recent: readonly Day[]): MonthLog
     if (enabled) void load(month);
   }, [enabled, month, load]);
 
+  const patch = useCallback((change: DayChange) => setFetched((f) => patchFetched(f, change)), []);
+
   const now = today();
   return {
     month,
@@ -66,5 +71,6 @@ export function useMonthLogs(enabled: boolean, recent: readonly Day[]): MonthLog
     prev: () => setMonth((m) => shiftMonth(m, -1)),
     next: () => setMonth((m) => (canGoNext(m, today()) ? shiftMonth(m, 1) : m)),
     reload: () => void load(month),
+    patch,
   };
 }

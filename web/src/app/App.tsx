@@ -1,8 +1,11 @@
+import { useCallback } from 'react';
+import type { DayChange } from '../domain/days';
 import { label, today } from '../domain/date';
 import { Setup } from '../features/setup/Setup';
 import { GearIcon } from '../ui/icons';
 import { Today } from '../features/today/Today';
 import { History } from '../features/history/History';
+import { useHistoryEditor } from '../features/history/useHistoryEditor';
 import { useMonthLogs } from '../features/history/useMonthLogs';
 import { useStats } from '../features/history/useStats';
 import { SettingsScreen } from '../features/settings/SettingsScreen';
@@ -32,6 +35,18 @@ export function App() {
   // 見ないものを取りに行くことになる。
   const stats = useStats(hasToken && route === 'history');
   const monthLogs = useMonthLogs(hasToken && route === 'history', data.days);
+  // 履歴での修正は、直近の記録（今月と今日の画面）と、取ってある過去の月の
+  // 両方に当てる。片方だけだと、月を行き来したときに直す前の値に戻って見える。
+  const { applyLocally } = session;
+  const { patch: patchMonth } = monthLogs;
+  const onHistoryEdited = useCallback(
+    (change: DayChange) => {
+      applyLocally(change);
+      patchMonth(change);
+    },
+    [applyLocally, patchMonth],
+  );
+  const editor = useHistoryEditor({ enqueue: outbox.enqueue, onApplied: onHistoryEdited });
 
   return (
     <>
@@ -93,6 +108,7 @@ export function App() {
             {route === 'history' && (
               <History
                 logs={monthLogs}
+                editor={editor}
                 stats={stats.stats}
                 statsError={stats.error}
                 onReloadStats={() => void stats.reload()}

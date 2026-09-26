@@ -10,6 +10,8 @@ import { ChevronLeftIcon, ChevronRightIcon } from '../../ui/icons';
 import { monthLabel, summarize } from './month';
 import { Sparkline } from './Sparkline';
 import type { MonthLogs } from './useMonthLogs';
+import { EditSetSheet } from './EditSetSheet';
+import type { EditTarget, HistoryEditor } from './useHistoryEditor';
 import { fillPercent } from './volume';
 import { weeklyTotal } from './weekly';
 
@@ -20,6 +22,8 @@ type View = 'logs' | 'stats';
 type Props = {
   /** 月ごとの記録。どの月を見ているかもここが持つ。 */
   logs: MonthLogs;
+  /** 記録の修正と削除。 */
+  editor: HistoryEditor;
   /** 週の充足と推移。まだ読めていなければ null。 */
   stats: StatsResponse | null;
   /** 推移を読めなかったときの一言。空なら出さない。 */
@@ -28,20 +32,22 @@ type Props = {
   onReloadStats?: () => void;
 };
 
-// History は溜まった記録を見る画面。書き込みは1つも無い。
+// History は溜まった記録を見る画面。過去の記録を直すこともできる。
 //
-// 読むだけなので待ち行列も契約ずれの心配も無い。増える経路は
-// GET /api/stats と、過去の月を開いたときの GET /api/set-logs で、
-// 記録が消える経路は1本も増えない（D-127）。
+// 以前は読むだけの画面だった（D-127）。書き込みを足したのは、打ち間違いに
+// 気づくのが翌日以降のことが多いため。今日の画面でしか直せないと、間違った
+// 記録が推定1RMを汚し続ける。**書き込みの手順は今日の画面と同じもの**
+// （planRecord / planUndo → 待ち行列）で、経路は増やしていない。
+// 違うのは日付をその記録の日にすることだけ（useHistoryEditor）。
 //
 // **fetch はここに持たない。**props だけで描けるようにしてあるので、
 // 呼び出し側が「いつ取るか」を決められる。取りに行くのは useStats と
-// useMonthLogs。
+// useMonthLogs、書くのは useHistoryEditor。
 //
 // **記録と推移は切り替えにする。**充足は「直近4週」で固定なのに、記録は
 // 選んだ月を出す。1本のスクロールに並べると、8月を見ているのに上の数字は
 // 今週のまま、という読み違いが起きる。
-export function History({ logs, stats, statsError = '', onReloadStats }: Props) {
+export function History({ logs, editor, stats, statsError = '', onReloadStats }: Props) {
   const [view, setView] = useState<View>('logs');
 
   return (
@@ -52,9 +58,20 @@ export function History({ logs, stats, statsError = '', onReloadStats }: Props) 
       </div>
 
       {view === 'logs' ? (
-        <MonthlyLogs logs={logs} />
+        <MonthlyLogs logs={logs} onEdit={editor.open} />
       ) : (
         <Stats stats={stats} error={statsError} onReload={onReloadStats} />
+      )}
+
+      {editor.target && (
+        <EditSetSheet
+          // 別のセットを開いたら入力をそのセットの値で作り直す。
+          key={editor.target.set.id}
+          target={editor.target}
+          onSave={(v) => void editor.save(v)}
+          onDelete={() => void editor.remove()}
+          onClose={editor.close}
+        />
       )}
     </>
   );
@@ -81,7 +98,7 @@ function ViewTab({ label, active, onClick }: { label: string; active: boolean; o
 // 以前は推移（/api/stats）が読めるまで記録の一覧も出さなかった。記録は
 // 起動時にもう手元にあるのに、圏外のジムで開くと「読めませんでした」だけに
 // なっていた。
-function MonthlyLogs({ logs }: { logs: MonthLogs }) {
+function MonthlyLogs({ logs, onEdit }: { logs: MonthLogs; onEdit: (t: EditTarget) => void }) {
   const { month, days, error } = logs;
 
   // 月を送ったら頭に戻す。一覧の末尾から前の月へ進むと、前の月の末尾
@@ -131,7 +148,7 @@ function MonthlyLogs({ logs }: { logs: MonthLogs }) {
           <Note>この月の記録はありません</Note>
         </Card>
       ) : (
-        days.map((d) => <DayCard key={d.date} day={d} />)
+        days.map((d) => <DayCard key={d.date} day={d} onEdit={onEdit} />)
       )}
 
       {/* 一覧の末尾まで読んだ流れで前の月へ進めるようにする。頭まで
@@ -310,25 +327,67 @@ function TrendRow({ trend }: { trend: Trend }) {
   );
 }
 
-function DayCard({ day }: { day: Day }) {
+// DayCard は1日分。ふだんは種目ごとに1行で、押すとセットが1行ずつ開く。
+//
+// セットの行まで常に出すと、1か月で画面が倍の長さになる。見返すときに
+// 要るのは「何をどれだけやったか」で、RIR や1セットずつの値は直すときに
+// だけ要る。
+function DayCard({ day, onEdit }: { day: Day; onEdit: (t: EditTarget) => void }) {
+  const [open, setOpen] = useState<string | null>(null);
+
   return (
     <Card>
-      <div className="mb-2.5 flex items-baseline gap-2.5">
+      <div className="mb-1 flex items-baseline gap-2.5">
         <span className="num text-[15px] tracking-[0.04em]">{label(day.date)}</span>
         <span className="ml-auto text-xs text-faint">
           {day.exercises.length}種目 {day.total_sets}セット
         </span>
       </div>
-      <div className="grid gap-[7px]">
-        {day.exercises.map((e) => (
-          <div
-            key={e.exercise_id}
-            className="grid grid-cols-[1fr_auto] items-center gap-2.5 text-sm"
-          >
-            <span>{e.name || e.exercise_id}</span>
-            <span className="num text-[13px] text-muted">{formatSets(e.sets)}</span>
-          </div>
-        ))}
+      <div className="grid">
+        {day.exercises.map((e) => {
+          const expanded = open === e.exercise_id;
+          const name = e.name || e.exercise_id;
+          return (
+            <div key={e.exercise_id}>
+              <button
+                type="button"
+                aria-expanded={expanded}
+                onClick={() => setOpen(expanded ? null : e.exercise_id)}
+                className="grid min-h-11 w-full grid-cols-[1fr_auto_auto] items-center gap-2.5 text-left text-sm"
+              >
+                <span>{name}</span>
+                <span className="num text-[13px] text-muted">{formatSets(e.sets)}</span>
+                {/* 押せることを見せる。行が並んでいるだけだと、直せることに気づけない。 */}
+                <ChevronRightIcon
+                  width={14}
+                  height={14}
+                  className={cn('text-faint transition-transform', expanded && 'rotate-90')}
+                />
+              </button>
+              {expanded && (
+                <div className="mb-2 grid gap-1">
+                  {e.sets.map((s, i) => (
+                    <button
+                      key={s.id}
+                      type="button"
+                      aria-label={`${name} ${i + 1}セット目を直す`}
+                      onClick={() =>
+                        onEdit({ date: day.date, exerciseId: e.exercise_id, name, index: i, set: s })
+                      }
+                      className="grid min-h-11 grid-cols-[1.75rem_1fr_auto] items-center rounded-lg bg-surface-2 px-3 text-left text-[13px]"
+                    >
+                      <span className="num text-faint">{i + 1}</span>
+                      <span className="num">
+                        {s.weight_kg}kg × {s.reps}
+                      </span>
+                      <span className="num text-muted">RIR {s.rir}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          );
+        })}
       </div>
     </Card>
   );

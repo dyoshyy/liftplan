@@ -6,6 +6,7 @@ import {
   monthLabel,
   monthOf,
   monthRange,
+  patchFetched,
   pickMonthDays,
   planMonthLoad,
   shiftMonth,
@@ -127,5 +128,34 @@ describe('pickMonthDays', () => {
   // 読み込み中を空として出すと、記録がある月に「記録はありません」が一瞬出る。
   it('まだ取ってきていなければ null', () => {
     expect(pickMonthDays('2026-08', today, recent, new Map())).toBeNull();
+  });
+});
+
+describe('patchFetched', () => {
+  const set = { id: 'a', weight_kg: 100, reps: 8, rir: 2 };
+  const aug = [
+    { date: '2026-08-31', total_sets: 1, exercises: [{ exercise_id: 'squat', name: 'スクワット', sets: [set] }] },
+  ];
+  const fetched = new Map([['2026-08', aug]]);
+
+  // 取ってある月は取り直さないので、直したことを当てないと、履歴を開き
+  // 直すまで直す前の値が出続ける。
+  it('取ってある月に変更を当てる', () => {
+    const got = patchFetched(fetched, {
+      kind: 'put',
+      date: '2026-08-31',
+      exerciseId: 'squat',
+      name: '',
+      set: { ...set, reps: 6 },
+    });
+    expect(got.get('2026-08')?.[0]?.exercises[0]?.sets[0]?.reps).toBe(6);
+  });
+
+  // まだ取っていない月に「空の月＋1日」を作ると、取ってきたことに
+  // なって、その月の残りの日が出なくなる。
+  it('取っていない月は作らない', () => {
+    const got = patchFetched(fetched, { kind: 'put', date: '2026-07-01', exerciseId: 'squat', name: '', set });
+    expect(got.has('2026-07')).toBe(false);
+    expect(got).toBe(fetched);
   });
 });
