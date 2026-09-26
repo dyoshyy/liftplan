@@ -45,7 +45,6 @@ export type Program = {
   exercises_per_session: number;
   /** 1種目あたりのセット数（2〜6）。 */
   sets_per_exercise: number;
-  weekly_target: Record<string, number>;
   selected_exercises: string[];
   declared_exercises: string[];
   /** null は指定なし。指定すると、その種目の派生がバリエーションレーンに出る。 */

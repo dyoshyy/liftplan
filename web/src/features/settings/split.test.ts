@@ -17,7 +17,6 @@ const program = (splits: Program['splits']): Program => ({
   per_week: 4,
   exercises_per_session: 4,
   sets_per_exercise: 3,
-  weekly_target: {},
   selected_exercises: [],
   declared_exercises: [],
   focus_exercise: null,
