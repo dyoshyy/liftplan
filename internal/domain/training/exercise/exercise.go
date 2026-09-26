@@ -119,7 +119,7 @@ func NewExercise(p ExerciseParams) (*Exercise, error) {
 
 	id, err := NewExerciseID(p.ID)
 	if err != nil {
-		// ID が不正だと種目を特定する手がかりが消える。36種目のシードのうち
+		// ID が不正だと種目を特定する手がかりが消える。シードのうち
 		// どれが壊れているのか分からないと直せないので、名前で補う。
 		if name != "" {
 			return nil, fmt.Errorf("種目 %q: %w", name, err)
