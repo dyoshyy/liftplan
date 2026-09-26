@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { isSplitSelectable, isWholeBody, matchingPresetKey, splitBody, splitUnselectableReason } from './split';
+import {
+  isSplitSelectable,
+  isWholeBody,
+  matchingPresetKey,
+  scheduleSummary,
+  splitBody,
+  splitUnselectableReason,
+} from './split';
 import type { Program, SplitPreset } from '../../api/types';
 
 const preset = (
@@ -145,5 +152,15 @@ describe('splitUnselectableReason', () => {
     const reason = splitUnselectableReason(fiveWay, 3);
     expect(reason).not.toBeNull();
     expect(reason).toContain('週4回');
+  });
+});
+
+describe('scheduleSummary', () => {
+  it('回数・量・分割の順に並べる', () => {
+    expect(scheduleSummary(program(upperLower.splits))).toBe('週4回・4種目×3セット・上半身 → 下半身');
+  });
+
+  it('分割なしは全身法と出す', () => {
+    expect(scheduleSummary(program([]))).toBe('週4回・4種目×3セット・全身法');
   });
 });

@@ -1,7 +1,7 @@
 import { focusOptions, NO_FOCUS } from '../today/focus';
 import { lockedSelected, toggleDeclared } from '../today/declared';
 import { ExercisePicker } from './ExercisePicker';
-import { isWholeBody } from './split';
+import { isWholeBody, scheduleSummary } from './split';
 import { useProgramSettings } from './useProgramSettings';
 import { Button } from '../../ui/Button';
 import { Note } from '../../ui/Card';
@@ -64,12 +64,73 @@ export function ProgramSettings({ nameOf, exercises, onChanged }: Props) {
           失敗すると保存ボタンが残るので、節ごとに出し分けるのはまだしない。 */}
       {note && <p className="mb-3 text-[13px] text-red">{note}</p>}
 
-      <Section
-        title="分割"
-        summary={program ? (isWholeBody(program) ? "全身法" : program.splits.map((s) => s.name).join(' → ')) : ""}
-        defaultOpen
-      >
-        <Note className="mb-3">
+      {/* 回数・量・分割は「どう通うか」という1つの問いへの答えで、互いに
+          縛り合う（5分割は週4回以上でしか選べない）。別々の節に畳むと、
+          分割が選べない理由を読んでから回数の節を開き直すことになる。
+          回数を先に置くのは、選べる分割が回数で決まるため。 */}
+      <Section title="通い方" summary={program ? scheduleSummary(program) : ''} defaultOpen>
+        <p className="text-[13px] font-bold">週に通う回数</p>
+        <Note className="mb-3 mt-1">
+          1週間に通う回数です。補助種目の量はこの回数に合わせて決まります。
+        </Note>
+
+        {program && (
+          <Select
+            aria-label="週に通う回数"
+            value={program.per_week}
+            disabled={busy}
+            onChange={(e) => void saveFrequency(Number(e.target.value))}
+          >
+            {[1, 2, 3, 4, 5, 6, 7].map((n) => (
+              <option key={n} value={n}>
+                週{n}回
+              </option>
+            ))}
+          </Select>
+        )}
+
+        <p className="mt-6 text-[13px] font-bold">1回の量</p>
+        <Note className="mb-3 mt-1">
+          1回に出る種目の数と、1種目あたりのセット数です。ジムで取れる時間に
+          合わせてください。どの部位をどれだけやるかは、この量と通う回数から
+          決まります。
+        </Note>
+
+        {program && (
+          <div className="grid grid-cols-2 gap-2">
+            <Select
+              aria-label="1回の種目数"
+              value={program.exercises_per_session}
+              disabled={busy}
+              onChange={(e) =>
+                void saveVolume(Number(e.target.value), program.sets_per_exercise)
+              }
+            >
+              {[2, 3, 4, 5, 6].map((n) => (
+                <option key={n} value={n}>
+                  {n}種目
+                </option>
+              ))}
+            </Select>
+            <Select
+              aria-label="1種目あたりのセット数"
+              value={program.sets_per_exercise}
+              disabled={busy}
+              onChange={(e) =>
+                void saveVolume(program.exercises_per_session, Number(e.target.value))
+              }
+            >
+              {[2, 3, 4, 5, 6].map((n) => (
+                <option key={n} value={n}>
+                  {n}セット
+                </option>
+              ))}
+            </Select>
+          </div>
+        )}
+
+        <p className="mt-6 text-[13px] font-bold">分割</p>
+        <Note className="mb-3 mt-1">
           その日に補助種目が狙う筋部位を決めます。通った回数で順に回るので、
           休んでも飛びません。全身法では毎回すべての部位から選ばれます。
         </Note>
@@ -102,73 +163,6 @@ export function ProgramSettings({ nameOf, exercises, onChanged }: Props) {
             {program.splits.map((s) => s.name).join(' → ')} の順に回ります。
           </Note>
         )}
-      </Section>
-
-      <Section title="週に通う回数" summary={program ? `週${program.per_week}回` : ""}>
-      <Note className="mb-3">
-        1週間に通う回数です。補助種目の量はこの回数に合わせて決まります。
-      </Note>
-
-      {program && (
-        <Select
-          aria-label="週に通う回数"
-          value={program.per_week}
-          disabled={busy}
-          onChange={(e) => void saveFrequency(Number(e.target.value))}
-        >
-          {[1, 2, 3, 4, 5, 6, 7].map((n) => (
-            <option key={n} value={n}>
-              週{n}回
-            </option>
-          ))}
-        </Select>
-      )}
-
-      </Section>
-
-      <Section
-        title="1回の量"
-        summary={program ? `${program.exercises_per_session}種目×${program.sets_per_exercise}セット` : ""}
-      >
-      <Note className="mb-3">
-        1回に出る種目の数と、1種目あたりのセット数です。ジムで取れる時間に
-        合わせてください。どの部位をどれだけやるかは、この量と通う回数から
-        決まります。
-      </Note>
-
-      {program && (
-        <div className="grid grid-cols-2 gap-2">
-          <Select
-            aria-label="1回の種目数"
-            value={program.exercises_per_session}
-            disabled={busy}
-            onChange={(e) =>
-              void saveVolume(Number(e.target.value), program.sets_per_exercise)
-            }
-          >
-            {[2, 3, 4, 5, 6].map((n) => (
-              <option key={n} value={n}>
-                {n}種目
-              </option>
-            ))}
-          </Select>
-          <Select
-            aria-label="1種目あたりのセット数"
-            value={program.sets_per_exercise}
-            disabled={busy}
-            onChange={(e) =>
-              void saveVolume(program.exercises_per_session, Number(e.target.value))
-            }
-          >
-            {[2, 3, 4, 5, 6].map((n) => (
-              <option key={n} value={n}>
-                {n}セット
-              </option>
-            ))}
-          </Select>
-        </div>
-      )}
-
       </Section>
 
       <Section title="伸ばしたい種目" summary={program ? `${program.declared_exercises.length}種目` : ""}>
