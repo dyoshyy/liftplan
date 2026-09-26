@@ -863,11 +863,20 @@ func plannedLanes(s planning.PlannedSession) []plannedLane {
 	}
 }
 
-// planDiff は2つの計画を3レーンの PlannedSet 全体で比べ、違いを
-// 「どのレーンの何番目の、どのフィールドが、何から何へ」の形で返す。
-// 同じなら空。
+// planDiff は2つの計画を、分割の日（Split）と3レーンの PlannedSet
+// 全体で比べ、違いを「どのレーンの何番目の、どのフィールドが、何から
+// 何へ」の形で返す。同じなら空。
+//
+// Forecast が全回に Split() を持つようになった（PlannedSession.Split()
+// タスク2）ので、一日中変わらないことの検査もここで一緒に見る。
 func planDiff(want, got planning.PlannedSession) []string {
 	var out []string
+	wantSplit, wantHasSplit := want.Split()
+	gotSplit, gotHasSplit := got.Split()
+	if wantHasSplit != gotHasSplit || wantSplit.Name() != gotSplit.Name() {
+		out = append(out, fmt.Sprintf("分割の日: %v(%v) → %v(%v)",
+			wantSplit.Name(), wantHasSplit, gotSplit.Name(), gotHasSplit))
+	}
 	gotLanes := plannedLanes(got)
 	for i, w := range plannedLanes(want) {
 		g := gotLanes[i]

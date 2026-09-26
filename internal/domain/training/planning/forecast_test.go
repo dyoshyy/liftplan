@@ -1,6 +1,7 @@
 package planning_test
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
@@ -297,6 +298,46 @@ func TestSessionPlanner_Forecast_ExerciseCountNeverExceedsBudget(t *testing.T) {
 		for k, s := range sessions {
 			if n := len(s.Main()) + len(s.Variation()) + len(s.Accessories()); n > exercises {
 				t.Errorf("%d種目: 回%dで%d種目が出た（予算%d）", exercises, k, n, exercises)
+			}
+		}
+	}
+}
+
+// 見込みも一日中変わらない。今日の記録が増えても、先の回（回1以降）の
+// 並び・重量・セット数・目標RIRは変わらないこと（PlanIsFixedForTheWholeDay
+// の考え方を Forecast 全体へ広げたもの）。
+func TestSessionPlanner_Forecast_IsFixedForTheWholeDay(t *testing.T) {
+	req := planRequest(t)
+	base := req.History.Logs()
+
+	first, err := planning.DefaultSessionPlanner().Forecast(req)
+	if err != nil {
+		t.Fatalf("Forecast が失敗: %v", err)
+	}
+	if len(first) < 2 {
+		t.Fatalf("前提: 回が2つ未満: %d", len(first))
+	}
+
+	logs := append([]*setlog.SetLog{}, base...)
+	n := 0
+	for _, lane := range plannedLanes(first[0]) {
+		for _, set := range lane.sets {
+			for range set.Sets().Int() {
+				n++
+				logs = append(logs, mkLogOn(t, fmt.Sprintf("f%03d", n), req.Date,
+					string(set.ExerciseID()), 40, 8, 2))
+				req.History = setlog.NewHistory(logs)
+
+				again, err := planning.DefaultSessionPlanner().Forecast(req)
+				if err != nil {
+					t.Fatalf("%dセット記録した時点で Forecast が失敗: %v", n, err)
+				}
+				for k := 1; k < len(first); k++ {
+					if diff := planDiff(first[k], again[k]); len(diff) > 0 {
+						t.Fatalf("%dセット記録した時点で回%dが変わった\n  %s",
+							n, k, strings.Join(diff, "\n  "))
+					}
+				}
 			}
 		}
 	}
