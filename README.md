@@ -2,7 +2,7 @@
 
 筋トレの進行を自動化するサーバー。実績ログ・週目標・コンディションから、その日のセッション（種目・重量・目標RIR・セット数）を導出する。
 
-設計は `docs/specs/`、判断の記録は `docs/decisions.md`。ドキュメントの案内は `docs/README.md`。
+設計は `docs/specs/`。ドキュメントの案内は `docs/README.md`。
 
 ## 設計の要点
 
@@ -237,7 +237,10 @@ cd web && VITE_API_BASE=http://localhost:8080 pnpm dev
 
 ## 設計の判断記録
 
-いま効いている判断とその根拠は `docs/decisions.md` にある。設計ごと変えた
-ものは D-116（今日の計画はその日の始まりに確定する）、D-117（軸は枠ではなく
-宣言）、D-113（推定1RMは種目ごとに持つ）、D-014（42日より古い記録からは
-推定しない）、D-027（週目標は頻度でスケールする）あたり。
+設計ごとの判断とその根拠は `docs/specs/` にある。骨格が変わった判断は、
+今日の計画はその日の始まりに確定する（`internal/domain/training/planning/session_planner.go`、
+`TestSessionPlanner_PlanIsFixedForTheWholeDay`）、軸は枠ではなく宣言
+（`docs/specs/2026-09-06-training-goals-design.md`）、推定1RMは種目ごとに持つ
+（`internal/domain/training/seed/exercises.go`）、42日より古い記録からは推定しない
+（`internal/domain/training/planning/one_rep_max_estimator.go`）、週目標は頻度で
+スケールする（`internal/domain/training/seed/weekly_target.go`）あたり。
