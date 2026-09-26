@@ -34,7 +34,8 @@ await page.waitForTimeout(1800);
 // 外れたままかを見る。初期状態は全種目が選ばれているので、入れるのではなく
 // 外す。伸ばしたい種目は外せない（disabled）ので、押せるものから選ぶ。
 // 節は畳んであるので開いてから触る。
-const pickHeader = page.getByRole('button', { name: /^使う種目/ });
+// 見出しは aria-expanded で指す。名前だけだと「使う種目を保存する」も拾う。
+const pickHeader = page.locator('button[aria-expanded]', { hasText: /^使う種目/ });
 await pickHeader.click();
 await page.waitForTimeout(500);
 const pickBody = page.locator(`[id="${await pickHeader.getAttribute('aria-controls')}"]`);
@@ -78,6 +79,19 @@ await page.selectOption(EX, String(restored.exercises_per_session));
 await page.waitForTimeout(2000);
 const volRestored = await program();
 
+// 畳むと、要約が保存済みの件数だけになって保存したように見えていた。
+// 未保存の印が「使う種目」にだけ出るかを見る。どの節にどちらの dirty を
+// 渡すかは描画側の配線で、取り違えても単体テストは緑のまま通る。
+const declaredHeader = page.locator('button[aria-expanded]', { hasText: /^伸ばしたい種目/ });
+await pickHeader.click();
+await page.waitForTimeout(300);
+const pickSummary = (await pickHeader.textContent()) ?? '';
+const declaredSummary = (await declaredHeader.textContent()) ?? '';
+console.log('畳んだ要約: 使う種目 =', pickSummary, '/ 伸ばしたい種目 =', declaredSummary);
+const pendingShown = pickSummary.includes('未保存') && !declaredSummary.includes('未保存');
+await pickHeader.click();
+await page.waitForTimeout(300);
+
 // 外しておいたチェックを入れ直して元に戻す（保存はしていない）。
 await chip.click();
 const pendingCleared = !(await page.locator(SAVE_PICK).isVisible());
@@ -86,7 +100,7 @@ console.log('エラー:', errs.length ? errs.join('\n') : '(なし)');
 const ok = after.per_week === want && after.declared_exercises.length === before.declared_exercises.length && restored.per_week === before.per_week
   && vol.exercises_per_session === wantEx && vol.sets_per_exercise === restored.sets_per_exercise
   && volRestored.exercises_per_session === restored.exercises_per_session
-  && pendingBefore && pendingAfter && stillUnchecked && pendingCleared
+  && pendingBefore && pendingAfter && stillUnchecked && pendingCleared && pendingShown
   && after.selected_exercises.length === before.selected_exercises.length;
 console.log(ok ? '\n✓ 設定の保存は壊れていない' : '\n✗ 壊れている');
 await browser.close();

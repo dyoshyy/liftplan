@@ -27,6 +27,14 @@ export const describePutFailure = (status: number, body: { error?: string } | nu
 export const isDirty = (draft: readonly string[], saved: readonly string[]): boolean =>
   [...draft].sort().join(',') !== [...saved].sort().join(',');
 
+/** exerciseCountSummary は畳んだときの summary 文言を組む。
+ *
+ *  出すのは保存済みの件数。チェックを動かして畳むと、保存ボタンが
+ *  消えるので保存したように見えるが、サーバーへはまだ送っていない。
+ *  未保存の変更が残っていることをここで示す。 */
+export const exerciseCountSummary = (savedCount: number, dirty: boolean): string =>
+  dirty ? `${savedCount}種目（未保存）` : `${savedCount}種目`;
+
 // 設定の手順を束ねる。
 //
 // **判断はこのファイル先頭と split.ts・../today/focus.ts・

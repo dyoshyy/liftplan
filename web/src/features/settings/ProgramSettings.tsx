@@ -2,7 +2,7 @@ import { focusOptions, NO_FOCUS } from '../today/focus';
 import { lockedSelected, toggleDeclared } from '../today/declared';
 import { ExercisePicker } from './ExercisePicker';
 import { isWholeBody, scheduleSummary } from './split';
-import { useProgramSettings } from './useProgramSettings';
+import { exerciseCountSummary, useProgramSettings } from './useProgramSettings';
 import { Button } from '../../ui/Button';
 import { Note } from '../../ui/Card';
 import { Section } from '../../ui/Section';
@@ -172,7 +172,7 @@ export function ProgramSettings({ nameOf, exercises, onChanged }: Props) {
       */}
       <Section
         title="使う種目"
-        summary={program ? `${program.selected_exercises.length}種目` : ""}
+        summary={program ? exerciseCountSummary(program.selected_exercises.length, pickDirty) : ""}
       >
         <Note className="mb-3">
           ここで選んだ種目だけが補助として出ます。
@@ -202,7 +202,7 @@ export function ProgramSettings({ nameOf, exercises, onChanged }: Props) {
 
       <Section
         title="伸ばしたい種目"
-        summary={program ? `${program.declared_exercises.length}種目` : ""}
+        summary={program ? exerciseCountSummary(program.declared_exercises.length, dirty) : ""}
       >
         <Note className="mb-3">
           毎回1種目ずつ、しばらくやっていないものから出ます。

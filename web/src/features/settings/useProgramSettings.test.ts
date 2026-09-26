@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { describePutFailure, isDirty } from './useProgramSettings';
+import { describePutFailure, exerciseCountSummary, isDirty } from './useProgramSettings';
 
 describe('isDirty', () => {
   // 並び順の違いだけで「変わった」にすると、押していないのに保存ボタンが
@@ -33,5 +33,21 @@ describe('describePutFailure', () => {
 
   it('本文が読めなければ状態コードだけを出す', () => {
     expect(describePutFailure(500, null)).toBe('変えられませんでした（500）');
+  });
+});
+
+describe('exerciseCountSummary', () => {
+  // チェックを動かして畳むと、保存したように見えていた。畳んだ summary が
+  // 保存済みの件数しか出さないため。未保存の変更があることをここで示す。
+  it('未保存の変更が無ければ件数だけ', () => {
+    expect(exerciseCountSummary(3, false)).toBe('3種目');
+  });
+
+  it('未保存の変更があれば添える', () => {
+    expect(exerciseCountSummary(3, true)).toBe('3種目（未保存）');
+  });
+
+  it('0件でも未保存なら添える', () => {
+    expect(exerciseCountSummary(0, true)).toBe('0種目（未保存）');
   });
 });
