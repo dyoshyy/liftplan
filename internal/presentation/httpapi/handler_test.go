@@ -101,6 +101,7 @@ func dependencies(
 ) httpapi.Dependencies {
 	return httpapi.Dependencies{
 		GetSession:       usecase.NewGetSession(exercises, logs, conditions, programs, planning.DefaultSessionPlanner()),
+		GetForecast:      usecase.NewGetForecast(exercises, logs, conditions, programs, planning.DefaultSessionPlanner()),
 		RecordSets:       usecase.NewRecordSets(logs, exercises),
 		RecordConditions: usecase.NewRecordConditions(conditions),
 		SetFocus:         usecase.NewSetFocusExercise(programs, programs),
@@ -1949,7 +1950,7 @@ func TestStatic_ShellIsNoLongerServed(t *testing.T) {
 func TestAPI_RequiresAuth(t *testing.T) {
 	h, reached := guarded(t)
 	for _, path := range []string{
-		"/api/sessions?date=2026-08-17", "/api/program", "/api/program/focus",
+		"/api/sessions?date=2026-08-17", "/api/sessions/forecast?date=2026-08-17", "/api/program", "/api/program/focus",
 		"/api/program/declared", "/api/program/frequency", "/api/program/selected",
 		"/api/set-logs",
 	} {

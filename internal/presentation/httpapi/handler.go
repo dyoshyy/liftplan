@@ -22,6 +22,7 @@ import (
 
 type Handler struct {
 	getSession       *usecase.GetSession
+	getForecast      *usecase.GetForecast
 	recordSets       *usecase.RecordSets
 	recordConditions *usecase.RecordConditions
 	setFocus         *usecase.SetFocusExercise
@@ -44,6 +45,7 @@ type Handler struct {
 // 並びを書き直していた。名前で渡せば、触るのは足した1行だけで済む。
 type Dependencies struct {
 	GetSession       *usecase.GetSession
+	GetForecast      *usecase.GetForecast
 	RecordSets       *usecase.RecordSets
 	RecordConditions *usecase.RecordConditions
 	SetFocus         *usecase.SetFocusExercise
@@ -73,6 +75,8 @@ func NewHandler(d Dependencies) (*Handler, error) {
 	switch {
 	case d.GetSession == nil:
 		return nil, errMissingDependency("GetSession")
+	case d.GetForecast == nil:
+		return nil, errMissingDependency("GetForecast")
 	case d.RecordSets == nil:
 		return nil, errMissingDependency("RecordSets")
 	case d.RecordConditions == nil:
@@ -105,6 +109,7 @@ func NewHandler(d Dependencies) (*Handler, error) {
 
 	return &Handler{
 		getSession:       d.GetSession,
+		getForecast:      d.GetForecast,
 		recordSets:       d.RecordSets,
 		recordConditions: d.RecordConditions,
 		setFocus:         d.SetFocus,
@@ -219,6 +224,30 @@ func (h *Handler) handleGetSession(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, toSessionDTO(session))
+}
+
+func (h *Handler) handleGetForecast(w http.ResponseWriter, r *http.Request) {
+	user, ok := requireUser(w, r)
+	if !ok {
+		return
+	}
+	raw := r.URL.Query().Get("date")
+	if raw == "" {
+		respondError(w, invalidInput("date クエリパラメータが必要である"))
+		return
+	}
+	date, err := training.ParseDate(raw)
+	if err != nil {
+		respondError(w, invalidInput(err.Error()))
+		return
+	}
+
+	sessions, err := h.getForecast.Execute(r.Context(), user, usecase.GetForecastInput{Date: date})
+	if err != nil {
+		respondError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, toForecastResponse(sessions))
 }
 
 func (h *Handler) handlePostSetLogs(w http.ResponseWriter, r *http.Request) {

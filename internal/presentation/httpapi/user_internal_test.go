@@ -94,6 +94,7 @@ func routesForUserTest(t *testing.T) (http.Handler, *memory.ProgramRepository) {
 
 	h, err := NewHandler(Dependencies{
 		GetSession:       usecase.NewGetSession(exercises, logs, conditions, programs, planning.DefaultSessionPlanner()),
+		GetForecast:      usecase.NewGetForecast(exercises, logs, conditions, programs, planning.DefaultSessionPlanner()),
 		RecordSets:       usecase.NewRecordSets(logs, exercises),
 		RecordConditions: usecase.NewRecordConditions(conditions),
 		SetFocus:         usecase.NewSetFocusExercise(programs, programs),

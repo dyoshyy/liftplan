@@ -64,6 +64,47 @@ func toSessionDTO(s planning.PlannedSession) sessionDTO {
 	return out
 }
 
+// forecastSessionDTO は見込みの1回ぶん。sessionDTO と違い日付を持たない
+// （設計書「日付は返さない」）。index が 0=今日、1=次の回、…
+type forecastSessionDTO struct {
+	Index       int             `json:"index"`
+	Split       *string         `json:"split"`
+	Main        []plannedSetDTO `json:"main"`
+	Variation   []plannedSetDTO `json:"variation"`
+	Accessories []plannedSetDTO `json:"accessories"`
+}
+
+type forecastResponse struct {
+	Sessions []forecastSessionDTO `json:"sessions"`
+}
+
+func toForecastResponse(sessions []planning.PlannedSession) forecastResponse {
+	out := make([]forecastSessionDTO, 0, len(sessions))
+	for i, s := range sessions {
+		var split *string
+		if sp, ok := s.Split(); ok {
+			name := sp.Name()
+			split = &name
+		}
+		main := make([]plannedSetDTO, 0, len(s.Main()))
+		for _, v := range s.Main() {
+			main = append(main, toPlannedSetDTO(v))
+		}
+		variation := make([]plannedSetDTO, 0, len(s.Variation()))
+		for _, v := range s.Variation() {
+			variation = append(variation, toPlannedSetDTO(v))
+		}
+		accessories := make([]plannedSetDTO, 0, len(s.Accessories()))
+		for _, v := range s.Accessories() {
+			accessories = append(accessories, toPlannedSetDTO(v))
+		}
+		out = append(out, forecastSessionDTO{
+			Index: i, Split: split, Main: main, Variation: variation, Accessories: accessories,
+		})
+	}
+	return forecastResponse{Sessions: out}
+}
+
 // ポインタなのは、フィールドの欠落を検出するため。
 //
 // 非ポインタだと weight_kg の欠落が 0kg（正当な自重セット）になり、
