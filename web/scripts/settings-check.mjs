@@ -44,7 +44,6 @@ await page.waitForTimeout(2500);
 const after = await program();
 console.log('保存後: per_week =', after.per_week, '（期待', want, '）');
 console.log('他が壊れていないか: declared =', after.declared_exercises.length, '件 / selected =', after.selected_exercises.length, '件');
-console.log('週目標の区分数:', Object.keys(after.weekly_target).length, '（利用者には出さない。サーバーが頻度から置き直す）');
 
 // 元に戻す
 await page.selectOption(FREQ, String(before.per_week));
