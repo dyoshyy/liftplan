@@ -69,7 +69,8 @@ D-117 の実装（PR #50）では「宣言した種目も、ヘビー枠でな�
 水曜以降。**日数を設定させない。**
 
 設定させると却下した「種目ごとの週N回」に戻る（D-117）。定数で持ち、
-`AccessorySelector` の `recoveryDays = 2` と同じ形になる。
+筋区分の回復判定（`recoveryDays = 2`。当時は `AccessorySelector`、
+現在は `AccessoryAllocator` が持つ）と同じ形になる。
 
 **「48時間」とは書かない。**記録が持つのは日付だけで時刻が無いので
 （`SetLog.PerformedOn` は年月日）、時間で判定しようがない。日付の差で

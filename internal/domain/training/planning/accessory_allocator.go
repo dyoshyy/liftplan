@@ -24,6 +24,16 @@ import (
 // 定数にして利用者の設定にしないのは設計書の決定（「どちらも定数」）。
 const overAttainmentWeight = 1.0 / 4.0
 
+// defaultRecoveryDays は既定の回復日数。
+const defaultRecoveryDays = 2
+
+// primaryContribution はこの値以上の寄与を「主働筋として使う」とみなす境界。
+//
+// 回復期間中の筋区分に対しては、主働筋として使う種目を避ける。
+// 補助的に軽く関与するぶん（三頭が 0.4 など）まで避けると、
+// 多関節種目がほとんど選べなくなる。
+const primaryContribution = 1.0
+
 // similarityBand は損失の β（「ほぼ同じ」の幅）。
 //
 // 0 < β < 1。最良の減り幅の β 倍以上を「ほぼ同じ」として多様性の選定に
@@ -98,8 +108,9 @@ type AllocationRequest struct {
 	// 種目）はすでに引いてある。
 	Pool []*exercise.Exercise
 	// Master は種目マスタ全件。実際の記録が指す種目を引く辞書として使う。
-	// Pool が除外済みでも、除外した種目の記録は回復の判定に要る
-	// （AccessorySelector.recovering と同じ理由）。
+	// Pool が除外済みでも、除外した種目の記録は回復の判定に要る。
+	// 除外しても、その種目が刺激した筋区分が回復中かどうかの判定には
+	// 引き続き使うため、履歴を辿る辞書からは抜けない。
 	Master []*exercise.Exercise
 	// History は実際の記録。前日まで（呼び出し側が切る）。
 	History setlog.History
@@ -348,7 +359,6 @@ func (a AccessoryAllocator) Allocate(req AllocationRequest) ([][]exercise.Exerci
 	return out, nil
 }
 
-// primaryRegions はその種目の主働（寄与1.0以上）の区分。
 // candidateAccessories は補助の候補プール。exclude に挙がった種目
 // （宣言種目、重点種目の系統、選択されていない種目）を master から引く。
 //
@@ -368,6 +378,7 @@ func candidateAccessories(master []*exercise.Exercise, exclude []exercise.Exerci
 	return out
 }
 
+// primaryRegions はその種目の主働（寄与1.0以上）の区分。
 func primaryRegions(e *exercise.Exercise) []training.MuscleRegion {
 	out := make([]training.MuscleRegion, 0, 2)
 	for _, r := range e.Stimulus().Regions() {

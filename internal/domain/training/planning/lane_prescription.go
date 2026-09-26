@@ -9,7 +9,7 @@ import (
 
 // laneRole は種目が今日のセッションで担う役割。
 //
-// 種目を選ぶ側（axis・variationLift・AccessorySelector）はこの役割までを
+// 種目を選ぶ側（axis・variationLift・selectLineup の補助選定）はこの役割までを
 // 決め、強度・セット数・RIR は決めない。役割から処方の定数を引くのは
 // prescriptionFor の表だけで、強度の値はあの表にしか無い。
 type laneRole int
@@ -33,7 +33,7 @@ const (
 	// variationRecoveryDays は同じ系統を再び出すまでに空ける日数。
 	//
 	// 2 は「中1日」で、月曜にやったら火曜は出さず水曜から出す。判定は
-	// AccessorySelector.recovering と同じ開区間 (date - N, date)。
+	// 開区間 (date - N, date)（recentlyPerformed）。
 	//
 	// recoveryDays と値が同じだが共有しない。あちらは筋区分の回復で
 	// コンストラクタの引数、こちらは系統の間隔で設定にしない。共有すると

@@ -178,3 +178,18 @@ func mustVolume(t *testing.T, exercises, sets int) program.SessionVolume {
 	}
 	return v
 }
+
+// mkAccessory は刺激プロファイルだけを指定した種目。補助・割り振り器の
+// テストで区分ごとの候補を組み立てるのに使う。
+func mkAccessory(t *testing.T, id string, stimulus map[training.MuscleRegion]float64) *exercise.Exercise {
+	t.Helper()
+	return mustExercise(t, exercise.ExerciseParams{
+		ID:          id,
+		Name:        id,
+		Stimulus:    stimulus,
+		IncrementKg: 2.5,
+	})
+}
+
+// today は割り振り器・プランナーのテストで使う基準日。
+func today() training.Date { return training.MustDate(2026, time.August, 16) }

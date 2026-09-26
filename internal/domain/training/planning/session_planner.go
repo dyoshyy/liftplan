@@ -30,20 +30,20 @@ type PlanRequest struct {
 // SessionPlanner はドメインの入口となるドメインサービス。無状態。
 type SessionPlanner struct {
 	estimator OneRepMaxEstimator
-	accessory AccessorySelector
+	accessory AccessoryAllocator
 	analyzer  ConditionAnalyzer
 }
 
 func NewSessionPlanner(
 	estimator OneRepMaxEstimator,
-	accessory AccessorySelector,
+	accessory AccessoryAllocator,
 	analyzer ConditionAnalyzer,
 ) (SessionPlanner, error) {
 	if estimator.IsZero() {
 		return SessionPlanner{}, errors.New("推定器が未設定である")
 	}
 	if accessory.IsZero() {
-		return SessionPlanner{}, errors.New("補助種目の選択器が未設定である")
+		return SessionPlanner{}, errors.New("補助の割り振り器が未設定である")
 	}
 	if analyzer.IsZero() {
 		return SessionPlanner{}, errors.New("コンディション分析器が未設定である")
@@ -56,7 +56,7 @@ func NewSessionPlanner(
 func DefaultSessionPlanner() SessionPlanner {
 	return SessionPlanner{
 		estimator: DefaultOneRepMaxEstimator(),
-		accessory: DefaultAccessorySelector(),
+		accessory: DefaultAccessoryAllocator(),
 		analyzer:  DefaultConditionAnalyzer(),
 	}
 }
@@ -102,7 +102,7 @@ func (p SessionPlanner) Plan(req PlanRequest) (PlannedSession, error) {
 	//   - バリエーション（recentlyPerformed）：今日ラーセンを1セット記録して
 	//     開き直した瞬間に系統が「最近やった」になり、バリエーションが消える
 	//   - 分割：周期は出席回数で進むので、1セット記録した瞬間に今日が1回に
-	//     数えられ、上の日が下の日に変わる。1回ぶんの天井（activeCount）の
+	//     数えられ、上の日が下の日に変わる。先の回の予測（ProjectHorizon）の
 	//     起点も1つずれる
 	//   - 重点種目の一巡：今日のセッションが1回に数えられて位置が進み、
 	//     軸の強度か種目が変わる
@@ -218,16 +218,12 @@ func (p SessionPlanner) selectLineup(
 	evalDate := horizon[len(horizon)-1].Date
 	baseline := CoverageBetween(history, master, evalDate.AddDays(-(CoverageWindowDays - 1)), evalDate)
 
-	allocator, err := NewAccessoryAllocator(p.accessory.RecoveryDays())
-	if err != nil {
-		return nil, fmt.Errorf("割り振り器が組めない: %w", err)
-	}
 	setsPerAccessory, err := training.NewSetCount(prog.SessionVolume().Sets())
 	if err != nil {
 		return nil, fmt.Errorf("補助のセット数が不正: %w", err)
 	}
 
-	allocations, err := allocator.Allocate(AllocationRequest{
+	allocations, err := p.accessory.Allocate(AllocationRequest{
 		Target:           target,
 		Baseline:         baseline,
 		Sessions:         horizon,
