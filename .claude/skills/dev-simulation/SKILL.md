@@ -65,7 +65,7 @@ jq '.weeks[] | select(.index==3) | .regions[] | select(.target>0)
 
 ## 画面で読む（人に見せるとき）
 
-`/dev.html?` に同じクエリを付けると、その設定で即実行する。ログイン済みのブラウザで開き、ページの文字（get_page_text）の先頭にある「要約」が、前提・宣言種目ごとの推移・週ごとの許容外の区分を文字で持つ。ローカルでは `pnpm dev` に `VITE_API_BASE` を渡し、localStorage の `liftplan.token` に DEV_SESSION_TOKEN を入れる。
+`/dev.html?` に同じクエリを付けると、その設定で即実行する。ログイン済みのブラウザで開き、ページの文字（get_page_text）の先頭にある「要約」が、前提・宣言種目ごとの推移・週ごとの許容外の区分を文字で持つ。ローカルでは `cd web && VITE_API_BASE=http://localhost:<APIのポート> pnpm dev`（`.env` は拾われず、無いと画面が真っ白）。API の `WEB_ORIGIN`/`ALLOWED_ORIGINS` は画面のオリジンに合わせる。`http://localhost:5173/#token=<DEV_SESSION_TOKEN>` を一度開いてから `/dev.html?...` を開く。
 
 ## よくある取り違え
 
