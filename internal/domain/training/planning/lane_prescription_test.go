@@ -245,3 +245,83 @@ func TestSessionPlanner_AxisOverload(t *testing.T) {
 		})
 	}
 }
+
+// mixedWindowProgram は宣言がベンチとスクワットの2つ、重点種目がベンチ、
+// 派生の選択は tempo だけのプログラム。larsen は選択から外す。
+//
+// 宣言を2つにするのは、軸をベンチとスクワットで交互に回すため。ベンチの
+// 番の日は派生（tempo）が一巡の3番目（派生の番）で軸に立ち、スクワットの
+// 番の日は「軸が系統に含まれない」条件が満たされてバリエーションレーンに
+// tempo が出る。同じ種目が2つの役割を行き来する状況を、宣言を絞らずに作る。
+func mixedWindowProgram(t *testing.T) *program.Program {
+	t.Helper()
+
+	target := mustTarget(t, map[training.MuscleRegion]float64{
+		training.ChestMid: 12, training.ChestUpper: 9, training.Quad: 12, training.Biceps: 9,
+	})
+	p, err := program.NewProgram(mustFrequency(t, 3), target,
+		[]exercise.ExerciseID{"bench", "squat", "incline", "curl", "tempo"},
+		[]exercise.ExerciseID{"bench", "squat"}, "bench")
+	if err != nil {
+		t.Fatalf("プログラムの生成に失敗: %v", err)
+	}
+	return p
+}
+
+// 派生（tempo）が、軸の重い日とバリエーションの軽い日を行き来する窓で、
+// 上乗せの判定がバリエーションの日を証拠に使わないこと。
+//
+// 履歴は役割を持たない。tempo は「派生の番」で軸（0.88・RIR1）に立つ日と、
+// スクワットが軸の日にバリエーション（0.80・RIR2）で出る日を両方持つ。
+// 直近3セッションの窓にバリエーションの日が混ざると、その日の記録RIR（2）は
+// 軸の目標RIR（1）を割っていないので素通りし、「推定が平坦」の判定も
+// （その日の始まりの推定から今日の役割の強度で引き直すだけなので）軽い
+// 重量で実施したことと無関係に成立してしまう。窓の3セッションのうち
+// 実際に重い処方でやったのは1日（6日前）だけなのに、上乗せが発火する。
+//
+// 数値は実測（DefaultOneRepMaxEstimator）で選んだ。tempo の起点は
+// 75kg×8 RIR2（Epley 100kg）。0.88 で 87.5kg（100×0.88=88→2.5刻みで
+// 87.5に丸まる）。バリエーションの日は 80kg×5 RIR2（Epley 98.67kg）、
+// 軸の日は 87.5kg×3 RIR1（Epley 99.17kg）。EWMA（α=0.3）で畳み込んでも
+// 今日までのどの時点でも「その日の始まりの推定 × 0.88」は 87.5kg に
+// 丸まったまま動かない。
+func TestSessionPlanner_AxisOverload_ExcludesVariationDays(t *testing.T) {
+	req := planRequest(t)
+	req.Program = mixedWindowProgram(t)
+	req.History = setlog.NewHistory([]*setlog.SetLog{
+		// 軸がベンチとスクワットを交互に回すための最小限の履歴。
+		// ベンチを一度も遠くに離しておくと、スクワットより古いので
+		// 毎回ベンチが軸に立つ（スクワットは直近にやったことにして外す）。
+		mkLogOn(t, "bench-old", planMonday.AddDays(-25), "bench", 85, 8, 2),
+		mkLogOn(t, "squat-recent", planMonday.AddDays(-2), "squat", 110, 8, 2),
+
+		// tempo 自身の履歴。起点 → バリエーション → 軸 → バリエーション。
+		mkLogOn(t, "baseline", planMonday.AddDays(-16), "tempo", 75, 8, 2),
+		mkLogOn(t, "var9-0", planMonday.AddDays(-9), "tempo", 80, 5, 2),
+		mkLogOn(t, "var9-1", planMonday.AddDays(-9), "tempo", 80, 5, 2),
+		mkLogOn(t, "var9-2", planMonday.AddDays(-9), "tempo", 80, 5, 2),
+		mkLogOn(t, "heavy6-0", planMonday.AddDays(-6), "tempo", 87.5, 3, 1),
+		mkLogOn(t, "heavy6-1", planMonday.AddDays(-6), "tempo", 87.5, 3, 1),
+		mkLogOn(t, "heavy6-2", planMonday.AddDays(-6), "tempo", 87.5, 3, 1),
+		mkLogOn(t, "var3-0", planMonday.AddDays(-3), "tempo", 80, 5, 2),
+		mkLogOn(t, "var3-1", planMonday.AddDays(-3), "tempo", 80, 5, 2),
+		mkLogOn(t, "var3-2", planMonday.AddDays(-3), "tempo", 80, 5, 2),
+	})
+
+	s := mustPlan(t, req)
+	if len(s.Main()) != 1 || s.Main()[0].ExerciseID() != "tempo" {
+		t.Fatalf("前提: 今日は tempo が派生の番で軸に立つこと: %v", s.Main())
+	}
+	if rir := s.Main()[0].TargetRIR().Int(); rir != 1 {
+		t.Fatalf("前提: 今日の tempo は軸（目標RIR1）であること: RIR%d", rir)
+	}
+
+	got, ok := plannedWeight(t, s, "tempo")
+	if !ok {
+		t.Fatal("前提: tempo の重量が出ること")
+	}
+	const want = 87.5 // バリエーションの日を除けば、重い処方でやったのは1日だけで窓が満たない
+	if got != want {
+		t.Errorf("tempo が %vkg。%vkg のはず（バリエーションの日を上乗せの証拠に使っている）", got, want)
+	}
+}

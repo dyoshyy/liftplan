@@ -223,30 +223,67 @@ const overloadSessions = 3
 //
 // 下げる規則は置かない。上げた重量で目標 RIR を割れば、RIR の条件が
 // 窓を抜けるまで外れて base に戻る。推定もその記録で下がる。
+//
+// 対象は heavyRole と focusVolumeRole（prescribeSet の呼び分け）。派生・補助が
+// 対象から外れているのではない。派生も、一巡の「派生の番」に heavyRole で
+// 軸へ立てば対象になる（axis_rotation.go の case 2）。線を引いているのは
+// 種目ではなく役割。
+//
+// Why not: バリエーションの日は窓の証拠に使わない。履歴は役割を持たないので、
+// 派生がバリエーションレーン（variationRole・0.80・RIR2）で出た日も
+// ForExercise には同じ種目として並ぶ。その日の記録RIR（2）はここで比べる
+// 目標RIR（heavyRole なら1）を割っていないため素通りし、「推定が平坦」の
+// 判定もその日の始まりの推定を今日の役割の強度で引き直すだけなので、実際に
+// 軽い重量でやったことと無関係に成立してしまう。窓の3セッションのうち
+// 重い処方で実施したのが1日しかなくても発火する不具合になる。
+//
+// 本来はバリエーションの日も換算して証拠に使うべきだが、その日の強度
+// （0.80・RIR2）を軸の強度へどう換算するかが決まっていない。無理に決めると
+// ロジックが複雑になるので、今は重い処方で実施した日だけに絞る
+// （必要になるまで作らない）。バリエーションを日本語のとおり「絞る」で
+// 読み、軽い日は無視して素通りし、その分さらに古い日まで遡って
+// overloadSessions 件集める。
 func (p SessionPlanner) overload(
 	estimable setlog.History, target *exercise.Exercise, lane lanePrescription,
 	intensity training.IntensityPct, base training.Weight,
 ) training.Weight {
 	sessions := estimable.ForExercise(target.ID()).Sessions()
-	if len(sessions) < overloadSessions {
-		return base
-	}
-	for _, s := range sessions[len(sessions)-overloadSessions:] {
-		for _, l := range s.Logs() {
-			if l.RIR().Int() < lane.targetRIR {
-				return base
-			}
-		}
+
+	heavy := 0
+	for i := len(sessions) - 1; i >= 0 && heavy < overloadSessions; i-- {
+		s := sessions[i]
+
 		// その日の始まりに、この役割で出ていたはずの処方。推定できない
-		// 日（履歴の最初のセッション、ブランク明け）が窓にあれば判定しない。
+		// 日（履歴の最初のセッション、ブランク明け）に当たれば判定しない。
+		// バリエーションの日かどうかを見るにも同じ推定が要るので、
+		// 重い・軽いを選り分ける前に確かめる。
 		orm, ok := p.estimator.Estimate(estimable.Before(s.Date()), target.ID(), s.Date())
 		if !ok {
 			return base
 		}
 		w, err := orm.WorkWeight(intensity, target.Increment())
-		if err != nil || w != base {
+		if err != nil {
 			return base
 		}
+
+		if !performedAtLeast(s, w) {
+			// この役割の処方に届かない重量でやった日（バリエーションの
+			// 日など）は、窓に数えず素通りする。
+			continue
+		}
+		heavy++
+
+		for _, l := range s.Logs() {
+			if l.RIR().Int() < lane.targetRIR {
+				return base
+			}
+		}
+		if w != base {
+			return base
+		}
+	}
+	if heavy < overloadSessions {
+		return base
 	}
 
 	raised, err := training.NewWeight(base.Kg() + target.Increment().Kg())
@@ -254,4 +291,20 @@ func (p SessionPlanner) overload(
 		return base
 	}
 	return raised
+}
+
+// performedAtLeast は、そのセッションにこの役割の処方 w 以上の重量で
+// 実施したセットが1つでもあるか。
+//
+// 「以上」にするのは、上乗せで base より重い日（overload が既に発火した
+// 翌日など）を弾かないため。1つでもあれば十分で、全セットを求めない。
+// ウォームアップのような軽いセットが混ざっていても、トップセットが
+// 届いていれば「この役割でやった日」と見なす。
+func performedAtLeast(s setlog.TrainingSession, w training.Weight) bool {
+	for _, l := range s.Logs() {
+		if l.Weight().Kg() >= w.Kg() {
+			return true
+		}
+	}
+	return false
 }
