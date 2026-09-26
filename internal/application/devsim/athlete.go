@@ -187,9 +187,11 @@ var defaultOneRepMax = map[exercise.ExerciseID]float64{
 	"shrug":          160,
 	"back_extension": 20,
 
-	"overhead_press": 60,
-	"side_raise":     15,
-	"rear_delt_fly":  15,
+	"overhead_press":    60,
+	"db_shoulder_press": 25,
+	"side_raise":        15,
+	"cable_side_raise":  10,
+	"rear_delt_fly":     15,
 
 	"triceps_pushdown":   40,
 	"overhead_extension": 30,

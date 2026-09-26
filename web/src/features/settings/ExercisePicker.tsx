@@ -20,7 +20,7 @@ type Props = {
 // 「伸ばしたい種目」と「使う種目」で同じものを2回書いていたので、1つにした。
 // 片方だけ直すと、同じ操作なのに見た目と挙動が食い違う。
 //
-// **まとめる単位は21の筋区分ではなく6つの部位。**36種目を21個の見出しに
+// **まとめる単位は21の筋区分ではなく6つの部位。**38種目を21個の見出しに
 // 割ると1グループが平均2種目未満になり、一覧として読めない（domain/parts.ts）。
 export function ExercisePicker({ label, exercises, chosen, lockedReason, disabled, onToggle }: Props) {
   return (

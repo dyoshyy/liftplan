@@ -78,6 +78,7 @@ type simResult struct {
 	setsPer   []int                       // セッションごとの総セット数
 	picked    map[exercise.ExerciseID]int // 種目ごとの選出回数
 	weeks     int
+	setsPer1  int // 1種目あたりのセット数。帯の粒度（outOfBand）に使う
 	undecided int // 重量が未確定のまま提示された延べ件数
 	sessions  []simSession
 }
@@ -99,6 +100,38 @@ func (r simResult) rate(region training.MuscleRegion) float64 {
 		return 0
 	}
 	return r.achieved[region] / t
+}
+
+// 週目標に対する達成率の帯。
+//
+// 帯が広めなのは、供給の内訳が頻度で変わるため。1週間に供給できる
+// 総量は頻度に比例するが、限られた枠を21区分に配る形は比例しない。
+// 目標は「意図」であって実測の写しではないので、ぴったり合わせない。
+const (
+	minRate = 0.60
+	maxRate = 1.45
+)
+
+// outOfBand はその区分の達成率が帯の外にあり、しかも補助1本ぶんより
+// 大きく外れているかを返す。
+//
+// **補助1本より細かいずれは問わない。**補助は1種目（既定で3セット）単位で
+// しか入らないので、通し検証の期間に1本増えるか減るかで、週あたりの実測は
+// セット数÷週数だけ段になって動く。週目標が1セット台の小さい区分では、
+// その1段が30ポイントを超える。帯の幅（60〜145%）が補助2〜3本ぶんしか
+// なく、週目標が数%動いただけで帯をまたぐ（ケーブルサイドレイズを足して
+// 平均寄与が下がったとき、週2回の CHEST_LOWER が 120%→151% に跳ねた）。
+// 配分の良し悪しではなく粒度で落ちる検査は、何も守っていない。
+//
+// 大きい区分では1段が帯より十分小さいので、今までどおり%の帯が効く。
+func (r simResult) outOfBand(region training.MuscleRegion) bool {
+	t := r.target.Sets(region)
+	if t <= 0 {
+		return false
+	}
+	step := float64(r.setsPer1) / float64(r.weeks)
+	got := r.achieved[region]
+	return got < t*minRate-step || got > t*maxRate+step
 }
 
 // simulate は frequency 回/週で weeks 週ぶん、処方どおりに実施した場合を回す。
@@ -194,6 +227,7 @@ func runSim(t *testing.T, cfg simConfig) simResult {
 		target:   target,
 		picked:   map[exercise.ExerciseID]int{},
 		weeks:    cfg.weeks,
+		setsPer1: simVolume(t).Sets(),
 	}
 
 	var logs []*setlog.SetLog
@@ -290,19 +324,13 @@ func idsOf(sets []planning.PlannedSet) []exercise.ExerciseID {
 // 届かない目標は「毎週すべての区分が赤字」の画面を出し続けるだけで、
 // 何も導かない。大幅な超過も同じで、目標が挙動を説明できていない。
 func TestSimulation_WeeklyTargetIsAttainableAtEveryFrequency(t *testing.T) {
-	// 帯が広めなのは、供給の内訳が頻度で変わるため。1週間に供給できる
-	// 総量は頻度に比例するが、限られた枠を21区分に配る形は比例しない。
-	// 目標は「意図」であって実測の写しではないので、ぴったり合わせない。
+	// 帯と、補助1本ぶんの粒度を問わない理由は outOfBand。
 	//
 	// この帯に収まるのは、補助の順序が欠けている割合で決まり、残差を
 	// 4週の窓で数えているから。日数を第1キーにしていた頃は、1日4種目で
 	// 54〜168% に開き、52週平均でも縮まなかった（偏りであってばらつき
 	// ではない）。窓が1週だと、週目標が1種目ぶんより小さい区分が抑え
 	// られず 179〜202% に張り付いた。
-	const (
-		minRate = 0.60
-		maxRate = 1.45
-	)
 	// 週1回は見ない。想定する利用者ではない。
 	//
 	// 週1回×4種目×3セットだと4週で48セットを21区分に配ることになり、
@@ -318,10 +346,9 @@ func TestSimulation_WeeklyTargetIsAttainableAtEveryFrequency(t *testing.T) {
 				return res.rate(regions[i]) < res.rate(regions[j])
 			})
 			for _, r := range regions {
-				rate := res.rate(r)
-				if rate < minRate || rate > maxRate {
+				if res.outOfBand(r) {
 					t.Errorf("%s の達成率が範囲外: %.0f%%（目標 %.1f、実測 %.1f）",
-						r, rate*100, res.target.Sets(r), res.achieved[r])
+						r, res.rate(r)*100, res.target.Sets(r), res.achieved[r])
 				}
 			}
 		})
@@ -838,11 +865,6 @@ func TestSimulation_UnaffiliatedRegionsStayActiveUnderSplit(t *testing.T) {
 // 緑になる（実測）。five_way は頻度4回未満を選べないようにする対応を
 // 別PRで行う予定（それまでの間、この検査の対象からは外す）。
 func TestSimulation_SplitWeeklyTargetIsAttainable(t *testing.T) {
-	const (
-		minRate = 0.60
-		maxRate = 1.45
-	)
-
 	for _, p := range splitCycles(t) {
 		for f := 2; f <= maxSimFrequency; f++ {
 			if p.Key == "five_way" && (f == 2 || f == 3) {
@@ -858,10 +880,9 @@ func TestSimulation_SplitWeeklyTargetIsAttainable(t *testing.T) {
 					return res.rate(regions[i]) < res.rate(regions[j])
 				})
 				for _, r := range regions {
-					rate := res.rate(r)
-					if rate < minRate || rate > maxRate {
+					if res.outOfBand(r) {
 						t.Errorf("%s の達成率が範囲外: %.0f%%（目標 %.1f、実測 %.1f）",
-							r, rate*100, res.target.Sets(r), res.achieved[r])
+							r, res.rate(r)*100, res.target.Sets(r), res.achieved[r])
 					}
 				}
 			})
@@ -946,8 +967,8 @@ func TestSimulation_SplitReport(t *testing.T) {
 				})
 				out := []string{}
 				for _, r := range regions {
-					if rate := res.rate(r); rate < 0.60 || rate > 1.45 {
-						out = append(out, fmt.Sprintf("%s=%.0f%%", r, rate*100))
+					if res.outOfBand(r) {
+						out = append(out, fmt.Sprintf("%s=%.0f%%", r, res.rate(r)*100))
 					}
 				}
 				t.Logf("=== %s 週%d回 重点%q（%d週）セット %d..%d 空軸 %d本 バリエーション %d本 ベンチ系 週%.1f回",

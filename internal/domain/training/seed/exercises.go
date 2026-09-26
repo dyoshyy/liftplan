@@ -137,7 +137,11 @@ func specs() []exercise.ExerciseParams {
 		// --- 肩 ---
 		spec("overhead_press", "オーバーヘッドプレス", 2.5,
 			stimulus{r.FrontDelt: 1.0, r.SideDelt: 0.5, r.TricepsLateral: 0.4}),
+		spec("db_shoulder_press", "ダンベルショルダープレス", 2.0,
+			stimulus{r.FrontDelt: 1.0, r.SideDelt: 0.5, r.TricepsLateral: 0.4}),
 		spec("side_raise", "サイドレイズ", 1.0,
+			stimulus{r.SideDelt: 1.0}),
+		spec("cable_side_raise", "ケーブルサイドレイズ", 2.5,
 			stimulus{r.SideDelt: 1.0}),
 		spec("rear_delt_fly", "リアデルトフライ", 1.0,
 			stimulus{r.RearDelt: 1.0, r.TrapMid: 0.3}),

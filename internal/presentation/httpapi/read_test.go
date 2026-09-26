@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/dyoshyy/liftplan/internal/domain/training/seed"
 	"github.com/dyoshyy/liftplan/internal/infrastructure/memory"
 )
 
@@ -28,8 +29,14 @@ func TestGetExercises_ReturnsJapaneseNames(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
 		t.Fatalf("応答を解釈できない: %v", err)
 	}
-	if len(got.Exercises) != 36 {
-		t.Errorf("種目の数が誤り: %d（期待 36）", len(got.Exercises))
+	// 件数を数字で書かない。シードに種目を足すたびに、応答と関係ない
+	// 理由でここが落ちる。見たいのは「同梱の種目が全部返る」こと。
+	all, err := seed.Exercises()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Exercises) != len(all) {
+		t.Errorf("種目の数が誤り: %d（期待 %d）", len(got.Exercises), len(all))
 	}
 
 	for _, e := range got.Exercises {
