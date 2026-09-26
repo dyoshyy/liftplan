@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { isSplitSelectable, matchingPresetKey, splitBody, splitUnselectableReason } from './split';
+import { isSplitSelectable, isWholeBody, matchingPresetKey, splitBody, splitUnselectableReason } from './split';
 import type { Program, SplitPreset } from '../../api/types';
 
 const preset = (
@@ -33,7 +33,8 @@ describe('matchingPresetKey', () => {
     expect(matchingPresetKey(program(upperLower.splits), [upperLower])).toBe('upper_lower');
   });
 
-  // 分割なしが全身法。画面では「全身法」を押した状態になる。
+  // matchingPresetKey は「プリセットのどれか」を探すだけで、分割なし
+  // （＝全身法）を特別扱いしない。全身法の判定は isWholeBody にある。
   it('分割なしはどれとも一致しない', () => {
     expect(matchingPresetKey(program([]), [upperLower])).toBeNull();
   });
@@ -67,6 +68,32 @@ describe('matchingPresetKey', () => {
       { name: '下半身', regions: ['GLUTE', 'QUAD'] },
     ]);
     expect(matchingPresetKey(renamed, [upperLower])).toBeNull();
+  });
+});
+
+describe('isWholeBody', () => {
+  it('分割が0件なら全身法', () => {
+    expect(isWholeBody(program([]))).toBe(true);
+  });
+
+  it('分割があれば全身法ではない', () => {
+    expect(isWholeBody(program(upperLower.splits))).toBe(false);
+  });
+
+  // 保存された分割がどのプリセットとも一致しない（例: サーバー側で
+  // プリセット名が変わった）場合。matchingPresetKey は null を返すが、
+  // これは「全身法」ではない。null を全身法と取り違えると、summary には
+  // 分割名が出ているのに「全身法」ボタンが選ばれて見える不具合になる。
+  it('プリセットと一致しない分割も全身法ではない', () => {
+    const unmatched = program([
+      { name: '押す', regions: ['CHEST_MID', 'LAT'] },
+      { name: '下半身', regions: ['GLUTE', 'QUAD'] },
+    ]);
+    expect(isWholeBody(unmatched)).toBe(false);
+  });
+
+  it('1件だけの分割も全身法ではない', () => {
+    expect(isWholeBody(program([upperLower.splits[0]!]))).toBe(false);
   });
 });
 

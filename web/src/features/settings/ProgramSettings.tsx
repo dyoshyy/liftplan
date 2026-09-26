@@ -1,6 +1,7 @@
 import { focusOptions, NO_FOCUS } from '../today/focus';
 import { lockedSelected, toggleDeclared } from '../today/declared';
 import { ExercisePicker } from './ExercisePicker';
+import { isWholeBody } from './split';
 import { useProgramSettings } from './useProgramSettings';
 import { Button } from '../../ui/Button';
 import { Note } from '../../ui/Card';
@@ -60,7 +61,7 @@ export function ProgramSettings({ nameOf, exercises, onChanged }: Props) {
     <>
       <Section
         title="分割"
-        summary={program && program.splits.length > 0 ? program.splits.map((s) => s.name).join(' → ') : "全身法"}
+        summary={program ? (isWholeBody(program) ? "全身法" : program.splits.map((s) => s.name).join(' → ')) : ""}
         defaultOpen
       >
         <Note className="mb-3">
@@ -70,7 +71,7 @@ export function ProgramSettings({ nameOf, exercises, onChanged }: Props) {
 
         <div className="grid gap-2">
           <Button
-            variant={splitKey === null ? 'primary' : 'quiet'}
+            variant={program && isWholeBody(program) ? 'primary' : 'quiet'}
             disabled={busy}
             onClick={() => void chooseSplit(null)}
           >

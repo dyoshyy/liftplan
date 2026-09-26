@@ -26,6 +26,19 @@ export function matchingPresetKey(program: Program, presets: readonly SplitPrese
 }
 
 /**
+ * isWholeBody は分割なし（全身法）かどうかを見る。
+ *
+ * matchingPresetKey の null と混ぜない。あちらの null は「どのプリセットにも
+ * 一致しない」で、分割そのものは残っている（例: サーバー側でプリセット名が
+ * 変わった）。ここで null を全身法と取り違えると、summary には分割名が出て
+ * いるのに画面は「全身法」ボタンを選んだ状態で表示してしまう。全身法は
+ * 分割が0件のときだけ。
+ */
+export function isWholeBody(program: Program): boolean {
+  return program.splits.length === 0;
+}
+
+/**
  * splitBody は PUT /api/program/split のボディを組む。
  *
  * プリセットを渡さなければ分割なしに戻る。
