@@ -9,6 +9,7 @@ import (
 	"github.com/dyoshyy/liftplan/internal/domain/training/condition"
 	"github.com/dyoshyy/liftplan/internal/domain/training/exercise"
 	"github.com/dyoshyy/liftplan/internal/domain/training/program"
+	"github.com/dyoshyy/liftplan/internal/domain/training/seed"
 	"github.com/dyoshyy/liftplan/internal/domain/training/setlog"
 	"github.com/dyoshyy/liftplan/internal/infrastructure/memory"
 )
@@ -28,6 +29,16 @@ func userB(t *testing.T) account.UserID { return mustUserID(t, "22222222-2222-42
 func mustUserID(t *testing.T, s string) account.UserID {
 	t.Helper()
 	id, err := account.NewUserID(s)
+	if err != nil {
+		t.Fatalf("UserID が作れない: %v", err)
+	}
+	return id
+}
+
+// newUser はテスト用の利用者ID。呼ぶたびに別人になる。
+func newUser(t *testing.T) account.UserID {
+	t.Helper()
+	id, err := account.NewRandomUserID()
 	if err != nil {
 		t.Fatalf("UserID が作れない: %v", err)
 	}
@@ -139,6 +150,28 @@ func TestConditionRepository_KeepsUsersApart(t *testing.T) {
 	}
 	if kg != 70 {
 		t.Errorf("A の体重が %v kg。B の 90 に上書きされている", kg)
+	}
+}
+
+// 別のユーザーが足した種目は見えない。
+func TestExerciseRepository_ReturnsSeedPlusOwnCustoms(t *testing.T) {
+	ctx := context.Background()
+	seedAll, _ := seed.Exercises()
+	repo := memory.NewExerciseRepository(seedAll)
+	a, b := newUser(t), newUser(t)
+
+	mine := mustCustom(t, "u-000000000000000a", "アイソラテラル・ロー")
+	if err := repo.Save(ctx, a, mine); err != nil {
+		t.Fatal(err)
+	}
+
+	gotA, _ := repo.FindAll(ctx, a)
+	if len(gotA) != len(seedAll)+1 || gotA[len(gotA)-1].ID() != mine.ID() {
+		t.Errorf("A の一覧に自分の種目が末尾に1件足されていない（%d 件）", len(gotA))
+	}
+	gotB, _ := repo.FindAll(ctx, b)
+	if len(gotB) != len(seedAll) {
+		t.Errorf("B に A の種目が見えている（%d 件）", len(gotB))
 	}
 }
 

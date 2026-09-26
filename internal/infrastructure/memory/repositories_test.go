@@ -2,12 +2,14 @@ package memory_test
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/dyoshyy/liftplan/internal/domain/training"
+	"github.com/dyoshyy/liftplan/internal/domain/training/exercise"
 	"github.com/dyoshyy/liftplan/internal/domain/training/seed"
 	"github.com/dyoshyy/liftplan/internal/infrastructure/memory"
 
@@ -16,6 +18,18 @@ import (
 )
 
 var day = training.MustDate(2026, time.August, 17)
+
+func mustCustom(t *testing.T, id, name string) *exercise.Exercise {
+	t.Helper()
+	e, err := exercise.NewCustomExercise(exercise.CustomExerciseParams{
+		ID: id, Name: name,
+		Primary: []training.MuscleRegion{training.Lat}, IncrementKg: 2.5,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return e
+}
 
 func mkSetLog(t *testing.T, id string, kg float64) *setlog.SetLog {
 	t.Helper()
@@ -103,5 +117,46 @@ func TestRepositories_AreSafeForConcurrentUse(t *testing.T) {
 	}
 	if conditions.Size(user) != 16 {
 		t.Errorf("並行保存で件数が合わない: %d", conditions.Size(user))
+	}
+}
+
+func TestExerciseRepository_KeepsDeletedCustoms(t *testing.T) {
+	ctx := context.Background()
+	repo := memory.NewExerciseRepository(nil)
+	a := newUser(t)
+	e := mustCustom(t, "u-000000000000000a", "アイソラテラル・ロー")
+	_ = repo.Save(ctx, a, e)
+	_ = repo.Save(ctx, a, e.Delete())
+
+	got, _ := repo.FindAll(ctx, a)
+	if len(got) != 1 || !got[0].IsDeleted() {
+		t.Errorf("消した種目が消えた状態で1件残っていない: %v", got)
+	}
+}
+
+func TestExerciseRepository_RefusesSeedExercises(t *testing.T) {
+	seedAll, _ := seed.Exercises()
+	repo := memory.NewExerciseRepository(seedAll)
+	if err := repo.Save(context.Background(), newUser(t), seedAll[0]); err == nil {
+		t.Error("共通の種目を保存できてしまった")
+	}
+}
+
+// 消していない同じ名前は弾き、消した種目と同じ名前は通す（DB の部分一意
+// 索引と同じふるまい）。
+func TestExerciseRepository_NameIsUniqueAmongAliveCustoms(t *testing.T) {
+	ctx := context.Background()
+	repo := memory.NewExerciseRepository(nil)
+	a := newUser(t)
+	first := mustCustom(t, "u-000000000000000a", "アイソラテラル・ロー")
+	_ = repo.Save(ctx, a, first)
+
+	dup := mustCustom(t, "u-000000000000000b", "アイソラテラル・ロー")
+	if err := repo.Save(ctx, a, dup); !errors.Is(err, exercise.ErrDuplicateExerciseName) {
+		t.Errorf("同名が通った: %v", err)
+	}
+	_ = repo.Save(ctx, a, first.Delete())
+	if err := repo.Save(ctx, a, dup); err != nil {
+		t.Errorf("消した種目と同名が弾かれた: %v", err)
 	}
 }
