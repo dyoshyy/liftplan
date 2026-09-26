@@ -92,23 +92,25 @@ func routesForUserTest(t *testing.T) (http.Handler, *memory.ProgramRepository) {
 	conditions := memory.NewConditionRepository()
 	programs := memory.NewProgramRepository()
 
-	h := NewHandler(
-		usecase.NewGetSession(exercises, logs, conditions, programs, planning.DefaultSessionPlanner()),
-		usecase.NewRecordSets(logs, exercises),
-		usecase.NewRecordConditions(conditions),
-		usecase.NewConfigureProgram(exercises, programs),
-		usecase.NewSetFocusExercise(programs, programs),
-		usecase.NewSetDeclaredExercises(programs, programs),
-		usecase.NewSetFrequency(programs, programs),
-		usecase.NewSetSelectedExercises(exercises, programs, programs),
-		usecase.NewSetWeeklyTarget(exercises, programs, programs),
-		usecase.NewSetSplitCycle(exercises, programs, programs),
-		usecase.NewGetProgram(programs),
-		usecase.NewDeleteSetLog(logs),
-		query.NewExercises(exercises),
-		query.NewHistory(logs, exercises),
-		query.NewStats(logs, exercises, programs, planning.DefaultOneRepMaxEstimator()),
-	)
+	h, err := NewHandler(Dependencies{
+		GetSession:       usecase.NewGetSession(exercises, logs, conditions, programs, planning.DefaultSessionPlanner()),
+		RecordSets:       usecase.NewRecordSets(logs, exercises),
+		RecordConditions: usecase.NewRecordConditions(conditions),
+		SetFocus:         usecase.NewSetFocusExercise(programs, programs),
+		SetDeclared:      usecase.NewSetDeclaredExercises(exercises, programs, programs),
+		SetFrequency:     usecase.NewSetFrequency(programs, programs),
+		SetVolume:        usecase.NewSetSessionVolume(programs, programs),
+		SetSelected:      usecase.NewSetSelectedExercises(exercises, programs, programs),
+		SetSplit:         usecase.NewSetSplitCycle(exercises, programs, programs),
+		GetProgram:       usecase.NewGetProgram(programs),
+		DeleteSetLog:     usecase.NewDeleteSetLog(logs),
+		Exercises:        query.NewExercises(exercises),
+		History:          query.NewHistory(logs, exercises),
+		Stats:            query.NewStats(logs, exercises, programs, planning.DefaultOneRepMaxEstimator()),
+	})
+	if err != nil {
+		t.Fatalf("ハンドラが組めない: %v", err)
+	}
 	return h.Routes(), programs
 }
 
@@ -124,7 +126,7 @@ func someProgram(t *testing.T) *program.Program {
 	if err != nil {
 		t.Fatalf("頻度が不正: %v", err)
 	}
-	target, err := seed.DefaultWeeklyTarget(freq)
+	target, err := seed.DefaultWeeklyTarget(freq, mustVolume(t, 6, 3))
 	if err != nil {
 		t.Fatalf("週目標が不正: %v", err)
 	}
@@ -132,10 +134,20 @@ func someProgram(t *testing.T) *program.Program {
 	for _, e := range pool {
 		selected = append(selected, e.ID())
 	}
-	prog, err := program.NewProgram(freq, target, selected,
+	prog, err := program.NewProgram(freq, mustVolume(t, 6, 3), target, selected,
 		[]exercise.ExerciseID{"bench", "squat", "deadlift"}, "")
 	if err != nil {
 		t.Fatalf("プログラムが不正: %v", err)
 	}
 	return prog
+}
+
+// mustVolume はテスト用の1回の量。
+func mustVolume(t *testing.T, exercises, sets int) program.SessionVolume {
+	t.Helper()
+	v, err := program.NewSessionVolume(exercises, sets)
+	if err != nil {
+		t.Fatalf("NewSessionVolume(%d, %d): %v", exercises, sets, err)
+	}
+	return v
 }

@@ -54,7 +54,7 @@ export function History({ stats, days, error = '', onReload }: Props) {
 
   return (
     <>
-      <Card title="今週の充足">
+      <Card title="充足（直近4週の週あたり）">
         {/* 合計を先に出す。区分ごとの一覧は「埋まっていない順」なので、
             そのまま出すと画面の頭に 0.0 が並び、記録していても動いて
             いないように見える。 */}

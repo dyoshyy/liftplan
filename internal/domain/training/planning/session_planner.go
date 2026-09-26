@@ -2,7 +2,7 @@ package planning
 
 import (
 	"errors"
-	"slices"
+	"fmt"
 	"sort"
 
 	"github.com/dyoshyy/liftplan/internal/domain/training"
@@ -10,57 +10,6 @@ import (
 	"github.com/dyoshyy/liftplan/internal/domain/training/exercise"
 	"github.com/dyoshyy/liftplan/internal/domain/training/program"
 	"github.com/dyoshyy/liftplan/internal/domain/training/setlog"
-)
-
-const (
-	// 軸レーンの処方。3レーンで最も重い。
-	//
-	// 割合は Epley の逆算に合わせる（1 / (1 + (レップ + RIR) / 30)）。
-	// 0.88 は3レップ RIR1、0.81 は6レップ RIR1。外部の強度表から刻みだけを
-	// 借りると、推定（Epley）と処方が別の式で動く。
-	//
-	// 軸の強度を1つの定数にしていたのは、散らす相手がいなかったため。
-	// 宣言種目は「最後にやったのが最も古いもの」で回るので、宣言が3つ
-	// あれば各種目は週1回しか軸に来ない（D-117）。分割が入ると前提が
-	// 変わる。上下2分割で宣言がBIG3なら、上半身の日に立てる宣言はベンチ
-	// だけになり、同じ種目を同じ強度で週2回やることになる。
-	heavyIntensityPct       = 0.88
-	focusVolumeIntensityPct = 0.81
-	heavySets               = 3
-	heavyTargetRIR          = 1
-
-	// focusCycleLength は重点種目の番に回す一巡の長さ。
-	// 3レップ相当 → 6レップ相当 → 派生 の3つ。
-	focusCycleLength = 3
-
-	// accessoryIntensityPct は補助種目の強度。RIR2 で10レップ前後を狙う位置。
-	accessoryIntensityPct = 0.71
-	accessoryTargetRIR    = 2
-
-	// バリエーションの処方。軸より軽く、補助より重い。
-	//
-	// 表を引かず定数にしているのは、派生が週に何回出ようと強度を変える
-	// 理由が無いため。同じ種目の中で強度を回すのは「同じ種目を週に何回も
-	// やる」ことが前提で、派生は別種目として自分の推定1RMを持つ（D-113）。
-	// 種目が違えば重量は自然に違う。
-	//
-	// 表から持ってきた値は 0.81 / 4セットだったが、0.81 は表の中で
-	// 0.88 や 0.76 と並んで初めて意味を持つ刻みで、単独では半端。
-	// 軸 0.88 と補助 0.71 の間に置く一つの値としては 0.80 でいい。
-	// 4セットは軸と合わせて胸の実測が週目標の134%まで出ていたので3に落とす。
-	variationIntensityPct = 0.80
-	variationSets         = 3
-	variationTargetRIR    = 2
-
-	// variationRecoveryDays は同じ系統を再び出すまでに空ける日数。
-	//
-	// 2 は「中1日」で、月曜にやったら火曜は出さず水曜から出す。判定は
-	// AccessorySelector.recovering と同じ開区間 (date - N, date)。
-	//
-	// recoveryDays と値が同じだが共有しない。あちらは筋区分の回復で
-	// コンストラクタの引数、こちらは系統の間隔で設定にしない。共有すると
-	// 片方を動かしたときにもう片方が黙って動く。
-	variationRecoveryDays = 2
 )
 
 // PlanRequest は導出の入力すべて。ドメインは自分でデータを取りに行かない。
@@ -124,20 +73,84 @@ func (p SessionPlanner) Plan(req PlanRequest) (PlannedSession, error) {
 		return PlannedSession{}, errors.New("対象日が指定されていない")
 	}
 
-	pool := p.usablePool(req)
-	estHistory := effectiveHistory(historyBefore(req), pool, req.Conditions)
+	pool := usablePool(req.Pool, req.Program)
 
+	// 当日の記録を落とすのはここ1箇所。これより下で req.History と書かない。
+	//
+	// 今日の計画はその日の始まりに確定させると決めてある（D-116）。重量の
+	// 推定も、残差も、軸も、補助の選択も、全て前日までの履歴から決める。
+	// 以前は使う側が毎回「前日までに切る」を書いていて、1箇所でも忘れると
+	// ジムで1セット記録するたびに計画が自分の下で動く。どこで忘れても別の
+	// 形で出るので、症状から原因に辿りにくい。実際に出た・出うる形：
+	//
+	//   - 残差：1セット記録するたびに残差が動いて、選ばれる補助と並びが
+	//     変わる。消化している最中にリストが入れ替わる
+	//   - 重量の推定：1セット目を記録した瞬間に推定1RMが動いて、2セット目の
+	//     提示重量が変わる。しかも RIR を守ってきついセットをこなすほど
+	//     推定が上がるので、**追い込むほど次が重くなる**
+	//   - 軸（stalest）：1セット記録した瞬間に「最後にやったのが最も古い
+	//     種目」が入れ替わり、今日の軸が別の種目になる
+	//   - バリエーション（recentlyPerformed）：今日ラーセンを1セット記録して
+	//     開き直した瞬間に系統が「最近やった」になり、バリエーションが消える
+	//   - 分割：周期は出席回数で進むので、1セット記録した瞬間に今日が1回に
+	//     数えられ、上の日が下の日に変わる。1回ぶんの天井（activeCount）の
+	//     起点も1つずれる
+	//   - 重点種目の一巡：今日のセッションが1回に数えられて位置が進み、
+	//     軸の強度か種目が変わる
+	//
+	// かつて別々に手当てしていた不具合（終えた補助が再提示される、記録すると
+	// 種目が消える、並びが入れ替わる、枠が補充されて終わらない）は、すべて
+	// この1点の派生だった。
+	//
+	// 当日を含めるのは画面の「充足」だけで、あれは query 側の別経路。
+	// 表示は「どれだけやったか」、計画は「今日やると決めたこと」。
+	//
+	// 受け入れ条件は TestSessionPlanner_PlanIsFixedForTheWholeDay。
+	//
+	// 履歴は2種類ある。history は記録のまま（数える・日付を見る）。
+	// estimable は実効負荷（体重込み）に直したもので、推定にだけ渡す。
+	// 重量が違うので、数える・日付を見る・記録を見せる経路には渡さない。
+	history := req.History.Before(req.Date)
+	estimable := effectiveHistory(history, pool, req.Conditions)
+
+	// 2段。何をやるか（種目と役割）を決めてから、何kgでやるかを付ける。
+	//
+	// 重量の側から種目の側への依存は無い。逆向きは残差に使うセット数だけで、
+	// それは役割の表から引くので処方の結果を待たない。種目の決め方を変える
+	// PR と重量の決め方を変える PR が同じ流れを触らずに済む。
+	lineup, err := p.selectLineup(history, req.Program, pool, req.Pool, req.Date)
+	if err != nil {
+		return PlannedSession{}, err
+	}
+	return p.prescribe(lineup, estimable, req.Conditions, req.Date, req.Program.SessionVolume().Sets()), nil
+}
+
+// lineupEntry は今日やる種目1つと、その役割。重量はまだ付いていない。
+type lineupEntry struct {
+	exercise *exercise.Exercise
+	role     laneRole
+}
+
+// selectLineup は今日やる種目とその役割の並びを決める。軸 → バリエーション →
+// 補助の順。強度・セット数・RIR はここでは決めない。
+//
+// history は前日まで（Plan が切る）。pool は選択された種目、master は
+// マスタ全件。カバレッジと補助の選択にはマスタ全件を渡す（理由は各所）。
+func (p SessionPlanner) selectLineup(
+	history setlog.History, prog *program.Program,
+	pool, master []*exercise.Exercise, date training.Date,
+) ([]lineupEntry, error) {
 	// 今日の分割。周期は暦ではなく出席回数で進む。休んだ日に飛ぶと、
 	// 通っていないのに分割だけが回る。
-	today, hasSplit := req.Program.SplitOn(historyBefore(req).SessionCount())
+	today, hasSplit := prog.SplitOn(history.SessionCount())
 
 	// 宣言がプールに1つも残っていないのは設定の破れ。分割で絞られて
 	// ゼロになるのとは別物で、こちらは計画を出さずに止める。
-	declared := declaredExercises(pool, req.Program)
+	declared := declaredExercises(pool, prog)
 	if len(declared) == 0 {
 		// 到達しない。NewProgram が宣言ゼロを弾き、declared ⊂ selected なので
 		// pool に必ず1つ以上残る。集約の不変条件が破れたときの最後の砦として残す。
-		return PlannedSession{}, errors.New("伸ばしたい種目が1つも選ばれていない")
+		return nil, errors.New("伸ばしたい種目が1つも選ばれていない")
 	}
 
 	// 軸は宣言のうち、今日の分割の区分を主働に含むもので最も古いもの。
@@ -145,47 +158,52 @@ func (p SessionPlanner) Plan(req PlanRequest) (PlannedSession, error) {
 	// 該当が無ければ軸は空。5分割の肩・腕には BIG3 の中に主働を持つ
 	// 種目が無く、そういう日が実際にできる。0.88 のスクワットを肩の日に
 	// 出すより、軸の枠が無いほうが正直（2026-09-19 の仕様書）。
-	heavy, heavyPct := p.axis(req, pool, declared, today, hasSplit)
+	var lineup []lineupEntry
+	heavy, axisRole := axis(history, prog, pool, declared, today, hasSplit)
 
-	rirBump := p.analyzer.RIRAdjustment(req.Conditions, req.Date)
-
-	// 直近1週のカバレッジ。窓は前日までの6日ぶんで、当日を足して7日。
+	// 直近4週のカバレッジ。窓は前日までの27日ぶんで、当日を足して28日。
+	// 長さの理由は CoverageWindowWeeks に書いた。
 	//
-	// date-7 にしてはいけない。先週の同じ曜日のセッションが窓に残り、
+	// date-28 にしてはいけない。4週前の同じ曜日のセッションが窓に残り、
 	// 同じ曜日に通う人は定常状態で不足が 0 になって補助が出なくなる。
 	//
 	// 暦週をやめたのは、週の先頭でリセットされるため。埋めきった週末は
 	// セッションが短くなり（実測18セット）、週明けに全区分の不足が
 	// 最大になって一日で使い尽くしていた。
 	//
-	// 当日の記録は見ない。
-	// 当日を含めると、1セット記録するたびに残差が動いて選ばれる種目と並びが
-	// 変わり、ジムで消化している最中にリストが自分の下で入れ替わる。
-	coverage := CoverageBetween(req.History, pool, req.Date.AddDays(-6), req.Date.AddDays(-1))
+	// 当日の記録は見ない。history が前日までなのに加えて、窓の上端も
+	// 前日で切る。CoverageBetween は画面の「充足」が当日込みで使う
+	// 公開関数なので、当日を外すのは呼ぶ側の窓で言う。
+	//
+	// 数えるのはマスタ全件（master）で、選択された種目だけではない。
+	// やったセットは、いま選択しているかに関係なく、やったセット。pool で
+	// 数えると、種目を選択から外した瞬間にその記録が読み飛ばされ、区分の
+	// 残差が窓の長さのあいだふくらむ。画面の「充足」もマスタ全件で数えて
+	// いるので、そちらとも食い違う（#133）。
+	coverage := CoverageBetween(history, master, date.AddDays(-(CoverageWindowDays - 1)), date.AddDays(-1))
 
-	main := make([]PlannedSet, 0, 1)
+	// 今日すでに積む分（軸とバリエーション）。セット数は役割の表から引く。
+	// 処方を待たないのは、重量の側へ依存を作らないため。
+	sets := prog.SessionVolume().Sets()
 	thisSession := StimulusCoverage{}
 	if heavy != nil {
-		set := p.planHeavy(req, estHistory, heavy, heavyPct, rirBump)
-		main = append(main, set)
-		thisSession = thisSession.Plus(heavy.Stimulus(), set.Sets())
+		lineup = append(lineup, lineupEntry{exercise: heavy, role: axisRole})
+		thisSession = thisSession.Plus(heavy.Stimulus(), p.prescriptionFor(axisRole, sets).setCount())
 	}
 
-	variation := make([]PlannedSet, 0, 1)
-	exclude := accessoryExcluded(pool, req.Program)
-	if v := p.variationLift(req, pool, heavy, today, hasSplit); v != nil {
-		vs := p.planVariation(req, estHistory, v, rirBump)
-		variation = append(variation, vs)
-		thisSession = thisSession.Plus(v.Stimulus(), vs.Sets())
+	exclude := accessoryExcluded(pool, prog)
+	if v := variationLift(history, prog, pool, heavy, date, today, hasSplit); v != nil {
+		lineup = append(lineup, lineupEntry{exercise: v, role: variationRole})
+		thisSession = thisSession.Plus(v.Stimulus(), p.prescriptionFor(variationRole, sets).setCount())
 		exclude = append(exclude, v.ID())
 	}
 
 	// 分割があるときだけ天井を掛ける。理由は SessionResidual に書いた。
 	var active ActiveCount
 	if hasSplit {
-		active = p.activeCount(req)
+		active = activeCount(history, prog)
 	}
-	gaps := SessionResidual(req.Program.WeeklyTarget(), coverage, thisSession, active)
+	gaps := SessionResidual(prog.WeeklyTarget(), coverage, thisSession, active)
 
 	// 今日の分割に属さない区分は狙わない。残差から落とすのは補助の
 	// 選択に効かせるためで、週目標そのものは変えない。窓が1週なので、
@@ -195,7 +213,7 @@ func (p SessionPlanner) Plan(req PlanRequest) (PlannedSession, error) {
 	// よい部位で、どのプリセットにも入っていない。素直に落とすと永久に
 	// 埋まらない（実測で腹斜筋が全プリセット・全頻度で 0%）。
 	if hasSplit {
-		cycle := req.Program.Cycle()
+		cycle := prog.Cycle()
 		for region := range gaps {
 			if affiliated(cycle, region) && !today.Includes(region) {
 				delete(gaps, region)
@@ -203,18 +221,48 @@ func (p SessionPlanner) Plan(req PlanRequest) (PlannedSession, error) {
 		}
 	}
 
-	chosen := p.accessory.Select(gaps, pool, historyBefore(req), req.Date, exclude)
-	accessories := make([]PlannedSet, 0, len(chosen))
-	for _, id := range chosen {
-		accessories = append(accessories, p.planAccessory(req, pool, estHistory, id, rirBump))
+	// Select にもマスタ全件を渡し、選択されていない種目は exclude で候補から
+	// 落とす。Select は除外した種目も履歴を読む辞書には残すので、外した種目を
+	// 前日にやっていれば、その区分は回復中と判定される。pool を渡すと辞書から
+	// も消え、前日にやった区分の補助が今日も出る（#133）。
+	//
+	// 候補と辞書を別の引数に分けなかったのは、「候補にはしないが記録は読む」
+	// が exclude の既にある意味そのものだから。
+	for _, e := range master {
+		if e != nil && !prog.Includes(e.ID()) {
+			exclude = append(exclude, e.ID())
+		}
+	}
+	// 補助に割ける枠は、1回の種目数から、すでに並んだ軸とバリエーションを
+	// 引いた残り。
+	//
+	// 取り分を先に決め打ちしない。軸が立たない日（分割で狙う区分に宣言種目が
+	// 無い）もバリエーションが出ない日もあるので、実際に並んだぶんを引く。
+	// 決め打ちにすると、軸が空の日に予算が余ったまま終わる。
+	//
+	// 以前は枠が AccessorySelector の maxSlots = 8 という定数で、軸を足した
+	// 9種目27セットが全頻度・全セッションで固定的に出ていた。
+	//
+	// 選択器を毎回組み直すのは、枠数とセット数が利用者の設定だから。回復
+	// 日数だけが方針で、組み立て時のものをそのまま使う。
+	slots := prog.SessionVolume().Exercises() - len(lineup)
+	if slots <= 0 {
+		return lineup, nil
+	}
+	selector, err := NewAccessorySelector(p.accessory.RecoveryDays(), sets, slots)
+	if err != nil {
+		return nil, fmt.Errorf("補助の枠が組めない: %w", err)
 	}
 
-	return PlannedSession{
-		date:        req.Date,
-		main:        main,
-		variation:   variation,
-		accessories: accessories,
-	}, nil
+	// Select が返すのは pool の中の種目に限る。候補は master から exclude を
+	// 引いたもので、pool（選択された種目）に無いものは全て exclude に入れて
+	// あるので、findExercise が nil を返す経路は無い。
+	for _, id := range selector.Select(prog.WeeklyTarget(), gaps, master, history, date, exclude) {
+		if e := findExercise(pool, id); e != nil {
+			lineup = append(lineup, lineupEntry{exercise: e, role: accessoryRole})
+		}
+	}
+	return lineup, nil
 }
 
 // usablePool はプログラムで選択された種目を ID 昇順で返す。
@@ -225,13 +273,13 @@ func (p SessionPlanner) Plan(req PlanRequest) (PlannedSession, error) {
 //
 // 並びを固定するのは、同じ入力から同じ計画が出るようにするため。軸の選定が
 // 同点のときにここの順序で決まる。
-func (p SessionPlanner) usablePool(req PlanRequest) []*exercise.Exercise {
-	out := make([]*exercise.Exercise, 0, len(req.Pool))
-	for _, e := range req.Pool {
+func usablePool(pool []*exercise.Exercise, prog *program.Program) []*exercise.Exercise {
+	out := make([]*exercise.Exercise, 0, len(pool))
+	for _, e := range pool {
 		if e == nil {
 			continue
 		}
-		if req.Program.Includes(e.ID()) {
+		if prog.Includes(e.ID()) {
 			out = append(out, e)
 		}
 	}
@@ -250,124 +298,6 @@ func declaredExercises(pool []*exercise.Exercise, prog *program.Program) []*exer
 	return out
 }
 
-// planHeavy は軸レーンの処方を組み立てる。
-//
-// 以前は planMain という名前で、頻度と週の何本目かで引いた表を受け取って
-// いた。軽い日にベンチをラーセンプレスへ差し替えていた頃の名残で、差し替えを
-// やめた時点（D-114）から target は引数そのものに固定されている。表のほうも
-// D-117 で宣言種目が順に回るようになった時点で意味を失っていた（D-126）。
-func (p SessionPlanner) planHeavy(
-	req PlanRequest,
-	historyBefore setlog.History,
-	target *exercise.Exercise,
-	intensityPct float64,
-	rirBump int,
-) PlannedSet {
-	return p.prescribe(req, historyBefore, target,
-		intensityPct, heavySets, heavyTargetRIR, rirBump)
-}
-
-// planVariation はバリエーションレーンの処方を組み立てる。
-//
-// 強度・セット数・RIR は定数。軸と同じく、週の何本目かでは変えない。派生は
-// それぞれ自分の推定1RMを持つので、種目が違えば重量は自然に違う。
-func (p SessionPlanner) planVariation(
-	req PlanRequest,
-	historyBefore setlog.History,
-	target *exercise.Exercise,
-	rirBump int,
-) PlannedSet {
-	return p.prescribe(req, historyBefore, target,
-		variationIntensityPct, variationSets, variationTargetRIR, rirBump)
-}
-
-// prescribe は「この種目をこの強度で何セット」を1件ぶん組み立てる。
-// レーンごとの違いは渡す定数だけ。
-//
-// 定数を値オブジェクトへ通すのは実行時で、失敗しても種目だけの set に
-// 落とす。重量が付かなければ本人が決める。定数が正しい限り発火しないが、
-// panic は使わない（TestDomain_PanickingFunctionsStayWhereTheyBelong）。
-func (p SessionPlanner) prescribe(
-	req PlanRequest,
-	historyBefore setlog.History,
-	target *exercise.Exercise,
-	intensityPct float64, sets, rir, rirBump int,
-) PlannedSet {
-	set := PlannedSet{exerciseID: target.ID()}
-
-	baseRIR, err := training.NewRIR(rir)
-	if err != nil {
-		return set
-	}
-	set.targetRIR = baseRIR.Plus(rirBump)
-
-	set.sets, err = training.NewSetCount(sets)
-	if err != nil {
-		return set
-	}
-
-	intensity, err := training.NewIntensityPct(intensityPct)
-	if err != nil {
-		return set
-	}
-
-	// 当日の記録は使わない（D-116）。含めると、1セット目を記録した瞬間に
-	// 推定1RMが動いて2セット目の提示重量が変わる。しかも RIR を守って
-	// きついセットをこなすほど推定が上がるので、**追い込むほど次が重くなる**。
-	// その日にやることは、その日が始まる前に分かっていたことから決める。
-	if orm, ok := p.estimator.Estimate(historyBefore, target.ID(), req.Date); ok {
-		if w, err := orm.WorkWeight(intensity, target.Increment()); err == nil {
-			// 推定も処方も実効負荷（体重込み）で通し、出口で加重に戻す。
-			set.weight, set.hasWeight = AddedWeight(w, target, req.Conditions, req.Date), true
-		}
-	}
-	return set
-}
-
-func (p SessionPlanner) planAccessory(
-	req PlanRequest,
-	pool []*exercise.Exercise, historyBefore setlog.History, id exercise.ExerciseID, rirBump int,
-) PlannedSet {
-	baseRIR, err := training.NewRIR(accessoryTargetRIR)
-	if err != nil {
-		return PlannedSet{}
-	}
-	set := PlannedSet{
-		exerciseID: id,
-		sets:       p.accessory.SetsPerAccessory(),
-		targetRIR:  baseRIR.Plus(rirBump),
-	}
-
-	exercise := findExercise(pool, id)
-	if exercise == nil {
-		return set
-	}
-
-	intensity, err := training.NewIntensityPct(accessoryIntensityPct)
-	if err != nil {
-		return set
-	}
-
-	if orm, ok := p.estimator.Estimate(historyBefore, id, req.Date); ok {
-		if w, err := orm.WorkWeight(intensity, exercise.Increment()); err == nil {
-			set.weight, set.hasWeight = AddedWeight(w, exercise, req.Conditions, req.Date), true
-		}
-	}
-	return set
-}
-
-// historyBefore は当日より前の履歴。重量の推定に使う。
-//
-// 残差も推定も当日を含めない。今日の計画はその日の始まりに確定させると
-// 決めてある（D-116）。当日の結果が入ると、1セット記録するたびに目標も
-// リストも自分の下で動く。
-//
-// 当日を含めるのは画面の「今週の充足」だけで、あれは query 側の別経路。
-// 表示は「今週どれだけやったか」、計画は「今日やると決めたこと」。
-func historyBefore(req PlanRequest) setlog.History {
-	return req.History.Before(req.Date)
-}
-
 func findExercise(pool []*exercise.Exercise, id exercise.ExerciseID) *exercise.Exercise {
 	for _, e := range pool {
 		if e.ID() == id {
@@ -375,351 +305,4 @@ func findExercise(pool []*exercise.Exercise, id exercise.ExerciseID) *exercise.E
 		}
 	}
 	return nil
-}
-
-// CoverageBetween は期間内に埋めた刺激量を数える。両端を含む。
-//
-// 記録1件を1セットとして数える。SetLog は「確定した実績1セット」なので、
-// 件数がそのままセット数になる。
-//
-// 公開しているのは、週目標の充足を見せる読み取り経路が同じ数え方を
-// 必要とするため。別々に実装すると、画面に出る数字とエンジンが使う数字が
-// ずれる。ずれた瞬間、どちらが正しいのか誰にも分からなくなる。
-func CoverageBetween(h setlog.History, pool []*exercise.Exercise, from, to training.Date) StimulusCoverage {
-	coverage := StimulusCoverage{}
-	one, err := training.NewSetCount(1)
-	if err != nil {
-		return coverage
-	}
-
-	byID := make(map[exercise.ExerciseID]*exercise.Exercise, len(pool))
-	for _, e := range pool {
-		if e == nil {
-			continue
-		}
-		byID[e.ID()] = e
-	}
-
-	for _, l := range h.OnOrAfter(from).OnOrBefore(to).Logs() {
-		e, ok := byID[l.ExerciseID()]
-		if !ok {
-			continue
-		}
-		coverage = coverage.Plus(e.Stimulus(), one)
-	}
-	return coverage
-}
-
-// axis は今日の軸と、その強度を返す。
-//
-// 重点種目の番に来たときだけ一巡する。3レップ相当 → 6レップ相当 → 派生。
-//
-// 派生を軸に出すのは、バリエーションレーンが届かない日があるため。あちらは
-// 軸が系統に含まれる日は出ない（D-125）ので、上半身の日が毎回ベンチになる
-// 構成では派生がどこにも出ない。
-func (p SessionPlanner) axis(
-	req PlanRequest, pool, declared []*exercise.Exercise,
-	today program.Split, hasSplit bool,
-) (*exercise.Exercise, float64) {
-	lift := p.heavyLift(req, declared, today, hasSplit)
-	if lift == nil {
-		return nil, heavyIntensityPct
-	}
-
-	focus, ok := req.Program.FocusExercise()
-	if !ok || lift.ID() != focus {
-		return lift, heavyIntensityPct
-	}
-
-	h := historyBefore(req)
-	switch focusCyclePosition(h, lineage(pool, focus)) {
-	case 1:
-		return lift, focusVolumeIntensityPct
-	case 2:
-		// 派生も分割で絞る。軸の候補（heavyLift）は絞っているのに
-		// ここだけ素通しにすると、胸の日にナローベンチ（主働は三頭）が
-		// 軸として出る。型が「今日は胸の日」と言いながら三頭を主役に据える。
-		//
-		// 該当が無ければ本体を重い側で出す（選択から外した派生も同じ経路）。
-		candidates := variationsOf(pool, focus)
-		if hasSplit {
-			candidates = primaryIn(candidates, today)
-		}
-		if d := stalest(h, candidates); d != nil {
-			return d, heavyIntensityPct
-		}
-	}
-	return lift, heavyIntensityPct
-}
-
-// focusCyclePosition は重点種目の一巡のうち、今日がどこかを返す。
-//
-// 数えるのは「系統のどれかを実施したセッション数」。本体の実施回数で
-// 数えると、派生をやった日に位置が進まず同じ派生が出続ける。
-func focusCyclePosition(h setlog.History, family []*exercise.Exercise) int {
-	inFamily := make(map[exercise.ExerciseID]bool, len(family))
-	for _, e := range family {
-		inFamily[e.ID()] = true
-	}
-
-	n := 0
-	for _, s := range h.Sessions() {
-		for _, l := range s.Logs() {
-			if inFamily[l.ExerciseID()] {
-				n++
-				break
-			}
-		}
-	}
-	return n % focusCycleLength
-}
-
-// heavyLift は今日メインでやる＝高重量を扱う種目を返す。
-//
-// 宣言のうち、最後に実施したのが最も古い種目を返す。未着手の種目が
-// あればそれを優先する。
-//
-// 分割があれば、その日の区分を主働に含む宣言だけが候補になる。該当が
-// 無ければ nil。フォールバックで別の日の種目を出すと、その日だけ分割が
-// 意味を失う。
-func (p SessionPlanner) heavyLift(
-	req PlanRequest, declared []*exercise.Exercise,
-	today program.Split, hasSplit bool,
-) *exercise.Exercise {
-	candidates := declared
-	if hasSplit {
-		candidates = primaryIn(candidates, today)
-	}
-	return stalest(historyBefore(req), candidates)
-}
-
-// activeCount は今日から数えて1週ぶんのセッションのうち、その区分が
-// 何回狙われるかを返す。
-//
-// 周期を今日の位置から頻度ぶん歩いて数える。式で出すと、周期の長さと
-// 頻度が割り切れないとき（周期2・週5）に 2.5 のような値になり、実際の
-// 週（上3日・下2日と上2日・下3日が交互）とずれる。
-func (p SessionPlanner) activeCount(req PlanRequest) ActiveCount {
-	cycle := req.Program.Cycle()
-	perWeek := req.Program.Frequency().PerWeek()
-	from := historyBefore(req).SessionCount()
-
-	return func(r training.MuscleRegion) int {
-		// どの日にも属さない区分は毎日活きるので、頻度そのもの。
-		// 0 を返すと SessionResidual が区分ごと落とす（天井が 0 になる）。
-		if !affiliated(cycle, r) {
-			return perWeek
-		}
-
-		n := 0
-		for i := range perWeek {
-			if cycle[(from+i)%len(cycle)].Includes(r) {
-				n++
-			}
-		}
-		return n
-	}
-}
-
-// affiliated はその区分が、周期のどこかの日に書かれているか。
-//
-// 書かれていない区分は「その日の分割に無い」のではなく「どの日にも
-// 属さない」。前者は別の日に来るが、後者は二度と来ない。
-func affiliated(cycle []program.Split, r training.MuscleRegion) bool {
-	for _, day := range cycle {
-		if day.Includes(r) {
-			return true
-		}
-	}
-	return false
-}
-
-// primaryIn はその分割の区分を主働に含む種目だけを返す。
-//
-// 「主働」は寄与 1.0 以上。最大値を取る方式にしないのは、デッドリフトが
-// ハムストリングと脊柱起立筋のどちらも 1.0 で、並びのアルファベット順に
-// 落ちてしまうため。閾値なら両方の日の候補になり、最終実施日が決める。
-func primaryIn(candidates []*exercise.Exercise, s program.Split) []*exercise.Exercise {
-	out := make([]*exercise.Exercise, 0, len(candidates))
-	for _, e := range candidates {
-		if isPrimaryIn(e, s) {
-			out = append(out, e)
-		}
-	}
-	return out
-}
-
-// isPrimaryIn はその種目の主働区分が分割に含まれるか。
-func isPrimaryIn(e *exercise.Exercise, s program.Split) bool {
-	for _, r := range e.Stimulus().Regions() {
-		c, ok := e.Stimulus().Contribution(r)
-		if ok && c.Float() >= primaryContribution && s.Includes(r) {
-			return true
-		}
-	}
-	return false
-}
-
-// stalest は候補のうち、最後に実施したのが最も古い種目を返す。候補が空なら nil。
-//
-// 未着手の種目があればそれを優先する。記録が無いのを「最も古い」と解釈する
-// ため、ゼロ値の日付と比べるのではなく LastPerformed の第2返り値で分ける。
-// 日付のゼロ値が何を表すかを知らなくても読める。
-//
-// 同点は先に見たものを残す。候補は usablePool が ID 昇順に並べているので、
-// 同じ入力から同じ種目が返る。
-//
-// 渡す履歴は前日まで（historyBefore）。当日を含めると、ジムで1セット記録した
-// 瞬間に「最も古い」が入れ替わり、今日のメニューが自分の下で変わる（D-116）。
-func stalest(h setlog.History, candidates []*exercise.Exercise) *exercise.Exercise {
-	var best *exercise.Exercise
-	var bestDate training.Date
-
-	for _, c := range candidates {
-		last, ok := h.LastPerformed(c.ID())
-		if !ok {
-			return c
-		}
-		if best == nil || last.Before(bestDate) {
-			best, bestDate = c, last
-		}
-	}
-	return best
-}
-
-// variationLift は今日バリエーションとしてやる種目を返す。出さない日は nil
-//
-// 出さないのは、重点種目が未指定・軸が系統に含まれる・前回やってから十分に日数がアイていない・派生が選択されていない
-// のいずれか。
-func (p SessionPlanner) variationLift(
-	req PlanRequest, pool []*exercise.Exercise, heavy *exercise.Exercise,
-	today program.Split, hasSplit bool,
-) *exercise.Exercise {
-	focus, ok := req.Program.FocusExercise()
-	if !ok {
-		return nil
-	}
-
-	// 分割があれば、重点種目の主働が今日の集合に含まれる日だけ出す。
-	//
-	// 止めないと、型が「今日は脚の日」と言いながらベンチの派生が出る。
-	// 型の意味を自分で否定することになる。
-	//
-	// 代償は系統の頻度が下がること。重点ベンチ＋上下2分割なら、上の日の
-	// 数がそのまま上限になる。ベンチを週3回やりたいなら上の日を3つ置く
-	// 周期を組む、が正しい答えで、順序付きの周期ならそれができる。
-	if hasSplit {
-		e := findExercise(pool, focus)
-		if e == nil || !isPrimaryIn(e, today) {
-			return nil
-		}
-	}
-
-	// 今日の軸が重点種目の系統に含まれる場合、バリエーションは出さない。
-	//
-	// 軸が空の日がある（分割に該当する宣言が無い日）。そのときは
-	// 系統の重複が起きようがないので、この門は素通しする。
-	family := lineage(pool, focus)
-	if heavy != nil && containsExercise(family, heavy.ID()) {
-		return nil
-	}
-
-	// 前回やってから十分に日数が空いていない場合、バリエーションは出さない。
-	h := historyBefore(req)
-	if recentlyPerformed(h, family, req.Date) {
-		return nil
-	}
-
-	return stalest(h, variationsOf(pool, focus))
-}
-
-// lineage は重点種目とその派生のうち、pool にあるものを返す。
-//
-// 重点種目自身を含める。含めないと、軸でベンチをやった翌日にラーセンが出る。
-//
-// 根まで辿らない。辿ると、重点種目に RDL を指定したとき「RDL の系統」に
-// 床引きデッドリフトが入り、バリエーションとして出てしまう。床引きは
-// 宣言しなければ出ない（D-117）。
-// accessoryExcluded は補助の候補から外す種目を返す。
-//
-// 宣言種目そのものを外す理由は D-125 のとおり。これに重点種目の派生を
-// 足す。派生はバリエーションレーンで出るものなので、補助にも出ると
-// 同じ系統が1日に二度来る。
-//
-// 実害は週5で出た。脚の日に胸の残差が大きく残っていると、補助が
-// ベンチの派生（ラーセンプレス・テンポベンチ）を2つ選び、脚の日の
-// 上半身ボリュームが 17.1 まで膨らむ。胸を埋めるならインクラインや
-// フライで埋めるほうが、系統の回復日程と衝突しない。
-//
-// **重点種目の系統だけ**を外す。宣言していても重点でない種目の派生
-// （RDL・フロントスクワット・デフィシットデッドリフト）は、補助が
-// 唯一の出口なので外すと計画から消える。実際に全部外して測ったら、
-// 胸が週目標の163%まで超過し、使われない種目が出た。専用レーンを
-// 持っているのは重点種目の系統だけ、というのが線引き。
-func accessoryExcluded(pool []*exercise.Exercise, prog *program.Program) []exercise.ExerciseID {
-	out := prog.DeclaredExercises()
-
-	// 重点種目が未指定なら focus は空ID。lineage は空を返すので、
-	// ここで分けない。分けても到達しない分岐が増えるだけ。
-	focus, _ := prog.FocusExercise()
-	for _, e := range lineage(pool, focus) {
-		out = append(out, e.ID())
-	}
-	return out
-}
-
-func lineage(pool []*exercise.Exercise, focus exercise.ExerciseID) []*exercise.Exercise {
-	out := make([]*exercise.Exercise, 0, 4)
-	for _, e := range pool {
-		if e.ID() == focus {
-			out = append(out, e)
-			continue
-		}
-		if from, ok := e.DerivedFrom(); ok && from == focus {
-			out = append(out, e)
-		}
-	}
-	return out
-}
-
-// variationsOf は重点種目の派生のうち pool にあるものを返す。重点種目自身は含まない。
-func variationsOf(pool []*exercise.Exercise, focus exercise.ExerciseID) []*exercise.Exercise {
-	out := make([]*exercise.Exercise, 0, 3)
-	for _, e := range pool {
-		if from, ok := e.DerivedFrom(); ok && from == focus {
-			out = append(out, e)
-		}
-	}
-	return out
-}
-
-// recentlyPerformed は系統のどれかを直近 variationRecoveryDays 日にやったか。
-//
-// AccessorySelector.recovering と同じ開区間 (date - N, date)。区分ではなく
-// 系統で見る点だけが違う。
-//
-// 渡す履歴は前日まで。当日を含めると、今日ラーセンを1セット記録して
-// 開き直した瞬間に系統が「最近やった」になり、バリエーションが自分の下で
-// 消える（D-116 系）。
-func recentlyPerformed(h setlog.History, family []*exercise.Exercise, date training.Date) bool {
-	inFamily := make(map[exercise.ExerciseID]bool, len(family))
-	for _, e := range family {
-		inFamily[e.ID()] = true
-	}
-
-	cutoff := date.AddDays(-variationRecoveryDays)
-	for _, l := range h.After(cutoff).Before(date).Logs() {
-		if inFamily[l.ExerciseID()] {
-			return true
-		}
-	}
-	return false
-}
-
-// containsExercise は候補のどれかが id か。
-//
-// ポインタではなく ID で比べる。エンティティの同一性は ID で決まるので
-// （Exercise.SameIdentity）、スライスの作り方が変わっても壊れない。
-func containsExercise(candidates []*exercise.Exercise, id exercise.ExerciseID) bool {
-	return slices.ContainsFunc(candidates, func(e *exercise.Exercise) bool { return e.ID() == id })
 }

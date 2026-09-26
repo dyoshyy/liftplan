@@ -29,14 +29,18 @@ type IdentityProvider interface {
 	// AuthCodeURL は認可画面へ送るURLを組む。state は呼び手が作って渡す。
 	AuthCodeURL(state string) string
 
-	// Subject はコードを交換し、そのプロバイダにおける本人の識別子を返す。
-	Subject(ctx context.Context, code string) (string, error)
+	// Identity はコードを交換し、そのプロバイダにおける本人を返す。
+	//
+	// 識別子のほかに、**確認済みの**メールアドレスを含むことがある。
+	// それが GitHub と Google を同じ人として結ぶ唯一の手がかりになる。
+	// 取れなければ空でよく、その場合は別の利用者になる。
+	Identity(ctx context.Context, code string) (account.Identity, error)
 }
 
 // SignInUseCase は identity を受け入れてセッショントークンを返す口。
 type SignInUseCase interface {
 	Execute(
-		ctx context.Context, provider account.Provider, subject string, now time.Time,
+		ctx context.Context, identity account.Identity, now time.Time,
 	) (account.SessionToken, error)
 }
 
@@ -195,13 +199,13 @@ func (h *AuthHandler) handleCallback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	subject, err := provider.Subject(r.Context(), code)
+	identity, err := provider.Identity(r.Context(), code)
 	if err != nil {
 		respondError(w, err)
 		return
 	}
 
-	token, err := h.signIn.Execute(r.Context(), provider.Name(), subject, h.now())
+	token, err := h.signIn.Execute(r.Context(), identity, h.now())
 	if err != nil {
 		respondError(w, err)
 		return

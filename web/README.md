@@ -4,7 +4,7 @@ React 19 + TypeScript + Vite + Tailwind CSS v4。Cloudflare Workers から配る
 API は別オリジン（Cloud Run）にあり、CORS で叩く。
 
 設計は `../docs/specs/2026-09-07-pwa-client-design.md`、
-サーバーと分けた理由は `../docs/decisions.md` の D-119。
+サーバーと分けた理由は `../docs/specs/2026-09-07-pwa-client-design.md` の「配備：Cloudflare Workers に分離する」節。
 
 ## 動かす
 
@@ -42,7 +42,8 @@ node scripts/nav-check.mjs          # 画面の行き来と戻るジェスチャ
 node scripts/settings-check.mjs     # 設定の保存（週目標の置き直しを含む）
 ```
 
-**検査でのログインはフラグメントで済ませる。**`#token=<AUTH_TOKEN>` で開く。
+**検査でのログインはフラグメントで済ませる。**`#token=<DEV_SESSION_TOKEN>` で開く
+（サーバーを `DEV_SESSION_TOKEN` 付きのインメモリ構成で起動しておく。手順は `scripts/ui-check.mjs` の冒頭）。
 `/auth/*` を通すとプロバイダの画面が挟まり、自動では抜けられない。これは
 サーバーがコールバックで戻してくる形そのものなので、取り込みの配線も
 一緒に検査できる。
@@ -86,11 +87,12 @@ node scripts/settings-check.mjs     # 設定の保存（週目標の置き直し
 - **SW の登録は `main.tsx` に置く。**画面の中の部品から登録すると、その部品が
   描かれるまで登録されない（実際、更新通知の部品に置いていたときは、トークンを
   入れるまで登録されなかった）
-- **プログラムの設定は1フィールドずつの口へ送る。**`PUT /api/program` は
-  全置換で、フィールドを1つ並べ忘れると欠けたまま届く。
-  `DisallowUnknownFields` が弾くのは**余分な**フィールドだけで、欠落は
-  素通りする——400 ではなく 204 が返り、設定が黙って初期値に戻る。
-  `PUT /api/program/{frequency,declared,focus,selected,target}` を使うこと
+- **プログラムの設定は1フィールドずつの口へ送る。**
+  `PUT /api/program/{frequency,declared,focus,selected,target,split}`。
+  プログラムを丸ごと送る口はサーバーに無い。丸ごと送る形だと、フィールドを
+  1つ並べ忘れたときに欠けたまま届く。`DisallowUnknownFields` が弾くのは
+  **余分な**フィールドだけで、欠落は素通りする——400 ではなく 204 が返り、
+  設定が黙って消える（D-127）。画面の側でまとめて送る関数を作り直さないこと
 - **履歴の画面は読むだけ。**`stats` と `days` を props で受け取り、自分では
   取りに行かない（取るのは `useStats`）。書き込みを足すと、そのぶん
   「契約ずれ → 400 → 待ち行列が破棄 → 記録が消える」経路が増える

@@ -8,7 +8,7 @@ Cloud Run（コンテナ）+ Neon（Postgres）。どちらもスケールゼロ
 - **リージョンはシンガポール**（`asia-southeast1`）。Neon に東京が無いので、DB と同居させる。1リクエストで DB を4本叩くため、ユーザーに近づけるより DB に近づけるほうが速い（東京 CR + シンガポール DB は約290ms、シンガポール同居は約74ms）
 - **Neon**: Postgres そのもの。開発中の Docker Postgres と接続文字列の形が同じで、検証したものがそのまま動く
 
-Cloudflare Workers を選ばなかった理由は `docs/decisions.md` の D-067 に書いた。要点は、Go の WASM ターゲットで `net` パッケージが使えず pgx が動かないこと。
+Cloudflare Workers は選ばなかった。Go の WASM ターゲット（`GOOS=js` / `wasip1`）では `net` パッケージが使えず、pgx はその上に立っているので Postgres に繋ぐ手段が無い。
 
 ## 1. Neon のプロジェクトを作る
 
@@ -21,17 +21,15 @@ postgres://<user>:<password>@ep-xxxx.ap-southeast-1.aws.neon.tech/neondb?sslmode
                                     ↑ -pooler が付いていないこと
 ```
 
-理由はマイグレーションが**セッションレベルのアドバイザリロック**を使っているから。トランザクションプーリングはバックエンドの固定を保証しないので、ロックの前提が崩れる（D-071）。
+理由はマイグレーションが**セッションレベルのアドバイザリロック**を使っているから。トランザクションプーリングはバックエンドの固定を保証しないので、ロックの前提が崩れる。
 
 pooler でもアプリ自体は動く。ただしテストは `search_path` でスキーマを分離しており、pooler はそれを拒否する。**本番とテストで同じ経路を通す**ためにも直接接続で揃える。
 
-## 2. 認証トークンを作る
+## 2. OAuth の認可先を登録する
 
-```bash
-openssl rand -hex 32
-```
-
-32文字未満だとサーバーが起動しない。
+認証は GitHub と Google の OAuth（D-136）。固定の認証トークンは作らない
+（`AUTH_TOKEN` は廃止していて、残っているとサーバーが起動を拒む）。
+登録の手順は下の「OAuth に切り替える」の 1 にある。
 
 ## 3. GCP プロジェクトと課金
 
@@ -60,9 +58,9 @@ gcloud services enable run.googleapis.com secretmanager.googleapis.com \
 
 printf '%s' '<Neon の接続文字列>' | \
   gcloud secrets create liftplan-database-url --data-file=-
-printf '%s' '<生成したトークン>' | \
-  gcloud secrets create liftplan-auth-token --data-file=-
 ```
+
+OAuth のクライアントシークレット2つも Secret Manager に置く（下の「OAuth に切り替える」の 2）。
 
 ## 5. デプロイ
 
@@ -80,7 +78,7 @@ gcloud run deploy liftplan-server \
 
 `--allow-unauthenticated` は **Cloud Run 側の IAM 認証を切る**という意味で、アプリの認証は別に効いている。ここを閉じると Google のアカウントが要るようになり、Android から叩けない。
 
-`--max-instances=2` にしているのは、単一ユーザーで台数が増える理由が無いのと、Neon の接続数を使い切らないため。1インスタンスあたり最大8接続を張る。
+`--max-instances=2` にしているのは、Neon の接続数を使い切らないため。1インスタンスあたり最大8接続を張るので、全体で16本に収まる。決めているのは利用者の数ではなく DB 側の接続数の上限で、`internal/infrastructure/postgres/pool.go` の `maxConns` と組になっている。片方を動かすなら、もう片方も見ること。
 
 ## 6. 確認
 
@@ -205,7 +203,7 @@ gcloud iam service-accounts add-iam-policy-binding \
 
 - **コールドスタート**: `--min-instances=0` なので、しばらく使わないと初回が数秒かかる。ジムで最初に開くときだけ効く。気になるなら `--min-instances=1` にする（常時課金になる）
 - **ログ**: `gcloud run services logs read liftplan-server --region asia-southeast1`
-- **トークンの入れ替え**: `printf '%s' '<新しいトークン>' | gcloud secrets versions add liftplan-auth-token --data-file=-` してから再デプロイ。クライアント側も同時に変える必要があるので、切り替え中は 401 になる
+- **OAuth のシークレットの入れ替え**: `printf '%s' '<新しいシークレット>' | gcloud secrets versions add liftplan-github-client-secret --data-file=-`（Google は `liftplan-google-client-secret`）してから再デプロイ
 - **ロールバック**: Cloud Run はリビジョンを保持するので、トラフィックを前のリビジョンに戻せる
 
   ```bash
@@ -349,3 +347,23 @@ VALUES ('github', '<自分の GitHub の数値ID>', '8d5e743e-f1b0-4430-9998-89d
 ```
 
 画面を先に出すと、ログインボタンの飛び先がまだ無い。
+
+## 実装で踏みやすい穴
+
+**ヘルスチェックの経路は `/health`。`/healthz` には戻さない。**Google の
+フロントエンドが `/healthz` を完全一致で横取りし、アプリまで届かず
+`text/html` の 404 を返す（`internal/presentation/httpapi/router.go` の
+`HealthPath`）。**ローカルの Docker では同じイメージが 200 を返すので、
+実際にデプロイするまで気づけない。**ヘルスチェックの経路を足したり変えたり
+するときは、ローカルの疎通だけで確認を終わらせず本番相当で叩くこと。
+
+**Workload Identity 連携の条件は `assertion.ref=='refs/heads/main'` まで
+含める。**上の「GitHub のリポジトリ名は GCP に握られている」の例が持っている
+`&& assertion.ref=='refs/heads/main'` はおまけではなく必須。`deploy.yml` の
+`on: push: branches: [main]` だけでは足りない——`workflow_dispatch` は ref を
+選んで実行できるので push の branches では止められず、新しいワークフロー
+ファイルを任意のブランチに置けば同じ権限が取れてしまう。プロバイダの条件を
+書き換えるときは、リポジトリ名だけで許可する形に戻さないこと。確認は
+両方向で行う。「main 以外のブランチからは認証できないこと」と「main からは
+デプロイできること」を両方見る。片方だけ見て終わると、次にこの設定を
+触った人が詰まる。

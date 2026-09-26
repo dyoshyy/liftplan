@@ -1,12 +1,11 @@
 import { focusOptions, NO_FOCUS } from '../today/focus';
 import { lockedSelected, toggleDeclared } from '../today/declared';
 import { ExercisePicker } from './ExercisePicker';
-import { regionLabel } from '../../domain/regions';
 import { useProgramSettings } from './useProgramSettings';
 import { Button } from '../../ui/Button';
 import { Note } from '../../ui/Card';
 import { Section } from '../../ui/Section';
-import { LabeledInput, Select } from '../../ui/Field';
+import { Select } from '../../ui/Field';
 import type { Exercise } from '../../api/types';
 
 type Props = {
@@ -43,19 +42,16 @@ export function ProgramSettings({ nameOf, exercises, onChanged }: Props) {
     setDraft,
     pick,
     setPick,
-    target,
-    setTarget,
     note,
     busy,
     locked,
     dirty,
     pickDirty,
-    targetDirty,
     chooseFocus,
     saveDeclared,
     saveSelected,
-    saveTarget,
     saveFrequency,
+    saveVolume,
     presets,
     splitKey,
     chooseSplit,
@@ -102,7 +98,7 @@ export function ProgramSettings({ nameOf, exercises, onChanged }: Props) {
 
       <Section title="週に通う回数" summary={program ? `週${program.per_week}回` : ""}>
       <Note className="mb-3">
-        変えると週の目標セット数も一緒に変わります。
+        1週間に通う回数です。補助種目の量はこの回数に合わせて決まります。
       </Note>
 
       {program && (
@@ -118,6 +114,51 @@ export function ProgramSettings({ nameOf, exercises, onChanged }: Props) {
             </option>
           ))}
         </Select>
+      )}
+
+      </Section>
+
+      <Section
+        title="1回の量"
+        summary={program ? `${program.exercises_per_session}種目×${program.sets_per_exercise}セット` : ""}
+      >
+      <Note className="mb-3">
+        1回に出る種目の数と、1種目あたりのセット数です。ジムで取れる時間に
+        合わせてください。どの部位をどれだけやるかは、この量と通う回数から
+        決まります。
+      </Note>
+
+      {program && (
+        <div className="grid grid-cols-2 gap-2">
+          <Select
+            aria-label="1回の種目数"
+            value={program.exercises_per_session}
+            disabled={busy}
+            onChange={(e) =>
+              void saveVolume(Number(e.target.value), program.sets_per_exercise)
+            }
+          >
+            {[2, 3, 4, 5, 6].map((n) => (
+              <option key={n} value={n}>
+                {n}種目
+              </option>
+            ))}
+          </Select>
+          <Select
+            aria-label="1種目あたりのセット数"
+            value={program.sets_per_exercise}
+            disabled={busy}
+            onChange={(e) =>
+              void saveVolume(program.exercises_per_session, Number(e.target.value))
+            }
+          >
+            {[2, 3, 4, 5, 6].map((n) => (
+              <option key={n} value={n}>
+                {n}セット
+              </option>
+            ))}
+          </Select>
+        </div>
       )}
 
       </Section>
@@ -205,45 +246,7 @@ export function ProgramSettings({ nameOf, exercises, onChanged }: Props) {
 
       </Section>
 
-      <Section title="週の目標セット数" summary={target ? `${Object.keys(target).length}区分` : ""}>
-      <Note className="mb-3">
-        区分ごとの1週間の目安です。通う回数を変えると、ここも回数に合わせて
-        置き直ります。届かない目標を置くと毎週すべてが赤字になるだけなので、
-        不満が出た区分だけ動かすのが楽です。
-      </Note>
-
-      {target && (
-        <div className="grid gap-2">
-          {Object.keys(target)
-            .sort()
-            .map((region) => (
-              <LabeledInput
-                key={region}
-                label={regionLabel(region)}
-                type="number"
-                inputMode="decimal"
-                step="0.5"
-                min="0"
-                value={target[region]}
-                disabled={busy}
-                onChange={(e) => setTarget({ ...target, [region]: e.target.value })}
-              />
-            ))}
-        </div>
-      )}
-
-      {targetDirty && (
-        <Button
-          className="mt-3"
-          disabled={busy}
-          onClick={() => void saveTarget()}
-        >
-          週の目標を保存する
-        </Button>
-      )}
-
       {note && <p className="mt-2.5 text-[13px] text-red">{note}</p>}
-      </Section>
     </>
   );
 }

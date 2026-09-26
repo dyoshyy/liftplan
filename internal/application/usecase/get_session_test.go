@@ -159,7 +159,7 @@ func buildProgram(t *testing.T, pool []*exercise.Exercise) *program.Program {
 	if err != nil {
 		t.Fatalf("頻度が不正: %v", err)
 	}
-	target, err := seed.DefaultWeeklyTarget(freq)
+	target, err := seed.DefaultWeeklyTarget(freq, mustVolume(t, 6, 3))
 	if err != nil {
 		t.Fatalf("週目標が不正: %v", err)
 	}
@@ -167,7 +167,7 @@ func buildProgram(t *testing.T, pool []*exercise.Exercise) *program.Program {
 	for _, e := range pool {
 		selected = append(selected, e.ID())
 	}
-	p, err := program.NewProgram(freq, target, selected, []exercise.ExerciseID{"bench", "squat", "deadlift"}, "")
+	p, err := program.NewProgram(freq, mustVolume(t, 6, 3), target, selected, []exercise.ExerciseID{"bench", "squat", "deadlift"}, "")
 	if err != nil {
 		t.Fatalf("プログラムが不正: %v", err)
 	}
@@ -366,5 +366,66 @@ func TestGetSession_StopsOnCancelledContext(t *testing.T) {
 	// 履歴の全件読み込みは最も高くつく。切断済みなら払わない。
 	if logs.findCount() != 0 {
 		t.Errorf("キャンセル済みなのに履歴を読んだ: %d回", logs.findCount())
+	}
+}
+
+// mustVolume はテスト用の1回の量。
+func mustVolume(t *testing.T, exercises, sets int) program.SessionVolume {
+	t.Helper()
+	v, err := program.NewSessionVolume(exercises, sets)
+	if err != nil {
+		t.Fatalf("NewSessionVolume(%d, %d): %v", exercises, sets, err)
+	}
+	return v
+}
+
+// 計画は、保存された週目標ではなく、設定（頻度 × 1回の量）から組み直した
+// 週目標で立てること。
+//
+// 週目標は設定から導く値で、利用者は触れない（D-139）。保存値を信用すると、
+// 導き方を変えたとき（1日9種目から1回の量へ、など）に、頻度も量も触って
+// いない既存の行だけが古い目標で動き続ける。
+//
+// 保存値をわざと胸だけ・最小にしておく。これを使うと補助は胸を埋める1本で
+// 止まる。設定から組み直せば全区分が狙えるので、枠いっぱいまで出る。
+func TestGetSession_DerivesTheTargetFromSettings(t *testing.T) {
+	pool, err := seed.Exercises()
+	if err != nil {
+		t.Fatalf("シードが不正: %v", err)
+	}
+	freq, err := program.NewFrequency(3)
+	if err != nil {
+		t.Fatalf("頻度が不正: %v", err)
+	}
+	stale, err := program.NewWeeklyVolumeTarget(map[training.MuscleRegion]float64{training.ChestUpper: 1})
+	if err != nil {
+		t.Fatalf("週目標が不正: %v", err)
+	}
+	selected := make([]exercise.ExerciseID, 0, len(pool))
+	for _, e := range pool {
+		selected = append(selected, e.ID())
+	}
+	volume := mustVolume(t, 6, 3)
+	prog, err := program.NewProgram(freq, volume, stale, selected,
+		[]exercise.ExerciseID{"bench", "squat", "deadlift"}, "")
+	if err != nil {
+		t.Fatalf("プログラムが不正: %v", err)
+	}
+
+	uc := newGetSession(t,
+		&fakeLogs{history: setlog.NewHistory(nil)},
+		&fakeConditions{log: condition.NewConditionLog(nil)},
+		&fakeProgram{program: prog},
+	)
+	got, err := uc.Execute(context.Background(), testUser, usecase.GetSessionInput{Date: testDate})
+	if err != nil {
+		t.Fatalf("実行に失敗: %v", err)
+	}
+
+	// 軸とバリエーションを引いた残りが、補助の枠いっぱいまで埋まる。
+	slots := volume.Exercises() - len(got.Main()) - len(got.Variation())
+	if len(got.Accessories()) != slots {
+		t.Errorf("補助が %d 本。枠いっぱいの %d 本のはず（保存された週目標で立てている）",
+			len(got.Accessories()), slots)
 	}
 }

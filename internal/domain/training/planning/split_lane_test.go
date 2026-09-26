@@ -41,10 +41,9 @@ func splitProgram(t *testing.T, cycle ...program.Split) *program.Program {
 		ids = append(ids, exercise.ExerciseID(fmt.Sprintf("up_%d", i)),
 			exercise.ExerciseID(fmt.Sprintf("lo_%d", i)))
 	}
-	p, err := program.NewProgram(mustFrequency(t, 2),
-		mustTarget(t, map[training.MuscleRegion]float64{
-			training.ChestMid: 24, training.Quad: 24,
-		}),
+	p, err := program.NewProgram(mustFrequency(t, 2), planVolume(t), mustTarget(t, map[training.MuscleRegion]float64{
+		training.ChestMid: 24, training.Quad: 24,
+	}),
 		ids, []exercise.ExerciseID{"bench", "squat"}, "")
 	if err != nil {
 		t.Fatalf("プログラムの生成に失敗: %v", err)
@@ -165,10 +164,12 @@ func TestSessionPlanner_AxisIsEmptyWhenNoDeclaredFitsTheDay(t *testing.T) {
 		ids = append(ids, exercise.ExerciseID(fmt.Sprintf("up_%d", i)),
 			exercise.ExerciseID(fmt.Sprintf("lo_%d", i)))
 	}
-	prog, err := program.NewProgram(mustFrequency(t, 2),
-		mustTarget(t, map[training.MuscleRegion]float64{
-			training.ChestMid: 24, training.Quad: 24, training.TricepsLateral: 12,
-		}),
+	prog, err := program.NewProgram(mustFrequency(t, 2), planVolume(t), mustTarget(t, map[training.MuscleRegion]float64{
+		// 三頭の目標を胸・脚より大きく置く。1日の枠が有限なので、目標の
+		// 小さい区分は枠を取り合って負け、「ゲートを通っているのに一度も
+		// 選ばれない」と「ゲートで落ちている」が見分けられなくなる。
+		training.ChestMid: 6, training.Quad: 6, training.TricepsLateral: 24,
+	}),
 		ids, []exercise.ExerciseID{"bench", "squat"}, "")
 	if err != nil {
 		t.Fatalf("プログラムの生成に失敗: %v", err)
@@ -366,10 +367,9 @@ func TestSessionPlanner_VariationSurvivesAnEmptyAxis(t *testing.T) {
 	}
 
 	// 重点はベンチ。腕の日に軸は空になる。
-	prog, err := program.NewProgram(mustFrequency(t, 2),
-		mustTarget(t, map[training.MuscleRegion]float64{
-			training.ChestMid: 24, training.Quad: 24, training.TricepsLateral: 12,
-		}),
+	prog, err := program.NewProgram(mustFrequency(t, 2), planVolume(t), mustTarget(t, map[training.MuscleRegion]float64{
+		training.ChestMid: 24, training.Quad: 24, training.TricepsLateral: 12,
+	}),
 		ids, []exercise.ExerciseID{"bench", "squat"}, "bench")
 	if err != nil {
 		t.Fatalf("プログラムの生成に失敗: %v", err)
@@ -473,10 +473,9 @@ func variationSplitPool(t *testing.T) ([]*exercise.Exercise, []exercise.Exercise
 // variationProgram は重点をベンチにしたプログラムを返す。
 func variationProgram(t *testing.T, ids []exercise.ExerciseID, cycle ...program.Split) *program.Program {
 	t.Helper()
-	p, err := program.NewProgram(mustFrequency(t, 2),
-		mustTarget(t, map[training.MuscleRegion]float64{
-			training.ChestMid: 24, training.Quad: 24, training.Lat: 18,
-		}),
+	p, err := program.NewProgram(mustFrequency(t, 2), planVolume(t), mustTarget(t, map[training.MuscleRegion]float64{
+		training.ChestMid: 24, training.Quad: 24, training.Lat: 18,
+	}),
 		ids, []exercise.ExerciseID{"bench", "squat", "row"}, "bench")
 	if err != nil {
 		t.Fatalf("プログラムの生成に失敗: %v", err)
@@ -563,10 +562,11 @@ func unaffiliatedRequest(t *testing.T, cycle ...program.Split) planning.PlanRequ
 	for _, e := range pool {
 		ids = append(ids, e.ID())
 	}
-	prog, err := program.NewProgram(mustFrequency(t, 2),
-		mustTarget(t, map[training.MuscleRegion]float64{
-			training.ChestMid: 24, training.Quad: 24, training.Abs: 12,
-		}),
+	prog, err := program.NewProgram(mustFrequency(t, 2), planVolume(t), mustTarget(t, map[training.MuscleRegion]float64{
+		// 腹の目標を胸・脚より大きく置く。理由は
+		// TestSessionPlanner_AxisIsEmptyWhenNoDeclaredFitsTheDay と同じ。
+		training.ChestMid: 6, training.Quad: 6, training.Abs: 24,
+	}),
 		ids, []exercise.ExerciseID{"bench", "squat"}, "")
 	if err != nil {
 		t.Fatalf("プログラムの生成に失敗: %v", err)

@@ -77,12 +77,31 @@ func TestNewAccount(t *testing.T) {
 		provider    account.Provider
 		subject     string
 		userID      account.UserID
+		email       account.Email
 		wantSubject string // 空なら不正
+		wantEmail   string
 	}{
 		{
 			name:     "プロバイダ・識別子・利用者が揃っていれば作れる",
 			provider: account.GitHub(), subject: "12345", userID: uid,
 			wantSubject: "12345",
+		},
+		{
+			// アドレスは置くだけで、同一性は (provider, subject) が決める。
+			// ここで弾くと、アドレスを返さないプロバイダで入った人が
+			// アカウントを作れなくなる。
+			name:     "メールアドレスが空でも作れる",
+			provider: account.GitHub(), subject: "12345", userID: uid,
+			email:       account.NewEmail(""),
+			wantSubject: "12345",
+		},
+		{
+			// 正規化は NewEmail が済ませている。ここで素通しにしたり
+			// もう一度かけたりしない。
+			name:     "メールアドレスは NewEmail が整えた形のまま持つ",
+			provider: account.GitHub(), subject: "12345", userID: uid,
+			email:       account.NewEmail(" Gym@Example.COM "),
+			wantSubject: "12345", wantEmail: "gym@example.com",
 		},
 		{
 			name:     "識別子の前後の空白は落とす",
@@ -121,7 +140,7 @@ func TestNewAccount(t *testing.T) {
 
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			got, err := account.NewAccount(c.provider, c.subject, c.userID)
+			got, err := account.NewAccount(c.provider, c.subject, c.userID, c.email)
 
 			if c.wantSubject == "" {
 				if !errors.Is(err, account.ErrInvalidAccount) {
@@ -144,6 +163,63 @@ func TestNewAccount(t *testing.T) {
 			if got.UserID() != c.userID {
 				t.Errorf("利用者が %q。%q のはず", got.UserID(), c.userID)
 			}
+			if got.Email().String() != c.wantEmail {
+				t.Errorf("メールアドレスが %q。%q のはず", got.Email(), c.wantEmail)
+			}
 		})
+	}
+}
+
+// 同じアドレスの表記揺れが、同じ Email になること。
+//
+// 揃わないと、GitHub が "Gym@Example.com"、Google が "gym@example.com" を
+// 返したときに別のアドレスとして扱われ、同じ人だと分からない。逆に
+// 正規化を引く側でもう一度かける実装に戻ると、規則が2箇所になる。
+func TestNewEmail(t *testing.T) {
+	cases := []struct {
+		name string
+		in   string
+		want string
+	}{
+		{name: "そのままの形は変わらない", in: "gym@example.com", want: "gym@example.com"},
+		{
+			// 大文字のまま保存されると、小文字で引いたときに当たらない。
+			name: "大文字は小文字に揃える", in: "Gym@Example.COM", want: "gym@example.com",
+		},
+		{name: "前後の空白は落とす", in: "  gym@example.com\n", want: "gym@example.com"},
+		{
+			// 取れなかったことを表す正当な値。不正にはしない。
+			name: "空は空のまま", in: "", want: "",
+		},
+		{
+			// 空白だけを非空として持つと、その行どうしが「同じアドレス」に
+			// なる。除去を先にやれば空に落ちる。
+			name: "空白だけは空になる", in: " \t ", want: "",
+		},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			got := account.NewEmail(c.in)
+
+			if got.String() != c.want {
+				t.Errorf("メールアドレスが %q。%q のはず", got.String(), c.want)
+			}
+			if got.IsZero() != (c.want == "") {
+				t.Errorf("IsZero が %v。%v のはず", got.IsZero(), c.want == "")
+			}
+		})
+	}
+}
+
+// 同じアドレスから作った Email が == で等しいこと。
+//
+// 等しくないと、インメモリ実装が map の鍵に使えず、引く側が文字列に戻る。
+func TestEmail_ComparesByValue(t *testing.T) {
+	if account.NewEmail("Gym@Example.com") != account.NewEmail("gym@example.com") {
+		t.Error("表記だけが違うアドレスが等しくない")
+	}
+	if account.NewEmail("gym@example.com") == account.NewEmail("other@example.com") {
+		t.Error("違うアドレスが等しいと判定された")
 	}
 }

@@ -6,9 +6,17 @@
 //
 // **本番ビルドを preview で出して使う。**使い方:
 //
-//   # サーバー
-//   cd .. && AUTH_TOKEN=dev-token-0123456789abcdef0123456789ab \
-//     ALLOWED_ORIGINS=http://localhost:4173 PORT=8080 go run ./cmd/api
+//   # サーバー。DATABASE_URL を付けないこと。DEV_SESSION_TOKEN は
+//   # インメモリ構成でしか効かず、付けると検査が全部 401 になる。
+//   # OAuth の4つは起動の条件なので値が要るが、検査はログインを
+//   # 通らないので中身は何でもよい。AUTH_TOKEN は廃止した（残っていると
+//   # 起動を拒む）。
+//   cd .. && DEV_SESSION_TOKEN=dev-token-0123456789abcdef0123456789ab \
+//     API_ORIGIN=http://localhost:8080 WEB_ORIGIN=http://localhost:4173 \
+//     ALLOWED_ORIGINS=http://localhost:4173 \
+//     GITHUB_CLIENT_ID=dev GITHUB_CLIENT_SECRET=dev \
+//     GOOGLE_CLIENT_ID=dev GOOGLE_CLIENT_SECRET=dev \
+//     PORT=8080 go run ./cmd/api
 //
 //   # 画面
 //   ALLOW_LOCAL_API=1 VITE_API_BASE=http://127.0.0.1:8080 pnpm build

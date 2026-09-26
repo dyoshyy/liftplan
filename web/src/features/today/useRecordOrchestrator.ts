@@ -1,8 +1,9 @@
 import { useCallback, useState } from 'react';
-import type { RecordedSet } from '../../api/types';
+import type { Day, RecordedSet } from '../../api/types';
 import { today } from '../../domain/date';
 import { newId } from '../../domain/id';
 import type { QueueItem } from '../../outbox/db';
+import { judgePersonalRecord, previousSets, type PersonalRecord } from './pr';
 import type { SheetTarget } from './RecordSheet';
 
 type Deps = {
@@ -10,6 +11,14 @@ type Deps = {
   onRecordLocally: (exerciseId: string, set: RecordedSet, replacing?: string) => void;
   onForgetLocally: (exerciseId: string, id: string) => void;
   onRestStart: () => void;
+  /** history は自己ベストの判定に使う母集団。どう畳むかは pr.ts が決める。 */
+  history: {
+    days: readonly Day[];
+    doneToday: ReadonlyMap<string, readonly RecordedSet[]>;
+  };
+  nameOf: (exerciseId: string) => string;
+  /** onPersonalRecord は更新だったときだけ呼ぶ。 */
+  onPersonalRecord: (pr: PersonalRecord) => void;
 };
 
 // 記録の手順を決める。副作用は持たない。
@@ -97,6 +106,9 @@ export function useRecordOrchestrator({
   onRecordLocally,
   onForgetLocally,
   onRestStart,
+  history,
+  nameOf,
+  onPersonalRecord,
 }: Deps) {
   const [sheet, setSheet] = useState<SheetTarget | null>(null);
 
@@ -107,21 +119,33 @@ export function useRecordOrchestrator({
     async (values: { weight: number; reps: number; rir: number }) => {
       if (!sheet) return;
 
-      const plan = planRecord({
-        plan: sheet.plan,
-        recorded: sheet.recorded,
+      const date = today();
+      const plan = planRecord({ plan: sheet.plan, recorded: sheet.recorded, values, date, newId });
+
+      // 自己ベストの判定は**積む前**にやる。onRecordLocally が走ったあとに
+      // 母集団を作ると、いま記録したセット自身が「過去の最高」に入り、
+      // どんな更新も自分自身を超えられなくなる。
+      const pr = judgePersonalRecord({
+        exerciseId: sheet.plan.exercise_id,
+        name: nameOf(sheet.plan.exercise_id),
         values,
-        date: today(),
-        newId,
+        previous: previousSets({
+          days: history.days,
+          doneToday: history.doneToday,
+          exerciseId: sheet.plan.exercise_id,
+          today: date,
+          excludeId: sheet.recorded?.id,
+        }),
       });
 
       for (const item of plan.queue) await enqueue(item);
 
       onRecordLocally(plan.local.exerciseId, plan.local.set, plan.local.replacing);
       if (plan.startRest) onRestStart();
+      if (pr) onPersonalRecord(pr);
       setSheet(null);
     },
-    [sheet, enqueue, onRecordLocally, onRestStart],
+    [sheet, enqueue, onRecordLocally, onRestStart, history, nameOf, onPersonalRecord],
   );
 
   const undo = useCallback(async () => {

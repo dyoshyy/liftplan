@@ -17,8 +17,13 @@ import (
 
 // ProgramRepository はユーザー設定の Postgres 実装。
 //
-// テーブルは1行に固定されている（id boolean PRIMARY KEY CHECK (id)）。
-// 単一ユーザー前提を型で表しているので、2行目は作れない。
+// 主キーは user_id。行は利用者の数だけあり、読みも書きも必ず
+// user_id で絞る。絞り忘れると他人の設定が返る。
+//
+// 「テーブル全体で1行」に固定していた id boolean PRIMARY KEY CHECK (id) は
+// もう無い（0007 で主キーを user_id に移し、0009 で列ごと落とした）。
+// 0001 と 0007 の SQL コメントには当時の説明が残っているが、適用済みの
+// マイグレーションはチェックサムで照合しているので書き換えられない。
 type ProgramRepository struct {
 	pool *pgxpool.Pool
 }
@@ -35,17 +40,20 @@ func (r *ProgramRepository) Get(
 	ctx context.Context, userID account.UserID,
 ) (*program.Program, error) {
 	var (
-		perWeek                             int
-		rawTarget, rawSelected, rawDeclared []byte
+		perWeek                              int
+		exercisesPerSession, setsPerExercise int
+		rawTarget, rawSelected, rawDeclared  []byte
 		// 重点種目は指定なしが正当な既定値なので NULL を許す。
 		rawFocus *string
 		// 分割なしが正当な既定値なので NULL を許す。
 		rawCycle []byte
 	)
 	err := r.pool.QueryRow(ctx, `
-		SELECT per_week, weekly_target, selected, declared, focus, split_cycle
+		SELECT per_week, exercises_per_session, sets_per_exercise,
+		       weekly_target, selected, declared, focus, split_cycle
 		FROM program WHERE user_id = $1`, userID.String()).
-		Scan(&perWeek, &rawTarget, &rawSelected, &rawDeclared, &rawFocus, &rawCycle)
+		Scan(&perWeek, &exercisesPerSession, &setsPerExercise,
+			&rawTarget, &rawSelected, &rawDeclared, &rawFocus, &rawCycle)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, program.ErrProgramNotConfigured
 	}
@@ -76,6 +84,10 @@ func (r *ProgramRepository) Get(
 	if err != nil {
 		return nil, fmt.Errorf("保存された頻度が不正: %w", err)
 	}
+	volume, err := program.NewSessionVolume(exercisesPerSession, setsPerExercise)
+	if err != nil {
+		return nil, fmt.Errorf("保存された1回の量が不正: %w", err)
+	}
 	weeklyTarget, err := program.NewWeeklyVolumeTarget(target)
 	if err != nil {
 		return nil, fmt.Errorf("保存された週目標が不正: %w", err)
@@ -84,7 +96,7 @@ func (r *ProgramRepository) Get(
 	if rawFocus != nil {
 		focus = exercise.ExerciseID(*rawFocus)
 	}
-	prog, err := program.NewProgram(frequency, weeklyTarget, selected, declared, focus)
+	prog, err := program.NewProgram(frequency, volume, weeklyTarget, selected, declared, focus)
 	if err != nil {
 		return nil, fmt.Errorf("保存されたプログラムが不正: %w", err)
 	}
@@ -115,7 +127,12 @@ func (r *ProgramRepository) Get(
 // 「1人につき1行」はスキーマが保つ。
 func (r *ProgramRepository) Save(
 	ctx context.Context, userID account.UserID, p *program.Program,
-) error {
+) (err error) {
+	// 出口で1度だけ包む。return ごとに包むと、経路が増えたときに包み忘れた
+	// 1本だけが 500 で返る。中では wrapUnavailable を呼ばない（文言と
+	// ErrRepositoryUnavailable が二重になる）。
+	defer func() { err = wrapUnavailable(err, "プログラムを保存できない") }()
+
 	if p == nil {
 		return fmt.Errorf("プログラムが nil である")
 	}
@@ -159,18 +176,22 @@ func (r *ProgramRepository) Save(
 	}
 
 	if _, err := r.pool.Exec(ctx, `
-		INSERT INTO program (user_id, per_week, weekly_target, selected, declared, focus, split_cycle)
-		VALUES ($1, $2, $3, $4, $5, $6, $7)
+		INSERT INTO program (user_id, per_week, exercises_per_session, sets_per_exercise,
+		                     weekly_target, selected, declared, focus, split_cycle)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 		ON CONFLICT (user_id) DO UPDATE SET
-			per_week      = EXCLUDED.per_week,
-			weekly_target = EXCLUDED.weekly_target,
-			selected      = EXCLUDED.selected,
-			declared      = EXCLUDED.declared,
-			focus         = EXCLUDED.focus,
-			split_cycle   = EXCLUDED.split_cycle`,
+			per_week              = EXCLUDED.per_week,
+			exercises_per_session = EXCLUDED.exercises_per_session,
+			sets_per_exercise     = EXCLUDED.sets_per_exercise,
+			weekly_target         = EXCLUDED.weekly_target,
+			selected              = EXCLUDED.selected,
+			declared              = EXCLUDED.declared,
+			focus                 = EXCLUDED.focus,
+			split_cycle           = EXCLUDED.split_cycle`,
 		userID.String(), p.Frequency().PerWeek(),
+		p.SessionVolume().Exercises(), p.SessionVolume().Sets(),
 		rawTarget, rawSelected, rawDeclared, rawFocus, rawCycle); err != nil {
-		return fmt.Errorf("プログラムを保存できない: %w", err)
+		return fmt.Errorf("プログラムを書き込めない: %w", err)
 	}
 	return nil
 }

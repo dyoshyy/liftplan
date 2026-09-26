@@ -2,7 +2,7 @@
 
 筋トレの進行を自動化するサーバー。実績ログ・週目標・コンディションから、その日のセッション（種目・重量・目標RIR・セット数）を導出する。
 
-設計は `docs/specs/`、判断の記録は `docs/decisions.md`。ドキュメントの案内は `docs/README.md`。
+設計は `docs/specs/`。ドキュメントの案内は `docs/README.md`。
 
 ## 設計の要点
 
@@ -13,27 +13,50 @@
 
 ## 起動
 
+手元で動かすなら、DB 無し（インメモリ）が一番早い。
+
 ```bash
-make run          # Postgres を立てて起動する
+DEV_SESSION_TOKEN=dev-token-0123456789abcdef0123456789ab \
+  API_ORIGIN=http://localhost:8080 WEB_ORIGIN=http://localhost:5173 \
+  ALLOWED_ORIGINS=http://localhost:5173 \
+  GITHUB_CLIENT_ID=dev GITHUB_CLIENT_SECRET=dev \
+  GOOGLE_CLIENT_ID=dev GOOGLE_CLIENT_SECRET=dev \
+  go run ./cmd/api
 ```
 
-または直接:
+OAuth の4つは**起動の条件なので値が要るが、起動時に中身は確かめていない**。ログインを通らないなら何でもよい（上の `dev` のままでは本物のログインは通らない）。代わりに `DEV_SESSION_TOKEN` の値がそのままセッショントークンとして通る。
+
+Postgres で動かすなら `DATABASE_URL` を足す。**そのとき `DEV_SESSION_TOKEN` は無視される**ので、入るには本物の OAuth のクライアントIDとシークレットが要る。
 
 ```bash
 docker compose up -d --wait db
-DATABASE_URL='postgres://liftplan:liftplan@127.0.0.1:5433/liftplan' go run ./cmd/api
+DATABASE_URL='postgres://liftplan:liftplan@127.0.0.1:5433/liftplan' \
+  API_ORIGIN=... WEB_ORIGIN=... ALLOWED_ORIGINS=... \
+  GITHUB_CLIENT_ID=... GITHUB_CLIENT_SECRET=... \
+  GOOGLE_CLIENT_ID=... GOOGLE_CLIENT_SECRET=... \
+  go run ./cmd/api
 ```
+
+`make run` と `make docker-run` は**いまは起動しない**。どちらも廃止した `AUTH_TOKEN` を渡していて、サーバーはそれが残っていると起動を拒む。
 
 | 環境変数 | 既定 | 説明 |
 |---|---|---|
 | `DATABASE_URL` | なし | Postgres の接続文字列。無ければインメモリで動き、再起動で記録が消える |
-| `AUTH_TOKEN` | **必須** | Bearer トークン。32文字未満なら起動しない |
+| `API_ORIGIN` | **必須** | このサーバー自身のオリジン。OAuth のコールバックURLをここから組むので、認可先に登録したものと一致させる |
+| `WEB_ORIGIN` | **必須** | 画面のオリジン。ログイン後の戻り先 |
 | `ALLOWED_ORIGINS` | **必須** | 画面のオリジン（カンマ区切り）。ここに無いオリジンからは叩けない |
+| `GITHUB_CLIENT_ID` / `GITHUB_CLIENT_SECRET` | **必須** | GitHub の OAuth App |
+| `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | **必須** | Google の OAuth クライアント |
+| `DEV_SESSION_TOKEN` | なし | 開発用のセッションを1件入れる。**`DATABASE_URL` が無いときだけ効く** |
 | `PORT` | `8080` | 待ち受けポート |
 
-`AUTH_TOKEN` と `ALLOWED_ORIGINS` を必須にしているのは、未設定なら素通しする挙動にすると、設定漏れがそのまま全公開になるため。起動しないほうが、気づかないまま公開されるよりよい。
+必須のものが1つでも欠けていたら起動しない。未設定なら素通しする（または黙ってログインを無効にする）挙動にすると、設定漏れがそのまま全公開や「健全に見えるがログインできないサーバー」になるため。起動しないほうが、気づかないまま公開されるよりよい。
 
-`ALLOWED_ORIGINS` にワイルドカードは書けない。Bearer トークンで守っている API なので、`*` を返すと任意のサイトが利用者のトークン付き要求の結果を読める。
+**`AUTH_TOKEN` は廃止した。残っていると起動を拒む。**黙って無視すると、「まだトークン認証で動いている」と思ったまま OAuth で公開されるため。
+
+`DEV_SESSION_TOKEN` をフラグではなく「インメモリのときだけ」で守っているのは、フラグだと本番で立った瞬間に固定トークンで入れる穴になるため。インメモリは再起動で記録が消える構成で、そもそも本番では使えない。
+
+`ALLOWED_ORIGINS` にワイルドカードは書けない。Bearer のセッショントークンで守っている API なので、`*` を返すと任意のサイトが利用者のトークン付き要求の結果を読める。
 
 マイグレーションは起動時に自動で流れる。手で流す運用にすると、流し忘れたインスタンスが古いスキーマに書き込む。空のデータベースなら初期プログラム（週3回・36種目からバリエーションを除いた全部）も入る。
 
@@ -43,13 +66,15 @@ DATABASE_URL='postgres://liftplan:liftplan@127.0.0.1:5433/liftplan' go run ./cmd
 
 ## 認証
 
-`/health` 以外の全経路が Bearer トークンを要求する。
+GitHub か Google の OAuth でログインする（`GET /auth/{github,google}/start`）。通るとサーバーがセッションを発行し、画面へ `#token=...` で渡す。以後は Bearer で送る。トークンが決めるのは「通してよいか」ではなく**誰の記録か**で、読みも書きもその利用者のものだけに絞られる。
 
 ```bash
-curl -H 'Authorization: Bearer <トークン>' 'http://localhost:8080/api/sessions?date=2026-08-17'
+curl -H 'Authorization: Bearer <セッショントークン>' 'http://localhost:8080/api/sessions?date=2026-08-17'
 ```
 
-`/health` だけ認証しないのは、Cloud Run の起動プローブが叩けなくなるため。
+手元では `DEV_SESSION_TOKEN` に渡した値がそのまま使える（インメモリ構成のときだけ）。
+
+認証しないのは `/health` と、ログインの入口である `/auth/*/start`・`/auth/*/callback` だけ（開発用の `/api/dev/*` は後述）。`/health` は Cloud Run の起動プローブが叩けなくなるため。ログアウト（`DELETE /auth/session`）は認証の内側にある。
 
 デプロイ手順は `docs/deploy.md`。
 
@@ -58,11 +83,17 @@ curl -H 'Authorization: Bearer <トークン>' 'http://localhost:8080/api/sessio
 | メソッド | パス | 説明 |
 |---|---|---|
 | GET | `/health` | ヘルスチェック。保存先への疎通を含む（到達できなければ 503） |
-| GET | `/api/sessions?date=YYYY-MM-DD&deload_accepted=bench,squat` | その日のセッションを導出する |
+| GET | `/api/sessions?date=YYYY-MM-DD` | その日のセッションを導出する |
 | POST | `/api/set-logs` | 実績ログを保存する（冪等） |
 | POST | `/api/conditions` | 日次コンディションを保存する（冪等） |
-| GET | `/api/program` | プログラム（頻度・週目標・選択種目）を取得する。未設定なら 404 |
-| PUT | `/api/program` | プログラムを設定する（冪等） |
+| GET | `/api/program` | プログラム（頻度・週目標・選択種目・伸ばしたい種目・重点種目・分割）を取得する。未設定なら 404 |
+| PUT | `/api/program/frequency` | 週の頻度だけを差し替える。週目標も頻度に合わせて置き直される |
+| PUT | `/api/program/target` | 週目標だけを差し替える |
+| PUT | `/api/program/selected` | 使う種目だけを差し替える |
+| PUT | `/api/program/declared` | 伸ばしたい種目だけを差し替える |
+| PUT | `/api/program/focus` | 重点種目だけを差し替える。`null` で指定なしに戻す |
+| PUT | `/api/program/split` | 分割の周期だけを差し替える。空の配列で分割なしに戻す |
+| GET | `/api/split-presets` | 分割のプリセット。`splits` をそのまま `/api/program/split` へ送れる |
 | GET | `/api/exercises` | 種目マスタ（IDと日本語名） |
 | GET | `/api/set-logs?from=&to=` | 実績と、種目ごとの前回の実績。既定は直近56日 |
 | DELETE | `/api/set-logs/{id}` | 打ち間違いの取り消し |
@@ -71,33 +102,33 @@ curl -H 'Authorization: Bearer <トークン>' 'http://localhost:8080/api/sessio
 ### セッション取得の例
 
 ```bash
-curl 'http://localhost:8080/api/sessions?date=2026-08-17'
+curl -H 'Authorization: Bearer <セッショントークン>' \
+  'http://localhost:8080/api/sessions?date=2026-08-17'
 ```
 
-`weight_kg` が `null` になるのはバグではない。履歴が足りず重量を推定できない状態で、初回だけ自分で決めて記録する。
-
-停滞するとデロードの提案が付く。適用はしないので、承認するかはユーザーが決める。
+起動直後（記録が1件も無い状態）の応答。`accessories` は8件返るが、ここでは2件に縮めてある。
 
 ```json
-"deload_proposal": {
-  "reason": "推定1RMが8セッション更新されていない（bench）、体重トレンド +0.00kg/週",
-  "intensity_drop_pct": 0.1,
-  "stalled_exercises": ["bench"]
+{
+  "date": "2026-08-17",
+  "main": [
+    {"exercise_id": "bench", "weight_kg": null, "sets": 3, "target_rir": 1}
+  ],
+  "variation": [],
+  "accessories": [
+    {"exercise_id": "back_extension", "weight_kg": null, "sets": 3, "target_rir": 2},
+    {"exercise_id": "deficit_deadlift", "weight_kg": null, "sets": 3, "target_rir": 2}
+  ]
 }
 ```
 
-承認するときは `stalled_exercises` の値をそのまま渡す。
-
-```bash
-curl 'http://localhost:8080/api/sessions?date=2026-08-17&deload_accepted=bench'
-```
-
-承認していない種目の重量は変わらない。伸びている種目まで一律に下げると本人の実感と噛み合わないため。
+`weight_kg` が `null` になるのはバグではない。履歴が足りず重量を推定できない状態で、初回だけ自分で決めて記録する。
 
 ### 実績の保存
 
 ```bash
 curl -X POST http://localhost:8080/api/set-logs \
+  -H 'Authorization: Bearer <セッショントークン>' \
   -H 'Content-Type: application/json' \
   -d '{"logs":[{"id":"01J-A","date":"2026-08-17","exercise_id":"bench","weight_kg":85,"reps":9,"rir":2}]}'
 ```
@@ -108,14 +139,29 @@ curl -X POST http://localhost:8080/api/set-logs \
 
 ### プログラムの設定
 
+起動時はシードの初期プログラム（週3回・36種目からバリエーションを除いた全部）が入っているので、設定しなくても使える。
+
+変えるときは、**変えたい1項目だけを、その項目の口へ送る。**プログラムを丸ごと受け取る口は無い（`PUT /api/program` は 405）。丸ごと送らせると、送る側がフィールドを1つ並べ忘れただけで、その設定が黙って消えるため（D-127）。
+
 ```bash
-curl -X PUT http://localhost:8080/api/program \
+curl -X PUT http://localhost:8080/api/program/frequency \
+  -H 'Authorization: Bearer <セッショントークン>' \
   -H 'Content-Type: application/json' \
-  -d '{"per_week":3,"weekly_target":{"CHEST_MID":14,"QUAD":16},
-       "selected_exercises":["bench","squat","deadlift","incline_db_press"]}'
+  -d '{"per_week":4}'
 ```
 
-起動時はシードの初期プログラム（週3回・36種目からバリエーションを除いた全部）が入っているので、設定しなくても使える。
+通れば 204。ボディはどの口も、`GET /api/program` の応答から該当のフィールド1つを抜き出した形。
+
+| パス | ボディ |
+|---|---|
+| `/api/program/frequency` | `{"per_week":4}` |
+| `/api/program/target` | `{"weekly_target":{"CHEST_MID":10}}` |
+| `/api/program/selected` | `{"selected_exercises":["bench","squat"]}`。伸ばしたい種目を外す選択は 400（先に `declared` を狭める） |
+| `/api/program/declared` | `{"declared_exercises":["bench","squat"]}` |
+| `/api/program/focus` | `{"focus_exercise":"bench"}`（`null` で指定なし） |
+| `/api/program/split` | `{"splits":[{"name":"上半身","regions":["CHEST_MID","LAT"]},{"name":"下半身","regions":["QUAD","GLUTE","HAMSTRING"]}]}`（`[]` で分割なし）。伸ばしたい種目が出られる日の無い周期は 400 |
+
+その口のもの以外のフィールドが混ざっていたら 400。受けて捨てると、送った側はそれも変わったと思い込む。
 
 ### ステータスコード
 
@@ -155,9 +201,46 @@ make test-db    # Postgres を立てて全テスト
 種目の出番・セッション長・重量の確定を検証する。シードは「値が入っていること」を
 確かめても意味がなく、生成器を通した挙動でしか検証できない。
 
+### シミュレーション画面
+
+通し検証が数字で守るのに対して、**何が起きているかを目で見る**ための道具。
+宣言種目・重点種目・分割・頻度を変えて1ヶ月ぶんの計画を作り、レーンごとの
+処方（推定1RMに対する比つき）と週ごとの充足を出す。
+
+本番にもある。画面のオリジンの `/dev.html`（ログイン済みの端末で開く）。
+手元だけに置いていたが、設定を変えるかどうかを考えるのはたいていジムの
+あとで、そこに開発機が無い。
+
+```bash
+# サーバー。手元ではインメモリなので、DEV_SESSION_TOKEN でログイン済みの
+# 状態を作る（この変数は DATABASE_URL があるときは効かない）。
+#
+# OAuth の設定は起動の条件なので値が要るが、この経路は通らないので
+# 中身は何でもよい。
+DEV_SESSION_TOKEN=test-token-0123456789abcdef0123456789abcdef \
+  API_ORIGIN=http://localhost:8080 WEB_ORIGIN=http://localhost:5173 \
+  ALLOWED_ORIGINS=http://localhost:5173 \
+  GITHUB_CLIENT_ID=dev GITHUB_CLIENT_SECRET=dev \
+  GOOGLE_CLIENT_ID=dev GOOGLE_CLIENT_SECRET=dev \
+  PORT=8080 go run ./cmd/api
+
+# 画面
+cd web && VITE_API_BASE=http://localhost:8080 pnpm dev
+
+# 1. http://localhost:5173/#token=test-token-0123456789abcdef0123456789abcdef
+#    を一度開く（トークンを localStorage に入れる。本物のコールバックと同じ形）
+# 2. http://localhost:5173/dev.html
+```
+
+口は**認証の内側**にある。捏造した設定で計画を作るだけで保存先も記録も
+触らないが、週7回×12週の導出は CPU を使うので、誰でも叩ける状態では置かない。
+
 ## 設計の判断記録
 
-いま効いている判断とその根拠は `docs/decisions.md` にある。設計ごと変えた
-ものは D-116（今日の計画はその日の始まりに確定する）、D-117（軸は枠ではなく
-宣言）、D-113（推定1RMは種目ごとに持つ）、D-014（42日より古い記録からは
-推定しない）、D-027（週目標は頻度でスケールする）あたり。
+設計ごとの判断とその根拠は `docs/specs/` にある。骨格が変わった判断は、
+今日の計画はその日の始まりに確定する（`internal/domain/training/planning/session_planner.go`、
+`TestSessionPlanner_PlanIsFixedForTheWholeDay`）、軸は枠ではなく宣言
+（`docs/specs/2026-09-06-training-goals-design.md`）、推定1RMは種目ごとに持つ
+（`internal/domain/training/seed/exercises.go`）、42日より古い記録からは推定しない
+（`internal/domain/training/planning/one_rep_max_estimator.go`）、週目標は頻度で
+スケールする（`internal/domain/training/seed/weekly_target.go`）あたり。

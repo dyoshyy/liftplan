@@ -9,8 +9,8 @@
 // 書き直すことになる。ドメインに置くと、表示の都合がドメインに漏れる。
 //
 // **利用者は ctx の直後、第2引数で受け取る。**入力の構造体
-// （ConfigureProgramInput など）に混ぜない。あの構造体はリクエストの
-// ボディから組み立てられるので、所有者をそこに置くと、送り主が名乗った
+// （GetSessionInput など）に混ぜない。入力は送り主が書いたリクエストから
+// 組み立てられるので、所有者をそこに置くと、送り主が名乗った
 // 名前で他人の記録を読み書きできる形が1回のミスで作れる。所有者は
 // 認証から来るもので、入力から来るものではない。位置を全ての口で
 // 揃えているのは、呼び出し側が並びを覚えずに済むようにするため。
@@ -24,6 +24,7 @@ import (
 	"fmt"
 	"sort"
 
+	"github.com/dyoshyy/liftplan/internal/application/apperror"
 	"github.com/dyoshyy/liftplan/internal/domain/account"
 	"github.com/dyoshyy/liftplan/internal/domain/training"
 	"github.com/dyoshyy/liftplan/internal/domain/training/exercise"
@@ -81,7 +82,10 @@ func NewHistory(
 }
 
 // Days は期間内の実績を、新しい日から順に返す。
-func (q *History) Days(ctx context.Context, user account.UserID, from, to training.Date) ([]Day, error) {
+func (q *History) Days(ctx context.Context, user account.UserID, from, to training.Date) (_ []Day, err error) {
+	// 出口で1度だけ翻訳する。usecase と同じ形。ここを通らない公開メソッドは、
+	// 一時障害を 500 で返す（#129）。
+	defer func() { err = apperror.Classify(err) }()
 	if from.IsZero() || to.IsZero() {
 		return nil, fmt.Errorf("期間が指定されていない")
 	}
@@ -146,7 +150,8 @@ func (q *History) LastPerformances(
 	ctx context.Context,
 	user account.UserID,
 	asOf training.Date,
-) (map[exercise.ExerciseID]LastPerformance, error) {
+) (_ map[exercise.ExerciseID]LastPerformance, err error) {
+	defer func() { err = apperror.Classify(err) }()
 	if asOf.IsZero() {
 		return nil, fmt.Errorf("基準日が指定されていない")
 	}

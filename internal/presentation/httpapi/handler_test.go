@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
@@ -69,7 +70,7 @@ func buildRoutes(t *testing.T, configured bool) http.Handler {
 	programs := memory.NewProgramRepository()
 	if configured {
 		freq, _ := program.NewFrequency(3)
-		target, err := seed.DefaultWeeklyTarget(freq)
+		target, err := seed.DefaultWeeklyTarget(freq, mustVolume(t, 6, 3))
 		if err != nil {
 			t.Fatalf("週目標が不正: %v", err)
 		}
@@ -77,7 +78,7 @@ func buildRoutes(t *testing.T, configured bool) http.Handler {
 		for _, e := range pool {
 			selected = append(selected, e.ID())
 		}
-		program, err := program.NewProgram(freq, target, selected, []exercise.ExerciseID{"bench", "squat", "deadlift"}, "")
+		program, err := program.NewProgram(freq, mustVolume(t, 6, 3), target, selected, []exercise.ExerciseID{"bench", "squat", "deadlift"}, "")
 		if err != nil {
 			t.Fatalf("プログラムが不正: %v", err)
 		}
@@ -88,24 +89,90 @@ func buildRoutes(t *testing.T, configured bool) http.Handler {
 		}
 	}
 
-	handler := httpapi.NewHandler(
-		usecase.NewGetSession(exercises, logs, conditions, programs, planning.DefaultSessionPlanner()),
-		usecase.NewRecordSets(logs, exercises),
-		usecase.NewRecordConditions(conditions),
-		usecase.NewConfigureProgram(exercises, programs),
-		usecase.NewSetFocusExercise(programs, programs),
-		usecase.NewSetDeclaredExercises(programs, programs),
-		usecase.NewSetFrequency(programs, programs),
-		usecase.NewSetSelectedExercises(exercises, programs, programs),
-		usecase.NewSetWeeklyTarget(exercises, programs, programs),
-		usecase.NewSetSplitCycle(exercises, programs, programs),
-		usecase.NewGetProgram(programs),
-		usecase.NewDeleteSetLog(logs),
-		query.NewExercises(exercises),
-		query.NewHistory(logs, exercises),
-		query.NewStats(logs, exercises, programs, planning.DefaultOneRepMaxEstimator()),
-	)
+	return routesFrom(t, dependencies(exercises, logs, conditions, programs))
+}
+
+// dependencies はリポジトリ一式から Dependencies を組む。
+//
+// 種目の読み口だけインターフェースで受けるのは、障害のテストが
+// そこだけを壊れた実装に差し替えるため。差し替える1つが配線の8箇所に
+// 現れるので、ここに寄せておかないと差し替えるたびに全部を書き写すことになる。
+func dependencies(
+	exercises exercise.Reader,
+	logs *memory.SetLogRepository,
+	conditions *memory.ConditionRepository,
+	programs *memory.ProgramRepository,
+) httpapi.Dependencies {
+	return httpapi.Dependencies{
+		GetSession:       usecase.NewGetSession(exercises, logs, conditions, programs, planning.DefaultSessionPlanner()),
+		RecordSets:       usecase.NewRecordSets(logs, exercises),
+		RecordConditions: usecase.NewRecordConditions(conditions),
+		SetFocus:         usecase.NewSetFocusExercise(programs, programs),
+		SetDeclared:      usecase.NewSetDeclaredExercises(exercises, programs, programs),
+		SetFrequency:     usecase.NewSetFrequency(programs, programs),
+		SetVolume:        usecase.NewSetSessionVolume(programs, programs),
+		SetSelected:      usecase.NewSetSelectedExercises(exercises, programs, programs),
+		SetSplit:         usecase.NewSetSplitCycle(exercises, programs, programs),
+		GetProgram:       usecase.NewGetProgram(programs),
+		DeleteSetLog:     usecase.NewDeleteSetLog(logs),
+		Exercises:        query.NewExercises(exercises),
+		History:          query.NewHistory(logs, exercises),
+		Stats:            query.NewStats(logs, exercises, programs, planning.DefaultOneRepMaxEstimator()),
+	}
+}
+
+// routesFrom は Dependencies からミドルウェアを被せる前の生のルータを組む。
+func routesFrom(t *testing.T, d httpapi.Dependencies) http.Handler {
+	t.Helper()
+
+	handler, err := httpapi.NewHandler(d)
+	if err != nil {
+		t.Fatalf("ハンドラが組めない: %v", err)
+	}
 	return handler.Routes()
+}
+
+// 依存が1つでも欠けていたら、組み立ての時点で止める。
+//
+// 位置引数で受けていたときは、渡し忘れはコンパイルエラーだった。
+// 構造体はゼロ値で通るので、検査が無いと、欠けた口が初めて叩かれた
+// ときに nil 参照で落ちる。起動は成功しているので、気づくのは利用者になる。
+//
+// フィールドをリフレクションで回すのは、Dependencies に口を足したときに
+// この検査が自動で付いてくるようにするため。手で並べると、足した人が
+// NewHandler の検査とこの表の両方を忘れても緑のままになる。
+//
+// 名前がエラーに載ることまで見るのは、「何かが欠けている」だけでは
+// 14個のどれを直せばよいか分からないから。
+func TestNewHandler_RejectsMissingDependency(t *testing.T) {
+	complete := dependencies(
+		memory.NewExerciseRepository(nil),
+		memory.NewSetLogRepository(),
+		memory.NewConditionRepository(),
+		memory.NewProgramRepository(),
+	)
+	// 揃っていれば通ること。これが無いと、常にエラーを返す実装でも
+	// 下の検査が全部緑になる。
+	if _, err := httpapi.NewHandler(complete); err != nil {
+		t.Fatalf("全部揃っているのに組めない: %v", err)
+	}
+
+	fields := reflect.TypeOf(complete)
+	for i := range fields.NumField() {
+		field := fields.Field(i)
+		t.Run(field.Name+" が欠けている", func(t *testing.T) {
+			d := complete
+			reflect.ValueOf(&d).Elem().Field(i).Set(reflect.Zero(field.Type))
+
+			_, err := httpapi.NewHandler(d)
+			if err == nil {
+				t.Fatalf("%s が nil なのにエラーにならない", field.Name)
+			}
+			if !strings.Contains(err.Error(), field.Name) {
+				t.Errorf("エラーに欠けた名前 %s が載っていない: %v", field.Name, err)
+			}
+		})
+	}
 }
 
 func TestGetSession_Success(t *testing.T) {
@@ -164,11 +231,17 @@ func TestGetSession_HasThreeLanes(t *testing.T) {
 	mux := newServer(t, true)
 
 	// 重点種目をベンチにする。指定しないとバリエーションレーンは出ない。
-	body := `{"per_week":3,"weekly_target":{"CHEST_MID":10,"QUAD":12},` +
-		`"selected_exercises":["bench","squat","deadlift","larsen_press","tempo_bench"],` +
-		`"declared_exercises":["bench","squat","deadlift"],"focus_exercise":"bench"}`
-	if rec := do(t, mux, http.MethodPut, "/api/program", body); rec.Code != http.StatusNoContent {
-		t.Fatalf("プログラムの保存に失敗: %d body=%s", rec.Code, rec.Body.String())
+	//
+	// 元は全置換の PUT /api/program で1度に組んでいた（#123 で消した）。
+	// 狭い口で同じ状態を組む。頻度と宣言は newServer の既定（週3・BIG3）が
+	// 元の前提と同じなので送らない。
+	for _, step := range []struct{ path, body string }{
+		{"/api/program/selected", `{"selected_exercises":["bench","squat","deadlift","larsen_press","tempo_bench"]}`},
+		{"/api/program/focus", `{"focus_exercise":"bench"}`},
+	} {
+		if rec := do(t, mux, http.MethodPut, step.path, step.body); rec.Code != http.StatusNoContent {
+			t.Fatalf("%s の保存に失敗: %d body=%s", step.path, rec.Code, rec.Body.String())
+		}
 	}
 
 	// ベンチを3日前にやって軸を他へ移す。当日と前日は「中1日」の門に
@@ -237,6 +310,22 @@ func TestGetSession_HasThreeLanes(t *testing.T) {
 	}
 }
 
+// putUpperLowerSplit は上下2分割を保存する。
+//
+// 「ほかを動かさない」を検査するテストは、これを呼んでから始める。
+// シードのプログラムは分割なしなので、呼ばないと splits が前後とも []
+// で一致し、分割が消えても緑のまま通る（#122 はそれで見逃した）。
+func putUpperLowerSplit(t *testing.T, mux http.Handler) {
+	t.Helper()
+	body := `{"splits":[` +
+		`{"name":"上半身","regions":["CHEST_MID","LAT","FRONT_DELT","TRICEPS_LATERAL","BICEPS"]},` +
+		`{"name":"下半身","regions":["QUAD","HAMSTRING","GLUTE","ERECTOR"]}` +
+		`]}`
+	if rec := do(t, mux, http.MethodPut, "/api/program/split", body); rec.Code != http.StatusNoContent {
+		t.Fatalf("分割の保存に失敗: %d body=%s", rec.Code, rec.Body.String())
+	}
+}
+
 // 重点種目だけの口は、本当に重点種目だけを動かすこと。
 //
 // この口を足した理由そのもの（D-127）。全置換の PUT /api/program を
@@ -244,6 +333,7 @@ func TestGetSession_HasThreeLanes(t *testing.T) {
 // ためなので、ここが守られていないと分けた意味が消える。
 func TestPutProgramFocus_TouchesNothingElse(t *testing.T) {
 	mux := newServer(t, true)
+	putUpperLowerSplit(t, mux)
 
 	before := do(t, mux, http.MethodGet, "/api/program", "")
 	if before.Code != http.StatusOK {
@@ -336,7 +426,8 @@ func TestPutProgramFocus_Rejects(t *testing.T) {
 			body: `{"focus_exercise":"bench"}`, want: http.StatusConflict,
 		},
 		{
-			// 全置換の口と取り違えて送ってきたものを黙って受けない。
+			// ほかの設定を一緒に送ってきたものを黙って受けない。受けて
+			// 捨てると、送った側は頻度も変わったと思い込む。
 			name: "余計なフィールド", configured: true,
 			body: `{"focus_exercise":"bench","per_week":4}`, want: http.StatusBadRequest,
 		},
@@ -384,6 +475,10 @@ func TestPutProgramDeclared_TouchesNothingElse(t *testing.T) {
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			mux := newServer(t, true)
+			// 分割が先、重点が後。逆だと、分割の口が重点を落としたときに
+			// before が「重点なし」になり、前後が一致して通る（#132）。
+			// この順で逆に分割が落ちる場合は、重点の口のテストが見る。
+			putUpperLowerSplit(t, mux)
 			if c.setFocus != "" {
 				if rec := do(t, mux, http.MethodPut, "/api/program/focus",
 					`{"focus_exercise":"`+c.setFocus+`"}`); rec.Code != http.StatusNoContent {
@@ -475,12 +570,79 @@ func TestPutProgramDeclared_Rejects(t *testing.T) {
 	}
 }
 
+// 分割を設定したあとで、どの日にも出られない種目を宣言に足せないこと。
+//
+// 分割の口（PUT /api/program/split）は同じ状態を弾いている。宣言の口が
+// 見ていないと、順序を入れ替えるだけで同じ状態を作れる（#140）。出られない
+// 宣言種目は毎日「今日の候補ではない」と判定され、エラーも立たないまま
+// 二度と軸に出ない。
+//
+// シードとプリセットだけで踏める。ケーブルクランチの主働は腹直筋（1.0）で、
+// 腹直筋と腹斜筋はどのプリセットのどの日にも入っていない。プリセットは
+// 手で書き写さず GET /api/split-presets から取る。書き写すと、テストが
+// 自前の周期だけで完結し、プリセットを変えても緑のままになる。取って
+// くれば、プリセットに腹を足した日にここが赤くなり、種目を選び直せる。
+func TestPutProgramDeclared_RejectsExerciseWithoutADay(t *testing.T) {
+	mux := newServer(t, true)
+
+	rec := do(t, mux, http.MethodGet, "/api/split-presets", "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("プリセットの取得に失敗: %d body=%s", rec.Code, rec.Body.String())
+	}
+	var presets struct {
+		Presets []struct {
+			Key    string          `json:"key"`
+			Splits json.RawMessage `json:"splits"`
+		} `json:"presets"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &presets); err != nil {
+		t.Fatalf("JSONが壊れている: %v", err)
+	}
+
+	for _, p := range presets.Presets {
+		t.Run(p.Key, func(t *testing.T) {
+			mux := newServer(t, true)
+			if rec := do(t, mux, http.MethodPut, "/api/program/split",
+				`{"splits":`+string(p.Splits)+`}`); rec.Code != http.StatusNoContent {
+				t.Fatalf("分割の保存に失敗: %d body=%s", rec.Code, rec.Body.String())
+			}
+
+			rec := do(t, mux, http.MethodPut, "/api/program/declared",
+				`{"declared_exercises":["bench","squat","deadlift","cable_crunch"]}`)
+			if rec.Code != http.StatusBadRequest {
+				t.Errorf("ステータスが %d。400 のはず: %s", rec.Code, rec.Body.String())
+			}
+
+			// 弾いたなら保存もされていないこと。400 を返しつつ保存していると、
+			// 画面はエラーを出すのに設定は壊れた状態になる。
+			var got struct {
+				Declared []string `json:"declared_exercises"`
+			}
+			after := do(t, mux, http.MethodGet, "/api/program", "")
+			if err := json.Unmarshal(after.Body.Bytes(), &got); err != nil {
+				t.Fatalf("JSONが壊れている: %v", err)
+			}
+			if slices.Contains(got.Declared, "cable_crunch") {
+				t.Errorf("出られない種目が宣言に入った: %v", got.Declared)
+			}
+		})
+	}
+
+	// 分割なしなら通る。分割で候補を絞らないので、出られない種目が無い。
+	// ここが 400 になるなら、分割と無関係にこの種目を弾いている。
+	if rec := do(t, mux, http.MethodPut, "/api/program/declared",
+		`{"declared_exercises":["bench","squat","deadlift","cable_crunch"]}`); rec.Code != http.StatusNoContent {
+		t.Errorf("分割なしで通らない: %d %s", rec.Code, rec.Body.String())
+	}
+}
+
 // 頻度の口は、頻度と週目標だけを動かすこと。
 //
 // 週目標を道連れにするのは意図した挙動。1週間に供給できるセット数は
 // 頻度に比例するので、片方だけ動かすと目標が実際の挙動を説明しなくなる。
 func TestPutProgramFrequency_MovesTargetWithIt(t *testing.T) {
 	mux := newServer(t, true)
+	putUpperLowerSplit(t, mux)
 
 	before := do(t, mux, http.MethodGet, "/api/program", "")
 	if rec := do(t, mux, http.MethodPut, "/api/program/frequency",
@@ -516,7 +678,7 @@ func TestPutProgramFrequency_MovesTargetWithIt(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewFrequency: %v", err)
 	}
-	target, err := seed.DefaultWeeklyTarget(freq)
+	target, err := seed.DefaultWeeklyTarget(freq, mustVolume(t, 6, 3))
 	if err != nil {
 		t.Fatalf("DefaultWeeklyTarget: %v", err)
 	}
@@ -537,6 +699,98 @@ func TestPutProgramFrequency_MovesTargetWithIt(t *testing.T) {
 	// 「もともと同じだった」でも通る。
 	if string(a["weekly_target"]) == string(b["weekly_target"]) {
 		t.Error("週目標が頻度に追従していない")
+	}
+}
+
+// 1回の量の口は、1回の量と週目標だけを動かすこと。
+//
+// 週目標を道連れにするのは頻度の口と同じ理由。週に供給できる量は
+// 「頻度 × 種目数 × セット数」で決まるので、量だけ動かすと目標が
+// 実際の挙動を説明しなくなる。
+func TestPutProgramVolume_MovesTargetWithIt(t *testing.T) {
+	mux := newServer(t, true)
+
+	before := do(t, mux, http.MethodGet, "/api/program", "")
+	if rec := do(t, mux, http.MethodPut, "/api/program/volume",
+		`{"exercises_per_session":5,"sets_per_exercise":4}`); rec.Code != http.StatusNoContent {
+		t.Fatalf("保存に失敗: %d body=%s", rec.Code, rec.Body.String())
+	}
+	after := do(t, mux, http.MethodGet, "/api/program", "")
+
+	var b, a map[string]json.RawMessage
+	if err := json.Unmarshal(before.Body.Bytes(), &b); err != nil {
+		t.Fatalf("JSONが壊れている: %v", err)
+	}
+	if err := json.Unmarshal(after.Body.Bytes(), &a); err != nil {
+		t.Fatalf("JSONが壊れている: %v", err)
+	}
+	moved := map[string]bool{
+		"exercises_per_session": true, "sets_per_exercise": true, "weekly_target": true,
+	}
+	for k, want := range b {
+		if moved[k] {
+			continue
+		}
+		if string(a[k]) != string(want) {
+			t.Errorf("%s が変わった: %s → %s", k, want, a[k])
+		}
+	}
+	if string(a["exercises_per_session"]) != "5" || string(a["sets_per_exercise"]) != "4" {
+		t.Errorf("1回の量が %s種目×%sセット。5×4 のはず",
+			a["exercises_per_session"], a["sets_per_exercise"])
+	}
+
+	// 週目標が「頻度 × 新しい量」の既定と一致すること。
+	var perWeek int
+	if err := json.Unmarshal(a["per_week"], &perWeek); err != nil {
+		t.Fatalf("頻度が壊れている: %v", err)
+	}
+	freq, err := program.NewFrequency(perWeek)
+	if err != nil {
+		t.Fatalf("NewFrequency: %v", err)
+	}
+	target, err := seed.DefaultWeeklyTarget(freq, mustVolume(t, 5, 4))
+	if err != nil {
+		t.Fatalf("DefaultWeeklyTarget: %v", err)
+	}
+	var got map[string]float64
+	if err := json.Unmarshal(a["weekly_target"], &got); err != nil {
+		t.Fatalf("週目標が壊れている: %v", err)
+	}
+	for _, r := range target.Regions() {
+		if got[string(r)] != target.Sets(r) {
+			t.Errorf("%s が %v。既定の %v のはず", r, got[string(r)], target.Sets(r))
+		}
+	}
+	// 動いていなければ上の一致は「もともと同じだった」でも通る。
+	if string(a["weekly_target"]) == string(b["weekly_target"]) {
+		t.Error("週目標が1回の量に追従していない")
+	}
+}
+
+func TestPutProgramVolume_Rejects(t *testing.T) {
+	cases := []struct {
+		name       string
+		configured bool
+		body       string
+		want       int
+	}{
+		{"種目数が下限未満", true, `{"exercises_per_session":1,"sets_per_exercise":3}`, http.StatusBadRequest},
+		{"種目数が上限超え", true, `{"exercises_per_session":7,"sets_per_exercise":3}`, http.StatusBadRequest},
+		{"セット数が下限未満", true, `{"exercises_per_session":4,"sets_per_exercise":1}`, http.StatusBadRequest},
+		{"セット数が上限超え", true, `{"exercises_per_session":4,"sets_per_exercise":7}`, http.StatusBadRequest},
+		{"片方が欠けている", true, `{"exercises_per_session":4}`, http.StatusBadRequest},
+		{"プログラムが未設定", false, `{"exercises_per_session":4,"sets_per_exercise":3}`, http.StatusConflict},
+		{"余計なフィールド", true, `{"exercises_per_session":4,"sets_per_exercise":3,"per_week":3}`, http.StatusBadRequest},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			rec := do(t, newServer(t, c.configured), http.MethodPut,
+				"/api/program/volume", c.body)
+			if rec.Code != c.want {
+				t.Errorf("ステータスが %d。%d のはず: %s", rec.Code, c.want, rec.Body.String())
+			}
+		})
 	}
 }
 
@@ -567,6 +821,7 @@ func TestPutProgramFrequency_Rejects(t *testing.T) {
 // 使う種目の口は、それだけを動かすこと。
 func TestPutProgramSelected_TouchesNothingElse(t *testing.T) {
 	mux := newServer(t, true)
+	putUpperLowerSplit(t, mux)
 
 	before := do(t, mux, http.MethodGet, "/api/program", "")
 	// 宣言の3種目は残したまま、それ以外を絞る。脚のプレスを1つ残すのは
@@ -639,102 +894,6 @@ func TestPutProgramSelected_Rejects(t *testing.T) {
 		t.Run(c.name, func(t *testing.T) {
 			rec := do(t, newServer(t, c.configured), http.MethodPut,
 				"/api/program/selected", c.body)
-			if rec.Code != c.want {
-				t.Errorf("ステータスが %d。%d のはず: %s", rec.Code, c.want, rec.Body.String())
-			}
-		})
-	}
-}
-
-// 週目標の口は、それだけを動かすこと。頻度は道連れにしない。
-//
-// WithFrequency が週目標を置き直すのと非対称だが、向きが違う。頻度を
-// 変えたら供給量が変わるので目標も動く一方、目標を手で動かすのは
-// 「供給量はそのままで狙いを変える」ことなので頻度は据え置く。
-func TestPutProgramTarget_TouchesNothingElse(t *testing.T) {
-	mux := newServer(t, true)
-
-	before := do(t, mux, http.MethodGet, "/api/program", "")
-	body := `{"weekly_target":{"CHEST_MID":12,"QUAD":14,"GLUTE":16}}`
-	if rec := do(t, mux, http.MethodPut, "/api/program/target",
-		body); rec.Code != http.StatusNoContent {
-		t.Fatalf("保存に失敗: %d body=%s", rec.Code, rec.Body.String())
-	}
-	after := do(t, mux, http.MethodGet, "/api/program", "")
-
-	var b, a map[string]json.RawMessage
-	if err := json.Unmarshal(before.Body.Bytes(), &b); err != nil {
-		t.Fatalf("JSONが壊れている: %v", err)
-	}
-	if err := json.Unmarshal(after.Body.Bytes(), &a); err != nil {
-		t.Fatalf("JSONが壊れている: %v", err)
-	}
-	if len(a) != len(b) {
-		t.Errorf("フィールドの数が変わった: %d → %d", len(b), len(a))
-	}
-	for k, want := range b {
-		if k == "weekly_target" {
-			continue
-		}
-		if string(a[k]) != string(want) {
-			t.Errorf("%s が変わった: %s → %s", k, want, a[k])
-		}
-	}
-
-	var got map[string]float64
-	if err := json.Unmarshal(a["weekly_target"], &got); err != nil {
-		t.Fatalf("週目標が壊れている: %v", err)
-	}
-	// 送った区分だけになる。差分更新ではなく置き換え。
-	want := map[string]float64{"CHEST_MID": 12, "QUAD": 14, "GLUTE": 16}
-	if len(got) != len(want) {
-		t.Errorf("区分の数が %d。%d のはず: %v", len(got), len(want), got)
-	}
-	for r, v := range want {
-		if got[r] != v {
-			t.Errorf("%s が %v。%v のはず", r, got[r], v)
-		}
-	}
-}
-
-// 選択種目がどの区分も刺激しない週目標を弾くこと。
-//
-// 弾かないと補助種目が毎回ゼロになり、エラーが立たないまま「設定した
-// 週目標が永久に埋まらない」状態になる。
-//
-// シードの29種目は全区分を刺激するので、まず選択を BIG3 に絞ってから
-// ふくらはぎを狙う。絞らないと到達できない経路。
-func TestPutProgramTarget_RejectsTargetNothingCanFill(t *testing.T) {
-	mux := newServer(t, true)
-
-	if rec := do(t, mux, http.MethodPut, "/api/program/selected",
-		`{"selected_exercises":["bench","squat","deadlift"]}`); rec.Code != http.StatusNoContent {
-		t.Fatalf("選択の保存に失敗: %d body=%s", rec.Code, rec.Body.String())
-	}
-
-	rec := do(t, mux, http.MethodPut, "/api/program/target", `{"weekly_target":{"CALF":10}}`)
-	if rec.Code != http.StatusBadRequest {
-		t.Errorf("ステータスが %d。400 のはず: %s", rec.Code, rec.Body.String())
-	}
-}
-
-func TestPutProgramTarget_Rejects(t *testing.T) {
-	cases := []struct {
-		name       string
-		configured bool
-		body       string
-		want       int
-	}{
-		{"空", true, `{"weekly_target":{}}`, http.StatusBadRequest},
-		{"存在しない区分", true, `{"weekly_target":{"NOSUCH":10}}`, http.StatusBadRequest},
-		{"負のセット数", true, `{"weekly_target":{"QUAD":-1}}`, http.StatusBadRequest},
-		{"プログラムが未設定", false, `{"weekly_target":{"QUAD":12}}`, http.StatusConflict},
-		{"余計なフィールド", true, `{"weekly_target":{"QUAD":12},"per_week":4}`, http.StatusBadRequest},
-	}
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
-			rec := do(t, newServer(t, c.configured), http.MethodPut,
-				"/api/program/target", c.body)
 			if rec.Code != c.want {
 				t.Errorf("ステータスが %d。%d のはず: %s", rec.Code, c.want, rec.Body.String())
 			}
@@ -1014,6 +1173,75 @@ func TestPostSetLogs_InvalidDomainValue(t *testing.T) {
 	}
 }
 
+// 入力の不正は、どの口から返っても同じ形（code が INVALID_INPUT）である。
+//
+// 元は date の検査と set-logs / conditions の中身の検査だけが別の経路で
+// 400 を返していて、code が空文字だった。画面が code で分岐し始めると、
+// 同じ「入力が不正」なのに口によって拾えたり拾えなかったりする。
+// 1行が handler.go の拒否1箇所に対応する。
+func TestBadInput_IsCodedAsInvalidInput(t *testing.T) {
+	cases := []struct {
+		name   string
+		method string
+		path   string
+		body   string
+	}{
+		{name: "sessions に date が無い", method: http.MethodGet, path: "/api/sessions"},
+		{name: "sessions の date が日付でない", method: http.MethodGet, path: "/api/sessions?date=2026/08/17"},
+		{
+			name: "set-logs の date が日付でない", method: http.MethodPost, path: "/api/set-logs",
+			body: `{"logs":[{"id":"01J-B","date":"2026/08/17","exercise_id":"bench","weight_kg":85,"reps":9,"rir":2}]}`,
+		},
+		{
+			// rir を落とす。0 と「送られていない」を区別するための必須検査。
+			name: "set-logs の必須項目が欠けている", method: http.MethodPost, path: "/api/set-logs",
+			body: `{"logs":[{"id":"01J-B","date":"2026-08-17","exercise_id":"bench","weight_kg":85,"reps":9}]}`,
+		},
+		{
+			// 0レップはドメインが拒む。
+			name: "set-logs の値をドメインが拒む", method: http.MethodPost, path: "/api/set-logs",
+			body: `{"logs":[{"id":"01J-B","date":"2026-08-17","exercise_id":"bench","weight_kg":85,"reps":0,"rir":2}]}`,
+		},
+		{
+			name: "conditions の date が日付でない", method: http.MethodPost, path: "/api/conditions",
+			body: `{"conditions":[{"date":"2026/08/17","body_weight_kg":75}]}`,
+		},
+		{
+			// 体重の上限は 300kg。
+			name: "conditions の体重が範囲外", method: http.MethodPost, path: "/api/conditions",
+			body: `{"conditions":[{"date":"2026-08-17","body_weight_kg":301}]}`,
+		},
+		{
+			// 睡眠の上限は 24時間。
+			name: "conditions の睡眠時間が範囲外", method: http.MethodPost, path: "/api/conditions",
+			body: `{"conditions":[{"date":"2026-08-17","sleep_hours":25}]}`,
+		},
+		{
+			name: "conditions に体重も睡眠も無い", method: http.MethodPost, path: "/api/conditions",
+			body: `{"conditions":[{"date":"2026-08-17"}]}`,
+		},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			rec := do(t, newServer(t, true), c.method, c.path, c.body)
+
+			if rec.Code != http.StatusBadRequest {
+				t.Fatalf("%d が返った。400 のはず: %s", rec.Code, rec.Body.String())
+			}
+			var body struct {
+				Code string `json:"code"`
+			}
+			if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+				t.Fatalf("JSONが壊れている: %v", err)
+			}
+			if body.Code != "INVALID_INPUT" {
+				t.Errorf("code が %q。INVALID_INPUT のはず: %s", body.Code, rec.Body.String())
+			}
+		})
+	}
+}
+
 func TestPostConditions(t *testing.T) {
 	rec := httptest.NewRecorder()
 	payload := `{"conditions":[{"date":"2026-08-17","body_weight_kg":75.2,"sleep_hours":6.5}]}`
@@ -1050,39 +1278,6 @@ func do(t *testing.T, mux http.Handler, method, path, body string) *httptest.Res
 	return rec
 }
 
-// 入力の不正は 400、I/O の失敗は 500。区別できないと、
-// クライアントは自分の入力を直さずリトライを繰り返す。
-func TestPutProgram_ClassifiesFailures(t *testing.T) {
-	valid := `{"per_week":3,"weekly_target":{"CHEST_MID":12,"QUAD":12},` +
-		`"selected_exercises":["bench","squat","deadlift"],` +
-		`"declared_exercises":["bench","squat","deadlift"]}`
-
-	cases := map[string]struct {
-		body string
-		want int
-	}{
-		"正常":         {valid, http.StatusNoContent},
-		"頻度が範囲外":     {`{"per_week":99,"weekly_target":{"QUAD":12},"selected_exercises":["squat"],"declared_exercises":["squat"]}`, http.StatusBadRequest},
-		"週目標が空":      {`{"per_week":3,"weekly_target":{},"selected_exercises":["squat"],"declared_exercises":["squat"]}`, http.StatusBadRequest},
-		"未知の筋区分":     {`{"per_week":3,"weekly_target":{"膝の皿":8},"selected_exercises":["squat"],"declared_exercises":["squat"]}`, http.StatusBadRequest},
-		"実在しない種目":    {`{"per_week":3,"weekly_target":{"QUAD":12},"selected_exercises":["無い種目"],"declared_exercises":["無い種目"]}`, http.StatusBadRequest},
-		"宣言ゼロ":       {`{"per_week":3,"weekly_target":{"BICEPS":9},"selected_exercises":["barbell_curl"],"declared_exercises":[]}`, http.StatusBadRequest},
-		"宣言が選択にない":   {`{"per_week":3,"weekly_target":{"QUAD":12},"selected_exercises":["squat"],"declared_exercises":["bench"]}`, http.StatusBadRequest},
-		"重点種目が宣言にない": {`{"per_week":3,"weekly_target":{"QUAD":12},"selected_exercises":["squat","bench"],"declared_exercises":["squat"],"focus_exercise":"bench"}`, http.StatusBadRequest},
-		"選択が空":       {`{"per_week":3,"weekly_target":{"QUAD":12},"selected_exercises":[],"declared_exercises":[]}`, http.StatusBadRequest},
-		"JSONが壊れている": {`{`, http.StatusBadRequest},
-		"未知のフィールド":   {`{"per_week":3,"weekly_target":{"QUAD":12},"selected_exercises":["squat"],"declared_exercises":["squat"],"謎":1}`, http.StatusBadRequest},
-	}
-	for name, c := range cases {
-		t.Run(name, func(t *testing.T) {
-			rec := do(t, newServer(t, false), http.MethodPut, "/api/program", c.body)
-			if rec.Code != c.want {
-				t.Errorf("ステータスが誤り: %d（期待 %d）body=%s", rec.Code, c.want, rec.Body.String())
-			}
-		})
-	}
-}
-
 // 保存先に到達できないときは 503。500 と混ぜない。
 //
 // 後で送り直せば通るものを 500 で返すと、待ち行列が「送り直しても無駄」と
@@ -1100,12 +1295,12 @@ func TestGetSession_UnavailableIsNot500(t *testing.T) {
 		t.Fatalf("シードが不正: %v", err)
 	}
 	freq, _ := program.NewFrequency(3)
-	target, _ := seed.DefaultWeeklyTarget(freq)
+	target, _ := seed.DefaultWeeklyTarget(freq, mustVolume(t, 6, 3))
 	selected := make([]exercise.ExerciseID, 0, len(pool))
 	for _, e := range pool {
 		selected = append(selected, e.ID())
 	}
-	prog, err := program.NewProgram(freq, target, selected,
+	prog, err := program.NewProgram(freq, mustVolume(t, 6, 3), target, selected,
 		[]exercise.ExerciseID{"bench", "squat", "deadlift"}, "")
 	if err != nil {
 		t.Fatalf("プログラムが不正: %v", err)
@@ -1117,23 +1312,7 @@ func TestGetSession_UnavailableIsNot500(t *testing.T) {
 
 	logs := memory.NewSetLogRepository()
 	conditions := memory.NewConditionRepository()
-	var mux http.Handler = httpapi.NewHandler(
-		usecase.NewGetSession(unavailableExercises{}, logs, conditions, programs, planning.DefaultSessionPlanner()),
-		usecase.NewRecordSets(logs, unavailableExercises{}),
-		usecase.NewRecordConditions(conditions),
-		usecase.NewConfigureProgram(unavailableExercises{}, programs),
-		usecase.NewSetFocusExercise(programs, programs),
-		usecase.NewSetDeclaredExercises(programs, programs),
-		usecase.NewSetFrequency(programs, programs),
-		usecase.NewSetSelectedExercises(unavailableExercises{}, programs, programs),
-		usecase.NewSetWeeklyTarget(unavailableExercises{}, programs, programs),
-		usecase.NewSetSplitCycle(unavailableExercises{}, programs, programs),
-		usecase.NewGetProgram(programs),
-		usecase.NewDeleteSetLog(logs),
-		query.NewExercises(unavailableExercises{}),
-		query.NewHistory(logs, unavailableExercises{}),
-		query.NewStats(logs, unavailableExercises{}, programs, planning.DefaultOneRepMaxEstimator()),
-	).Routes()
+	mux := routesFrom(t, dependencies(unavailableExercises{}, logs, conditions, programs))
 	// 認証を通す。利用者を決めるのはミドルウェアなので、
 	// 生のルータを叩くと「利用者が無い」で 500 になり、
 	// ここで見たい分類が見えない。
@@ -1152,9 +1331,9 @@ func TestGetSession_UnavailableIsNot500(t *testing.T) {
 // 500 のときに内部のエラー文を返さないこと。
 // ドメインのエラーには種目IDや閾値が載っており、外に出す理由がない。
 func TestErrors_DoNotLeakInternals(t *testing.T) {
-	mux := newServer(t, false)
-	rec := do(t, mux, http.MethodPut, "/api/program",
-		`{"per_week":3,"weekly_target":{"QUAD":12},"selected_exercises":["無い種目"],"declared_exercises":["無い種目"]}`)
+	mux := newServer(t, true)
+	rec := do(t, mux, http.MethodPut, "/api/program/selected",
+		`{"selected_exercises":["bench","squat","deadlift","無い種目"]}`)
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("ステータスが誤り: %d", rec.Code)
 	}
@@ -1172,12 +1351,19 @@ func TestProgram_RoundTrips(t *testing.T) {
 		t.Errorf("未設定なのに 404 でない: %d", rec.Code)
 	}
 
-	body := `{"per_week":2,"weekly_target":{"CHEST_MID":12,"QUAD":12},` +
-		`"selected_exercises":["bench","squat","deadlift","incline_db_press"],` +
-		`"declared_exercises":["bench","squat","deadlift"],` +
-		`"focus_exercise":"bench"}`
-	if rec := do(t, mux, http.MethodPut, "/api/program", body); rec.Code != http.StatusNoContent {
-		t.Fatalf("設定に失敗: %d body=%s", rec.Code, rec.Body.String())
+	// 元は全置換の PUT /api/program で1度に設定していた（#123 で消した）。
+	// 未設定から設定する口はもう無い（初期プログラムはサインイン時に入る）
+	// ので、設定済みのサーバーに狭い口を順に当てて同じ状態を組む。
+	mux = newServer(t, true)
+	for _, step := range []struct{ path, body string }{
+		{"/api/program/frequency", `{"per_week":2}`},
+		{"/api/program/volume", `{"exercises_per_session":5,"sets_per_exercise":4}`},
+		{"/api/program/selected", `{"selected_exercises":["bench","squat","deadlift","incline_db_press"]}`},
+		{"/api/program/focus", `{"focus_exercise":"bench"}`},
+	} {
+		if rec := do(t, mux, http.MethodPut, step.path, step.body); rec.Code != http.StatusNoContent {
+			t.Fatalf("%s の設定に失敗: %d body=%s", step.path, rec.Code, rec.Body.String())
+		}
 	}
 
 	rec := do(t, mux, http.MethodGet, "/api/program", "")
@@ -1185,11 +1371,13 @@ func TestProgram_RoundTrips(t *testing.T) {
 		t.Fatalf("取得に失敗: %d", rec.Code)
 	}
 	var got struct {
-		PerWeek  int                `json:"per_week"`
-		Target   map[string]float64 `json:"weekly_target"`
-		Selected []string           `json:"selected_exercises"`
-		Declared []string           `json:"declared_exercises"`
-		Focus    *string            `json:"focus_exercise"`
+		PerWeek   int                `json:"per_week"`
+		Exercises int                `json:"exercises_per_session"`
+		Sets      int                `json:"sets_per_exercise"`
+		Target    map[string]float64 `json:"weekly_target"`
+		Selected  []string           `json:"selected_exercises"`
+		Declared  []string           `json:"declared_exercises"`
+		Focus     *string            `json:"focus_exercise"`
 	}
 	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
 		t.Fatalf("応答を解釈できない: %v", err)
@@ -1197,8 +1385,8 @@ func TestProgram_RoundTrips(t *testing.T) {
 	if got.PerWeek != 2 {
 		t.Errorf("頻度が往復していない: %d", got.PerWeek)
 	}
-	if got.Target["CHEST_MID"] != 12 {
-		t.Errorf("週目標が往復していない: %v", got.Target)
+	if got.Exercises != 5 || got.Sets != 4 {
+		t.Errorf("1回の量が往復していない: %d種目×%dセット", got.Exercises, got.Sets)
 	}
 	if len(got.Selected) != 4 {
 		t.Errorf("選択種目が往復していない: %v", got.Selected)
@@ -1255,6 +1443,19 @@ func TestGetSession_ClientDisconnectIsNot500(t *testing.T) {
 	}
 }
 
+// 週目標を手で変える口が無いこと。
+//
+// 週目標は補助セレクタの充足閾値であって利用者の設定ではない（D-139）。
+// 口が残っていると、頻度変更が上書きする値を一時的に書き換えられ、
+// 「設定できるように見えて保持されない」状態に戻る。
+func TestRoutes_HasNoWeeklyTargetEndpoint(t *testing.T) {
+	mux := newServer(t, true)
+	rec := do(t, mux, http.MethodPut, "/api/program/target", `{"weekly_target":{"QUAD":12}}`)
+	if rec.Code != http.StatusNotFound {
+		t.Errorf("週目標の口がまだ生きている: %d", rec.Code)
+	}
+}
+
 // メソッドが違えばルーティングされないこと。
 func TestRoutes_RejectWrongMethod(t *testing.T) {
 	mux := newServer(t, true)
@@ -1263,11 +1464,14 @@ func TestRoutes_RejectWrongMethod(t *testing.T) {
 		{http.MethodPut, "/api/set-logs"},
 		{http.MethodGet, "/api/conditions"},
 		{http.MethodPost, "/api/program"},
+		// 全置換の口は消した（#123）。splits を黙って落とすので、
+		// GET の応答をそのまま投げ返すと分割が消えていた。
+		{http.MethodPut, "/api/program"},
 		{http.MethodPost, "/api/program/focus"},
 		{http.MethodPost, "/api/program/declared"},
 		{http.MethodPost, "/api/program/frequency"},
+		{http.MethodPost, "/api/program/volume"},
 		{http.MethodPost, "/api/program/selected"},
-		{http.MethodPost, "/api/program/target"},
 		{http.MethodPost, "/api/program/split"},
 		{http.MethodPost, "/api/split-presets"},
 		{http.MethodPost, "/api/exercises"},
@@ -1306,12 +1510,12 @@ func TestGetSession_InternalErrorDoesNotLeak(t *testing.T) {
 		t.Fatalf("シードが不正: %v", err)
 	}
 	freq, _ := program.NewFrequency(3)
-	target, _ := seed.DefaultWeeklyTarget(freq)
+	target, _ := seed.DefaultWeeklyTarget(freq, mustVolume(t, 6, 3))
 	selected := make([]exercise.ExerciseID, 0, len(pool))
 	for _, e := range pool {
 		selected = append(selected, e.ID())
 	}
-	program, err := program.NewProgram(freq, target, selected, []exercise.ExerciseID{"bench", "squat", "deadlift"}, "")
+	program, err := program.NewProgram(freq, mustVolume(t, 6, 3), target, selected, []exercise.ExerciseID{"bench", "squat", "deadlift"}, "")
 	if err != nil {
 		t.Fatalf("プログラムが不正: %v", err)
 	}
@@ -1322,23 +1526,7 @@ func TestGetSession_InternalErrorDoesNotLeak(t *testing.T) {
 	logs := memory.NewSetLogRepository()
 	conditions := memory.NewConditionRepository()
 
-	var mux http.Handler = httpapi.NewHandler(
-		usecase.NewGetSession(brokenExercises{}, logs, conditions, programs, planning.DefaultSessionPlanner()),
-		usecase.NewRecordSets(logs, brokenExercises{}),
-		usecase.NewRecordConditions(conditions),
-		usecase.NewConfigureProgram(brokenExercises{}, programs),
-		usecase.NewSetFocusExercise(programs, programs),
-		usecase.NewSetDeclaredExercises(programs, programs),
-		usecase.NewSetFrequency(programs, programs),
-		usecase.NewSetSelectedExercises(brokenExercises{}, programs, programs),
-		usecase.NewSetWeeklyTarget(brokenExercises{}, programs, programs),
-		usecase.NewSetSplitCycle(brokenExercises{}, programs, programs),
-		usecase.NewGetProgram(programs),
-		usecase.NewDeleteSetLog(logs),
-		query.NewExercises(brokenExercises{}),
-		query.NewHistory(logs, brokenExercises{}),
-		query.NewStats(logs, brokenExercises{}, programs, planning.DefaultOneRepMaxEstimator()),
-	).Routes()
+	mux := routesFrom(t, dependencies(brokenExercises{}, logs, conditions, programs))
 	// 認証を通す。利用者を決めるのはミドルウェアなので、
 	// 生のルータを叩くと「利用者が無い」で 500 になり、
 	// ここで見たい分類が見えない。
@@ -1628,12 +1816,11 @@ func TestWrites_StopOnClientDisconnect(t *testing.T) {
 	for name, c := range map[string]struct{ method, path, body string }{
 		"set-logs":   {http.MethodPost, "/api/set-logs", `{"logs":[{"id":"d","date":"2026-08-17","exercise_id":"bench","weight_kg":85,"reps":8,"rir":2}]}`},
 		"conditions": {http.MethodPost, "/api/conditions", `{"conditions":[{"date":"2026-08-17","body_weight_kg":75}]}`},
-		"program":    {http.MethodPut, "/api/program", `{"per_week":3,"weekly_target":{"QUAD":12},"selected_exercises":["squat"],"declared_exercises":["squat"]}`},
 		"focus":      {http.MethodPut, "/api/program/focus", `{"focus_exercise":"bench"}`},
 		"declared":   {http.MethodPut, "/api/program/declared", `{"declared_exercises":["bench"]}`},
 		"frequency":  {http.MethodPut, "/api/program/frequency", `{"per_week":4}`},
+		"volume":     {http.MethodPut, "/api/program/volume", `{"exercises_per_session":5,"sets_per_exercise":4}`},
 		"selected":   {http.MethodPut, "/api/program/selected", `{"selected_exercises":["bench","squat","deadlift"]}`},
-		"target":     {http.MethodPut, "/api/program/target", `{"weekly_target":{"CHEST_MID":10,"QUAD":12}}`},
 		"split":      {http.MethodPut, "/api/program/split", `{"splits":[{"name":"全身","regions":[]}]}`},
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -1721,4 +1908,14 @@ func TestAPI_RequiresAuth(t *testing.T) {
 	if *reached {
 		t.Error("認証なしでハンドラへ到達した")
 	}
+}
+
+// mustVolume はテスト用の1回の量。
+func mustVolume(t *testing.T, exercises, sets int) program.SessionVolume {
+	t.Helper()
+	v, err := program.NewSessionVolume(exercises, sets)
+	if err != nil {
+		t.Fatalf("NewSessionVolume(%d, %d): %v", exercises, sets, err)
+	}
+	return v
 }

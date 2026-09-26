@@ -18,6 +18,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/dyoshyy/liftplan/internal/application/devsim"
 	"github.com/dyoshyy/liftplan/internal/application/query"
 	"github.com/dyoshyy/liftplan/internal/application/usecase"
 	"github.com/dyoshyy/liftplan/internal/domain/account"
@@ -237,23 +238,26 @@ func buildHandler(ctx context.Context) (http.Handler, func(), error) {
 
 	planner := planning.DefaultSessionPlanner()
 
-	handler := httpapi.NewHandler(
-		usecase.NewGetSession(exercises, logs, conditions, programs, planner),
-		usecase.NewRecordSets(logs, exercises),
-		usecase.NewRecordConditions(conditions),
-		usecase.NewConfigureProgram(exercises, programs),
-		usecase.NewSetFocusExercise(programs, programs),
-		usecase.NewSetDeclaredExercises(programs, programs),
-		usecase.NewSetFrequency(programs, programs),
-		usecase.NewSetSelectedExercises(exercises, programs, programs),
-		usecase.NewSetWeeklyTarget(exercises, programs, programs),
-		usecase.NewSetSplitCycle(exercises, programs, programs),
-		usecase.NewGetProgram(programs),
-		usecase.NewDeleteSetLog(logs),
-		query.NewExercises(exercises),
-		query.NewHistory(logs, exercises),
-		query.NewStats(logs, exercises, programs, planning.DefaultOneRepMaxEstimator()),
-	)
+	handler, err := httpapi.NewHandler(httpapi.Dependencies{
+		GetSession:       usecase.NewGetSession(exercises, logs, conditions, programs, planner),
+		RecordSets:       usecase.NewRecordSets(logs, exercises),
+		RecordConditions: usecase.NewRecordConditions(conditions),
+		SetFocus:         usecase.NewSetFocusExercise(programs, programs),
+		SetDeclared:      usecase.NewSetDeclaredExercises(exercises, programs, programs),
+		SetFrequency:     usecase.NewSetFrequency(programs, programs),
+		SetVolume:        usecase.NewSetSessionVolume(programs, programs),
+		SetSelected:      usecase.NewSetSelectedExercises(exercises, programs, programs),
+		SetSplit:         usecase.NewSetSplitCycle(exercises, programs, programs),
+		GetProgram:       usecase.NewGetProgram(programs),
+		DeleteSetLog:     usecase.NewDeleteSetLog(logs),
+		Exercises:        query.NewExercises(exercises),
+		History:          query.NewHistory(logs, exercises),
+		Stats:            query.NewStats(logs, exercises, programs, planning.DefaultOneRepMaxEstimator()),
+	})
+	if err != nil {
+		repos.close()
+		return nil, nil, err
+	}
 	mux := handler.Routes()
 
 	// /auth をルータに載せる。認証の外側ではなく内側（同じルータ）に
@@ -265,6 +269,12 @@ func buildHandler(ctx context.Context) (http.Handler, func(), error) {
 		return nil, nil, err
 	}
 	auth.Register(mux)
+
+	// シミュレーションの口もルータに載せる。認証の内側に入る。
+	if err := mountSimulation(mux, pool); err != nil {
+		repos.close()
+		return nil, nil, err
+	}
 
 	guarded, err := withAuth(ctx, mux, repos)
 	if err != nil {
@@ -564,5 +574,29 @@ func seedProgramIfMissing(
 		return fmt.Errorf("初期プログラムを保存できない: %w", err)
 	}
 	slog.Info("初期プログラムを保存した", "per_week", prog.Frequency().PerWeek())
+	return nil
+}
+
+// mountSimulation はシミュレーションの口をルータに足す。
+//
+// **認証の内側に置く。**#108 では認証の外に置いていた。捏造した設定で計画を
+// 作るだけで保存先も記録も触らないので、開発中に画面を1枚開くために本番の
+// 認証を用意させないための判断だった。本番から叩けるようにした時点で前提が
+// 変わる。外に置いたままだと、週7回×12週の導出を誰でも無料で回させる口に
+// なる。読むものも書くものも無いが、CPU は使う。
+//
+// 環境変数で取り付けを切り替えるのもやめた（`DEV_SIMULATION`）。あれは
+// 「設定漏れが公開につながらない」向きに倒すためのもので、認証の内側に
+// 入った時点で守る対象が無い。本番で立てる必要のあるフラグは、名前が
+// 「開発用」と言っている時点で嘘になる。
+//
+// **`Handler` には混ぜていない。**取り付けはここ1箇所で、消すときは
+// `internal/application/devsim/` とこの関数を消すだけ。
+func mountSimulation(mux *http.ServeMux, pool []*exercise.Exercise) error {
+	sim, err := devsim.NewSimulator(pool)
+	if err != nil {
+		return fmt.Errorf("シミュレーションの組み立てに失敗: %w", err)
+	}
+	httpapi.NewDevSimulation(sim).Mount(mux)
 	return nil
 }

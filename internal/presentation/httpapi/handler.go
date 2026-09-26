@@ -24,12 +24,11 @@ type Handler struct {
 	getSession       *usecase.GetSession
 	recordSets       *usecase.RecordSets
 	recordConditions *usecase.RecordConditions
-	configureProgram *usecase.ConfigureProgram
 	setFocus         *usecase.SetFocusExercise
 	setDeclared      *usecase.SetDeclaredExercises
 	setFrequency     *usecase.SetFrequency
+	setVolume        *usecase.SetSessionVolume
 	setSelected      *usecase.SetSelectedExercises
-	setTarget        *usecase.SetWeeklyTarget
 	setSplit         *usecase.SetSplitCycle
 	getProgram       *usecase.GetProgram
 	deleteSetLog     *usecase.DeleteSetLog
@@ -38,40 +37,90 @@ type Handler struct {
 	stats            *query.Stats
 }
 
-func NewHandler(
-	getSession *usecase.GetSession,
-	recordSets *usecase.RecordSets,
-	recordConditions *usecase.RecordConditions,
-	configureProgram *usecase.ConfigureProgram,
-	setFocus *usecase.SetFocusExercise,
-	setDeclared *usecase.SetDeclaredExercises,
-	setFrequency *usecase.SetFrequency,
-	setSelected *usecase.SetSelectedExercises,
-	setTarget *usecase.SetWeeklyTarget,
-	setSplit *usecase.SetSplitCycle,
-	getProgram *usecase.GetProgram,
-	deleteSetLog *usecase.DeleteSetLog,
-	exercises *query.Exercises,
-	history *query.History,
-	stats *query.Stats,
-) *Handler {
-	return &Handler{
-		getSession:       getSession,
-		recordSets:       recordSets,
-		recordConditions: recordConditions,
-		configureProgram: configureProgram,
-		setFocus:         setFocus,
-		setDeclared:      setDeclared,
-		setFrequency:     setFrequency,
-		setSelected:      setSelected,
-		setTarget:        setTarget,
-		setSplit:         setSplit,
-		getProgram:       getProgram,
-		deleteSetLog:     deleteSetLog,
-		exercises:        exercises,
-		history:          history,
-		stats:            stats,
+// Dependencies は Handler を組むための材料。
+//
+// 位置引数で受けていたときは、口を足す・消すたびに呼び出し5箇所の
+// 並びを書き直していた。名前で渡せば、触るのは足した1行だけで済む。
+type Dependencies struct {
+	GetSession       *usecase.GetSession
+	RecordSets       *usecase.RecordSets
+	RecordConditions *usecase.RecordConditions
+	SetFocus         *usecase.SetFocusExercise
+	SetDeclared      *usecase.SetDeclaredExercises
+	SetFrequency     *usecase.SetFrequency
+	SetVolume        *usecase.SetSessionVolume
+	SetSelected      *usecase.SetSelectedExercises
+	SetSplit         *usecase.SetSplitCycle
+	GetProgram       *usecase.GetProgram
+	DeleteSetLog     *usecase.DeleteSetLog
+	Exercises        *query.Exercises
+	History          *query.History
+	Stats            *query.Stats
+}
+
+// NewHandler は依存を受け取って Handler を組む。
+//
+// 欠けた依存があれば、ここで止める。位置引数なら渡し忘れはコンパイル
+// エラーだったが、構造体はゼロ値で通る。検査しないと、起動は成功して、
+// 欠けた口が初めて叩かれたときに nil 参照で落ちる。
+//
+// リフレクションで回さず1行ずつ並べているのは、将来「無くてもよい依存」が
+// 入ったときに、その行を書かないだけで済むようにするため。並べ忘れは
+// TestNewHandler_RejectsMissingDependency が全フィールドを回して捕まえる。
+func NewHandler(d Dependencies) (*Handler, error) {
+	switch {
+	case d.GetSession == nil:
+		return nil, errMissingDependency("GetSession")
+	case d.RecordSets == nil:
+		return nil, errMissingDependency("RecordSets")
+	case d.RecordConditions == nil:
+		return nil, errMissingDependency("RecordConditions")
+	case d.SetFocus == nil:
+		return nil, errMissingDependency("SetFocus")
+	case d.SetDeclared == nil:
+		return nil, errMissingDependency("SetDeclared")
+	case d.SetFrequency == nil:
+		return nil, errMissingDependency("SetFrequency")
+	case d.SetVolume == nil:
+		return nil, errMissingDependency("SetVolume")
+	case d.SetSelected == nil:
+		return nil, errMissingDependency("SetSelected")
+	case d.SetSplit == nil:
+		return nil, errMissingDependency("SetSplit")
+	case d.GetProgram == nil:
+		return nil, errMissingDependency("GetProgram")
+	case d.DeleteSetLog == nil:
+		return nil, errMissingDependency("DeleteSetLog")
+	case d.Exercises == nil:
+		return nil, errMissingDependency("Exercises")
+	case d.History == nil:
+		return nil, errMissingDependency("History")
+	case d.Stats == nil:
+		return nil, errMissingDependency("Stats")
 	}
+
+	return &Handler{
+		getSession:       d.GetSession,
+		recordSets:       d.RecordSets,
+		recordConditions: d.RecordConditions,
+		setFocus:         d.SetFocus,
+		setDeclared:      d.SetDeclared,
+		setFrequency:     d.SetFrequency,
+		setVolume:        d.SetVolume,
+		setSelected:      d.SetSelected,
+		setSplit:         d.SetSplit,
+		getProgram:       d.GetProgram,
+		deleteSetLog:     d.DeleteSetLog,
+		exercises:        d.Exercises,
+		history:          d.History,
+		stats:            d.Stats,
+	}, nil
+}
+
+// errMissingDependency は欠けた依存の名前をエラーに載せる。
+// 名前が無いと、14個のどれを直せばよいかが分からない。
+func errMissingDependency(field string) error {
+	return fmt.Errorf("httpapi.Dependencies.%s が設定されていない", field)
 }
 
 // clientClosedRequest はクライアントが応答を待たずに切断したことを表す。
@@ -83,7 +132,7 @@ const clientClosedRequest = 499
 //
 // 見るのは apperror.Error 1つだけ。ドメインのセンチネルをここで並べると、
 // センチネルを足すたびに presentation が動き、拾い漏らした分類が黙って
-// 500 になる。翻訳はユースケース層の classify が持つ。
+// 500 になる。翻訳は apperror.Classify が持つ。
 //
 // context の2つだけは別扱い。ユースケースを通らずに決まる転送層の事情で、
 // 応答の形も違う（切断はボディを返さない）。
@@ -149,12 +198,12 @@ func (h *Handler) handleGetSession(w http.ResponseWriter, r *http.Request) {
 	}
 	raw := r.URL.Query().Get("date")
 	if raw == "" {
-		writeError(w, http.StatusBadRequest, "date クエリパラメータが必要である")
+		respondError(w, invalidInput("date クエリパラメータが必要である"))
 		return
 	}
 	date, err := training.ParseDate(raw)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		respondError(w, invalidInput(err.Error()))
 		return
 	}
 
@@ -182,12 +231,12 @@ func (h *Handler) handlePostSetLogs(w http.ResponseWriter, r *http.Request) {
 	for i, dto := range req.Logs {
 		date, err := training.ParseDate(dto.Date)
 		if err != nil {
-			writeError(w, http.StatusBadRequest, fmt.Sprintf("logs[%d]: %v", i, err))
+			respondError(w, invalidInput(fmt.Sprintf("logs[%d]: %v", i, err)))
 			return
 		}
 		if dto.WeightKg == nil || dto.Reps == nil || dto.RIR == nil {
-			writeError(w, http.StatusBadRequest,
-				fmt.Sprintf("logs[%d]: weight_kg / reps / rir は必須である", i))
+			respondError(w, invalidInput(
+				fmt.Sprintf("logs[%d]: weight_kg / reps / rir は必須である", i)))
 			return
 		}
 		log, err := setlog.NewSetLog(setlog.SetLogParams{
@@ -199,7 +248,7 @@ func (h *Handler) handlePostSetLogs(w http.ResponseWriter, r *http.Request) {
 			RIR:         *dto.RIR,
 		})
 		if err != nil {
-			writeError(w, http.StatusBadRequest, fmt.Sprintf("logs[%d]: %v", i, err))
+			respondError(w, invalidInput(fmt.Sprintf("logs[%d]: %v", i, err)))
 			return
 		}
 		logs = append(logs, log)
@@ -227,7 +276,7 @@ func (h *Handler) handlePostConditions(w http.ResponseWriter, r *http.Request) {
 	for i, dto := range req.Conditions {
 		date, err := training.ParseDate(dto.Date)
 		if err != nil {
-			writeError(w, http.StatusBadRequest, fmt.Sprintf("conditions[%d]: %v", i, err))
+			respondError(w, invalidInput(fmt.Sprintf("conditions[%d]: %v", i, err)))
 			return
 		}
 		// ドメインは範囲外の値を「無かったこと」にする。1日ぶんの異常値で
@@ -238,22 +287,22 @@ func (h *Handler) handlePostConditions(w http.ResponseWriter, r *http.Request) {
 		if dto.BodyWeightKg != nil {
 			c = c.WithBodyWeight(*dto.BodyWeightKg)
 			if _, ok := c.BodyWeightKg(); !ok {
-				writeError(w, http.StatusBadRequest,
-					fmt.Sprintf("conditions[%d]: 体重が範囲外である: %v", i, *dto.BodyWeightKg))
+				respondError(w, invalidInput(
+					fmt.Sprintf("conditions[%d]: 体重が範囲外である: %v", i, *dto.BodyWeightKg)))
 				return
 			}
 		}
 		if dto.SleepHours != nil {
 			c = c.WithSleepHours(*dto.SleepHours)
 			if _, ok := c.SleepHours(); !ok {
-				writeError(w, http.StatusBadRequest,
-					fmt.Sprintf("conditions[%d]: 睡眠時間が範囲外である: %v", i, *dto.SleepHours))
+				respondError(w, invalidInput(
+					fmt.Sprintf("conditions[%d]: 睡眠時間が範囲外である: %v", i, *dto.SleepHours)))
 				return
 			}
 		}
 		if dto.BodyWeightKg == nil && dto.SleepHours == nil {
-			writeError(w, http.StatusBadRequest,
-				fmt.Sprintf("conditions[%d]: body_weight_kg か sleep_hours のどちらかが必要である", i))
+			respondError(w, invalidInput(
+				fmt.Sprintf("conditions[%d]: body_weight_kg か sleep_hours のどちらかが必要である", i)))
 			return
 		}
 		items = append(items, c)
@@ -279,28 +328,11 @@ func (h *Handler) handleGetProgram(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, toProgramDTO(prog))
 }
 
-func (h *Handler) handlePutProgram(w http.ResponseWriter, r *http.Request) {
-	user, ok := requireUser(w, r)
-	if !ok {
-		return
-	}
-	var req programDTO
-	if err := decodeJSON(r, &req); err != nil {
-		respondError(w, err)
-		return
-	}
-	if err := h.configureProgram.Execute(r.Context(), user, req.toInput()); err != nil {
-		respondError(w, err)
-		return
-	}
-	w.WriteHeader(http.StatusNoContent)
-}
-
 // handlePutProgramFocus は重点種目だけを差し替える。
 //
-// 全置換の PUT /api/program とは別の口にしてある。クライアントが週目標や
-// 選択種目を持ち回らずに済むので、契約がずれて 400 になる面も、正しく
-// 通ったまま他の設定を上書きする面も無い（D-127）。
+// 受け取るのは重点種目だけ。クライアントが週目標や選択種目を持ち回らずに
+// 済むので、契約がずれて 400 になる面も、正しく通ったまま他の設定を
+// 上書きする面も無い（D-127）。
 //
 // 未設定は 409。GET /api/program の 404 と違い、ここは「前提が満たされて
 // いない」という状態の衝突なので（D-042 の分類）。
@@ -375,6 +407,25 @@ func (h *Handler) handlePutProgramFrequency(w http.ResponseWriter, r *http.Reque
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// handlePutProgramVolume は1回の量を差し替える。週目標も道連れに置き直る
+// （頻度の口と同じ）。
+func (h *Handler) handlePutProgramVolume(w http.ResponseWriter, r *http.Request) {
+	user, ok := requireUser(w, r)
+	if !ok {
+		return
+	}
+	var req sessionVolumeDTO
+	if err := decodeJSON(r, &req); err != nil {
+		respondError(w, err)
+		return
+	}
+	if err := h.setVolume.Execute(r.Context(), user, req.ExercisesPerSession, req.SetsPerExercise); err != nil {
+		respondError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
 // handlePutProgramSelected は使う種目だけを差し替える。
 //
 // 伸ばしたい種目が外れる選択は 400。黙って宣言を削ると、軸の顔ぶれが
@@ -396,30 +447,6 @@ func (h *Handler) handlePutProgramSelected(w http.ResponseWriter, r *http.Reques
 	}
 
 	if err := h.setSelected.Execute(r.Context(), user, ids); err != nil {
-		respondError(w, err)
-		return
-	}
-	w.WriteHeader(http.StatusNoContent)
-}
-
-// handlePutProgramTarget は週目標だけを差し替える。
-func (h *Handler) handlePutProgramTarget(w http.ResponseWriter, r *http.Request) {
-	user, ok := requireUser(w, r)
-	if !ok {
-		return
-	}
-	var req targetDTO
-	if err := decodeJSON(r, &req); err != nil {
-		respondError(w, err)
-		return
-	}
-
-	sets := make(map[training.MuscleRegion]float64, len(req.Target))
-	for k, v := range req.Target {
-		sets[training.MuscleRegion(k)] = v
-	}
-
-	if err := h.setTarget.Execute(r.Context(), user, sets); err != nil {
 		respondError(w, err)
 		return
 	}

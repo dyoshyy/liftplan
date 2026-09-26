@@ -172,11 +172,21 @@ func sampleProgram(t *testing.T) *program.Program {
 	if err != nil {
 		t.Fatalf("NewWeeklyVolumeTarget: %v", err)
 	}
-	p, err := program.NewProgram(freq, target,
+	p, err := program.NewProgram(freq, mustVolume(t, 6, 3), target,
 		[]exercise.ExerciseID{"bench", "squat", "deadlift"},
 		[]exercise.ExerciseID{"bench", "squat"}, "bench")
 	if err != nil {
 		t.Fatalf("NewProgram: %v", err)
 	}
 	return p
+}
+
+// mustVolume はテスト用の1回の量。
+func mustVolume(t *testing.T, exercises, sets int) program.SessionVolume {
+	t.Helper()
+	v, err := program.NewSessionVolume(exercises, sets)
+	if err != nil {
+		t.Fatalf("NewSessionVolume(%d, %d): %v", exercises, sets, err)
+	}
+	return v
 }

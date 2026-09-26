@@ -10,11 +10,12 @@ status: 出発点。技術選定とメイン種目の組み立ては後続の仕
 | この仕様の記述 | いま | どこで |
 |---|---|---|
 | クライアントは Kotlin + Jetpack Compose、Health Connect 連携 | React + TypeScript の PWA。体重と睡眠は手入力 | `2026-09-07-pwa-client-design.md` |
-| メインは週内スロット（76/81/88%）で回す | 軸・バリエーション・補助の3レーン、各レーン定数 | D-126 |
-| バリエーションは対メイン係数で重量を出す | 派生も自分の記録から自分の推定1RMを持つ | D-113 |
-| 推定1RMにヒステリシス（2%以上動いたら変更） | 入れていない。重量は刻みへ丸められるので不要だった | D-014 |
-| 停滞を検知してデロードを提案する | やめた。落とすかどうかは本人が決める | D-124 |
-| 分析UIは MVP に入れない | 履歴の画面を戻した | D-127 |
+| メインは週内スロット（76/81/88%）で回す | 軸・バリエーション・補助の3レーン、各レーン定数 | `2026-09-10-focus-lift-variations-design.md`、強度の定数は `internal/domain/training/planning/lane_prescription.go` |
+| バリエーションは対メイン係数で重量を出す | 派生も自分の記録から自分の推定1RMを持つ | `internal/domain/training/seed/exercises.go` |
+| 推定1RMにヒステリシス（2%以上動いたら変更） | 入れていない。重量は刻みへ丸められるので不要だった | `internal/domain/training/planning/one_rep_max_estimator.go` |
+| 停滞を検知してデロードを提案する | やめた。落とすかどうかは本人が決める | `DeloadPolicy` 等一式を削除済み |
+| 分析UIは MVP に入れない | 履歴の画面を戻した | `docs/user-stories.md`（D節） |
+| 筋区分ごとの週目標セット数はプリセット同梱で、不満が出た区分だけ後から調整する | 手編集の口ごと廃止。頻度×1回の量（種目数×セット数）から導く | `internal/domain/training/program/session_volume.go`、`internal/domain/training/seed/weekly_target.go` |
 
 ---
 

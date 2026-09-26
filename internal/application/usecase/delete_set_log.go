@@ -25,7 +25,7 @@ func NewDeleteSetLog(repo setlog.Writer) *DeleteSetLog {
 func (u *DeleteSetLog) Execute(ctx context.Context, user account.UserID, id setlog.SetLogID) (err error) {
 	// 出口で1度だけ翻訳する。return ごとに書くと、経路が増えたときに
 	// 包み忘れた1本だけが 500 で返る。
-	defer func() { err = classify(err) }()
+	defer func() { err = apperror.Classify(err) }()
 
 	if id == "" {
 		return fmt.Errorf("%w: 取り消す記録のIDが無い", apperror.ErrInvalidInput)

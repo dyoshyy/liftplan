@@ -1,9 +1,8 @@
 // 設定の保存を実機で確かめる。
 //
-// **週に通う回数が一番影響が大きい。**週目標も置き直るので、保存のあとに
-// 画面が自分で取り直せないと空白になる。実際そこにバグがあった（描画時の
-// program を掴んだ関数が、setProgram(null) の直後でも古い値を見て
-// 抜けていた）。単体テストでは踏めない。
+// **週に通う回数が一番影響が大きい。**保存のあとに画面が自分で取り直せないと
+// 空白になる。実際そこにバグがあった（描画時の program を掴んだ関数が、
+// setProgram(null) の直後でも古い値を見て抜けていた）。単体テストでは踏めない。
 //
 // 使い方は scripts/ui-check.mjs と同じ。ポートは APP= と API= で渡す。
 const { chromium } = await import(process.env.PLAYWRIGHT ?? 'playwright-core');
@@ -36,22 +35,42 @@ await page.waitForTimeout(500);
 
 // 週に通う回数を変える（週目標も置き直るので、一番影響が大きい）
 const want = before.per_week === 3 ? 4 : 3;
-await page.selectOption('select', String(want));
+// aria-label で指す。'select' だと先頭の1つを掴むので、選択が増えると
+// 別の設定を黙って触る。
+const FREQ = 'select[aria-label="週に通う回数"]';
+await page.selectOption(FREQ, String(want));
 await page.waitForTimeout(2500);
 
 const after = await program();
 console.log('保存後: per_week =', after.per_week, '（期待', want, '）');
 console.log('他が壊れていないか: declared =', after.declared_exercises.length, '件 / selected =', after.selected_exercises.length, '件');
-console.log('週目標の区分数:', Object.keys(after.weekly_target).length);
+console.log('週目標の区分数:', Object.keys(after.weekly_target).length, '（利用者には出さない。サーバーが頻度から置き直す）');
 
 // 元に戻す
-await page.selectOption('select', String(before.per_week));
+await page.selectOption(FREQ, String(before.per_week));
 await page.waitForTimeout(2000);
 const restored = await program();
 console.log('戻した後: per_week =', restored.per_week);
 
+// 1回の量。頻度と同じく週目標も置き直るので、保存のあとに画面が取り直せる
+// ことを見る。片方の選択を変えたとき、もう片方が送られずに 0 で断られる
+// 配線ミス（400）もここで出る。
+await page.click('text=1回の量');
+await page.waitForTimeout(500);
+const EX = 'select[aria-label="1回の種目数"]';
+const wantEx = restored.exercises_per_session === 4 ? 5 : 4;
+await page.selectOption(EX, String(wantEx));
+await page.waitForTimeout(2500);
+const vol = await program();
+console.log('1回の量: ', vol.exercises_per_session, '種目 ×', vol.sets_per_exercise, 'セット（期待', wantEx, '種目 ×', restored.sets_per_exercise, 'セット）');
+await page.selectOption(EX, String(restored.exercises_per_session));
+await page.waitForTimeout(2000);
+const volRestored = await program();
+
 console.log('エラー:', errs.length ? errs.join('\n') : '(なし)');
-const ok = after.per_week === want && after.declared_exercises.length === before.declared_exercises.length && restored.per_week === before.per_week;
+const ok = after.per_week === want && after.declared_exercises.length === before.declared_exercises.length && restored.per_week === before.per_week
+  && vol.exercises_per_session === wantEx && vol.sets_per_exercise === restored.sets_per_exercise
+  && volRestored.exercises_per_session === restored.exercises_per_session;
 console.log(ok ? '\n✓ 設定の保存は壊れていない' : '\n✗ 壊れている');
 await browser.close();
 process.exit(ok ? 0 : 1);

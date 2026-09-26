@@ -21,19 +21,21 @@ type stubProvider struct {
 	name    account.Provider
 	authURL string
 	subject string
-	err     error
+	// email は確認済みとして渡されるアドレス。空なら渡さない。
+	email string
+	err   error
 	// calls はコード交換が呼ばれた回数。呼ばれてはいけない経路を押さえる。
 	calls int
 }
 
 func (p *stubProvider) Name() account.Provider          { return p.name }
 func (p *stubProvider) AuthCodeURL(state string) string { return p.authURL + "?state=" + state }
-func (p *stubProvider) Subject(_ context.Context, code string) (string, error) {
+func (p *stubProvider) Identity(_ context.Context, code string) (account.Identity, error) {
 	p.calls++
 	if p.err != nil {
-		return "", p.err
+		return account.Identity{}, p.err
 	}
-	return p.subject + ":" + code, nil
+	return account.NewIdentity(p.name, p.subject+":"+code, account.NewEmail(p.email))
 }
 
 type stubSignIn struct {
@@ -44,9 +46,9 @@ type stubSignIn struct {
 }
 
 func (s *stubSignIn) Execute(
-	_ context.Context, p account.Provider, subject string, _ time.Time,
+	_ context.Context, id account.Identity, _ time.Time,
 ) (account.SessionToken, error) {
-	s.seen = append(s.seen, p.String()+"/"+subject)
+	s.seen = append(s.seen, id.Provider().String()+"/"+id.Subject()+"/"+id.Email().String())
 	if s.err != nil {
 		return account.SessionToken{}, s.err
 	}
@@ -92,6 +94,7 @@ func githubProvider() *stubProvider {
 		name:    account.GitHub(),
 		authURL: "https://github.example/login/oauth/authorize",
 		subject: "12345",
+		email:   "me@example.com",
 	}
 }
 
@@ -171,7 +174,7 @@ func TestAuthCallback_RedirectsWithTheTokenInTheFragment(t *testing.T) {
 	if provider.calls != 1 {
 		t.Errorf("コード交換が %d 回。1回のはず", provider.calls)
 	}
-	if len(signIn.seen) != 1 || signIn.seen[0] != "github/12345:code-9" {
+	if len(signIn.seen) != 1 || signIn.seen[0] != "github/12345:code-9/me@example.com" {
 		t.Errorf("受け入れた identity が %v", signIn.seen)
 	}
 }

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"sort"
 
+	"github.com/dyoshyy/liftplan/internal/application/apperror"
 	"github.com/dyoshyy/liftplan/internal/domain/training"
 	"github.com/dyoshyy/liftplan/internal/domain/training/exercise"
 )
@@ -38,7 +39,10 @@ func NewExercises(repo exercise.Reader) *Exercises {
 	return &Exercises{repo: repo}
 }
 
-func (q *Exercises) All(ctx context.Context) ([]Exercise, error) {
+func (q *Exercises) All(ctx context.Context) (_ []Exercise, err error) {
+	// 出口で1度だけ翻訳する。usecase と同じ形。ここを通らない公開メソッドは、
+	// 一時障害を 500 で返す（#129）。
+	defer func() { err = apperror.Classify(err) }()
 	if err := ctx.Err(); err != nil {
 		return nil, fmt.Errorf("読み取りが中断された: %w", err)
 	}
