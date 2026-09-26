@@ -380,6 +380,11 @@ func (r *signInAccounts) FindUserByEmail(
 	return uid, nil
 }
 
+// FindByUser はログインでは使わない。口を満たすためだけに置く。
+func (r *signInAccounts) FindByUser(context.Context, account.UserID) ([]*account.Account, error) {
+	return nil, nil
+}
+
 func (r *signInAccounts) Create(_ context.Context, a *account.Account) error {
 	r.mu.Lock()
 	r.createCnt++
