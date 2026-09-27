@@ -180,8 +180,14 @@ const oldNameGone = (await page.getByText(CUSTOM, { exact: true }).count()) === 
 const newNameThere = (await page.getByText(RENAMED, { exact: true }).count()) === 1;
 console.log('直した後: name =', edited?.name, '（期待', RENAMED, '）/ 古い名前が消えた', oldNameGone, '/ 新しい名前が出た', newNameThere);
 
-// 消す。
+// 消す。1タップ目は確認待ちに入るだけで消えないこと（D-116同様、undo が
+// 無い操作は誤タップで即実行させない）。「本当に消す」まで押して初めて
+// DELETE が飛ぶ。
 await page.getByRole('button', { name: `${RENAMED}を消す` }).click();
+await page.waitForTimeout(500);
+const notYetDeleted = (await exercises()).exercises.find((e) => e.id === added?.id);
+console.log('1タップ目: まだ消えていない deleted =', notYetDeleted?.deleted, '（期待 undefined か false）');
+await page.getByRole('button', { name: `${RENAMED}を本当に消す` }).click();
 await page.waitForTimeout(2000);
 const deleted = (await exercises()).exercises.find((e) => e.id === added?.id);
 const removedFromList = (await page.getByText(RENAMED, { exact: true }).count()) === 0;
@@ -189,10 +195,14 @@ console.log('消した後: deleted =', deleted?.deleted, '/ 一覧から消え�
 
 const customOk = added !== undefined && added.stimulus.TRAP_MID === 1 && added.stimulus.LAT === 0.5
   && inList === 1 && addedInUse && edited?.name === RENAMED && oldNameGone && newNameThere
-  && deleted?.deleted === true && removedFromList;
+  && notYetDeleted?.deleted !== true && deleted?.deleted === true && removedFromList;
 
-// プリセット由来も消せる。
+// プリセット由来も消せる。同じく1タップ目では消えないことを見る。
 await page.getByRole('button', { name: `${PRESET}を消す`, exact: true }).click();
+await page.waitForTimeout(500);
+const presetNotYetDeleted = (await exercises()).exercises.find((e) => e.name === PRESET);
+console.log('プリセット1タップ目: まだ消えていない deleted =', presetNotYetDeleted?.deleted, '（期待 undefined か false）');
+await page.getByRole('button', { name: `${PRESET}を本当に消す`, exact: true }).click();
 await page.waitForTimeout(2000);
 const presetDeleted = (await exercises()).exercises.find((e) => e.name === PRESET);
 const presetGoneFromList = (await page.getByText(PRESET, { exact: true }).count()) === 0;
@@ -210,7 +220,8 @@ await page.waitForTimeout(800);
 const presetGoneFromUse = (await useGroup.locator('button', { hasText: new RegExp(`^✓?\\s*${PRESET}$`) }).count()) === 0;
 console.log('設定の使う種目から消えた:', presetGoneFromUse);
 
-const presetOk = presetInUseBefore && presetDeleted?.deleted === true && presetGoneFromList && presetGoneFromUse;
+const presetOk = presetInUseBefore && presetNotYetDeleted?.deleted !== true && presetDeleted?.deleted === true
+  && presetGoneFromList && presetGoneFromUse;
 await exHeader.click();
 await page.waitForTimeout(300);
 

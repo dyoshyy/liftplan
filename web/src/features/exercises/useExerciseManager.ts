@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { getJSON, send } from '../../api/client';
 import type { Exercise, Program } from '../../api/types';
 import { describePutFailure } from '../settings/useProgramSettings';
-import { draftBody, draftProblem, type ExerciseDraft } from './exerciseDraft';
+import { draftBody, draftProblem, nextDeleteStep, type ExerciseDraft } from './exerciseDraft';
 
 // 種目を管理する画面の手順を束ねる。
 //
@@ -18,6 +18,10 @@ export function useExerciseManager(onChanged: () => Promise<void>) {
   const [declared, setDeclared] = useState<string[]>([]);
   const [note, setNote] = useState('');
   const [busy, setBusy] = useState(false);
+  // pendingDeleteId は「消す」の確認待ちの種目。消した種目は直せない・
+  // 戻せない（undo が無い）ので、直すの隣の1タップで即消えないよう、同じ
+  // 種目をもう一度押すまでは実際には消さない（nextDeleteStep）。
+  const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
 
   useEffect(() => {
     void getJSON<Program>('/api/program')
@@ -91,6 +95,20 @@ export function useExerciseManager(onChanged: () => Promise<void>) {
     return true;
   };
 
+  // requestDelete は「消す」ボタンの送信口。決めるのは nextDeleteStep（判断）
+  // だけで、ここは決まった一手を実行するだけ（3層：判断は exerciseDraft.ts、
+  // 手順はここ、描画は ExerciseManager.tsx）。1タップ目は確認待ちに入るだけで
+  // 何も送らない。確認待ちの種目をもう一度押したときだけ実際に消す。
+  const requestDelete = async (id: string): Promise<boolean> => {
+    const step = nextDeleteStep(pendingDeleteId, id);
+    setPendingDeleteId(step.pendingId);
+    if (step.act !== 'confirm') return false;
+    return remove(id);
+  };
+
+  // cancelDelete は確認待ちを解く（「やめる」、もしくは足す・直すを開いたとき）。
+  const cancelDelete = () => setPendingDeleteId(null);
+
   // save は編集フォームの送信口。'new' か直す対象の種目かで add/edit に振り分ける。
   //
   // 描画（ExerciseManager.tsx）に分岐と await を持たせないための置き場所
@@ -98,5 +116,5 @@ export function useExerciseManager(onChanged: () => Promise<void>) {
   const save = (target: 'new' | Exercise, draft: ExerciseDraft): Promise<boolean> =>
     target === 'new' ? add(draft) : edit(target.id, draft);
 
-  return { declared, note, busy, save, remove };
+  return { declared, note, busy, save, pendingDeleteId, requestDelete, cancelDelete };
 }

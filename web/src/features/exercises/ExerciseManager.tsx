@@ -30,7 +30,7 @@ type Props = {
  * useExerciseManager、描画はここ）。
  */
 export function ExerciseManager({ exercises, onChanged, onBack }: Props) {
-  const { declared, note, busy, save, remove } = useExerciseManager(onChanged);
+  const { declared, note, busy, save, pendingDeleteId, requestDelete, cancelDelete } = useExerciseManager(onChanged);
   // null = 一覧、'new' = 足す、Exercise = 直す。フォームは足す・直すで共用する。
   const [target, setTarget] = useState<Exercise | 'new' | null>(null);
   const [draft, setDraft] = useState<ExerciseDraft>(emptyDraft);
@@ -38,11 +38,15 @@ export function ExerciseManager({ exercises, onChanged, onBack }: Props) {
   const openAdd = () => {
     setDraft(emptyDraft());
     setTarget('new');
+    // 消す前に足すを開いたら、確認待ちのままフォームへ移らせない。
+    cancelDelete();
   };
 
   const openEdit = (e: Exercise) => {
     setDraft(draftOf(e));
     setTarget(e);
+    // openAdd と同じ理由。別行の確認待ちを持ち越さない。
+    cancelDelete();
   };
 
   const alive = aliveExercises(exercises);
@@ -89,6 +93,7 @@ export function ExerciseManager({ exercises, onChanged, onBack }: Props) {
               <ul className="grid gap-2">
                 {group.items.map((e) => {
                   const why = deleteBlockedReason(declared, e.id);
+                  const confirmingDelete = pendingDeleteId === e.id;
                   return (
                     <li key={e.id} className="grid gap-1.5 rounded-xl border border-line bg-surface p-3">
                       <div className="flex min-w-0 items-center justify-between gap-2">
@@ -115,22 +120,48 @@ export function ExerciseManager({ exercises, onChanged, onBack }: Props) {
                           >
                             直す
                           </Button>
-                          <Button
-                            size="md"
-                            variant="danger"
-                            disabled={busy || why !== null}
-                            title={why ?? undefined}
-                            aria-label={`${e.name}を消す`}
-                            onClick={() => void remove(e.id)}
-                          >
-                            消す
-                          </Button>
+                          {confirmingDelete ? (
+                            <>
+                              <Button
+                                size="md"
+                                variant="quiet"
+                                disabled={busy}
+                                aria-label={`${e.name}を消すのをやめる`}
+                                onClick={cancelDelete}
+                              >
+                                やめる
+                              </Button>
+                              <Button
+                                size="md"
+                                variant="danger"
+                                disabled={busy}
+                                aria-label={`${e.name}を本当に消す`}
+                                onClick={() => void requestDelete(e.id)}
+                              >
+                                本当に消す
+                              </Button>
+                            </>
+                          ) : (
+                            <Button
+                              size="md"
+                              variant="danger"
+                              disabled={busy || why !== null}
+                              title={why ?? undefined}
+                              aria-label={`${e.name}を消す`}
+                              onClick={() => void requestDelete(e.id)}
+                            >
+                              消す
+                            </Button>
+                          )}
                         </div>
                       </div>
                       {/* title は指の操作では出ない（ホバーが無い）ので、
                           スマホでも読める場所にも同じ理由を出す
-                          （ProgramSettings の分割プリセットと同じ扱い）。 */}
-                      {why && <Note>{why}</Note>}
+                          （ProgramSettings の分割プリセットと同じ扱い）。
+                          消す確認中は理由を出す必要が無い（why が無いから
+                          確認に進めている）。 */}
+                      {why && !confirmingDelete && <Note>{why}</Note>}
+                      {confirmingDelete && <Note>本当に消しますか？消した種目は直せません（記録は残ります）</Note>}
                     </li>
                   );
                 })}

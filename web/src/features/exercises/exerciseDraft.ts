@@ -9,9 +9,11 @@ import { regionLabel } from '../../domain/regions';
 
 // サーバーと同じ上限。変えるときは exercise.maxStimulusRegions・
 // maxNameRunes・training.NewIncrement と揃える。寄与の下限 0.1 は
-// global-constraints の決めごとで、training.NewContribution 自体の下限
-// （量子化後に0に潰れない最小の正の値）よりゆるい。0.1 未満はサーバーが
-// 通しても、画面ではそこまで細かい寄与を選ばせない。
+// docs/specs/2026-09-26-custom-exercises-design.md「各区分 0.1〜1.0」の
+// 決めごとで、サーバーの exercise.NewExercise が課す下限とそのまま揃えて
+// ある（training.NewContribution 自体の下限はもっと低い＝量子化後に0に
+// 潰れない最小の正の値だが、それとは別にサーバーが 0.1 を課す）。画面が
+// ゆるく通してもサーバーの 400 で弾かれるだけなので、ここも同じ値にする。
 const MAX_NAME_RUNES = 40;
 const MAX_REGIONS = 8;
 const MIN_CONTRIBUTION = 0.1;
@@ -103,6 +105,21 @@ export const aliveExercises = (exercises: readonly Exercise[]): Exercise[] => ex
  *  サーバーも 409 で断る。押す前に読めたほうが、次に何をすればいいか分かる。 */
 export const deleteBlockedReason = (declared: readonly string[], id: string): string | null =>
   declared.includes(id) ? '伸ばしたい種目から外すと消せます' : null;
+
+/** DeleteStep は「消す」ボタンを押したときの次の一手。
+ *
+ *  act: 'arm' は確認待ちに入るだけで、まだ消さない。'confirm' は確認待ちの
+ *  種目をもう一度押したので、実際に消してよい。 */
+export type DeleteStep = { pendingId: string | null; act: 'arm' | 'confirm' };
+
+/** nextDeleteStep は「消す」ボタンを押したときの次の確認状態を決める。
+ *
+ *  直しに隣接した1タップでの誤爆を防ぐため（消した種目は直せない・戻せない）、
+ *  同じ id を続けて2回押したときだけ 'confirm' を返す。確認待ち中に別の id を
+ *  押したら、そちらを確認待ちにする（前の確認は流れる。一覧全体で確認待ちは
+ *  常に0か1個で、複数行を同時に確認待ちにしない）。 */
+export const nextDeleteStep = (pendingId: string | null, id: string): DeleteStep =>
+  pendingId === id ? { pendingId: null, act: 'confirm' } : { pendingId: id, act: 'arm' };
 
 /** stimulusSummary は一覧の1行に出す要約（例：`大腿四頭筋 1.0・臀筋 0.7・…`）。
  *
