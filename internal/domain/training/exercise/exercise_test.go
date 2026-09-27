@@ -115,17 +115,33 @@ func TestNewExercise_RejectsInvalidParams(t *testing.T) {
 	}
 }
 
-// 通常の NewExercise（シードが使う経路）は custom にも deleted にもならないこと。
-//
-// IsCustom は「共通の種目を消させない」判定に使う。ここが緑にならないと、
-// custom を true にしたまま NewExercise を返しても検査が通ってしまう。
-func TestNewExercise_IsNotCustomOrDeleted(t *testing.T) {
+// 通常の NewExercise（シードが使う経路）は生成直後は deleted にならないこと。
+func TestNewExercise_IsNotDeleted(t *testing.T) {
 	e := mustExercise(t, benchParams())
-	if e.IsCustom() {
-		t.Error("通常の種目が custom=true になっている")
-	}
 	if e.IsDeleted() {
 		t.Error("生成直後の種目が deleted=true になっている")
+	}
+}
+
+// NewRandomExerciseID は "u-" で始まる ID を採番し、2回呼べば別の値になること。
+//
+// プリセット由来かどうかで扱いを変えない設計では、利用者が足す種目も
+// NewExercise がそのまま受け取る。採番の性質（接頭辞・一意性）はここで
+// 固定しておく。
+func TestNewRandomExerciseID_HasThePrefixAndIsValid(t *testing.T) {
+	id, err := exercise.NewRandomExerciseID()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(string(id), exercise.CustomExerciseIDPrefix) || len(id) != 18 {
+		t.Errorf("ID の形が違う: %q", id)
+	}
+	other, err := exercise.NewRandomExerciseID()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if other == id {
+		t.Error("2回採番して同じ ID になった")
 	}
 }
 

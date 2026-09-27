@@ -17,8 +17,17 @@ import (
 const maxStimulusRegions = 8
 
 // maxNameRunes は種目名の上限（rune 数）。エラー文や画面に出るので置く。
-// custom_exercise.go の maxCustomNameRunes はこの値に寄せてある。
 const maxNameRunes = 40
+
+// CustomExerciseIDPrefix は利用者が足した種目の ID の接頭辞。
+//
+// シードの ID は英小文字と "_" だけなので、この接頭辞とは衝突しない
+// （seed の TestExercises_NoIDUsesTheCustomPrefix が守る）。
+const CustomExerciseIDPrefix = "u-"
+
+// primaryContribution は寄与1.0を表す値。hasFullContribution が、この値の
+// 区分が1つ以上あるかを見る。
+const primaryContribution = 1.0
 
 // ExerciseID は種目の同一性。
 // maxExerciseIDLen は種目IDの長さの上限。
@@ -132,8 +141,6 @@ type Exercise struct {
 	bodyweightFactor training.BodyweightFactor
 	derivedFrom      ExerciseID
 	hasDerivedFrom   bool
-	// custom はその利用者が足した種目か。共通の種目（シード）は false。
-	custom bool
 	// deleted は消したか。消した種目も記録と履歴の名前のために残る。
 	deleted bool
 }
@@ -212,9 +219,6 @@ func (e *Exercise) SameIdentity(o *Exercise) bool {
 	return e.id == o.id
 }
 
-// IsCustom は利用者が足した種目かを返す。共通の種目を消させない判定に使う。
-func (e *Exercise) IsCustom() bool { return e.custom }
-
 // IsDeleted は消した種目かを返す。
 func (e *Exercise) IsDeleted() bool { return e.deleted }
 
@@ -225,30 +229,10 @@ func (e *Exercise) Delete() *Exercise {
 	return &c
 }
 
-// PrimaryRegions は寄与1.0の区分をソートして返す。自分の種目の保存に使う。
-func (e *Exercise) PrimaryRegions() []training.MuscleRegion {
-	return e.regionsAt(primaryContribution)
-}
-
-// SecondaryRegions は寄与0.5の区分をソートして返す。自分の種目の保存に使う。
-func (e *Exercise) SecondaryRegions() []training.MuscleRegion {
-	return e.regionsAt(secondaryContribution)
-}
-
-func (e *Exercise) regionsAt(v float64) []training.MuscleRegion {
-	// nil ではなく空で始める。保存（jsonb）で null ではなく [] にするため。
-	out := []training.MuscleRegion{}
-	for _, r := range e.stimulus.Regions() {
-		if c, ok := e.stimulus.Contribution(r); ok && c.Float() == v {
-			out = append(out, r)
-		}
-	}
-	return out
-}
-
 // ExerciseEdit は種目を直す入力。直せるのは名前・効き方・刻みだけで、
 // ID・自重係数・派生元は元から引き継ぐ（プリセット由来かどうかで扱いを
-// 変えないため。global-constraints「直せるのは名前・効き方・刻み」）。
+// 変えないため。docs/specs/2026-09-26-custom-exercises-design.md
+// 「直した値を返すメソッドを1つにまとめ」）。
 type ExerciseEdit struct {
 	Name        string
 	Stimulus    map[training.MuscleRegion]float64
@@ -273,7 +257,6 @@ func (e *Exercise) Edit(p ExerciseEdit) (*Exercise, error) {
 	if err != nil {
 		return nil, err
 	}
-	edited.custom = e.custom
 	edited.deleted = e.deleted
 	return edited, nil
 }
