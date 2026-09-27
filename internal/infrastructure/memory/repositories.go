@@ -72,7 +72,8 @@ func (r *ExerciseRepository) FindAll(
 }
 
 // Save はその利用者の一覧に保存する。プリセット由来かどうかで扱いを
-// 変えない（IsCustom は見ない）。同じ ID は上書きする。
+// 変えない（IsCustom は見ない）。同じ ID は上書きする。FindAll 同様、
+// その利用者の最初の呼び出しならプリセットを入れてから保存する。
 func (r *ExerciseRepository) Save(_ context.Context, user account.UserID, e *exercise.Exercise) error {
 	if e == nil {
 		return errors.New("種目が nil である")

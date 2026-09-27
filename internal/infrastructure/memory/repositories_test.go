@@ -32,6 +32,20 @@ func mustCustom(t *testing.T, id, name string) *exercise.Exercise {
 	return e
 }
 
+// findByID はテストが特定の種目を確かめるための探索。
+//
+// FindAll の並びは全体で ID 昇順なので、末尾や先頭が目的の種目とは限らない。
+// 位置ではなく ID で探すことで、他の種目の有無や並びが変わってもテストの
+// 意図がぶれない。
+func findByID(list []*exercise.Exercise, id exercise.ExerciseID) *exercise.Exercise {
+	for _, e := range list {
+		if e.ID() == id {
+			return e
+		}
+	}
+	return nil
+}
+
 // stimulusMapOf は Edit の入力を組み立てるために、既存の種目から
 // 効き方をそのまま取り出す。テストが検証したいのは名前や刻みの上書きで、
 // 効き方を変える意図ではない。
@@ -235,8 +249,8 @@ func TestExerciseRepository_KeepsDeletedCustoms(t *testing.T) {
 	if len(got) != len(seedAll)+1 {
 		t.Fatalf("件数が誤り: got %d, want %d", len(got), len(seedAll)+1)
 	}
-	last := got[len(got)-1]
-	if !last.IsDeleted() || last.ID() != e.ID() {
+	mine := findByID(got, e.ID())
+	if mine == nil || !mine.IsDeleted() {
 		t.Errorf("消した種目が消えた状態で1件残っていない: %v", got)
 	}
 }
@@ -282,6 +296,46 @@ func TestExerciseRepository_SavesAnyExercise(t *testing.T) {
 		}
 	}
 	t.Fatalf("%s が見つからない", original.ID())
+}
+
+// 同じ種目を名前を変えずに Edit して再保存しても、自分自身との重複として
+// 弾かれないこと。重複チェックが自分の ID を除外し損なうと、名前を
+// 変えていない Save は全部 409 になる（Task 3 が Postgres 側に同名のケースを
+// 用意する）。
+func TestExerciseRepository_SaveKeepsItsOwnName(t *testing.T) {
+	ctx := context.Background()
+	repo := memory.NewExerciseRepository(nil)
+	a := newUser(t)
+
+	original := mustCustom(t, "u-000000000000000a", "アイソラテラル・ロー")
+	if err := repo.Save(ctx, a, original); err != nil {
+		t.Fatalf("最初の保存に失敗: %v", err)
+	}
+
+	edited, err := original.Edit(exercise.ExerciseEdit{
+		Name:        original.Name(),
+		Stimulus:    stimulusMapOf(original),
+		IncrementKg: original.Increment().Kg() + 2.5,
+	})
+	if err != nil {
+		t.Fatalf("Edit に失敗: %v", err)
+	}
+
+	if err := repo.Save(ctx, a, edited); err != nil {
+		t.Errorf("名前を変えていない自分自身の再保存が弾かれた: %v", err)
+	}
+
+	got, err := repo.FindAll(ctx, a)
+	if err != nil {
+		t.Fatalf("取得に失敗: %v", err)
+	}
+	back := findByID(got, original.ID())
+	if back == nil {
+		t.Fatalf("%s が見つからない", original.ID())
+	}
+	if back.Increment().Kg() != edited.Increment().Kg() {
+		t.Errorf("刻みが更新されていない: got %v, want %v", back.Increment().Kg(), edited.Increment().Kg())
+	}
 }
 
 // 消していない同じ名前は弾き、消した種目と同じ名前は通す（DB の部分一意
@@ -393,7 +447,10 @@ func TestExerciseRepository_SaveOverwritesTheSameID(t *testing.T) {
 	if len(got) != len(seedAll)+1 {
 		t.Fatalf("件数が誤り（上書きのはずが増えている）: got %d, want %d", len(got), len(seedAll)+1)
 	}
-	back := got[len(got)-1]
+	back := findByID(got, second.ID())
+	if back == nil {
+		t.Fatalf("%s が見つからない", second.ID())
+	}
 	if back.Name() != second.Name() || back.Increment().Kg() != second.Increment().Kg() ||
 		!slices.Equal(back.PrimaryRegions(), second.PrimaryRegions()) {
 		t.Errorf("2回目の値で上書きされていない: %+v", back)

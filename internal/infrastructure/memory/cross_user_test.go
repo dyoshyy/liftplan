@@ -169,8 +169,8 @@ func TestExerciseRepository_KeepsUsersApart(t *testing.T) {
 	}
 
 	gotA, _ := repo.FindAll(ctx, a)
-	if len(gotA) != len(seedAll)+1 || gotA[len(gotA)-1].ID() != mine.ID() {
-		t.Errorf("A の一覧に自分の種目が末尾に1件足されていない（%d 件）", len(gotA))
+	if len(gotA) != len(seedAll)+1 || findByID(gotA, mine.ID()) == nil {
+		t.Errorf("A の一覧に自分の種目が足されていない（%d 件）", len(gotA))
 	}
 	gotB, _ := repo.FindAll(ctx, b)
 	if len(gotB) != len(seedAll) {
