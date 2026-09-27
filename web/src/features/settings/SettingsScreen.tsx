@@ -17,6 +17,8 @@ type Props = {
   onChanged: () => Promise<void>;
   timer: RestTimer;
   onForget: () => void;
+  /** 種目マスタの編集は別ページ（歯車 → 種目 → 種目を管理する）。 */
+  onOpenExercises: () => void;
 };
 
 const STEP_MIN = 0.25;
@@ -26,7 +28,7 @@ const STEP_MIN = 0.25;
 // 「今日」の中に畳んで置いていたが、ジムで見る画面に毎日触らないものが
 // 同居していた。1日1回も開かないものが、セットの合間に見る画面の面積を
 // 取っているのは割に合わない。
-export function SettingsScreen({ nameOf, exercises, onChanged, timer, onForget }: Props) {
+export function SettingsScreen({ nameOf, exercises, onChanged, timer, onForget, onOpenExercises }: Props) {
   const [confirming, setConfirming] = useState(false);
   const { logout, busy } = useLogout(onForget);
   const logins = useAccount();
@@ -34,7 +36,12 @@ export function SettingsScreen({ nameOf, exercises, onChanged, timer, onForget }
 
   return (
     <>
-      <ProgramSettings nameOf={nameOf} exercises={exercises} onChanged={onChanged} />
+      <ProgramSettings
+        nameOf={nameOf}
+        exercises={exercises}
+        onChanged={onChanged}
+        onOpenExercises={onOpenExercises}
+      />
 
       <Section title="休憩の長さ" summary={`${Math.round((timer.durationSec / 60) * 100) / 100}分`}>
         <Stepper

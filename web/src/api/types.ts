@@ -80,6 +80,8 @@ export type Exercise = {
   /** stimulus は各筋区分への刺激。画面が種目を部位ごとにまとめるのに使う。
    *  どれを代表に選ぶかは表示の判断なので、サーバーは分布のまま返す。 */
   stimulus: Record<string, number>;
+  /** deleted は消した種目か。履歴の名前のために返ってくる。設定の一覧には出さない。 */
+  deleted?: boolean;
 };
 
 export type ExercisesResponse = { exercises: Exercise[] };
