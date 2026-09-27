@@ -6,6 +6,7 @@ package memory
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sort"
 	"sync"
@@ -17,25 +18,67 @@ import (
 	"github.com/dyoshyy/liftplan/internal/domain/training/setlog"
 )
 
-// ExerciseRepository は種目マスタを保持する。起動時にシードを流し込む。
+// ExerciseRepository は種目を保持する。共通の種目は起動時にシードを
+// 流し込み、利用者が足した種目は利用者ごとの map に持つ。
 type ExerciseRepository struct {
-	mu  sync.RWMutex
-	all []*exercise.Exercise
+	mu     sync.RWMutex
+	seed   []*exercise.Exercise
+	byUser map[account.UserID]map[exercise.ExerciseID]*exercise.Exercise
 }
 
-func NewExerciseRepository(all []*exercise.Exercise) *ExerciseRepository {
-	copied := make([]*exercise.Exercise, len(all))
-	copy(copied, all)
-	return &ExerciseRepository{all: copied}
+func NewExerciseRepository(seed []*exercise.Exercise) *ExerciseRepository {
+	copied := make([]*exercise.Exercise, len(seed))
+	copy(copied, seed)
+	return &ExerciseRepository{
+		seed:   copied,
+		byUser: map[account.UserID]map[exercise.ExerciseID]*exercise.Exercise{},
+	}
 }
 
-func (r *ExerciseRepository) FindAll(context.Context) ([]*exercise.Exercise, error) {
+// FindAll はシード（生成時の順）の後ろに、その利用者の種目を ID 昇順で
+// 並べて返す。
+func (r *ExerciseRepository) FindAll(
+	_ context.Context, user account.UserID,
+) ([]*exercise.Exercise, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
-	out := make([]*exercise.Exercise, len(r.all))
-	copy(out, r.all)
+	mine := r.byUser[user]
+	out := make([]*exercise.Exercise, 0, len(r.seed)+len(mine))
+	out = append(out, r.seed...)
+	ids := make([]exercise.ExerciseID, 0, len(mine))
+	for id := range mine {
+		ids = append(ids, id)
+	}
+	sort.Slice(ids, func(i, j int) bool { return ids[i] < ids[j] })
+	for _, id := range ids {
+		out = append(out, mine[id])
+	}
 	return out, nil
+}
+
+// Save は利用者が足した種目を保存する。同じ ID は上書きする。
+func (r *ExerciseRepository) Save(_ context.Context, user account.UserID, e *exercise.Exercise) error {
+	if e == nil || !e.IsCustom() {
+		return errors.New("共通の種目は保存できない")
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	mine := r.byUser[user]
+	if mine == nil {
+		mine = map[exercise.ExerciseID]*exercise.Exercise{}
+		r.byUser[user] = mine
+	}
+	if !e.IsDeleted() {
+		for id, other := range mine {
+			if id != e.ID() && !other.IsDeleted() && other.Name() == e.Name() {
+				return fmt.Errorf("%w: %s", exercise.ErrDuplicateExerciseName, e.Name())
+			}
+		}
+	}
+	mine[e.ID()] = e
+	return nil
 }
 
 // SetLogRepository は実績ログを「所有者とID」のキーで保持する。

@@ -112,6 +112,10 @@ type Exercise struct {
 	bodyweightFactor training.BodyweightFactor
 	derivedFrom      ExerciseID
 	hasDerivedFrom   bool
+	// custom はその利用者が足した種目か。共通の種目（シード）は false。
+	custom bool
+	// deleted は消したか。消した種目も記録と履歴の名前のために残る。
+	deleted bool
 }
 
 func NewExercise(p ExerciseParams) (*Exercise, error) {
@@ -180,4 +184,38 @@ func (e *Exercise) SameIdentity(o *Exercise) bool {
 		return false
 	}
 	return e.id == o.id
+}
+
+// IsCustom は利用者が足した種目かを返す。共通の種目を消させない判定に使う。
+func (e *Exercise) IsCustom() bool { return e.custom }
+
+// IsDeleted は消した種目かを返す。
+func (e *Exercise) IsDeleted() bool { return e.deleted }
+
+// Delete は消した状態の新しい種目を返す。元は変えない。
+func (e *Exercise) Delete() *Exercise {
+	c := *e
+	c.deleted = true
+	return &c
+}
+
+// PrimaryRegions は寄与1.0の区分をソートして返す。自分の種目の保存に使う。
+func (e *Exercise) PrimaryRegions() []training.MuscleRegion {
+	return e.regionsAt(primaryContribution)
+}
+
+// SecondaryRegions は寄与0.5の区分をソートして返す。自分の種目の保存に使う。
+func (e *Exercise) SecondaryRegions() []training.MuscleRegion {
+	return e.regionsAt(secondaryContribution)
+}
+
+func (e *Exercise) regionsAt(v float64) []training.MuscleRegion {
+	// nil ではなく空で始める。保存（jsonb）で null ではなく [] にするため。
+	out := []training.MuscleRegion{}
+	for _, r := range e.stimulus.Regions() {
+		if c, ok := e.stimulus.Contribution(r); ok && c.Float() == v {
+			out = append(out, r)
+		}
+	}
+	return out
 }

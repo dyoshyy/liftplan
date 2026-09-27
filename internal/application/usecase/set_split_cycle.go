@@ -67,7 +67,7 @@ func (u *SetSplitCycle) Execute(ctx context.Context, user account.UserID, cycle 
 		return fmt.Errorf("分割の保存が中断された: %w", err)
 	}
 
-	pool, err := u.exercises.FindAll(ctx)
+	pool, err := u.exercises.FindAll(ctx, user)
 	if err != nil {
 		return fmt.Errorf("種目の取得に失敗: %w", err)
 	}

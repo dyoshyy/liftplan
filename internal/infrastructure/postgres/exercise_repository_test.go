@@ -1,24 +1,27 @@
-package memory_test
+package postgres_test
 
 import (
 	"context"
 	"errors"
-	"fmt"
 	"slices"
-	"sync"
 	"testing"
-	"time"
 
+	"github.com/dyoshyy/liftplan/internal/domain/account"
 	"github.com/dyoshyy/liftplan/internal/domain/training"
 	"github.com/dyoshyy/liftplan/internal/domain/training/exercise"
 	"github.com/dyoshyy/liftplan/internal/domain/training/seed"
-	"github.com/dyoshyy/liftplan/internal/infrastructure/memory"
-
-	"github.com/dyoshyy/liftplan/internal/domain/training/condition"
-	"github.com/dyoshyy/liftplan/internal/domain/training/setlog"
+	"github.com/dyoshyy/liftplan/internal/infrastructure/postgres"
 )
 
-var day = training.MustDate(2026, time.August, 17)
+// newUser はテスト用の利用者ID。呼ぶたびに別人になる。
+func newUser(t *testing.T) account.UserID {
+	t.Helper()
+	id, err := account.NewRandomUserID()
+	if err != nil {
+		t.Fatalf("UserID が作れない: %v", err)
+	}
+	return id
+}
 
 func mustCustom(t *testing.T, id, name string) *exercise.Exercise {
 	t.Helper()
@@ -32,131 +35,91 @@ func mustCustom(t *testing.T, id, name string) *exercise.Exercise {
 	return e
 }
 
-func mkSetLog(t *testing.T, id string, kg float64) *setlog.SetLog {
-	t.Helper()
-	l, err := setlog.NewSetLog(setlog.SetLogParams{
-		ID: id, PerformedOn: day, ExerciseID: "bench",
-		WeightKg: kg, Reps: 9, RIR: 2,
+func TestExerciseRepository_SavesAndReadsBack(t *testing.T) {
+	ctx := context.Background()
+	seedAll, _ := seed.Exercises()
+	repo := postgres.NewExerciseRepository(migratedDB(t), seedAll)
+
+	e, err := exercise.NewCustomExercise(exercise.CustomExerciseParams{
+		ID: "u-000000000000000a", Name: "アイソラテラル・ロー",
+		Primary:     []training.MuscleRegion{training.TrapMid},
+		Secondary:   []training.MuscleRegion{training.Lat, training.Biceps},
+		IncrementKg: 2.5,
 	})
 	if err != nil {
-		t.Fatalf("ログ生成に失敗: %v", err)
+		t.Fatal(err)
 	}
-	return l
-}
+	if err := repo.Save(ctx, userA(t), e); err != nil {
+		t.Fatal(err)
+	}
 
-func TestExerciseRepository_ReturnsSeed(t *testing.T) {
-	all, err := seed.Exercises()
+	got, err := repo.FindAll(ctx, userA(t))
 	if err != nil {
-		t.Fatalf("シードが不正: %v", err)
+		t.Fatal(err)
 	}
-	repo := memory.NewExerciseRepository(all)
-
-	got, err := repo.FindAll(context.Background(), userA(t))
-	if err != nil {
-		t.Fatalf("取得に失敗: %v", err)
+	if len(got) != len(seedAll)+1 {
+		t.Fatalf("%d 件（期待 %d）", len(got), len(seedAll)+1)
 	}
-	if len(got) != len(all) {
-		t.Errorf("件数が誤り: got %d, want %d", len(got), len(all))
-	}
-}
-
-// FindAll が返す値がリポジトリ内部の状態をエイリアスしないこと。
-func TestExerciseRepository_DoesNotAliasItsState(t *testing.T) {
-	pool, err := seed.Exercises()
-	if err != nil {
-		t.Fatalf("シードが不正: %v", err)
-	}
-	repo := memory.NewExerciseRepository(pool)
-
-	// 呼び出し側がスライスを壊しても、次の取得に影響しない。
-	got, _ := repo.FindAll(context.Background(), userA(t))
-	for i := range got {
-		got[i] = nil
-	}
-
-	again, _ := repo.FindAll(context.Background(), userA(t))
-	for i, e := range again {
-		if e == nil {
-			t.Fatalf("%d番目が nil になっている", i)
-		}
-	}
-
-	// コンストラクタに渡したスライスを後から壊しても影響しない。
-	pool[0] = nil
-	third, _ := repo.FindAll(context.Background(), userA(t))
-	if third[0] == nil {
-		t.Error("コンストラクタの引数をエイリアスしている")
+	back := got[len(got)-1]
+	if back.ID() != e.ID() || back.Name() != e.Name() || !back.IsCustom() || back.IsDeleted() ||
+		back.Increment().Kg() != 2.5 ||
+		!slices.Equal(back.PrimaryRegions(), e.PrimaryRegions()) ||
+		!slices.Equal(back.SecondaryRegions(), e.SecondaryRegions()) {
+		t.Errorf("読み戻した種目が違う: %+v", back)
 	}
 }
 
-// Save と FindAll を並行に呼んでも壊れないこと。
-func TestRepositories_AreSafeForConcurrentUse(t *testing.T) {
-	logs := memory.NewSetLogRepository()
-	conditions := memory.NewConditionRepository()
-	programs := memory.NewProgramRepository()
-	ctx := context.Background()
-	user := userA(t)
-
-	var wg sync.WaitGroup
-	for i := range 16 {
-		wg.Add(1)
-		go func(i int) {
-			defer wg.Done()
-			_ = logs.Save(ctx, user, []*setlog.SetLog{mkSetLog(t, fmt.Sprintf("c%03d", i), 85)})
-			_, _ = logs.FindAll(ctx, user)
-			_ = conditions.Save(ctx, user, []condition.DailyCondition{
-				condition.NewDailyCondition(day.AddDays(-i)).WithBodyWeight(75),
-			})
-			_, _ = conditions.FindAll(ctx, user)
-			_, _ = programs.Get(ctx, user)
-		}(i)
-	}
-	wg.Wait()
-
-	if logs.Size(user) != 16 {
-		t.Errorf("並行保存で件数が合わない: %d", logs.Size(user))
-	}
-	if conditions.Size(user) != 16 {
-		t.Errorf("並行保存で件数が合わない: %d", conditions.Size(user))
-	}
-}
-
+// 消すのは論理削除。消した後も1件残り、IsDeleted() が立つこと。
 func TestExerciseRepository_KeepsDeletedCustoms(t *testing.T) {
 	ctx := context.Background()
-	repo := memory.NewExerciseRepository(nil)
+	seedAll, _ := seed.Exercises()
+	repo := postgres.NewExerciseRepository(migratedDB(t), seedAll)
 	a := newUser(t)
 	e := mustCustom(t, "u-000000000000000a", "アイソラテラル・ロー")
-	_ = repo.Save(ctx, a, e)
-	_ = repo.Save(ctx, a, e.Delete())
+	if err := repo.Save(ctx, a, e); err != nil {
+		t.Fatal(err)
+	}
+	if err := repo.Save(ctx, a, e.Delete()); err != nil {
+		t.Fatal(err)
+	}
 
-	got, _ := repo.FindAll(ctx, a)
-	if len(got) != 1 || !got[0].IsDeleted() {
-		t.Errorf("消した種目が消えた状態で1件残っていない: %v", got)
+	got, err := repo.FindAll(ctx, a)
+	if err != nil {
+		t.Fatal(err)
+	}
+	custom := got[len(got)-1]
+	if len(got) != len(seedAll)+1 || !custom.IsDeleted() {
+		t.Errorf("消した種目が消えた状態で1件残っていない: %+v", custom)
 	}
 }
 
 func TestExerciseRepository_RefusesSeedExercises(t *testing.T) {
 	seedAll, _ := seed.Exercises()
-	repo := memory.NewExerciseRepository(seedAll)
+	repo := postgres.NewExerciseRepository(migratedDB(t), seedAll)
 	if err := repo.Save(context.Background(), newUser(t), seedAll[0]); err == nil {
 		t.Error("共通の種目を保存できてしまった")
 	}
 }
 
 // 消していない同じ名前は弾き、消した種目と同じ名前は通す（DB の部分一意
-// 索引と同じふるまい）。
+// 索引と同じふるまい）。memory 側の同名テストと同じ3手順。
 func TestExerciseRepository_NameIsUniqueAmongAliveCustoms(t *testing.T) {
 	ctx := context.Background()
-	repo := memory.NewExerciseRepository(nil)
+	seedAll, _ := seed.Exercises()
+	repo := postgres.NewExerciseRepository(migratedDB(t), seedAll)
 	a := newUser(t)
 	first := mustCustom(t, "u-000000000000000a", "アイソラテラル・ロー")
-	_ = repo.Save(ctx, a, first)
+	if err := repo.Save(ctx, a, first); err != nil {
+		t.Fatal(err)
+	}
 
 	dup := mustCustom(t, "u-000000000000000b", "アイソラテラル・ロー")
 	if err := repo.Save(ctx, a, dup); !errors.Is(err, exercise.ErrDuplicateExerciseName) {
 		t.Errorf("同名が通った: %v", err)
 	}
-	_ = repo.Save(ctx, a, first.Delete())
+	if err := repo.Save(ctx, a, first.Delete()); err != nil {
+		t.Fatal(err)
+	}
 	if err := repo.Save(ctx, a, dup); err != nil {
 		t.Errorf("消した種目と同名が弾かれた: %v", err)
 	}
@@ -167,7 +130,7 @@ func TestExerciseRepository_NameIsUniqueAmongAliveCustoms(t *testing.T) {
 func TestExerciseRepository_OrdersCustomsByIDRegardlessOfSaveOrder(t *testing.T) {
 	ctx := context.Background()
 	seedAll, _ := seed.Exercises()
-	repo := memory.NewExerciseRepository(seedAll)
+	repo := postgres.NewExerciseRepository(migratedDB(t), seedAll)
 	a := newUser(t)
 
 	second := mustCustom(t, "u-000000000000000b", "アイソラテラル・ロー")
@@ -197,7 +160,8 @@ func TestExerciseRepository_OrdersCustomsByIDRegardlessOfSaveOrder(t *testing.T)
 // 名前・部位・刻みも含めて、2回目の値だけが残ること。
 func TestExerciseRepository_SaveOverwritesTheSameID(t *testing.T) {
 	ctx := context.Background()
-	repo := memory.NewExerciseRepository(nil)
+	seedAll, _ := seed.Exercises()
+	repo := postgres.NewExerciseRepository(migratedDB(t), seedAll)
 	a := newUser(t)
 
 	first, err := exercise.NewCustomExercise(exercise.CustomExerciseParams{

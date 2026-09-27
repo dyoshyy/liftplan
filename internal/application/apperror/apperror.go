@@ -65,6 +65,25 @@ var (
 	// ErrConflict は同じIDで内容の違う記録が既にあること。
 	ErrConflict = newError("CONFLICT", "記録が衝突している", http.StatusConflict)
 
+	// ErrDuplicateName は同じ名前の種目が既にあること。
+	//
+	// ドメインの exercise.ErrDuplicateExerciseName と文言を揃えない。
+	// Classify がこれを "%w: %w" でドメインのエラーの前に付けるので、
+	// 同じ文言だと「同じ名前の種目がある: 同じ名前の種目がある: サイドレイズ」
+	// と重複する。ErrConflict と同じく、ここでは「足せない」だけ言い、
+	// 中身の説明はドメイン側に任せる。
+	ErrDuplicateName = newError("DUPLICATE_NAME", "種目を足せない", http.StatusConflict)
+
+	// ErrExerciseNotFound は消そうとした種目が無いこと。共通の種目と
+	// 他人の種目もここに入る（その利用者から見て「消せる種目」が無い）。
+	ErrExerciseNotFound = newError("EXERCISE_NOT_FOUND", "種目が見つからない", http.StatusNotFound)
+
+	// ErrStillDeclared は伸ばしたい種目に入っている種目を消そうとしたこと。
+	//
+	// 黙って宣言から外さない。伸ばしたい種目が0個になりうるのと、軸の
+	// 顔ぶれが変わっても気づけないため（Program.WithSelected と同じ理由）。
+	ErrStillDeclared = newError("STILL_DECLARED", "伸ばしたい種目に入っている種目は消せない", http.StatusConflict)
+
 	// ErrUnavailable は保存先に到達できないこと。
 	//
 	// 500 と分けるのは、後で送り直せば通るから。混ぜるとクライアントが

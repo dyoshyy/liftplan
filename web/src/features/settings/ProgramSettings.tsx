@@ -1,6 +1,8 @@
 import { focusOptions, NO_FOCUS } from '../today/focus';
 import { lockedSelected } from '../today/declared';
 import { ExercisePicker } from './ExercisePicker';
+import { CustomExercises } from './CustomExercises';
+import { aliveExercises } from './customExercise';
 import { isWholeBody, scheduleSummary } from './split';
 import { exercisesSummary, useProgramSettings } from './useProgramSettings';
 import { Button } from '../../ui/Button';
@@ -35,7 +37,10 @@ type Props = {
  * メニューは変わらないまま「変えたつもり」になる。失敗しても記録は
  * 1件も失わないので、その場で成否を見せるほうが正直。
  */
-export function ProgramSettings({ nameOf, exercises, onChanged }: Props) {
+export function ProgramSettings({ nameOf, exercises: all, onChanged }: Props) {
+  // 消した種目はサーバーから返ってくる（履歴の名前のため）が、ここでは選べない。
+  const exercises = aliveExercises(all);
+  const mine = exercises.filter((e) => e.custom);
   const {
     program,
     note,
@@ -49,6 +54,8 @@ export function ProgramSettings({ nameOf, exercises, onChanged }: Props) {
     splitOptions,
     splitKey,
     chooseSplit,
+    addCustomExercise,
+    deleteCustomExercise,
   } = useProgramSettings(onChanged);
 
   return (
@@ -181,6 +188,23 @@ export function ProgramSettings({ nameOf, exercises, onChanged }: Props) {
             lockedReason={lockedSelected(program.selected_exercises, program.declared_exercises)}
             disabled={busy}
             onToggle={(id) => void toggleSelectedExercise(id)}
+          />
+        )}
+
+        <p className="mt-6 text-[13px] font-bold">自分の種目</p>
+        <Note className="mb-3 mt-1">
+          一覧に無い器具を足せます。効く部位を選ぶと、ほかの種目と同じように
+          補助として出ます。足した種目は「使う種目」に入ります。
+          消しても、これまでの記録と履歴は残ります。
+        </Note>
+
+        {program && (
+          <CustomExercises
+            mine={mine}
+            declared={program.declared_exercises}
+            busy={busy}
+            onAdd={addCustomExercise}
+            onDelete={(id) => void deleteCustomExercise(id)}
           />
         )}
 

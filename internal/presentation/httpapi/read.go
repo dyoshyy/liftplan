@@ -26,7 +26,11 @@ const defaultHistoryDays = 56
 const maxHistoryDays = 400
 
 func (h *Handler) handleGetExercises(w http.ResponseWriter, r *http.Request) {
-	items, err := h.exercises.All(r.Context())
+	user, ok := requireUser(w, r)
+	if !ok {
+		return
+	}
+	items, err := h.exercises.All(r.Context(), user)
 	if err != nil {
 		respondError(w, err)
 		return
@@ -34,17 +38,7 @@ func (h *Handler) handleGetExercises(w http.ResponseWriter, r *http.Request) {
 
 	out := make([]exerciseDTO, 0, len(items))
 	for _, e := range items {
-		stimulus := make(map[string]float64, len(e.Stimulus))
-		for region, c := range e.Stimulus {
-			stimulus[string(region)] = c
-		}
-
-		out = append(out, exerciseDTO{
-			ID:          string(e.ID),
-			Name:        e.Name,
-			IncrementKg: e.IncrementKg,
-			Stimulus:    stimulus,
-		})
+		out = append(out, exerciseDTOFrom(e))
 	}
 	writeJSON(w, http.StatusOK, exercisesResponse{Exercises: out})
 }

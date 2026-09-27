@@ -5,6 +5,7 @@
 package httpapi
 
 import (
+	"github.com/dyoshyy/liftplan/internal/application/query"
 	"github.com/dyoshyy/liftplan/internal/domain/training/planning"
 	"github.com/dyoshyy/liftplan/internal/domain/training/program"
 )
@@ -264,10 +265,43 @@ type exerciseDTO struct {
 	// 部位ごとにまとめるのに使う。どれを代表に選ぶかは表示の判断なので、
 	// ここでは分布のまま渡す。
 	Stimulus map[string]float64 `json:"stimulus"`
+	// Custom は利用者が足した種目か。画面が「消す」を出すかに使う。
+	Custom bool `json:"custom"`
+	// Deleted は消した種目か。履歴の名前のために一覧には残す。設定の
+	// 一覧には出さない（画面が落とす）。
+	Deleted bool `json:"deleted"`
+}
+
+// exerciseDTOFrom は query.Exercise から exerciseDTO を作る。
+//
+// GET /api/exercises（read.go）と POST /api/exercises（handler.go）の
+// 両方がここを通る。同じ変換を2箇所に書くと、どちらかが Custom・Deleted
+// の詰め忘れで食い違う。
+func exerciseDTOFrom(e query.Exercise) exerciseDTO {
+	stimulus := make(map[string]float64, len(e.Stimulus))
+	for region, c := range e.Stimulus {
+		stimulus[string(region)] = c
+	}
+	return exerciseDTO{
+		ID:          string(e.ID),
+		Name:        e.Name,
+		IncrementKg: e.IncrementKg,
+		Stimulus:    stimulus,
+		Custom:      e.Custom,
+		Deleted:     e.Deleted,
+	}
 }
 
 type exercisesResponse struct {
 	Exercises []exerciseDTO `json:"exercises"`
+}
+
+// addCustomExerciseDTO は利用者が足す種目の入力（POST /api/exercises）。
+type addCustomExerciseDTO struct {
+	Name        string   `json:"name"`
+	Primary     []string `json:"primary"`
+	Secondary   []string `json:"secondary"`
+	IncrementKg float64  `json:"increment_kg"`
 }
 
 type setDTO struct {
