@@ -155,6 +155,32 @@ func (r *ExerciseRepository) ensureSeeded(ctx context.Context, user account.User
 		return wrapUnavailable(err, "種目を初期化できない")
 	}
 
+	// 旧版（0013 の custom_exercises）で足した種目も、同じトランザクションで
+	// 取り込む。旧版は「主に効く」「少し効く」の区分の配列を持っていたので、
+	// 主を1.0、少しを0.5の寄与に直す（旧版の exercise.NewCustomExercise と
+	// 同じ対応）。消した行は消したまま、足した時刻も引き継ぐ。
+	//
+	// ここで取り込むのは、プリセットのコピーと同じ「その人の行が0件のとき」
+	// だけ。別の時点で取り込むと、プリセットが入った後の一覧に旧版の種目が
+	// 混ざる順序が利用者ごとに変わり、0件の判定とも噛み合わない。
+	//
+	// 全員が取り込み終えたら custom_exercises ごと消せる（そのときにこの文も消す）。
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO user_exercises
+			(user_id, id, name, stimulus, increment_kg, created_at, deleted_at)
+		SELECT c.user_id, c.id, c.name,
+			(SELECT jsonb_object_agg(r.region, r.contribution) FROM (
+				SELECT jsonb_array_elements_text(c.primary_regions) AS region, 1.0 AS contribution
+				UNION ALL
+				SELECT jsonb_array_elements_text(c.secondary_regions), 0.5
+			) r),
+			c.increment_kg, c.created_at, c.deleted_at
+		FROM custom_exercises c
+		WHERE c.user_id = $1
+		ON CONFLICT DO NOTHING`, user.String()); err != nil {
+		return wrapUnavailable(err, "旧版の種目を取り込めない")
+	}
+
 	if err := tx.Commit(ctx); err != nil {
 		return wrapUnavailable(err, "種目を初期化できない")
 	}

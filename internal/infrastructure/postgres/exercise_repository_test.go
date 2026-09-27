@@ -456,3 +456,84 @@ func TestExerciseRepository_Postgres_RoundTripsBodyweightAndDerivedFrom(t *testi
 		t.Errorf("close_grip_bench の派生元が %v, %v（期待 bench, true）", from, ok)
 	}
 }
+
+// 旧版（#220 初版、0013）で足した種目は、初回の読み出しでプリセットと一緒に
+// 取り込むこと。
+//
+// 旧版は本番に出て、custom_exercises に「主に効く・少し効く」の区分を
+// 持っている。取り込まないと、新版に上げた瞬間に足した種目が一覧から消え、
+// 記録は名前の無い ID を指すことになる（履歴に名前が出ない）。
+func TestExerciseRepository_Postgres_ImportsLegacyCustomExercises(t *testing.T) {
+	ctx := context.Background()
+	seedAll, err := seed.Exercises()
+	if err != nil {
+		t.Fatalf("シードが不正: %v", err)
+	}
+	pool := migratedDB(t)
+	repo := postgres.NewExerciseRepository(pool, seedAll)
+	a, b := newUser(t), newUser(t)
+
+	// 旧版が書いた形そのまま。消した行も1つ入れる。
+	for _, row := range []struct {
+		user               account.UserID
+		id, name           string
+		primary, secondary string
+		deleted            bool
+	}{
+		{a, "u-0000000000000001", "アイソラテラル・ロー", `["TRAP_MID"]`, `["BICEPS","LAT"]`, false},
+		{a, "u-0000000000000002", "消したマシン", `["LAT"]`, `[]`, true},
+		{b, "u-0000000000000003", "他人のマシン", `["LAT"]`, `[]`, false},
+	} {
+		if _, err := pool.Exec(ctx, `
+			INSERT INTO custom_exercises
+				(user_id, id, name, primary_regions, secondary_regions, increment_kg, deleted_at)
+			VALUES ($1, $2, $3, $4, $5, 2.5, CASE WHEN $6 THEN now() END)`,
+			row.user.String(), row.id, row.name, row.primary, row.secondary, row.deleted); err != nil {
+			t.Fatalf("旧版の行を入れられない: %v", err)
+		}
+	}
+
+	got, err := repo.FindAll(ctx, a)
+	if err != nil {
+		t.Fatalf("取得に失敗: %v", err)
+	}
+	if len(got) != len(seedAll)+2 {
+		t.Fatalf("件数が %d（期待 %d：プリセット＋旧版の2件。他人の行は入らない）", len(got), len(seedAll)+2)
+	}
+	byID := map[exercise.ExerciseID]*exercise.Exercise{}
+	for _, e := range got {
+		byID[e.ID()] = e
+	}
+	row := byID["u-0000000000000001"]
+	if row == nil || row.Name() != "アイソラテラル・ロー" || row.IsDeleted() || row.Increment().Kg() != 2.5 {
+		t.Fatalf("取り込んだ種目が違う: %+v", row)
+	}
+	for r, want := range map[training.MuscleRegion]float64{training.TrapMid: 1.0, training.Lat: 0.5, training.Biceps: 0.5} {
+		if c, ok := row.Stimulus().Contribution(r); !ok || c.Float() != want {
+			t.Errorf("%s の寄与が %v（期待 %v）", r, c.Float(), want)
+		}
+	}
+	if d := byID["u-0000000000000002"]; d == nil || !d.IsDeleted() {
+		t.Errorf("消した旧版の種目が消えた状態で取り込まれていない: %+v", d)
+	}
+
+	// 他人の旧版の行は、その人が初めて読んだときにその人の一覧へ入る。
+	// A の読み出しで B の行まで取り込むと、B の一覧が0件でなくなり、
+	// B にはプリセットが入らないまま自分のマシン1件だけになる。
+	gotB, err := repo.FindAll(ctx, b)
+	if err != nil {
+		t.Fatalf("B の取得に失敗: %v", err)
+	}
+	if len(gotB) != len(seedAll)+1 {
+		t.Errorf("B の件数が %d（期待 %d：プリセット＋B の旧版1件）", len(gotB), len(seedAll)+1)
+	}
+
+	// 二度目は入れ直さない。
+	again, err := repo.FindAll(ctx, a)
+	if err != nil {
+		t.Fatalf("二度目の取得に失敗: %v", err)
+	}
+	if len(again) != len(got) {
+		t.Errorf("二度目の件数が %d（期待 %d）", len(again), len(got))
+	}
+}
