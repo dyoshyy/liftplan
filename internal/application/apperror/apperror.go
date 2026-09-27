@@ -65,6 +65,9 @@ var (
 	// ErrConflict は同じIDで内容の違う記録が既にあること。
 	ErrConflict = newError("CONFLICT", "記録が衝突している", http.StatusConflict)
 
+	// ErrDuplicateName は同じ名前の種目が既にあること。
+	ErrDuplicateName = newError("DUPLICATE_NAME", "同じ名前の種目がある", http.StatusConflict)
+
 	// ErrUnavailable は保存先に到達できないこと。
 	//
 	// 500 と分けるのは、後で送り直せば通るから。混ぜるとクライアントが

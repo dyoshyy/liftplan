@@ -61,6 +61,7 @@ func TestError_StatusesAreDistinct(t *testing.T) {
 		apperror.ErrInvalidInput:  http.StatusBadRequest,
 		apperror.ErrNotConfigured: http.StatusConflict,
 		apperror.ErrConflict:      http.StatusConflict,
+		apperror.ErrDuplicateName: http.StatusConflict,
 		apperror.ErrUnavailable:   http.StatusServiceUnavailable,
 		apperror.ErrTooLarge:      http.StatusRequestEntityTooLarge,
 		apperror.ErrTimeout:       http.StatusGatewayTimeout,
