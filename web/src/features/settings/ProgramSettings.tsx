@@ -174,8 +174,8 @@ export function ProgramSettings({ nameOf, exercises: all, onChanged, onOpenExerc
       <Section title="種目" summary={program ? exercisesSummary(program, nameOf) : ''}>
         <p className="text-[13px] font-bold">種目そのものを変える</p>
         <Note className="mb-3 mt-1">
-          一覧に無い器具を足したり、名前や効き方を直したり、使わなくなった種目を
-          消したりできます。
+          一覧に無い器具の追加、名前や効き方の編集、使わなくなった種目の
+          削除ができます。
         </Note>
         <Button variant="quiet" disabled={busy} onClick={onOpenExercises}>
           種目を管理する
