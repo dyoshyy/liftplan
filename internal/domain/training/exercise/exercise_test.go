@@ -285,6 +285,25 @@ func TestNewExercise_RequiresARegionAtFullContribution(t *testing.T) {
 	}
 }
 
+// 各区分の寄与度は 0.1〜1.0（設計書「各区分 0.1〜1.0」）。0.1 未満は
+// ほぼ効いていない区分の水増しとみなして弾く。シードの最小は 0.2
+// （barbell_row の RearDelt）なので、この下限はシードを壊さない。
+func TestNewExercise_StimulusFloorBoundary(t *testing.T) {
+	build := func(v float64) exercise.ExerciseParams {
+		return exercise.ExerciseParams{
+			ID: "x", Name: "x", IncrementKg: 2.5,
+			Stimulus: map[training.MuscleRegion]float64{training.Lat: 1.0, training.Biceps: v},
+		}
+	}
+
+	if _, err := exercise.NewExercise(build(0.09)); err == nil {
+		t.Error("下限未満の寄与度が通った")
+	}
+	if _, err := exercise.NewExercise(build(0.1)); err != nil {
+		t.Errorf("下限ちょうどの寄与度が弾かれた: %v", err)
+	}
+}
+
 func TestNewExercise_NameUpToFortyRunes(t *testing.T) {
 	p := exercise.ExerciseParams{ID: "x", IncrementKg: 2.5, Stimulus: map[training.MuscleRegion]float64{training.Lat: 1}}
 	p.Name = strings.Repeat("あ", 40)

@@ -29,6 +29,12 @@ const CustomExerciseIDPrefix = "u-"
 // 区分が1つ以上あるかを見る。
 const primaryContribution = 1.0
 
+// minStimulusContribution は1区分あたりの寄与度の下限
+// （設計書「各区分 0.1〜1.0」）。training.NewContribution は SmallestPositive
+// まで通してしまうので、ここでエクササイズ側の規則として下限を課す。
+// シードの最小は 0.2（barbell_row の RearDelt）なので、この下限はシードを壊さない。
+const minStimulusContribution = 0.1
+
 // ExerciseID は種目の同一性。
 // maxExerciseIDLen は種目IDの長さの上限。
 //
@@ -120,6 +126,18 @@ func (p StimulusProfile) hasFullContribution() bool {
 	return false
 }
 
+// belowFloor は minStimulusContribution を下回る区分があれば、その区分と
+// 値を返す。Regions() の順（ソート済み）で見るのは、複数の区分が下限を
+// 下回ったときにエラー文が実行のたびに変わらないようにするため。
+func (p StimulusProfile) belowFloor(min float64) (training.MuscleRegion, training.Contribution, bool) {
+	for _, r := range p.Regions() {
+		if c := p.m[r]; c.Float() < min {
+			return r, c, true
+		}
+	}
+	return "", training.Contribution{}, false
+}
+
 // ExerciseParams は Exercise の生成入力。
 type ExerciseParams struct {
 	ID               string
@@ -169,6 +187,11 @@ func NewExercise(p ExerciseParams) (*Exercise, error) {
 	}
 	if !stimulus.hasFullContribution() {
 		return nil, fmt.Errorf("種目 %s: 寄与1.0の区分が1つも無い", id)
+	}
+	if r, c, ok := stimulus.belowFloor(minStimulusContribution); ok {
+		return nil, fmt.Errorf(
+			"種目 %s: 筋区分 %s の寄与度が下限を下回る: %v（下限 %v）",
+			id, r, c.Float(), minStimulusContribution)
 	}
 	increment, err := training.NewIncrement(p.IncrementKg)
 	if err != nil {
