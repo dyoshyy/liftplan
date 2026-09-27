@@ -3,6 +3,7 @@ package httpapi_test
 import (
 	"encoding/json"
 	"net/http"
+	"strings"
 	"testing"
 )
 
@@ -74,13 +75,28 @@ func TestCustomExercises_ErrorStatuses(t *testing.T) {
 				t.Errorf("%d（期待 %d）: %s", rec.Code, c.want, rec.Body.String())
 			}
 			var body struct {
-				Code string `json:"code"`
+				Code  string `json:"code"`
+				Error string `json:"error"`
 			}
 			if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
 				t.Fatalf("応答を解釈できない: %v", err)
 			}
 			if body.Code != c.wantCode {
 				t.Errorf("コードが %q。%q のはず", body.Code, c.wantCode)
+			}
+			// DUPLICATE_NAME は apperror.ErrDuplicateName とドメインの
+			// exercise.ErrDuplicateExerciseName を ": " で連結して返す。
+			// 両者の文言が同じだと「同じ名前の種目がある: 同じ名前の種目がある: サイドレイズ」
+			// と重複するので、種目名が読めることと、フレーズが1回しか
+			// 出ないことを見る。
+			if c.wantCode == "DUPLICATE_NAME" {
+				const phrase = "同じ名前の種目がある"
+				if !strings.Contains(body.Error, "サイドレイズ") {
+					t.Errorf("エラーメッセージに種目名が無い: %q", body.Error)
+				}
+				if strings.Count(body.Error, phrase) != 1 {
+					t.Errorf("エラーメッセージでフレーズが重複している: %q", body.Error)
+				}
 			}
 		})
 	}
