@@ -104,7 +104,7 @@ export const aliveExercises = (exercises: readonly Exercise[]): Exercise[] => ex
  *
  *  サーバーも 409 で断る。押す前に読めたほうが、次に何をすればいいか分かる。 */
 export const deleteBlockedReason = (declared: readonly string[], id: string): string | null =>
-  declared.includes(id) ? '伸ばしたい種目から外すと消せます' : null;
+  declared.includes(id) ? '伸ばしたい種目から外すと削除できます' : null;
 
 /** DeleteStep は「消す」ボタンを押したときの次の一手。
  *
