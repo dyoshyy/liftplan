@@ -154,9 +154,12 @@ func TestConditionRepository_KeepsUsersApart(t *testing.T) {
 }
 
 // 別のユーザーが足した種目は見えない。
-func TestExerciseRepository_ReturnsSeedPlusOwnCustoms(t *testing.T) {
+func TestExerciseRepository_KeepsUsersApart(t *testing.T) {
 	ctx := context.Background()
-	seedAll, _ := seed.Exercises()
+	seedAll, err := seed.Exercises()
+	if err != nil {
+		t.Fatalf("シードが不正: %v", err)
+	}
 	repo := memory.NewExerciseRepository(seedAll)
 	a, b := newUser(t), newUser(t)
 
@@ -166,12 +169,112 @@ func TestExerciseRepository_ReturnsSeedPlusOwnCustoms(t *testing.T) {
 	}
 
 	gotA, _ := repo.FindAll(ctx, a)
-	if len(gotA) != len(seedAll)+1 || gotA[len(gotA)-1].ID() != mine.ID() {
-		t.Errorf("A の一覧に自分の種目が末尾に1件足されていない（%d 件）", len(gotA))
+	if len(gotA) != len(seedAll)+1 || findByID(gotA, mine.ID()) == nil {
+		t.Errorf("A の一覧に自分の種目が足されていない（%d 件）", len(gotA))
 	}
 	gotB, _ := repo.FindAll(ctx, b)
 	if len(gotB) != len(seedAll) {
 		t.Errorf("B に A の種目が見えている（%d 件）", len(gotB))
+	}
+}
+
+// プリセット由来の種目も、直したり消したりするのはその人の一覧だけ。
+// シードはコピーで始まるので、A が「bench」を直しても B の「bench」は
+// 元のまま残る（両者が同じ *Exercise を指していれば、この境界は破れる）。
+func TestExerciseRepository_KeepsUsersApartForPresetExercises(t *testing.T) {
+	ctx := context.Background()
+	seedAll, err := seed.Exercises()
+	if err != nil {
+		t.Fatalf("シードが不正: %v", err)
+	}
+	repo := memory.NewExerciseRepository(seedAll)
+	a, b := newUser(t), newUser(t)
+
+	// B を先に読ませて、B の map を作らせておく。A の後続の変更が
+	// B の map に（作成の前後どちらでも）漏れないことを確かめるため。
+	gotB, err := repo.FindAll(ctx, b)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var benchB *exercise.Exercise
+	for _, e := range gotB {
+		if e.ID() == "bench" {
+			benchB = e
+		}
+	}
+	if benchB == nil {
+		t.Fatal("シードに bench が無い")
+	}
+
+	gotA, err := repo.FindAll(ctx, a)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var benchA *exercise.Exercise
+	for _, e := range gotA {
+		if e.ID() == "bench" {
+			benchA = e
+		}
+	}
+	if benchA == nil {
+		t.Fatal("シードに bench が無い")
+	}
+
+	edited, err := benchA.Edit(exercise.ExerciseEdit{
+		Name:        "改名したベンチ",
+		Stimulus:    stimulusMapOf(benchA),
+		IncrementKg: benchA.Increment().Kg(),
+	})
+	if err != nil {
+		t.Fatalf("Edit に失敗: %v", err)
+	}
+	if err := repo.Save(ctx, a, edited); err != nil {
+		t.Fatalf("A の保存に失敗: %v", err)
+	}
+
+	gotAAfter, err := repo.FindAll(ctx, a)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range gotAAfter {
+		if e.ID() == "bench" && e.Name() != edited.Name() {
+			t.Errorf("A の bench が直った名前になっていない: %s", e.Name())
+		}
+	}
+
+	gotBAfter, err := repo.FindAll(ctx, b)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range gotBAfter {
+		if e.ID() == "bench" && e.Name() == edited.Name() {
+			t.Errorf("A の変更が B の bench に漏れている")
+		}
+	}
+
+	// 消す方も同じ境界で確かめる。別の種目（squat）を使うのは、bench は
+	// 既に直した後で状態が混ざるため。
+	var squatA *exercise.Exercise
+	for _, e := range gotA {
+		if e.ID() == "squat" {
+			squatA = e
+		}
+	}
+	if squatA == nil {
+		t.Fatal("シードに squat が無い")
+	}
+	if err := repo.Save(ctx, a, squatA.Delete()); err != nil {
+		t.Fatalf("A の削除の保存に失敗: %v", err)
+	}
+
+	gotBAfterDelete, err := repo.FindAll(ctx, b)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range gotBAfterDelete {
+		if e.ID() == "squat" && e.IsDeleted() {
+			t.Errorf("A の削除が B の squat に漏れている")
+		}
 	}
 }
 

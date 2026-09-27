@@ -9,6 +9,7 @@ import (
 	"github.com/dyoshyy/liftplan/internal/domain/account"
 	"github.com/dyoshyy/liftplan/internal/domain/training"
 	"github.com/dyoshyy/liftplan/internal/domain/training/condition"
+	"github.com/dyoshyy/liftplan/internal/domain/training/exercise"
 	"github.com/dyoshyy/liftplan/internal/domain/training/program"
 	"github.com/dyoshyy/liftplan/internal/domain/training/seed"
 	"github.com/dyoshyy/liftplan/internal/domain/training/setlog"
@@ -167,7 +168,7 @@ func TestConditionRepository_KeepsUsersApart(t *testing.T) {
 }
 
 // 別のユーザーが足した種目は見えない。
-func TestExerciseRepository_ReturnsSeedPlusOwnCustoms(t *testing.T) {
+func TestExerciseRepository_KeepsUsersApart(t *testing.T) {
 	ctx := context.Background()
 	seedAll, _ := seed.Exercises()
 	repo := postgres.NewExerciseRepository(migratedDB(t), seedAll)
@@ -182,8 +183,8 @@ func TestExerciseRepository_ReturnsSeedPlusOwnCustoms(t *testing.T) {
 	if err != nil {
 		t.Fatalf("A の取得に失敗: %v", err)
 	}
-	if len(gotA) != len(seedAll)+1 || gotA[len(gotA)-1].ID() != mine.ID() {
-		t.Errorf("A の一覧に自分の種目が末尾に1件足されていない（%d 件）", len(gotA))
+	if len(gotA) != len(seedAll)+1 || findByID(gotA, mine.ID()) == nil {
+		t.Errorf("A の一覧に自分の種目が足されていない（%d 件）", len(gotA))
 	}
 	gotB, err := repo.FindAll(ctx, b)
 	if err != nil {
@@ -191,6 +192,82 @@ func TestExerciseRepository_ReturnsSeedPlusOwnCustoms(t *testing.T) {
 	}
 	if len(gotB) != len(seedAll) {
 		t.Errorf("B に A の種目が見えている（%d 件）", len(gotB))
+	}
+}
+
+// プリセット由来の種目も、直したり消したりするのはその人の行だけ。
+// A が「bench」を直しても B の「bench」は元のまま残る（WHERE user_id が
+// 効いていれば。memory 側の同名テストと同じ観点を Postgres の主キーで見る）。
+func TestExerciseRepository_KeepsUsersApartForPresetExercises(t *testing.T) {
+	ctx := context.Background()
+	seedAll, _ := seed.Exercises()
+	repo := postgres.NewExerciseRepository(migratedDB(t), seedAll)
+	a, b := newUser(t), newUser(t)
+
+	// B を先に読ませて、B の行を作らせておく。A の後続の変更が B の行に
+	// （作成の前後どちらでも）漏れないことを確かめるため。
+	gotB, err := repo.FindAll(ctx, b)
+	if err != nil {
+		t.Fatal(err)
+	}
+	benchB := findByID(gotB, "bench")
+	if benchB == nil {
+		t.Fatal("シードに bench が無い")
+	}
+
+	gotA, err := repo.FindAll(ctx, a)
+	if err != nil {
+		t.Fatal(err)
+	}
+	benchA := findByID(gotA, "bench")
+	if benchA == nil {
+		t.Fatal("シードに bench が無い")
+	}
+
+	edited, err := benchA.Edit(exercise.ExerciseEdit{
+		Name:        "改名したベンチ",
+		Stimulus:    stimulusMapOf(benchA),
+		IncrementKg: benchA.Increment().Kg(),
+	})
+	if err != nil {
+		t.Fatalf("Edit に失敗: %v", err)
+	}
+	if err := repo.Save(ctx, a, edited); err != nil {
+		t.Fatalf("A の保存に失敗: %v", err)
+	}
+
+	gotAAfter, err := repo.FindAll(ctx, a)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if back := findByID(gotAAfter, "bench"); back == nil || back.Name() != edited.Name() {
+		t.Errorf("A の bench が直った名前になっていない: %v", back)
+	}
+
+	gotBAfter, err := repo.FindAll(ctx, b)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if back := findByID(gotBAfter, "bench"); back == nil || back.Name() == edited.Name() {
+		t.Errorf("A の変更が B の bench に漏れている: %v", back)
+	}
+
+	// 消す方も同じ境界で確かめる。別の種目（squat）を使うのは、bench は
+	// 既に直した後で状態が混ざるため。
+	squatA := findByID(gotA, "squat")
+	if squatA == nil {
+		t.Fatal("シードに squat が無い")
+	}
+	if err := repo.Save(ctx, a, squatA.Delete()); err != nil {
+		t.Fatalf("A の削除の保存に失敗: %v", err)
+	}
+
+	gotBAfterDelete, err := repo.FindAll(ctx, b)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if back := findByID(gotBAfterDelete, "squat"); back == nil || back.IsDeleted() {
+		t.Errorf("A の削除が B の squat に漏れている: %v", back)
 	}
 }
 

@@ -104,39 +104,6 @@ await page.waitForTimeout(1500);
 const repicked = await program();
 console.log('入れ直した後: selected =', repicked.selected_exercises.length, '件');
 
-// 自分の種目。足すと一覧と「使う種目」に出て、消すと両方から消えるか。
-// 足す・消すはどちらも押したその場で送る。送った後に一覧（種目マスタ）を
-// 取り直さないと、足した種目が画面に出ない。配線なのでここで見る。
-const CUSTOM = 'チェック用マシン';
-const exercises = () => fetch(`${API}/api/exercises`, { headers: auth }).then((r) => r.json());
-// 「種目」は入れ直しのときに開いたまま。
-const addGroup = page.getByRole('group', { name: '種目を足す' });
-await addGroup.getByLabel('名前').fill(CUSTOM);
-await addGroup.getByRole('button', { name: '僧帽筋中部', exact: true }).click(); // 主
-await addGroup.getByRole('button', { name: '広背筋', exact: true }).click(); // 主
-await addGroup.getByRole('button', { name: '広背筋（主）' }).click(); // 少し
-await addGroup.getByRole('button', { name: '足す' }).click();
-await page.waitForTimeout(2000);
-const addedList = (await exercises()).exercises;
-const added = addedList.find((e) => e.name === CUSTOM);
-const afterAdd = await program();
-const inUse = await useGroup.locator('button', { hasText: CUSTOM }).count();
-const inMine = await page.getByRole('list', { name: '自分の種目' }).getByText(CUSTOM).count();
-console.log('足した種目:', JSON.stringify(added ? { custom: added.custom, stimulus: added.stimulus } : null),
-  '/ 使う種目に入った', afterAdd.selected_exercises.includes(added?.id), '/ 使う種目の一覧に出た数 =', inUse, '/ 自分の種目に出た数 =', inMine);
-
-await page.getByRole('button', { name: `${CUSTOM}を消す` }).click();
-await page.waitForTimeout(2000);
-const deleted = (await exercises()).exercises.find((e) => e.id === added?.id);
-const afterDelete = await program();
-const inUseAfter = await useGroup.locator('button', { hasText: CUSTOM }).count();
-console.log('消した後: deleted =', deleted?.deleted, '/ 使う種目に残った', afterDelete.selected_exercises.includes(added?.id), '/ 一覧に残った数 =', inUseAfter);
-const customOk = added?.custom === true && added.stimulus.TRAP_MID === 1 && added.stimulus.LAT === 0.5
-  && afterAdd.selected_exercises.includes(added.id) && inUse === 1 && inMine === 1
-  && deleted?.deleted === true && !afterDelete.selected_exercises.includes(added.id) && inUseAfter === 0;
-await exHeader.click();
-await page.waitForTimeout(300);
-
 // アカウント。畳んだ見出しにアドレス、開くとログイン方法が出るか。
 const accountHeader = page.locator('button[aria-expanded]', { hasText: /^アカウント/ });
 const accountSummary = (await accountHeader.textContent()) ?? '';
@@ -155,8 +122,7 @@ const ok = after.per_week === want && after.declared_exercises.length === before
   && summary.includes(`使う${before.selected_exercises.length - 1}・`)
   && repicked.selected_exercises.length === before.selected_exercises.length
   && Array.isArray(realAccount.accounts) && realAccount.accounts.length === 0
-  && accountSummary.includes('gym@example.com') && signedInAs
-  && customOk;
+  && accountSummary.includes('gym@example.com') && signedInAs;
 console.log(ok ? '\n✓ 設定の保存は壊れていない' : '\n✗ 壊れている');
 await browser.close();
 process.exit(ok ? 0 : 1);

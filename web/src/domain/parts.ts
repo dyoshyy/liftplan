@@ -96,17 +96,3 @@ export function groupByPart<T extends HasStimulus>(items: readonly T[]): PartGro
     items: buckets.get(part) ?? [],
   }));
 }
-
-/** regionsByPart は21の筋区分を部位ごとに並べて返す。
- *
- *  自分の種目を足すときに、効く部位を選ばせる並び。部位の中は PARTS に
- *  書いた順（体の上から下）で、開くたびに並びが変わらないようにする。 */
-export function regionsByPart(): { part: Part; regions: string[] }[] {
-  const buckets = new Map<Part, string[]>();
-  for (const [region, part] of Object.entries(PARTS)) {
-    const bucket = buckets.get(part);
-    if (bucket) bucket.push(region);
-    else buckets.set(part, [region]);
-  }
-  return PART_ORDER.filter((p) => buckets.has(p)).map((part) => ({ part, regions: buckets.get(part) ?? [] }));
-}

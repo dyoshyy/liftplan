@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { groupByPart, partOf, PART_ORDER, regionsByPart, representativeRegion } from './parts';
+import { groupByPart, partOf, PART_ORDER, representativeRegion } from './parts';
 
 describe('representativeRegion', () => {
   it('寄与度が一番大きい区分を返す', () => {
@@ -68,18 +68,5 @@ describe('groupByPart', () => {
   it('渡した順序を部位の中で保つ', () => {
     const got = groupByPart([...items].reverse());
     expect(got[0]?.items.map((i) => i.id)).toEqual(['incline', 'bench']);
-  });
-});
-
-describe('regionsByPart', () => {
-  // 自分の種目を足す画面で、部位を選ぶチップの並び。21区分を全部、
-  // 部位の順（上から下）に出す。1つでも欠けると、その部位に効く種目を足せない。
-  it('21区分を漏れなく、部位の順に並べる', () => {
-    const groups = regionsByPart();
-    expect(groups.map((g) => g.part)).toEqual(['胸', '背中', '肩', '腕', '脚', '体幹']);
-    const all = groups.flatMap((g) => g.regions);
-    expect(all).toHaveLength(21);
-    expect(new Set(all).size).toBe(21);
-    for (const g of groups) for (const r of g.regions) expect(partOf(r)).toBe(g.part);
   });
 });

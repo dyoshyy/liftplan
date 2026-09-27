@@ -19,7 +19,7 @@ func TestMigrate_CreatesEverySchemaObject(t *testing.T) {
 
 	for _, table := range []string{
 		"set_logs", "daily_conditions", "program",
-		"accounts", "sessions", "custom_exercises", "schema_migrations",
+		"accounts", "sessions", "user_exercises", "schema_migrations",
 	} {
 		var exists bool
 		if err := pool.QueryRow(ctx,
@@ -118,7 +118,7 @@ func TestMigrate_IsSafeForConcurrentStartup(t *testing.T) {
 	if _, err := pool.Exec(ctx, `
 		DROP TABLE IF EXISTS
 			set_logs, daily_conditions, program,
-			accounts, sessions, custom_exercises, schema_migrations CASCADE`); err != nil {
+			accounts, sessions, user_exercises, schema_migrations CASCADE`); err != nil {
 		t.Fatalf("掃除できない: %v", err)
 	}
 

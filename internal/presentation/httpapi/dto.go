@@ -265,8 +265,6 @@ type exerciseDTO struct {
 	// 部位ごとにまとめるのに使う。どれを代表に選ぶかは表示の判断なので、
 	// ここでは分布のまま渡す。
 	Stimulus map[string]float64 `json:"stimulus"`
-	// Custom は利用者が足した種目か。画面が「消す」を出すかに使う。
-	Custom bool `json:"custom"`
 	// Deleted は消した種目か。履歴の名前のために一覧には残す。設定の
 	// 一覧には出さない（画面が落とす）。
 	Deleted bool `json:"deleted"`
@@ -274,9 +272,9 @@ type exerciseDTO struct {
 
 // exerciseDTOFrom は query.Exercise から exerciseDTO を作る。
 //
-// GET /api/exercises（read.go）と POST /api/exercises（handler.go）の
-// 両方がここを通る。同じ変換を2箇所に書くと、どちらかが Custom・Deleted
-// の詰め忘れで食い違う。
+// GET /api/exercises（read.go）と POST/PUT /api/exercises（handler.go）の
+// 両方がここを通る。同じ変換を2箇所に書くと、どちらかが Deleted の
+// 詰め忘れで食い違う。
 func exerciseDTOFrom(e query.Exercise) exerciseDTO {
 	stimulus := make(map[string]float64, len(e.Stimulus))
 	for region, c := range e.Stimulus {
@@ -287,7 +285,6 @@ func exerciseDTOFrom(e query.Exercise) exerciseDTO {
 		Name:        e.Name,
 		IncrementKg: e.IncrementKg,
 		Stimulus:    stimulus,
-		Custom:      e.Custom,
 		Deleted:     e.Deleted,
 	}
 }
@@ -296,12 +293,16 @@ type exercisesResponse struct {
 	Exercises []exerciseDTO `json:"exercises"`
 }
 
-// addCustomExerciseDTO は利用者が足す種目の入力（POST /api/exercises）。
-type addCustomExerciseDTO struct {
-	Name        string   `json:"name"`
-	Primary     []string `json:"primary"`
-	Secondary   []string `json:"secondary"`
-	IncrementKg float64  `json:"increment_kg"`
+// exerciseInputDTO は種目を足す・直す入力（POST /api/exercises・
+// PUT /api/exercises/{id} で共通。設計書「同じ本文」）。
+//
+// Stimulus は区分ごとの寄与度の生の値。本人には主・副の2値しか選ばせない
+// という決めはドメイン側にも画面側にも置かない。API はドメインが検証する
+// 生の分布をそのまま運ぶだけにする。
+type exerciseInputDTO struct {
+	Name        string             `json:"name"`
+	Stimulus    map[string]float64 `json:"stimulus"`
+	IncrementKg float64            `json:"increment_kg"`
 }
 
 type setDTO struct {

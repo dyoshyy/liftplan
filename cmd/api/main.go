@@ -256,8 +256,9 @@ func buildHandler(ctx context.Context) (http.Handler, func(), error) {
 		SetSplit:         usecase.NewSetSplitCycle(exercises, programs, programs),
 		GetProgram:       usecase.NewGetProgram(programs),
 		DeleteSetLog:     usecase.NewDeleteSetLog(logs),
-		AddExercise:      usecase.NewAddCustomExercise(exercises, programs, programs),
-		DeleteExercise:   usecase.NewDeleteCustomExercise(exercises, programs, programs),
+		AddExercise:      usecase.NewAddExercise(exercises, programs, programs),
+		EditExercise:     usecase.NewEditExercise(exercises, programs),
+		DeleteExercise:   usecase.NewDeleteExercise(exercises, programs, programs),
 		Exercises:        query.NewExercises(exercises),
 		History:          query.NewHistory(logs, exercises),
 		Stats:            query.NewStats(logs, exercises, programs, planning.DefaultOneRepMaxEstimator()),
@@ -494,7 +495,9 @@ func withHealthCheck(next http.Handler, ping func(context.Context) error) http.H
 // インメモリを残すのは、ドメインの検証を DB 無しで回せる状態を捨てないため。
 // 「とりあえず動かす」ための逃げ道でもある。
 //
-// 共通の種目はバイナリ同梱。DB に置くのは利用者が足した種目だけ。
+// 種目は共通/個人に分かれていない。シード（pool）はバイナリ同梱の出発点で、
+// 利用者の行が1件も無いときに一度だけ user_exercises へコピーされる。
+// 以後は DB の行がその人の種目一覧そのもの。
 func openRepositories(ctx context.Context, pool []*exercise.Exercise) (repositories, error) {
 	url := os.Getenv("DATABASE_URL")
 	if url == "" {
