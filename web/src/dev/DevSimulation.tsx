@@ -224,6 +224,24 @@ function Settings({
         </div>
 
         <OneRepMaxGrid options={options} form={form} setForm={setForm} />
+
+        {/* 自分の種目。本番で利用者が足す種目を、同じ3つ（名前・効き方・刻み）で
+            書く。サーバーと同じ1行の書式のまま URL に載るので、Claude がクエリを
+            書き換えて条件を変えられる。ID は並び順に u-sim01, u-sim02… で、
+            1RM の上書きは orm に u-sim01:80 のように書く（応答の settings に出る）。 */}
+        <label htmlFor="custom" className="grid gap-1.5">
+          <span className="text-[12px] font-bold text-muted">
+            自分の種目（名前|区分:寄与,区分:寄与|刻み を ; で並べる。寄与1.0の区分が1つ以上要る）
+          </span>
+          <textarea
+            id="custom"
+            rows={3}
+            value={form.custom}
+            placeholder="アイソラテラル・ロー|TRAP_MID:1,LAT:0.5,BICEPS:0.5,REAR_DELT:0.5|2.5;アイソラテラル・フロント・プルダウン|LAT:1,BICEPS:0.5|2.5"
+            onChange={(ev) => setForm({ ...form, custom: ev.target.value })}
+            className={`font-mono text-[12px] ${FIELD}`}
+          />
+        </label>
       </div>
 
       <div className="flex items-center gap-3">
@@ -347,7 +365,11 @@ function OneRepMaxGrid({
 }
 
 function Results({ options, result, ranForm }: { options: DevOptions | null; result: DevResult; ranForm: Form }) {
-  const names = Object.fromEntries((options?.exercises ?? []).map((e) => [e.id, e.name]));
+  // 自分の種目は options に無い（設定ごとに変わる）。結果の settings から足す。
+  const names = Object.fromEntries([
+    ...(options?.exercises ?? []).map((e) => [e.id, e.name]),
+    ...(result.settings.custom ?? []).map((c) => [c.id, c.name]),
+  ]);
   const splitName = options?.presets.find((p) => p.key === result.settings.split)?.name ?? result.settings.split;
   const series = weightSeries(
     result,
