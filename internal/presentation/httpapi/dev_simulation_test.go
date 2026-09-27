@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 
@@ -458,5 +459,68 @@ func TestDevSimulation_OptionsCarryScheduleDefaults(t *testing.T) {
 		if fmt.Sprint(s.Weekdays[fmt.Sprint(f)]) != fmt.Sprint(want) {
 			t.Errorf("週%d の曜日が %v。%v のはず", f, s.Weekdays[fmt.Sprint(f)], want)
 		}
+	}
+}
+
+// 自分の種目を custom= で渡せること。設定の echo に ID つきで返り、
+// 1RM の上書きもその ID で効くこと。
+//
+// 形は「名前|主に効く部位|少し効く部位|刻み」を ; で並べる。部位は , 区切り。
+// 本番の POST /api/exercises と同じ4つを1行で書ける形にした。
+func TestDevSimulation_TakesCustomExercisesAndEchoesThem(t *testing.T) {
+	custom := "アイソラテラル・ロー|TRAP_MID|LAT,BICEPS|2.5;アイソラテラル・フロント・プルダウン|LAT||2.5"
+	rec := devGet(t, "/api/dev/simulate?declared=bench&weeks=2&orm=u-sim01:80&custom="+url.QueryEscape(custom))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("%d が返った。200 のはず: %s", rec.Code, rec.Body.String())
+	}
+
+	var got struct {
+		Settings struct {
+			Custom []struct {
+				ID          string   `json:"id"`
+				Name        string   `json:"name"`
+				Primary     []string `json:"primary"`
+				Secondary   []string `json:"secondary"`
+				IncrementKg float64  `json:"increment_kg"`
+			} `json:"custom"`
+			Athlete struct {
+				OneRepMaxKg map[string]float64 `json:"one_rep_max_kg"`
+			} `json:"athlete"`
+		} `json:"settings"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatalf("応答が JSON でない: %v", err)
+	}
+	c := got.Settings.Custom
+	if len(c) != 2 || c[0].ID != "u-sim01" || c[0].Name != "アイソラテラル・ロー" ||
+		strings.Join(c[0].Primary, ",") != "TRAP_MID" || strings.Join(c[0].Secondary, ",") != "BICEPS,LAT" ||
+		c[0].IncrementKg != 2.5 || c[1].ID != "u-sim02" || len(c[1].Secondary) != 0 {
+		t.Errorf("自分の種目が返っていない: %+v", c)
+	}
+	orm := got.Settings.Athlete.OneRepMaxKg
+	if orm["u-sim01"] != 80 || orm["u-sim02"] != devsim.DefaultOneRepMax("u-sim02") {
+		t.Errorf("自分の種目の1RM: u-sim01=%v u-sim02=%v", orm["u-sim01"], orm["u-sim02"])
+	}
+}
+
+// 自分の種目の形が壊れていたら 400。
+func TestDevSimulation_RejectsBadCustomQuery(t *testing.T) {
+	for _, custom := range []string{
+		"名前だけ",
+		"a|NECK||2.5",
+		"a|LAT||heavy",
+		"a||LAT|2.5",
+		"サイドレイズ|SIDE_DELT||1",
+	} {
+		t.Run(custom, func(t *testing.T) {
+			rec := devGet(t, "/api/dev/simulate?declared=bench&custom="+url.QueryEscape(custom))
+			if rec.Code != http.StatusBadRequest {
+				t.Errorf("%d が返った。400 のはず: %s", rec.Code, rec.Body.String())
+			}
+			// custom を知らないキーとして弾いているだけなら、形を見ていない。
+			if strings.Contains(rec.Body.String(), "知らないキー") {
+				t.Errorf("形ではなくキーで弾いている: %s", rec.Body.String())
+			}
+		})
 	}
 }

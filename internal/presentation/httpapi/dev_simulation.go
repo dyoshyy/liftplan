@@ -115,6 +115,16 @@ type devSettingsDTO struct {
 	Weekdays  []int `json:"weekdays"`
 	Exercises int   `json:"exercises_per_session"`
 	Sets      int   `json:"sets_per_exercise"`
+	// Custom は足した自分の種目。ID は orm= で1RM を上書きするときに使う。
+	Custom []devCustomDTO `json:"custom"`
+}
+
+type devCustomDTO struct {
+	ID          string   `json:"id"`
+	Name        string   `json:"name"`
+	Primary     []string `json:"primary"`
+	Secondary   []string `json:"secondary"`
+	IncrementKg float64  `json:"increment_kg"`
 }
 
 type devDayDTO struct {
@@ -197,7 +207,14 @@ func (d *DevSimulation) handleSimulate(w http.ResponseWriter, r *http.Request) {
 		respondError(w, invalidInput(err.Error()))
 		return
 	}
-	writeJSON(w, http.StatusOK, toDevResultDTO(req, d.sim.Pool(), got))
+	// 応答の1RM と自分の種目は、足した種目を含む一覧から埋める。Run が
+	// 通ったので、ここで一覧が組めないことは無い。
+	pool, err := d.sim.PoolFor(req)
+	if err != nil {
+		respondError(w, invalidInput(err.Error()))
+		return
+	}
+	writeJSON(w, http.StatusOK, toDevResultDTO(req, pool, got))
 }
 
 // devDefaults は指定が無いときの既定。1ヶ月ぶんを週4で見る。
@@ -220,6 +237,7 @@ var devQueryKeys = map[string]bool{
 	"frequency": true, "weeks": true, "days": true, "start": true,
 	"exercises": true, "sets": true,
 	"growth": true, "first_pct": true, "body_weight": true, "orm": true,
+	"custom": true,
 }
 
 func parseDevRequest(r *http.Request) (devsim.Request, error) {
@@ -335,7 +353,52 @@ func parseDevRequest(r *http.Request) (devsim.Request, error) {
 		return devsim.Request{}, err
 	}
 	out.Athlete.OneRepMaxKg = orm
+
+	custom, err := parseDevCustom(q.Get("custom"))
+	if err != nil {
+		return devsim.Request{}, err
+	}
+	out.Custom = custom
 	return out, nil
+}
+
+// parseDevCustom は "名前|主|少し|刻み;..." を自分の種目の並びにする。
+//
+// 部位は "," 区切り。少しは空でよい。本番の POST /api/exercises と同じ4つを
+// URL の1行で書けるようにした（Claude がクエリで条件を変えて読むため）。
+// 部位の妥当性と名前の重複は devsim（exercise.NewCustomExercise）が見る。
+func parseDevCustom(v string) ([]devsim.CustomExercise, error) {
+	var out []devsim.CustomExercise
+	for _, item := range strings.Split(v, ";") {
+		if strings.TrimSpace(item) == "" {
+			continue
+		}
+		fields := strings.Split(item, "|")
+		if len(fields) != 4 {
+			return nil, errDevQuery("custom", item)
+		}
+		inc, err := strconv.ParseFloat(strings.TrimSpace(fields[3]), 64)
+		if err != nil {
+			return nil, errDevQuery("custom", item)
+		}
+		out = append(out, devsim.CustomExercise{
+			Name:        strings.TrimSpace(fields[0]),
+			Primary:     parseDevRegions(fields[1]),
+			Secondary:   parseDevRegions(fields[2]),
+			IncrementKg: inc,
+		})
+	}
+	return out, nil
+}
+
+func parseDevRegions(v string) []training.MuscleRegion {
+	var out []training.MuscleRegion
+	for _, r := range strings.Split(v, ",") {
+		if r = strings.TrimSpace(r); r != "" {
+			out = append(out, training.MuscleRegion(r))
+		}
+	}
+	return out
 }
 
 // parseDevOneRepMax は "bench:100,squat:140" を種目ごとの1RMにする。
@@ -416,8 +479,21 @@ func toDevSettingsDTO(req devsim.Request, pool []*exercise.Exercise) devSettings
 	if len(out.Weekdays) == 0 {
 		out.Weekdays, _ = devsim.DefaultWeekdays(req.Frequency)
 	}
+	out.Custom = []devCustomDTO{}
 	for _, e := range pool {
 		out.Athlete.OneRepMaxKg[string(e.ID())] = req.Athlete.OneRepMax(e.ID())
+		if !e.IsCustom() {
+			continue
+		}
+		c := devCustomDTO{ID: string(e.ID()), Name: e.Name(), IncrementKg: e.Increment().Kg()}
+		for _, r := range e.PrimaryRegions() {
+			c.Primary = append(c.Primary, string(r))
+		}
+		c.Secondary = []string{}
+		for _, r := range e.SecondaryRegions() {
+			c.Secondary = append(c.Secondary, string(r))
+		}
+		out.Custom = append(out.Custom, c)
 	}
 	return out
 }

@@ -118,6 +118,23 @@ describe('settingsLine', () => {
     expect(got).toContain('週4回（水金）');
   });
 
+  // 自分の種目を足した結果は、足さない結果と数字が違う。前提の1行に出さないと、
+  // どちらの条件の数字かを要約だけで読み分けられない。
+  it('自分の種目があれば、名前と効く部位を書く', () => {
+    const got = settingsLine(
+      {
+        ...settings,
+        custom: [
+          { id: 'u-sim01', name: 'アイソラテラル・ロー', primary: ['TRAP_MID'], secondary: ['BICEPS', 'LAT'], increment_kg: 2.5 },
+        ],
+      },
+      names,
+      '',
+    );
+    expect(got).toContain('自分の種目: アイソラテラル・ロー（主 僧帽筋中部・少し 上腕二頭筋,広背筋）');
+    expect(settingsLine({ ...settings, custom: [] }, names, '')).not.toContain('自分の種目');
+  });
+
   it('分割と重点が無ければ「なし」', () => {
     const got = settingsLine({ ...settings, focus: '', split: '' }, names, '');
     expect(got).toContain('分割 なし・重点 なし');

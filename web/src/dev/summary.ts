@@ -75,8 +75,19 @@ export function settingsLine(
     `1回 ${s.exercises_per_session}種目×${s.sets_per_exercise}セット・分割 ${splitName || 'なし'}・` +
     `重点 ${s.focus ? name(s.focus) : 'なし'}。` +
     `模擬ユーザー: 伸び ${a.growth_pct_per_week}%/週・初回は実力の${a.first_session_pct}%・` +
-    `体重${a.body_weight_kg}kg。初日の1RM: ${orm.join(', ')}`
+    `体重${a.body_weight_kg}kg。初日の1RM: ${orm.join(', ')}` +
+    customLine(s)
   );
+}
+
+/** customLine は自分の種目を前提の末尾に足す。無ければ空。 */
+function customLine(s: DevSettings): string {
+  if (!s.custom || s.custom.length === 0) return '';
+  const regions = (rs: string[]) => rs.map(regionLabel).join(',');
+  const items = s.custom.map(
+    (c) => `${c.name}（主 ${regions(c.primary)}${c.secondary.length ? `・少し ${regions(c.secondary)}` : ''}）`,
+  );
+  return `。自分の種目: ${items.join(', ')}`;
 }
 
 const WEEKDAY = ['日', '月', '火', '水', '木', '金', '土'];
