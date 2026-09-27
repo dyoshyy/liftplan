@@ -33,8 +33,8 @@ type Handler struct {
 	setSplit         *usecase.SetSplitCycle
 	getProgram       *usecase.GetProgram
 	deleteSetLog     *usecase.DeleteSetLog
-	addExercise      *usecase.AddCustomExercise
-	deleteExercise   *usecase.DeleteCustomExercise
+	addExercise      *usecase.AddExercise
+	deleteExercise   *usecase.DeleteExercise
 	exercises        *query.Exercises
 	history          *query.History
 	stats            *query.Stats
@@ -58,8 +58,8 @@ type Dependencies struct {
 	SetSplit         *usecase.SetSplitCycle
 	GetProgram       *usecase.GetProgram
 	DeleteSetLog     *usecase.DeleteSetLog
-	AddExercise      *usecase.AddCustomExercise
-	DeleteExercise   *usecase.DeleteCustomExercise
+	AddExercise      *usecase.AddExercise
+	DeleteExercise   *usecase.DeleteExercise
 	Exercises        *query.Exercises
 	History          *query.History
 	Stats            *query.Stats
@@ -370,16 +370,18 @@ func (h *Handler) handlePostExercise(w http.ResponseWriter, r *http.Request) {
 		respondError(w, err)
 		return
 	}
-	toRegions := func(ss []string) []training.MuscleRegion {
-		out := make([]training.MuscleRegion, 0, len(ss))
-		for _, s := range ss {
-			out = append(out, training.MuscleRegion(s))
-		}
-		return out
+	// AddExercise はユースケースの生の入力（区分ごとの寄与度）を受け取る。
+	// リクエストはまだ主・副の一覧なので、ここで 1.0・0.5 の寄与に変換する
+	// （API の形そのものを主・副から寄与度に変えるのは Task 5）。
+	stimulus := make(map[training.MuscleRegion]float64, len(req.Primary)+len(req.Secondary))
+	for _, s := range req.Primary {
+		stimulus[training.MuscleRegion(s)] = 1.0
 	}
-	e, err := h.addExercise.Execute(r.Context(), user, usecase.AddCustomExerciseInput{
-		Name: req.Name, Primary: toRegions(req.Primary), Secondary: toRegions(req.Secondary),
-		IncrementKg: req.IncrementKg,
+	for _, s := range req.Secondary {
+		stimulus[training.MuscleRegion(s)] = 0.5
+	}
+	e, err := h.addExercise.Execute(r.Context(), user, usecase.AddExerciseInput{
+		Name: req.Name, Stimulus: stimulus, IncrementKg: req.IncrementKg,
 	})
 	if err != nil {
 		respondError(w, err)

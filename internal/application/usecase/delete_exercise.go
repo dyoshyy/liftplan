@@ -10,23 +10,27 @@ import (
 	"github.com/dyoshyy/liftplan/internal/domain/training/program"
 )
 
-// DeleteCustomExercise は利用者が足した種目を消す（論理削除）。
+// DeleteExercise は利用者が種目を消す（論理削除）。
+//
+// プリセット由来かどうかで扱いを変えない（global-constraints「プリセット
+// 由来も消せる・直せる」）。共通の種目もその利用者の一覧に写っているので、
+// 消せば以後その利用者からだけ見えなくなる。
 //
 // **プログラムを先に、種目を後に書く。**逆順だと、途中で落ちたときに
 // 消した種目が使う種目に残り、verifySelection がそれを弾くので、以後の
 // 選択の保存が失敗し続ける。この順なら途中で落ちても「チェックが外れた
 // だけ」で、もう一度消せば終わる。
-type DeleteCustomExercise struct {
+type DeleteExercise struct {
 	exercises exerciseStore
 	reader    program.Reader
 	writer    program.Writer
 }
 
-func NewDeleteCustomExercise(exercises exerciseStore, reader program.Reader, writer program.Writer) *DeleteCustomExercise {
-	return &DeleteCustomExercise{exercises: exercises, reader: reader, writer: writer}
+func NewDeleteExercise(exercises exerciseStore, reader program.Reader, writer program.Writer) *DeleteExercise {
+	return &DeleteExercise{exercises: exercises, reader: reader, writer: writer}
 }
 
-func (u *DeleteCustomExercise) Execute(ctx context.Context, user account.UserID, id exercise.ExerciseID) (err error) {
+func (u *DeleteExercise) Execute(ctx context.Context, user account.UserID, id exercise.ExerciseID) (err error) {
 	defer func() { err = apperror.Classify(err) }()
 
 	pool, err := u.exercises.FindAll(ctx, user)
@@ -35,7 +39,7 @@ func (u *DeleteCustomExercise) Execute(ctx context.Context, user account.UserID,
 	}
 	var target *exercise.Exercise
 	for _, e := range pool {
-		if e != nil && e.ID() == id && e.IsCustom() {
+		if e != nil && e.ID() == id {
 			target = e
 			break
 		}

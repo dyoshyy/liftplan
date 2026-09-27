@@ -21,11 +21,13 @@ func TestCustomExercises_AddListDelete(t *testing.T) {
 	}
 	var created struct {
 		ID       string             `json:"id"`
-		Custom   bool               `json:"custom"`
 		Stimulus map[string]float64 `json:"stimulus"`
 	}
 	_ = json.Unmarshal(rec.Body.Bytes(), &created)
-	if !created.Custom || created.Stimulus["TRAP_MID"] != 1.0 || created.Stimulus["LAT"] != 0.5 {
+	// Custom はもう見ない。プリセット由来かどうかで扱いを変えない
+	// （global-constraints「IsCustom は無くす」。API の形そのものを
+	// 直すのは Task 5）。
+	if created.Stimulus["TRAP_MID"] != 1.0 || created.Stimulus["LAT"] != 0.5 {
 		t.Errorf("作った種目が違う: %+v", created)
 	}
 
@@ -66,7 +68,7 @@ func TestCustomExercises_ErrorStatuses(t *testing.T) {
 	}{
 		{"主なし", http.MethodPost, "/api/exercises", `{"name":"x","primary":[],"secondary":[],"increment_kg":2.5}`, 400, "INVALID_INPUT"},
 		{"共通と同名", http.MethodPost, "/api/exercises", `{"name":"サイドレイズ","primary":["SIDE_DELT"],"secondary":[],"increment_kg":2.5}`, 409, "DUPLICATE_NAME"},
-		{"共通の種目を消す", http.MethodDelete, "/api/exercises/side_raise", "", 404, "EXERCISE_NOT_FOUND"},
+		{"存在しない種目を消す", http.MethodDelete, "/api/exercises/nonexistent", "", 404, "EXERCISE_NOT_FOUND"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {

@@ -17,31 +17,34 @@ type exerciseStore interface {
 	exercise.Writer
 }
 
-// AddCustomExerciseInput は利用者が足す種目の入力。
-type AddCustomExerciseInput struct {
+// AddExerciseInput は利用者が足す種目の入力。
+//
+// プリセット由来かどうかで扱いを変えない（global-constraints）。効き方は
+// 区分ごとの寄与度の生の値で受け取り、検証は exercise.NewExercise に
+// 一本化する。
+type AddExerciseInput struct {
 	Name        string
-	Primary     []training.MuscleRegion
-	Secondary   []training.MuscleRegion
+	Stimulus    map[training.MuscleRegion]float64
 	IncrementKg float64
 }
 
-// AddCustomExercise は利用者が種目を足す。
+// AddExercise は利用者が種目を足す。
 //
 // 足した種目は使う種目にも入れる。足すのは使うためで、チェックを入れ直す
 // 手間を残さない。種目の保存とプログラムの保存の間で落ちると、種目は
 // あるが選ばれていない状態になる。設定画面でチェックを入れれば済むので、
 // トランザクションは張らない（設計書「ユースケース」）。
-type AddCustomExercise struct {
+type AddExercise struct {
 	exercises exerciseStore
 	reader    program.Reader
 	writer    program.Writer
 }
 
-func NewAddCustomExercise(exercises exerciseStore, reader program.Reader, writer program.Writer) *AddCustomExercise {
-	return &AddCustomExercise{exercises: exercises, reader: reader, writer: writer}
+func NewAddExercise(exercises exerciseStore, reader program.Reader, writer program.Writer) *AddExercise {
+	return &AddExercise{exercises: exercises, reader: reader, writer: writer}
 }
 
-func (u *AddCustomExercise) Execute(ctx context.Context, user account.UserID, in AddCustomExerciseInput) (_ *exercise.Exercise, err error) {
+func (u *AddExercise) Execute(ctx context.Context, user account.UserID, in AddExerciseInput) (_ *exercise.Exercise, err error) {
 	defer func() { err = apperror.Classify(err) }()
 
 	// プログラムが無ければ種目を作る前に止める。作ってから止まると、
@@ -51,13 +54,13 @@ func (u *AddCustomExercise) Execute(ctx context.Context, user account.UserID, in
 		return nil, err
 	}
 
-	id, err := exercise.NewRandomCustomExerciseID()
+	id, err := exercise.NewRandomExerciseID()
 	if err != nil {
 		return nil, err
 	}
-	e, err := exercise.NewCustomExercise(exercise.CustomExerciseParams{
+	e, err := exercise.NewExercise(exercise.ExerciseParams{
 		ID: string(id), Name: in.Name,
-		Primary: in.Primary, Secondary: in.Secondary, IncrementKg: in.IncrementKg,
+		Stimulus: in.Stimulus, IncrementKg: in.IncrementKg,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("%w: %w", apperror.ErrInvalidInput, err)
