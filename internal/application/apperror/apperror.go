@@ -68,6 +68,16 @@ var (
 	// ErrDuplicateName は同じ名前の種目が既にあること。
 	ErrDuplicateName = newError("DUPLICATE_NAME", "同じ名前の種目がある", http.StatusConflict)
 
+	// ErrExerciseNotFound は消そうとした種目が無いこと。共通の種目と
+	// 他人の種目もここに入る（その利用者から見て「消せる種目」が無い）。
+	ErrExerciseNotFound = newError("EXERCISE_NOT_FOUND", "種目が見つからない", http.StatusNotFound)
+
+	// ErrStillDeclared は伸ばしたい種目に入っている種目を消そうとしたこと。
+	//
+	// 黙って宣言から外さない。伸ばしたい種目が0個になりうるのと、軸の
+	// 顔ぶれが変わっても気づけないため（Program.WithSelected と同じ理由）。
+	ErrStillDeclared = newError("STILL_DECLARED", "伸ばしたい種目に入っている種目は消せない", http.StatusConflict)
+
 	// ErrUnavailable は保存先に到達できないこと。
 	//
 	// 500 と分けるのは、後で送り直せば通るから。混ぜるとクライアントが

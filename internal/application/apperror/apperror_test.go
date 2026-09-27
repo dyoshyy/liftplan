@@ -58,14 +58,16 @@ func TestError_IsDistinguishesCodes(t *testing.T) {
 // 分類ごとにステータスが違うこと。同じ値が並ぶと分けた意味が無い。
 func TestError_StatusesAreDistinct(t *testing.T) {
 	cases := map[*apperror.Error]int{
-		apperror.ErrInvalidInput:  http.StatusBadRequest,
-		apperror.ErrNotConfigured: http.StatusConflict,
-		apperror.ErrConflict:      http.StatusConflict,
-		apperror.ErrDuplicateName: http.StatusConflict,
-		apperror.ErrUnavailable:   http.StatusServiceUnavailable,
-		apperror.ErrTooLarge:      http.StatusRequestEntityTooLarge,
-		apperror.ErrTimeout:       http.StatusGatewayTimeout,
-		apperror.ErrInternal:      http.StatusInternalServerError,
+		apperror.ErrInvalidInput:     http.StatusBadRequest,
+		apperror.ErrNotConfigured:    http.StatusConflict,
+		apperror.ErrConflict:         http.StatusConflict,
+		apperror.ErrDuplicateName:    http.StatusConflict,
+		apperror.ErrExerciseNotFound: http.StatusNotFound,
+		apperror.ErrStillDeclared:    http.StatusConflict,
+		apperror.ErrUnavailable:      http.StatusServiceUnavailable,
+		apperror.ErrTooLarge:         http.StatusRequestEntityTooLarge,
+		apperror.ErrTimeout:          http.StatusGatewayTimeout,
+		apperror.ErrInternal:         http.StatusInternalServerError,
 	}
 	codes := map[string]bool{}
 	for e, want := range cases {
