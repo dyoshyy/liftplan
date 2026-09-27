@@ -19,7 +19,7 @@ const MAX_CONTRIBUTION = 1.0;
 const MAX_INCREMENT_KG = 50;
 
 /** DEFAULT_INCREMENT_KG は刻みの初期値。プレート式マシンの多くが 2.5kg 刻み。 */
-const DEFAULT_INCREMENT_KG = 2.5;
+export const DEFAULT_INCREMENT_KG = 2.5;
 
 /** ExerciseDraft は「種目を足す・直す」の書きかけ。 */
 export type ExerciseDraft = {

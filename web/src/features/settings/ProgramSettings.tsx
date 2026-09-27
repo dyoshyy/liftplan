@@ -1,8 +1,7 @@
 import { focusOptions, NO_FOCUS } from '../today/focus';
 import { lockedSelected } from '../today/declared';
+import { aliveExercises } from '../exercises/exerciseDraft';
 import { ExercisePicker } from './ExercisePicker';
-import { CustomExercises } from './CustomExercises';
-import { aliveExercises } from './customExercise';
 import { isWholeBody, scheduleSummary } from './split';
 import { exercisesSummary, useProgramSettings } from './useProgramSettings';
 import { Button } from '../../ui/Button';
@@ -18,6 +17,8 @@ type Props = {
   exercises: readonly Exercise[];
   /** 変更後にメニューを取り直す。設定はその日の献立を変える。 */
   onChanged: () => Promise<void>;
+  /** 種目マスタの編集（足す・直す・消す）は別ページで行う。 */
+  onOpenExercises: () => void;
 };
 
 /**
@@ -37,12 +38,9 @@ type Props = {
  * メニューは変わらないまま「変えたつもり」になる。失敗しても記録は
  * 1件も失わないので、その場で成否を見せるほうが正直。
  */
-export function ProgramSettings({ nameOf, exercises: all, onChanged }: Props) {
+export function ProgramSettings({ nameOf, exercises: all, onChanged, onOpenExercises }: Props) {
   // 消した種目はサーバーから返ってくる（履歴の名前のため）が、ここでは選べない。
   const exercises = aliveExercises(all);
-  // Exercise はもう custom を持たない（プリセット由来かどうかで扱いを変えない）。
-  // ここの「自分の種目」節は次のコミットで別ページに移す。
-  const mine: Exercise[] = [];
   const {
     program,
     note,
@@ -56,8 +54,6 @@ export function ProgramSettings({ nameOf, exercises: all, onChanged }: Props) {
     splitOptions,
     splitKey,
     chooseSplit,
-    addCustomExercise,
-    deleteCustomExercise,
   } = useProgramSettings(onChanged);
 
   return (
@@ -176,7 +172,16 @@ export function ProgramSettings({ nameOf, exercises: all, onChanged }: Props) {
           いくので、上で足した種目がそのまま下の候補に出る。3つとも押したその場で
           保存するので、節を分けて畳む理由も無い。 */}
       <Section title="種目" summary={program ? exercisesSummary(program, nameOf) : ''}>
-        <p className="text-[13px] font-bold">使う種目</p>
+        <p className="text-[13px] font-bold">種目そのものを変える</p>
+        <Note className="mb-3 mt-1">
+          一覧に無い器具を足したり、名前や効き方を直したり、使わなくなった種目を
+          消したりできます。
+        </Note>
+        <Button variant="quiet" disabled={busy} onClick={onOpenExercises}>
+          種目を管理する
+        </Button>
+
+        <p className="mt-6 text-[13px] font-bold">使う種目</p>
         <Note className="mb-3 mt-1">
           ここで選んだ種目だけが補助として出ます。
           下の「伸ばしたい種目」に入れた種目は外せません。
@@ -190,23 +195,6 @@ export function ProgramSettings({ nameOf, exercises: all, onChanged }: Props) {
             lockedReason={lockedSelected(program.selected_exercises, program.declared_exercises)}
             disabled={busy}
             onToggle={(id) => void toggleSelectedExercise(id)}
-          />
-        )}
-
-        <p className="mt-6 text-[13px] font-bold">自分の種目</p>
-        <Note className="mb-3 mt-1">
-          一覧に無い器具を足せます。効く部位を選ぶと、ほかの種目と同じように
-          補助として出ます。足した種目は「使う種目」に入ります。
-          消しても、これまでの記録と履歴は残ります。
-        </Note>
-
-        {program && (
-          <CustomExercises
-            mine={mine}
-            declared={program.declared_exercises}
-            busy={busy}
-            onAdd={addCustomExercise}
-            onDelete={(id) => void deleteCustomExercise(id)}
           />
         )}
 

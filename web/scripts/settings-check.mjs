@@ -104,36 +104,82 @@ await page.waitForTimeout(1500);
 const repicked = await program();
 console.log('入れ直した後: selected =', repicked.selected_exercises.length, '件');
 
-// 自分の種目。足すと一覧と「使う種目」に出て、消すと両方から消えるか。
-// 足す・消すはどちらも押したその場で送る。送った後に一覧（種目マスタ）を
-// 取り直さないと、足した種目が画面に出ない。配線なのでここで見る。
-const CUSTOM = 'チェック用マシン';
+// 種目は別ページ（設定 → 種目 → 種目を管理する）で足す・直す・消す。
+// 押したその場で送るので、送った後に一覧（種目マスタ）を取り直さないと
+// 画面に反映されない。配線なのでここで見る。
 const exercises = () => fetch(`${API}/api/exercises`, { headers: auth }).then((r) => r.json());
-// 「種目」は入れ直しのときに開いたまま。
-const addGroup = page.getByRole('group', { name: '種目を足す' });
-await addGroup.getByLabel('名前').fill(CUSTOM);
-await addGroup.getByRole('button', { name: '僧帽筋中部', exact: true }).click(); // 主
-await addGroup.getByRole('button', { name: '広背筋', exact: true }).click(); // 主
-await addGroup.getByRole('button', { name: '広背筋（主）' }).click(); // 少し
-await addGroup.getByRole('button', { name: '足す' }).click();
+const CUSTOM = 'チェック用マシン';
+const RENAMED = 'チェック用マシン（直した）';
+
+// 「種目」は前の操作で開いたまま。種目マスタの一覧はこの節の中の
+// ボタンから別ページへ移る。
+await page.getByRole('button', { name: '種目を管理する' }).click();
+await page.waitForTimeout(1200);
+const addTop = page.getByRole('button', { name: '種目を足す', exact: true });
+const exercisesPageOpened = (await addTop.count()) === 1;
+console.log('種目のページが開いた:', exercisesPageOpened);
+
+await addTop.click();
+await page.waitForTimeout(300);
+const editGroup = page.getByRole('group', { name: '種目の編集' });
+await editGroup.getByLabel('名前').fill(CUSTOM);
+await editGroup.getByRole('button', { name: '僧帽筋中部', exact: true }).click(); // 1.0
+await editGroup.getByRole('button', { name: '広背筋', exact: true }).click(); // 1.0 → 下の数値欄で 0.5 に直す
+await editGroup.getByLabel('広背筋の寄与').fill('0.5');
+await editGroup.getByRole('button', { name: '保存' }).click();
 await page.waitForTimeout(2000);
+
 const addedList = (await exercises()).exercises;
 const added = addedList.find((e) => e.name === CUSTOM);
-const afterAdd = await program();
-const inUse = await useGroup.locator('button', { hasText: CUSTOM }).count();
-const inMine = await page.getByRole('list', { name: '自分の種目' }).getByText(CUSTOM).count();
-console.log('足した種目:', JSON.stringify(added ? { custom: added.custom, stimulus: added.stimulus } : null),
-  '/ 使う種目に入った', afterAdd.selected_exercises.includes(added?.id), '/ 使う種目の一覧に出た数 =', inUse, '/ 自分の種目に出た数 =', inMine);
+const inList = await page.getByText(CUSTOM, { exact: true }).count();
+console.log('足した種目:', JSON.stringify(added ? { stimulus: added.stimulus } : null), '/ 一覧に出た数 =', inList);
 
-await page.getByRole('button', { name: `${CUSTOM}を消す` }).click();
+// 直す。同じ編集フォームが、押した種目の値で開くはず。
+await page.getByRole('button', { name: `${CUSTOM}を直す` }).click();
+await page.waitForTimeout(300);
+await editGroup.getByLabel('名前').fill(RENAMED);
+await editGroup.getByRole('button', { name: '保存' }).click();
+await page.waitForTimeout(2000);
+
+const afterEditList = (await exercises()).exercises;
+const edited = afterEditList.find((e) => e.id === added?.id);
+const oldNameGone = (await page.getByText(CUSTOM, { exact: true }).count()) === 0;
+const newNameThere = (await page.getByText(RENAMED, { exact: true }).count()) === 1;
+console.log('直した後: name =', edited?.name, '（期待', RENAMED, '）/ 古い名前が消えた', oldNameGone, '/ 新しい名前が出た', newNameThere);
+
+// 消す。
+await page.getByRole('button', { name: `${RENAMED}を消す` }).click();
 await page.waitForTimeout(2000);
 const deleted = (await exercises()).exercises.find((e) => e.id === added?.id);
-const afterDelete = await program();
-const inUseAfter = await useGroup.locator('button', { hasText: CUSTOM }).count();
-console.log('消した後: deleted =', deleted?.deleted, '/ 使う種目に残った', afterDelete.selected_exercises.includes(added?.id), '/ 一覧に残った数 =', inUseAfter);
-const customOk = added?.custom === true && added.stimulus.TRAP_MID === 1 && added.stimulus.LAT === 0.5
-  && afterAdd.selected_exercises.includes(added.id) && inUse === 1 && inMine === 1
-  && deleted?.deleted === true && !afterDelete.selected_exercises.includes(added.id) && inUseAfter === 0;
+const removedFromList = (await page.getByText(RENAMED, { exact: true }).count()) === 0;
+console.log('消した後: deleted =', deleted?.deleted, '/ 一覧から消えた', removedFromList);
+
+const customOk = added !== undefined && added.stimulus.TRAP_MID === 1 && added.stimulus.LAT === 0.5
+  && inList === 1 && edited?.name === RENAMED && oldNameGone && newNameThere
+  && deleted?.deleted === true && removedFromList;
+
+// プリセット由来も消せる。サイドレイズは既定では伸ばしたい種目に入って
+// いない（seed.DefaultDeclared）ので、409 を踏まずに消せるはず。
+const PRESET = 'サイドレイズ';
+await page.getByRole('button', { name: `${PRESET}を消す`, exact: true }).click();
+await page.waitForTimeout(2000);
+const presetDeleted = (await exercises()).exercises.find((e) => e.name === PRESET);
+const presetGoneFromList = (await page.getByText(PRESET, { exact: true }).count()) === 0;
+console.log('プリセットを消した後: deleted =', presetDeleted?.deleted, '/ 一覧から消えた', presetGoneFromList);
+
+// 設定へ戻り、「使う種目」からも消えているかを見る。消した分を API で
+// 足し直す必要は無い（インメモリなので再起動で戻る）。
+await page.getByRole('button', { name: '← 設定' }).click();
+await page.waitForTimeout(1800);
+await exHeader.click();
+await page.waitForTimeout(800);
+// hasText の文字列指定は部分一致なので、素の PRESET だとサイドレイズも
+// ケーブルサイドレイズも同じヒットになる。ここで見たいのは前者だけが
+// 消えたことなので、行末に固定して区別する。
+const presetGoneFromUse = (await useGroup.locator('button', { hasText: new RegExp(`^✓?\\s*${PRESET}$`) }).count()) === 0;
+console.log('設定の使う種目から消えた:', presetGoneFromUse);
+
+const presetOk = presetDeleted?.deleted === true && presetGoneFromList && presetGoneFromUse;
 await exHeader.click();
 await page.waitForTimeout(300);
 
@@ -156,7 +202,7 @@ const ok = after.per_week === want && after.declared_exercises.length === before
   && repicked.selected_exercises.length === before.selected_exercises.length
   && Array.isArray(realAccount.accounts) && realAccount.accounts.length === 0
   && accountSummary.includes('gym@example.com') && signedInAs
-  && customOk;
+  && exercisesPageOpened && customOk && presetOk;
 console.log(ok ? '\n✓ 設定の保存は壊れていない' : '\n✗ 壊れている');
 await browser.close();
 process.exit(ok ? 0 : 1);
