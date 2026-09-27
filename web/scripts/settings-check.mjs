@@ -110,6 +110,16 @@ console.log('入れ直した後: selected =', repicked.selected_exercises.length
 const exercises = () => fetch(`${API}/api/exercises`, { headers: auth }).then((r) => r.json());
 const CUSTOM = 'チェック用マシン';
 const RENAMED = 'チェック用マシン（直した）';
+// プリセット由来も消せることの確認に使う。既定では伸ばしたい種目に
+// 入っていない（seed.DefaultDeclared）ので、409 を踏まずに消せるはず。
+const PRESET = 'サイドレイズ';
+
+// 消す前に「使う種目」に居ることを確かめる。ここを見ずに「消えた」だけ見ると、
+// 最初から出ていない（一覧の絞り込みが壊れている等）場合も「消えた」が
+// 真になってしまい、消す操作そのものは何も検査していないことになる。
+const presetInUseBefore =
+  (await useGroup.locator('button', { hasText: new RegExp(`^✓?\\s*${PRESET}$`) }).count()) === 1;
+console.log('消す前: サイドレイズが使う種目に居る', presetInUseBefore, '（期待 true）');
 
 // 「種目」は前の操作で開いたまま。種目マスタの一覧はこの節の中の
 // ボタンから別ページへ移る。
@@ -150,7 +160,12 @@ await page.waitForTimeout(2000);
 const addedList = (await exercises()).exercises;
 const added = addedList.find((e) => e.name === CUSTOM);
 const inList = await page.getByText(CUSTOM, { exact: true }).count();
-console.log('足した種目:', JSON.stringify(added ? { stimulus: added.stimulus } : null), '/ 一覧に出た数 =', inList);
+// 足すと使う種目にも入る（サーバーが selected_exercises に足す）。ここは
+// 種目マスタ（/api/exercises）とは別の口（/api/program）で見る。
+const afterAdd = await program();
+const addedInUse = added !== undefined && afterAdd.selected_exercises.includes(added.id);
+console.log('足した種目:', JSON.stringify(added ? { stimulus: added.stimulus } : null), '/ 一覧に出た数 =', inList,
+  '/ 使う種目に入った', addedInUse);
 
 // 直す。同じ編集フォームが、押した種目の値で開くはず。
 await page.getByRole('button', { name: `${CUSTOM}を直す` }).click();
@@ -173,12 +188,10 @@ const removedFromList = (await page.getByText(RENAMED, { exact: true }).count())
 console.log('消した後: deleted =', deleted?.deleted, '/ 一覧から消えた', removedFromList);
 
 const customOk = added !== undefined && added.stimulus.TRAP_MID === 1 && added.stimulus.LAT === 0.5
-  && inList === 1 && edited?.name === RENAMED && oldNameGone && newNameThere
+  && inList === 1 && addedInUse && edited?.name === RENAMED && oldNameGone && newNameThere
   && deleted?.deleted === true && removedFromList;
 
-// プリセット由来も消せる。サイドレイズは既定では伸ばしたい種目に入って
-// いない（seed.DefaultDeclared）ので、409 を踏まずに消せるはず。
-const PRESET = 'サイドレイズ';
+// プリセット由来も消せる。
 await page.getByRole('button', { name: `${PRESET}を消す`, exact: true }).click();
 await page.waitForTimeout(2000);
 const presetDeleted = (await exercises()).exercises.find((e) => e.name === PRESET);
@@ -197,7 +210,7 @@ await page.waitForTimeout(800);
 const presetGoneFromUse = (await useGroup.locator('button', { hasText: new RegExp(`^✓?\\s*${PRESET}$`) }).count()) === 0;
 console.log('設定の使う種目から消えた:', presetGoneFromUse);
 
-const presetOk = presetDeleted?.deleted === true && presetGoneFromList && presetGoneFromUse;
+const presetOk = presetInUseBefore && presetDeleted?.deleted === true && presetGoneFromList && presetGoneFromUse;
 await exHeader.click();
 await page.waitForTimeout(300);
 

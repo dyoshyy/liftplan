@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { getJSON, send } from '../../api/client';
-import type { Program } from '../../api/types';
+import type { Exercise, Program } from '../../api/types';
 import { describePutFailure } from '../settings/useProgramSettings';
 import { draftBody, draftProblem, type ExerciseDraft } from './exerciseDraft';
 
@@ -91,5 +91,12 @@ export function useExerciseManager(onChanged: () => Promise<void>) {
     return true;
   };
 
-  return { declared, note, busy, add, edit, remove };
+  // save は編集フォームの送信口。'new' か直す対象の種目かで add/edit に振り分ける。
+  //
+  // 描画（ExerciseManager.tsx）に分岐と await を持たせないための置き場所
+  // （3層：判断は exerciseDraft.ts、手順はここ、描画は ExerciseManager.tsx）。
+  const save = (target: 'new' | Exercise, draft: ExerciseDraft): Promise<boolean> =>
+    target === 'new' ? add(draft) : edit(target.id, draft);
+
+  return { declared, note, busy, save, remove };
 }

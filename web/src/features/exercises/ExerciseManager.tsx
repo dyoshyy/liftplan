@@ -30,7 +30,7 @@ type Props = {
  * useExerciseManager、描画はここ）。
  */
 export function ExerciseManager({ exercises, onChanged, onBack }: Props) {
-  const { declared, note, busy, add, edit, remove } = useExerciseManager(onChanged);
+  const { declared, note, busy, save, remove } = useExerciseManager(onChanged);
   // null = 一覧、'new' = 足す、Exercise = 直す。フォームは足す・直すで共用する。
   const [target, setTarget] = useState<Exercise | 'new' | null>(null);
   const [draft, setDraft] = useState<ExerciseDraft>(emptyDraft);
@@ -43,11 +43,6 @@ export function ExerciseManager({ exercises, onChanged, onBack }: Props) {
   const openEdit = (e: Exercise) => {
     setDraft(draftOf(e));
     setTarget(e);
-  };
-
-  const save = async () => {
-    const ok = target === 'new' ? await add(draft) : target ? await edit(target.id, draft) : false;
-    if (ok) setTarget(null);
   };
 
   const alive = aliveExercises(exercises);
@@ -68,7 +63,20 @@ export function ExerciseManager({ exercises, onChanged, onBack }: Props) {
       {note && <Note className="text-red">{note}</Note>}
 
       {target ? (
-        <ExerciseEditor draft={draft} onChange={setDraft} onSave={() => void save()} onCancel={() => setTarget(null)} busy={busy} />
+        <ExerciseEditor
+          draft={draft}
+          onChange={setDraft}
+          onSave={() =>
+            // 送信そのもの（POST か PUT かの振り分け・API 呼び出し）は
+            // useExerciseManager の save が持つ。ここは結果を受けて画面を
+            // 閉じるだけ（orchestration-hooks：描画は手順を持たない）。
+            void save(target, draft).then((ok) => {
+              if (ok) setTarget(null);
+            })
+          }
+          onCancel={() => setTarget(null)}
+          busy={busy}
+        />
       ) : (
         <>
           <Button disabled={busy} onClick={openAdd}>
@@ -82,44 +90,47 @@ export function ExerciseManager({ exercises, onChanged, onBack }: Props) {
                 {group.items.map((e) => {
                   const why = deleteBlockedReason(declared, e.id);
                   return (
-                    <li
-                      key={e.id}
-                      className="flex min-w-0 items-center justify-between gap-2 rounded-xl border border-line bg-surface p-3"
-                    >
-                      {/* flex-1 は flex-basis を 0 にするので、寄与の要約が
-                          折り返さない全角文字列でも、それを基準に幅を決めない
-                          （auto のままだと中身の自然な幅が基準になり、隣の
-                          ボタンごと画面の外へ押し出す）。min-w-0 は自動最小幅
-                          （auto）を 0 に上書きして、実際に縮められるようにする。
-                          要約は truncate（nowrap）をやめて折り返す：nowrap は
-                          自身の内容を1行の幅として持たせてしまい、縮んだ枠の中で
-                          見た目上は切れて隠れるだけで、行の外形には影響しない
-                          はずが、実機ではここが崩れて行ごと画面の外に出た。 */}
-                      <div className="min-w-0 flex-1">
-                        <p className="truncate text-sm font-medium">{e.name}</p>
-                        <p className="break-words text-xs text-faint">{stimulusSummary(e.stimulus)}</p>
+                    <li key={e.id} className="grid gap-1.5 rounded-xl border border-line bg-surface p-3">
+                      <div className="flex min-w-0 items-center justify-between gap-2">
+                        {/* flex-1 は flex-basis を 0 にするので、寄与の要約が
+                            折り返さない全角文字列でも、それを基準に幅を決めない
+                            （auto のままだと中身の自然な幅が基準になり、隣の
+                            ボタンごと画面の外へ押し出す）。min-w-0 は自動最小幅
+                            （auto）を 0 に上書きして、実際に縮められるようにする。
+                            要約は truncate（nowrap）をやめて折り返す：nowrap は
+                            自身の内容を1行の幅として持たせてしまい、縮んだ枠の中で
+                            見た目上は切れて隠れるだけで、行の外形には影響しない
+                            はずが、実機ではここが崩れて行ごと画面の外に出た。 */}
+                        <div className="min-w-0 flex-1">
+                          <p className="truncate text-sm font-medium">{e.name}</p>
+                          <p className="break-words text-xs text-faint">{stimulusSummary(e.stimulus)}</p>
+                        </div>
+                        <div className="flex shrink-0 gap-2">
+                          <Button
+                            size="md"
+                            variant="quiet"
+                            disabled={busy}
+                            aria-label={`${e.name}を直す`}
+                            onClick={() => openEdit(e)}
+                          >
+                            直す
+                          </Button>
+                          <Button
+                            size="md"
+                            variant="danger"
+                            disabled={busy || why !== null}
+                            title={why ?? undefined}
+                            aria-label={`${e.name}を消す`}
+                            onClick={() => void remove(e.id)}
+                          >
+                            消す
+                          </Button>
+                        </div>
                       </div>
-                      <div className="flex shrink-0 gap-2">
-                        <Button
-                          size="md"
-                          variant="quiet"
-                          disabled={busy}
-                          aria-label={`${e.name}を直す`}
-                          onClick={() => openEdit(e)}
-                        >
-                          直す
-                        </Button>
-                        <Button
-                          size="md"
-                          variant="danger"
-                          disabled={busy || why !== null}
-                          title={why ?? undefined}
-                          aria-label={`${e.name}を消す`}
-                          onClick={() => void remove(e.id)}
-                        >
-                          消す
-                        </Button>
-                      </div>
+                      {/* title は指の操作では出ない（ホバーが無い）ので、
+                          スマホでも読める場所にも同じ理由を出す
+                          （ProgramSettings の分割プリセットと同じ扱い）。 */}
+                      {why && <Note>{why}</Note>}
                     </li>
                   );
                 })}
