@@ -1544,6 +1544,7 @@ func TestRoutes_RejectWrongMethod(t *testing.T) {
 		{http.MethodPost, "/api/program/selected"},
 		{http.MethodPost, "/api/program/split"},
 		{http.MethodPost, "/api/split-presets"},
+		{http.MethodPut, "/api/exercises"},
 		{http.MethodPost, "/api/stats"},
 	} {
 		if rec := do(t, mux, c.method, c.path, "{}"); rec.Code != http.StatusMethodNotAllowed {

@@ -52,20 +52,35 @@ func TestCustomExercises_AddListDelete(t *testing.T) {
 }
 
 // エラーの分類が正しいこと。
+//
+// code まで見るのは、ルートが無いだけの 404（ServeMux の素の
+// "404 page not found"）と、EXERCISE_NOT_FOUND を区別するため。
+// ステータスだけだと、DELETE のルート登録を消しても「共通の種目を消す」が
+// 誤って緑のままになる（実際にミューテーションで確認済み）。
 func TestCustomExercises_ErrorStatuses(t *testing.T) {
 	cases := []struct {
 		name, method, path, body string
 		want                     int
+		wantCode                 string
 	}{
-		{"主なし", http.MethodPost, "/api/exercises", `{"name":"x","primary":[],"secondary":[],"increment_kg":2.5}`, 400},
-		{"共通と同名", http.MethodPost, "/api/exercises", `{"name":"サイドレイズ","primary":["SIDE_DELT"],"secondary":[],"increment_kg":2.5}`, 409},
-		{"共通の種目を消す", http.MethodDelete, "/api/exercises/side_raise", "", 404},
+		{"主なし", http.MethodPost, "/api/exercises", `{"name":"x","primary":[],"secondary":[],"increment_kg":2.5}`, 400, "INVALID_INPUT"},
+		{"共通と同名", http.MethodPost, "/api/exercises", `{"name":"サイドレイズ","primary":["SIDE_DELT"],"secondary":[],"increment_kg":2.5}`, 409, "DUPLICATE_NAME"},
+		{"共通の種目を消す", http.MethodDelete, "/api/exercises/side_raise", "", 404, "EXERCISE_NOT_FOUND"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			rec := do(t, newServer(t, true), c.method, c.path, c.body)
 			if rec.Code != c.want {
 				t.Errorf("%d（期待 %d）: %s", rec.Code, c.want, rec.Body.String())
+			}
+			var body struct {
+				Code string `json:"code"`
+			}
+			if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+				t.Fatalf("応答を解釈できない: %v", err)
+			}
+			if body.Code != c.wantCode {
+				t.Errorf("コードが %q。%q のはず", body.Code, c.wantCode)
 			}
 		})
 	}
