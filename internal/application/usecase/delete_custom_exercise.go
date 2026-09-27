@@ -49,10 +49,10 @@ func (u *DeleteCustomExercise) Execute(ctx context.Context, user account.UserID,
 
 	prog, err := u.reader.Get(ctx, user)
 	if err != nil {
-		return err
+		return fmt.Errorf("プログラムの取得に失敗: %w", err)
 	}
 	if prog.Declares(id) {
-		return fmt.Errorf("%w: %s", apperror.ErrStillDeclared, id)
+		return fmt.Errorf("%w: %s", apperror.ErrStillDeclared, target.Name())
 	}
 
 	rest := make([]exercise.ExerciseID, 0, len(prog.SelectedExercises()))
@@ -69,7 +69,10 @@ func (u *DeleteCustomExercise) Execute(ctx context.Context, user account.UserID,
 		return fmt.Errorf("種目の削除が中断された: %w", err)
 	}
 	if err := u.writer.Save(ctx, user, next); err != nil {
-		return err
+		return fmt.Errorf("使う種目の保存に失敗: %w", err)
 	}
-	return u.exercises.Save(ctx, user, target.Delete())
+	if err := u.exercises.Save(ctx, user, target.Delete()); err != nil {
+		return fmt.Errorf("種目の削除の保存に失敗: %w", err)
+	}
+	return nil
 }

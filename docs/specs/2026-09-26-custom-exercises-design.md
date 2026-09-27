@@ -127,7 +127,7 @@ CREATE TABLE custom_exercises (
   deleted_at   timestamptz,
   PRIMARY KEY (user_id, id)
 );
-CREATE UNIQUE INDEX custom_exercises_name_alive
+CREATE UNIQUE INDEX custom_exercises_alive_name
   ON custom_exercises (user_id, name) WHERE deleted_at IS NULL;
 ```
 

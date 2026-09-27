@@ -3,12 +3,15 @@ package usecase_test
 import (
 	"context"
 	"errors"
+	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/dyoshyy/liftplan/internal/application/apperror"
 	"github.com/dyoshyy/liftplan/internal/application/query"
 	"github.com/dyoshyy/liftplan/internal/application/usecase"
 	"github.com/dyoshyy/liftplan/internal/domain/account"
+	"github.com/dyoshyy/liftplan/internal/domain/training"
 	"github.com/dyoshyy/liftplan/internal/domain/training/exercise"
 	"github.com/dyoshyy/liftplan/internal/domain/training/program"
 	"github.com/dyoshyy/liftplan/internal/domain/training/setlog"
@@ -114,8 +117,17 @@ func TestDeleteCustomExercise_RefusesDeclared(t *testing.T) {
 		t.Fatalf("プログラムの保存に失敗: %v", err)
 	}
 
-	if err := f.del.Execute(ctx, f.user, e.ID()); !errors.Is(err, apperror.ErrStillDeclared) {
+	err = f.del.Execute(ctx, f.user, e.ID())
+	if !errors.Is(err, apperror.ErrStillDeclared) {
 		t.Errorf("伸ばしたい種目が消せた: %v", err)
+	}
+	// メッセージは種目名で言う。ID（"u-..."）を利用者に見せない
+	// （Review Focus 2）。
+	if !strings.Contains(err.Error(), e.Name()) {
+		t.Errorf("エラーメッセージに種目名が無い: %v", err)
+	}
+	if strings.Contains(err.Error(), string(e.ID())) {
+		t.Errorf("エラーメッセージが生の ID を含んでいる: %v", err)
 	}
 }
 
@@ -277,4 +289,94 @@ func TestDeletedExercise_KeepsLogsAndNames(t *testing.T) {
 	if got := days[0].Exercises[0].Name; got != "アイソラテラル・ロー" {
 		t.Errorf("消した種目の名前が履歴に出ない: %q", got)
 	}
+}
+
+// erroringProgramReader は Get だけ固定のエラーを返す program.Reader。
+type erroringProgramReader struct{ err error }
+
+func (r *erroringProgramReader) Get(context.Context, account.UserID) (*program.Program, error) {
+	return nil, r.err
+}
+
+// erroringProgramWriter は Save だけ固定のエラーを返す program.Writer。
+type erroringProgramWriter struct{ err error }
+
+func (w *erroringProgramWriter) Save(context.Context, account.UserID, *program.Program) error {
+	return w.err
+}
+
+// erroringExerciseStore は既存のリポジトリに委譲しつつ、Save だけ固定の
+// エラーを返す exerciseStore。
+type erroringExerciseStore struct {
+	*exerciseRepo
+	err error
+}
+
+func (s *erroringExerciseStore) Save(context.Context, account.UserID, *exercise.Exercise) error {
+	return s.err
+}
+
+// Execute の3箇所の bare return が %w で包まれ、Classify がドメインの
+// センチネルまで辿れること（Review Focus 4）。
+//
+// %w を %v に変えると、包んだ直後の errors.Is は通っても Classify の
+// switch 内 errors.Is が失敗し、この分類だけが崩れる。それを見るのが
+// このテストの役目で、ここが無いと go vet も他のテストも %v への劣化に
+// 気づかない（実際に確認済み: このテストを書く前に %v へ変異させても
+// 全テストが緑のままだった）。
+func TestDeleteCustomExercise_ClassifiesWrappedFailures(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("プログラムの取得", func(t *testing.T) {
+		f := newFixture(t)
+		e, err := f.add.Execute(ctx, f.user, isoRow())
+		if err != nil {
+			t.Fatalf("足すのに失敗: %v", err)
+		}
+		del := usecase.NewDeleteCustomExercise(f.exercises,
+			&erroringProgramReader{err: program.ErrProgramNotConfigured}, f.programs)
+		err = del.Execute(ctx, f.user, e.ID())
+		if !errors.Is(err, apperror.ErrNotConfigured) {
+			t.Errorf("NOT_CONFIGURED に分類されない: %v", err)
+		}
+		if !errors.Is(err, program.ErrProgramNotConfigured) {
+			t.Errorf("ドメインのセンチネルが連鎖から消えている: %v", err)
+		}
+	})
+
+	t.Run("使う種目の保存", func(t *testing.T) {
+		f := newFixture(t)
+		e, err := f.add.Execute(ctx, f.user, isoRow())
+		if err != nil {
+			t.Fatalf("足すのに失敗: %v", err)
+		}
+		wrapped := fmt.Errorf("db: %w", training.ErrRepositoryUnavailable)
+		del := usecase.NewDeleteCustomExercise(f.exercises, f.programs,
+			&erroringProgramWriter{err: wrapped})
+		err = del.Execute(ctx, f.user, e.ID())
+		if !errors.Is(err, apperror.ErrUnavailable) {
+			t.Errorf("UNAVAILABLE に分類されない: %v", err)
+		}
+		if !errors.Is(err, training.ErrRepositoryUnavailable) {
+			t.Errorf("ドメインのセンチネルが連鎖から消えている: %v", err)
+		}
+	})
+
+	t.Run("種目の削除の保存", func(t *testing.T) {
+		f := newFixture(t)
+		e, err := f.add.Execute(ctx, f.user, isoRow())
+		if err != nil {
+			t.Fatalf("足すのに失敗: %v", err)
+		}
+		wrapped := fmt.Errorf("db: %w", training.ErrRepositoryUnavailable)
+		del := usecase.NewDeleteCustomExercise(&erroringExerciseStore{exerciseRepo: f.exercises, err: wrapped},
+			f.programs, f.programs)
+		err = del.Execute(ctx, f.user, e.ID())
+		if !errors.Is(err, apperror.ErrUnavailable) {
+			t.Errorf("UNAVAILABLE に分類されない: %v", err)
+		}
+		if !errors.Is(err, training.ErrRepositoryUnavailable) {
+			t.Errorf("ドメインのセンチネルが連鎖から消えている: %v", err)
+		}
+	})
 }
