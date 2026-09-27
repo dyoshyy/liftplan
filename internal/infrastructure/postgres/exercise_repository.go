@@ -88,7 +88,10 @@ func (r *ExerciseRepository) FindAll(ctx context.Context, user account.UserID) (
 	return out, nil
 }
 
-// ensureSeeded は、その利用者の行が1件も無ければシードを全部コピーする。
+// ensureSeeded は、その利用者の行が1件も無ければシードを全部コピーし、
+// 旧版（0013 の custom_exercises）でその人が足した種目も取り込む。
+//
+// シードが空（テストでしか起きない）なら何もしない。旧版の取り込みもしない。
 //
 // 同時に2回呼ばれても安全なのは ON CONFLICT DO NOTHING が二重挿入を吸収
 // するからで、トランザクションが守っているのはそこではない。トランザクション
@@ -161,10 +164,24 @@ func (r *ExerciseRepository) ensureSeeded(ctx context.Context, user account.User
 	// 同じ対応）。消した行は消したまま、足した時刻も引き継ぐ。
 	//
 	// ここで取り込むのは、プリセットのコピーと同じ「その人の行が0件のとき」
-	// だけ。別の時点で取り込むと、プリセットが入った後の一覧に旧版の種目が
-	// 混ざる順序が利用者ごとに変わり、0件の判定とも噛み合わない。
+	// だけ。1件でも行があれば上で抜けるので、後から取り込むには利用者ごとの
+	// 「取り込み済み」の印が要るが、それは持っていない。0014 より前に
+	// user_exercises の行を持つ人はいないので、全員がこの経路を一度だけ通る。
 	//
-	// 全員が取り込み終えたら custom_exercises ごと消せる（そのときにこの文も消す）。
+	// 取り込みに失敗すると、プリセットのコピーごと巻き戻る（その人は0件のまま、
+	// 次の読み出しでまた失敗する）。黙って行を読み飛ばさない。旧版の行は旧版の
+	// NewCustomExercise を通っていて、今の NewExercise の規則（名前40文字・
+	// 1.0 の区分・0.1 以上・8区分まで）をすべて満たすので、失敗は起きない前提。
+	//
+	// 同じ区分が主と少しの両方に入った行は無い（旧版の NewCustomExercise が
+	// 弾き、Save も1つの寄与の表から書き戻していた）ので、jsonb_object_agg の
+	// 重複キーは守らない。ON CONFLICT DO NOTHING が旧版の行を落とすこともない：
+	// ID は u- で始まりシードと重ならず、消していない名前は旧版がシードと
+	// 同じ名前を弾いていた（シードの名前が今のままである限り）。無指定にして
+	// いるのは、同時に2回の初回読み出しがぶつかったときに吸収するため（上と同じ）。
+	//
+	// custom_exercises を消せるのは、user_exercises に同じ (user_id, id) が
+	// 無い custom_exercises の行が1件も無くなってから（そのときにこの文も消す）。
 	if _, err := tx.Exec(ctx, `
 		INSERT INTO user_exercises
 			(user_id, id, name, stimulus, increment_kg, created_at, deleted_at)

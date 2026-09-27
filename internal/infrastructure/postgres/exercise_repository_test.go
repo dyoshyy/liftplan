@@ -5,6 +5,7 @@ import (
 	"errors"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
@@ -394,6 +395,13 @@ func TestExerciseRepository_Postgres_ConcurrentFirstReadsSeedOnce(t *testing.T) 
 	pool := migratedDB(t)
 	repo := postgres.NewExerciseRepository(pool, seedAll)
 	a := newUser(t)
+	// 旧版の行も1つ置く。取り込みの INSERT も同時に2回走るので、そちらの
+	// ON CONFLICT DO NOTHING も守る。
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO custom_exercises (user_id, id, name, primary_regions, secondary_regions, increment_kg)
+		VALUES ($1, 'u-00000000000000cc', '旧版マシン', '["LAT"]', '[]', 2.5)`, a.String()); err != nil {
+		t.Fatalf("旧版の行を入れられない: %v", err)
+	}
 	warmPool(ctx, t, pool, 2)
 
 	var wg sync.WaitGroup
@@ -417,8 +425,8 @@ func TestExerciseRepository_Postgres_ConcurrentFirstReadsSeedOnce(t *testing.T) 
 		}
 	}
 	for i, got := range results {
-		if len(got) != len(seedAll) {
-			t.Errorf("%d番目の件数が誤り: got %d, want %d", i, len(got), len(seedAll))
+		if len(got) != len(seedAll)+1 {
+			t.Errorf("%d番目の件数が誤り: got %d, want %d（プリセット＋旧版1件）", i, len(got), len(seedAll)+1)
 		}
 	}
 }
@@ -473,7 +481,10 @@ func TestExerciseRepository_Postgres_ImportsLegacyCustomExercises(t *testing.T) 
 	repo := postgres.NewExerciseRepository(pool, seedAll)
 	a, b := newUser(t), newUser(t)
 
-	// 旧版が書いた形そのまま。消した行も1つ入れる。
+	// 旧版が書いた形そのまま。消した行も1つ入れる。足した時刻と消した時刻は
+	// 固定の値にして、取り込み後に同じ値が残っているかを見る。
+	created := time.Date(2026, 9, 1, 12, 0, 0, 0, time.UTC)
+	deletedAt := time.Date(2026, 9, 10, 12, 0, 0, 0, time.UTC)
 	for _, row := range []struct {
 		user               account.UserID
 		id, name           string
@@ -486,9 +497,9 @@ func TestExerciseRepository_Postgres_ImportsLegacyCustomExercises(t *testing.T) 
 	} {
 		if _, err := pool.Exec(ctx, `
 			INSERT INTO custom_exercises
-				(user_id, id, name, primary_regions, secondary_regions, increment_kg, deleted_at)
-			VALUES ($1, $2, $3, $4, $5, 2.5, CASE WHEN $6 THEN now() END)`,
-			row.user.String(), row.id, row.name, row.primary, row.secondary, row.deleted); err != nil {
+				(user_id, id, name, primary_regions, secondary_regions, increment_kg, created_at, deleted_at)
+			VALUES ($1, $2, $3, $4, $5, 2.5, $6, CASE WHEN $7 THEN $8::timestamptz END)`,
+			row.user.String(), row.id, row.name, row.primary, row.secondary, created, row.deleted, deletedAt); err != nil {
 			t.Fatalf("旧版の行を入れられない: %v", err)
 		}
 	}
@@ -515,6 +526,17 @@ func TestExerciseRepository_Postgres_ImportsLegacyCustomExercises(t *testing.T) 
 	}
 	if d := byID["u-0000000000000002"]; d == nil || !d.IsDeleted() {
 		t.Errorf("消した旧版の種目が消えた状態で取り込まれていない: %+v", d)
+	}
+	// 足した時刻と消した時刻を引き継ぐ（取り込んだ時刻で上書きしない）。
+	var gotCreated time.Time
+	var gotDeleted *time.Time
+	if err := pool.QueryRow(ctx,
+		"SELECT created_at, deleted_at FROM user_exercises WHERE user_id = $1 AND id = $2",
+		a.String(), "u-0000000000000002").Scan(&gotCreated, &gotDeleted); err != nil {
+		t.Fatalf("取り込んだ行を読めない: %v", err)
+	}
+	if !gotCreated.Equal(created) || gotDeleted == nil || !gotDeleted.Equal(deletedAt) {
+		t.Errorf("時刻が引き継がれていない: created=%v deleted=%v（期待 %v, %v）", gotCreated, gotDeleted, created, deletedAt)
 	}
 
 	// 他人の旧版の行は、その人が初めて読んだときにその人の一覧へ入る。
