@@ -18,10 +18,11 @@ import (
 	"github.com/dyoshyy/liftplan/internal/domain/training/setlog"
 )
 
-// ExerciseRepository は種目を保持する。共通の種目は起動時にシードを
-// 流し込み、利用者が足した種目は利用者ごとの map に持つ。
+// ExerciseRepository は種目を保持する。種目は利用者ごとの一覧で、
+// プリセット（シード）はその人の行が1件も無いときに一度だけコピーする
+// （global-constraints「消した行も『行がある』に数える」）。
 type ExerciseRepository struct {
-	mu     sync.RWMutex
+	mu     sync.Mutex
 	seed   []*exercise.Exercise
 	byUser map[account.UserID]map[exercise.ExerciseID]*exercise.Exercise
 }
@@ -35,41 +36,51 @@ func NewExerciseRepository(seed []*exercise.Exercise) *ExerciseRepository {
 	}
 }
 
-// FindAll はシード（生成時の順）の後ろに、その利用者の種目を ID 昇順で
-// 並べて返す。
+// seeded はプリセットだけを持つ新しい map を作る。呼び出し側がロックを
+// 持っている前提（r.seed を読むだけで、r.byUser には触れない）。
+func (r *ExerciseRepository) seeded() map[exercise.ExerciseID]*exercise.Exercise {
+	m := make(map[exercise.ExerciseID]*exercise.Exercise, len(r.seed))
+	for _, e := range r.seed {
+		m[e.ID()] = e
+	}
+	return m
+}
+
+// FindAll はその利用者の一覧を ID 昇順で返す。map が無ければ（nil なら）
+// プリセットを全部入れてから返す。「無ければ」の判定は map の有無であって
+// 中身の件数ではない。件数で判定すると、全部消した直後（中身はあるが
+// 生きている行が無い状態）にまたプリセットが入り、消した記録が生き返る。
 func (r *ExerciseRepository) FindAll(
 	_ context.Context, user account.UserID,
 ) ([]*exercise.Exercise, error) {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
+	r.mu.Lock()
+	defer r.mu.Unlock()
 
-	mine := r.byUser[user]
-	out := make([]*exercise.Exercise, 0, len(r.seed)+len(mine))
-	out = append(out, r.seed...)
+	mine := r.ensureSeeded(user)
+
 	ids := make([]exercise.ExerciseID, 0, len(mine))
 	for id := range mine {
 		ids = append(ids, id)
 	}
 	sort.Slice(ids, func(i, j int) bool { return ids[i] < ids[j] })
+
+	out := make([]*exercise.Exercise, 0, len(mine))
 	for _, id := range ids {
 		out = append(out, mine[id])
 	}
 	return out, nil
 }
 
-// Save は利用者が足した種目を保存する。同じ ID は上書きする。
+// Save はその利用者の一覧に保存する。プリセット由来かどうかで扱いを
+// 変えない（IsCustom は見ない）。同じ ID は上書きする。
 func (r *ExerciseRepository) Save(_ context.Context, user account.UserID, e *exercise.Exercise) error {
-	if e == nil || !e.IsCustom() {
-		return errors.New("共通の種目は保存できない")
+	if e == nil {
+		return errors.New("種目が nil である")
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	mine := r.byUser[user]
-	if mine == nil {
-		mine = map[exercise.ExerciseID]*exercise.Exercise{}
-		r.byUser[user] = mine
-	}
+	mine := r.ensureSeeded(user)
 	if !e.IsDeleted() {
 		for id, other := range mine {
 			if id != e.ID() && !other.IsDeleted() && other.Name() == e.Name() {
@@ -79,6 +90,17 @@ func (r *ExerciseRepository) Save(_ context.Context, user account.UserID, e *exe
 	}
 	mine[e.ID()] = e
 	return nil
+}
+
+// ensureSeeded はその利用者の map を返す。無ければプリセットを入れて
+// 作る。呼び出し側が r.mu を持っている前提。
+func (r *ExerciseRepository) ensureSeeded(user account.UserID) map[exercise.ExerciseID]*exercise.Exercise {
+	mine := r.byUser[user]
+	if mine == nil {
+		mine = r.seeded()
+		r.byUser[user] = mine
+	}
+	return mine
 }
 
 // SetLogRepository は実績ログを「所有者とID」のキーで保持する。
