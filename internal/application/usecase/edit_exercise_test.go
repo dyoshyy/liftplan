@@ -10,12 +10,14 @@ import (
 	"github.com/dyoshyy/liftplan/internal/domain/account"
 	"github.com/dyoshyy/liftplan/internal/domain/training"
 	"github.com/dyoshyy/liftplan/internal/domain/training/exercise"
+	"github.com/dyoshyy/liftplan/internal/domain/training/program"
+	"github.com/dyoshyy/liftplan/internal/domain/training/seed"
 )
 
 func newEdit(t *testing.T) (*usecase.EditExercise, *exerciseRepo, account.UserID) {
 	t.Helper()
-	_, exercises, _, user := newAdd(t)
-	return usecase.NewEditExercise(exercises), exercises, user
+	_, exercises, programs, user := newAdd(t)
+	return usecase.NewEditExercise(exercises, programs), exercises, user
 }
 
 func findExercise(t *testing.T, exercises *exerciseRepo, user account.UserID, id exercise.ExerciseID) *exercise.Exercise {
@@ -127,7 +129,7 @@ func TestEditExercise_AllowsNameOfADeletedExercise(t *testing.T) {
 	ctx := context.Background()
 	add, exercises, programs, user := newAdd(t)
 	del := usecase.NewDeleteExercise(exercises, programs, programs)
-	edit := usecase.NewEditExercise(exercises)
+	edit := usecase.NewEditExercise(exercises, programs)
 
 	e, err := add.Execute(ctx, user, isoRow())
 	if err != nil {
@@ -169,7 +171,7 @@ func TestEditExercise_NotFound(t *testing.T) {
 	t.Run("消した種目", func(t *testing.T) {
 		add, exercises, programs, user := newAdd(t)
 		del := usecase.NewDeleteExercise(exercises, programs, programs)
-		edit := usecase.NewEditExercise(exercises)
+		edit := usecase.NewEditExercise(exercises, programs)
 
 		e, err := add.Execute(ctx, user, isoRow())
 		if err != nil {
@@ -188,4 +190,112 @@ func TestEditExercise_NotFound(t *testing.T) {
 			t.Errorf("消した種目が 404 にならない: %v", err)
 		}
 	})
+}
+
+// declaredDayFixture は「宣言種目が1つの分割日にしか出られない」最小の
+// プログラムを組む。SetSplitCycle の TestSetSplitCycle_PrimaryBoundary と
+// 同じ形（自前の種目＋1日だけの周期）。シードだけで書くと、境界となる
+// 区分をシードの都合で選ばざるを得ず、テストの意図がぼやける。
+func declaredDayFixture(t *testing.T) (*exerciseRepo, *programRepo, account.UserID) {
+	t.Helper()
+	e, err := exercise.NewExercise(exercise.ExerciseParams{
+		ID: "leg_focus", Name: "leg_focus",
+		Stimulus:    map[training.MuscleRegion]float64{training.Hamstring: 1.0},
+		IncrementKg: 2.5,
+	})
+	if err != nil {
+		t.Fatalf("種目の生成に失敗: %v", err)
+	}
+	exercises := newExerciseRepo([]*exercise.Exercise{e})
+
+	freq, err := program.NewFrequency(3)
+	if err != nil {
+		t.Fatalf("頻度が不正: %v", err)
+	}
+	ids := []exercise.ExerciseID{"leg_focus"}
+	prog, err := program.NewProgram(freq, mustVolume(t, 6, 3), ids, ids, "")
+	if err != nil {
+		t.Fatalf("プログラムの生成に失敗: %v", err)
+	}
+	split, err := program.NewSplit("脚", []training.MuscleRegion{training.Hamstring})
+	if err != nil {
+		t.Fatalf("分割の生成に失敗: %v", err)
+	}
+	prog, err = prog.WithCycle([]program.Split{split})
+	if err != nil {
+		t.Fatalf("周期の設定に失敗: %v", err)
+	}
+
+	programs := newProgramRepo()
+	if err := programs.Save(context.Background(), testUser, prog); err != nil {
+		t.Fatalf("プログラムの保存に失敗: %v", err)
+	}
+	return exercises, programs, testUser
+}
+
+// 宣言種目の効き方を、どの分割日にも出られない形へ直そうとしたら弾かれる
+// こと。SetDeclaredExercises・SetSplitCycle と同じ verifyDeclaredHaveADay
+// で守る。守らないと split_lane.go の言う通り、その種目は保存はできても
+// 二度と軸に出ない（他の宣言が毎日1つは該当するのでフォールバックも
+// 発火せず、エラーも立たないまま消える）。
+func TestEditExercise_RefusesToLeaveADeclaredExerciseWithoutADay(t *testing.T) {
+	ctx := context.Background()
+	exercises, programs, user := declaredDayFixture(t)
+	edit := usecase.NewEditExercise(exercises, programs)
+
+	_, err := edit.Execute(ctx, user, "leg_focus", usecase.EditExerciseInput{
+		Name:        "leg_focus",
+		Stimulus:    map[training.MuscleRegion]float64{training.Biceps: 1.0},
+		IncrementKg: 2.5,
+	})
+	if !errors.Is(err, apperror.ErrInvalidInput) {
+		t.Errorf("出られる日を失う編集が通った: %v", err)
+	}
+
+	stored := findExercise(t, exercises, user, "leg_focus")
+	if _, ok := stored.Stimulus().Contribution(training.Hamstring); !ok {
+		t.Error("弾いたはずなのに保存されてしまった")
+	}
+}
+
+// 出られる日を保ったままの編集（刻みだけ変える）は通ること。
+func TestEditExercise_AllowsEditingADeclaredExerciseThatKeepsADay(t *testing.T) {
+	ctx := context.Background()
+	exercises, programs, user := declaredDayFixture(t)
+	edit := usecase.NewEditExercise(exercises, programs)
+
+	got, err := edit.Execute(ctx, user, "leg_focus", usecase.EditExerciseInput{
+		Name:        "leg_focus",
+		Stimulus:    map[training.MuscleRegion]float64{training.Hamstring: 1.0, training.Glute: 0.5},
+		IncrementKg: 5.0,
+	})
+	if err != nil {
+		t.Fatalf("出られる日を保った編集が弾かれた: %v", err)
+	}
+	if got.Increment().Kg() != 5.0 {
+		t.Errorf("刻みが変わっていない: %v", got.Increment().Kg())
+	}
+}
+
+// プログラムが未設定のときは、出られる日の判定自体をスキップして直せる
+// こと。Add と違い、Edit は使う種目に入れる操作ではないので、プログラム
+// を前提にしない（設定前に種目のカタログだけ直す余地を残す）。
+func TestEditExercise_SkipsTheDayCheckWhenNoProgramIsConfigured(t *testing.T) {
+	ctx := context.Background()
+	seedAll, err := seed.Exercises()
+	if err != nil {
+		t.Fatalf("シードが不正: %v", err)
+	}
+	exercises := newExerciseRepo(seedAll)
+	programs := newProgramRepo()
+	edit := usecase.NewEditExercise(exercises, programs)
+
+	_, err = edit.Execute(ctx, testUser, "side_raise", usecase.EditExerciseInput{
+		Name:        "サイドレイズ",
+		Stimulus:    map[training.MuscleRegion]float64{training.Biceps: 1.0},
+		IncrementKg: 1.0,
+	})
+	if err != nil {
+		t.Errorf("プログラム未設定で直せない: %v", err)
+	}
 }
