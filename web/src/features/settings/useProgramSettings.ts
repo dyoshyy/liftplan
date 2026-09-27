@@ -1,7 +1,6 @@
 import { useEffect, useState } from 'react';
 import { getJSON, send } from '../../api/client';
-import type { Exercise, Program, SplitPreset, SplitPresetsResponse } from '../../api/types';
-import { draftBody, draftProblem, type CustomExerciseDraft } from './customExercise';
+import type { Program, SplitPreset, SplitPresetsResponse } from '../../api/types';
 import { focusBody, NO_FOCUS } from '../today/focus';
 import { lockedDeclared, toggleDeclared } from '../today/declared';
 import { matchingPresetKey, splitBody, splitUnselectableReason } from './split';
@@ -159,33 +158,6 @@ export function useProgramSettings(onChanged: () => Promise<void>) {
     await onChanged();
   };
 
-  // 自分の種目を足す。足した種目はサーバーが使う種目にも入れるので、
-  // 手元の選択にも足す。一覧（種目マスタ）は onChanged で取り直す。
-  //
-  // 足せたかを返す。書きかけを消すかどうかは呼び手が決める。
-  const addCustomExercise = async (draft: CustomExerciseDraft): Promise<boolean> => {
-    if (!program || busy) return false;
-    const problem = draftProblem(draft);
-    if (problem) {
-      setNote(problem);
-      return false;
-    }
-    const res = await request('/api/exercises', 'POST', draftBody(draft));
-    if (!res) return false;
-    const created = (await res.json()) as Exercise;
-    setProgram({ ...program, selected_exercises: [...program.selected_exercises, created.id] });
-    await onChanged();
-    return true;
-  };
-
-  // 自分の種目を消す。サーバーは使う種目からも外すので、手元でも外す。
-  const deleteCustomExercise = async (id: string) => {
-    if (!program || busy) return;
-    if (!(await request(`/api/exercises/${encodeURIComponent(id)}`, 'DELETE'))) return;
-    setProgram({ ...program, selected_exercises: program.selected_exercises.filter((s) => s !== id) });
-    await onChanged();
-  };
-
   const locked = program ? lockedDeclared(program.declared_exercises, program.focus_exercise) : new Map();
   const splitKey = program ? matchingPresetKey(program, presets) : null;
   // プリセットごとに「いまの頻度で選べるか」を添える。5分割のように
@@ -210,7 +182,5 @@ export function useProgramSettings(onChanged: () => Promise<void>) {
     splitOptions,
     splitKey,
     chooseSplit,
-    addCustomExercise,
-    deleteCustomExercise,
   };
 }

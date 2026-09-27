@@ -21,6 +21,10 @@ describe('fromState', () => {
   it('forecast も読み戻す', () => {
     expect(fromState({ route: 'forecast' })).toBe('forecast');
   });
+
+  it('exercises も読み戻す', () => {
+    expect(fromState({ route: 'exercises' })).toBe('exercises');
+  });
 });
 
 describe('isRoute', () => {
@@ -31,5 +35,9 @@ describe('isRoute', () => {
 
   it('forecast も知っている行き先', () => {
     expect(isRoute('forecast')).toBe(true);
+  });
+
+  it('exercises も知っている行き先', () => {
+    expect(isRoute('exercises')).toBe(true);
   });
 });

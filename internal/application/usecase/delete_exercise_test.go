@@ -19,8 +19,8 @@ import (
 
 // 消す／足すを同じリポジトリで組む。
 type fixture struct {
-	add       *usecase.AddCustomExercise
-	del       *usecase.DeleteCustomExercise
+	add       *usecase.AddExercise
+	del       *usecase.DeleteExercise
 	exercises *exerciseRepo
 	programs  *programRepo
 	user      account.UserID
@@ -29,11 +29,11 @@ type fixture struct {
 func newFixture(t *testing.T) fixture {
 	t.Helper()
 	add, exercises, programs, user := newAdd(t)
-	del := usecase.NewDeleteCustomExercise(exercises, programs, programs)
+	del := usecase.NewDeleteExercise(exercises, programs, programs)
 	return fixture{add: add, del: del, exercises: exercises, programs: programs, user: user}
 }
 
-func TestDeleteCustomExercise_DeletesAndUnselects(t *testing.T) {
+func TestDeleteExercise_DeletesAndUnselects(t *testing.T) {
 	ctx := context.Background()
 	f := newFixture(t)
 	e, err := f.add.Execute(ctx, f.user, isoRow())
@@ -54,8 +54,31 @@ func TestDeleteCustomExercise_DeletesAndUnselects(t *testing.T) {
 	}
 }
 
+// プリセット由来の種目も消せること。プリセット由来かどうかで扱いを
+// 変えない（docs/specs/2026-09-26-custom-exercises-design.md「プリセット由来も消せる・直せる」）。
+// 伸ばしたい種目（bench/squat/deadlift）に入っていない共通の種目を選ぶ。
+func TestDeleteExercise_AllowsDeletingAPresetExercise(t *testing.T) {
+	ctx := context.Background()
+	f := newFixture(t)
+
+	id := exercise.ExerciseID("side_raise")
+	if err := f.del.Execute(ctx, f.user, id); err != nil {
+		t.Fatalf("プリセット由来の種目が消せない: %v", err)
+	}
+	all, _ := f.exercises.FindAll(ctx, f.user)
+	var got *exercise.Exercise
+	for _, e := range all {
+		if e.ID() == id {
+			got = e
+		}
+	}
+	if got == nil || !got.IsDeleted() {
+		t.Error("プリセット由来の種目が消えた状態で残っていない")
+	}
+}
+
 // 足す → 消す → もう一度消す が nil であること。
-func TestDeleteCustomExercise_IsIdempotent(t *testing.T) {
+func TestDeleteExercise_IsIdempotent(t *testing.T) {
 	ctx := context.Background()
 	f := newFixture(t)
 	e, err := f.add.Execute(ctx, f.user, isoRow())
@@ -70,18 +93,12 @@ func TestDeleteCustomExercise_IsIdempotent(t *testing.T) {
 	}
 }
 
-func TestDeleteCustomExercise_NotFound(t *testing.T) {
+func TestDeleteExercise_NotFound(t *testing.T) {
 	ctx := context.Background()
-	for name, id := range map[string]exercise.ExerciseID{
-		"共通の種目": "side_raise",
-		"存在しない": "u-ffffffffffffffff",
-	} {
-		t.Run(name, func(t *testing.T) {
-			f := newFixture(t)
-			if err := f.del.Execute(ctx, f.user, id); !errors.Is(err, apperror.ErrExerciseNotFound) {
-				t.Errorf("404 にならない: %v", err)
-			}
-		})
+	f := newFixture(t)
+	id := exercise.ExerciseID("u-ffffffffffffffff")
+	if err := f.del.Execute(ctx, f.user, id); !errors.Is(err, apperror.ErrExerciseNotFound) {
+		t.Errorf("404 にならない: %v", err)
 	}
 	t.Run("他人の種目", func(t *testing.T) {
 		f := newFixture(t)
@@ -101,7 +118,7 @@ func TestDeleteCustomExercise_NotFound(t *testing.T) {
 	})
 }
 
-func TestDeleteCustomExercise_RefusesDeclared(t *testing.T) {
+func TestDeleteExercise_RefusesDeclared(t *testing.T) {
 	ctx := context.Background()
 	f := newFixture(t)
 	e, err := f.add.Execute(ctx, f.user, isoRow())
@@ -132,7 +149,7 @@ func TestDeleteCustomExercise_RefusesDeclared(t *testing.T) {
 }
 
 // 消した種目と同じ名前で足し直せること。
-func TestAddCustomExercise_AllowsTheNameOfADeletedExercise(t *testing.T) {
+func TestAddExercise_AllowsTheNameOfADeletedExercise(t *testing.T) {
 	ctx := context.Background()
 	f := newFixture(t)
 	e, err := f.add.Execute(ctx, f.user, isoRow())
@@ -170,7 +187,7 @@ func (w *failOnceProgramWriter) Save(ctx context.Context, user account.UserID, p
 //
 // プログラムの保存を1回だけ落とす。書く順が「種目→プログラム」だと、
 // 1回目で種目だけが消えてこの状態になる。
-func TestDeleteCustomExercise_LeavesNoBrokenStateOnFailure(t *testing.T) {
+func TestDeleteExercise_LeavesNoBrokenStateOnFailure(t *testing.T) {
 	ctx := context.Background()
 	f := newFixture(t)
 	e, err := f.add.Execute(ctx, f.user, isoRow())
@@ -179,7 +196,7 @@ func TestDeleteCustomExercise_LeavesNoBrokenStateOnFailure(t *testing.T) {
 	}
 
 	flaky := &failOnceProgramWriter{Writer: f.programs}
-	del := usecase.NewDeleteCustomExercise(f.exercises, f.programs, flaky)
+	del := usecase.NewDeleteExercise(f.exercises, f.programs, flaky)
 	if err := del.Execute(ctx, f.user, e.ID()); err == nil {
 		t.Fatal("1回目が落ちなかった（スタブが効いていない）")
 	}
@@ -206,7 +223,7 @@ func TestDeleteCustomExercise_LeavesNoBrokenStateOnFailure(t *testing.T) {
 // LeavesNoBrokenStateOnFailure は「種目だけが先に消える」状態を保存の
 // 失敗経由でしか作れず、後半の分岐まで届く前に前半の検査で止まるため、
 // ここで直接その状態を組み立てて確かめる。
-func TestDeleteCustomExercise_RepairsSelectionEvenIfAlreadyDeleted(t *testing.T) {
+func TestDeleteExercise_RepairsSelectionEvenIfAlreadyDeleted(t *testing.T) {
 	ctx := context.Background()
 	f := newFixture(t)
 	e, err := f.add.Execute(ctx, f.user, isoRow())
@@ -324,7 +341,7 @@ func (s *erroringExerciseStore) Save(context.Context, account.UserID, *exercise.
 // このテストの役目で、ここが無いと go vet も他のテストも %v への劣化に
 // 気づかない（実際に確認済み: このテストを書く前に %v へ変異させても
 // 全テストが緑のままだった）。
-func TestDeleteCustomExercise_ClassifiesWrappedFailures(t *testing.T) {
+func TestDeleteExercise_ClassifiesWrappedFailures(t *testing.T) {
 	ctx := context.Background()
 
 	t.Run("プログラムの取得", func(t *testing.T) {
@@ -333,7 +350,7 @@ func TestDeleteCustomExercise_ClassifiesWrappedFailures(t *testing.T) {
 		if err != nil {
 			t.Fatalf("足すのに失敗: %v", err)
 		}
-		del := usecase.NewDeleteCustomExercise(f.exercises,
+		del := usecase.NewDeleteExercise(f.exercises,
 			&erroringProgramReader{err: program.ErrProgramNotConfigured}, f.programs)
 		err = del.Execute(ctx, f.user, e.ID())
 		if !errors.Is(err, apperror.ErrNotConfigured) {
@@ -351,7 +368,7 @@ func TestDeleteCustomExercise_ClassifiesWrappedFailures(t *testing.T) {
 			t.Fatalf("足すのに失敗: %v", err)
 		}
 		wrapped := fmt.Errorf("db: %w", training.ErrRepositoryUnavailable)
-		del := usecase.NewDeleteCustomExercise(f.exercises, f.programs,
+		del := usecase.NewDeleteExercise(f.exercises, f.programs,
 			&erroringProgramWriter{err: wrapped})
 		err = del.Execute(ctx, f.user, e.ID())
 		if !errors.Is(err, apperror.ErrUnavailable) {
@@ -369,7 +386,7 @@ func TestDeleteCustomExercise_ClassifiesWrappedFailures(t *testing.T) {
 			t.Fatalf("足すのに失敗: %v", err)
 		}
 		wrapped := fmt.Errorf("db: %w", training.ErrRepositoryUnavailable)
-		del := usecase.NewDeleteCustomExercise(&erroringExerciseStore{exerciseRepo: f.exercises, err: wrapped},
+		del := usecase.NewDeleteExercise(&erroringExerciseStore{exerciseRepo: f.exercises, err: wrapped},
 			f.programs, f.programs)
 		err = del.Execute(ctx, f.user, e.ID())
 		if !errors.Is(err, apperror.ErrUnavailable) {

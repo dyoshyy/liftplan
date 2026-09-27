@@ -41,6 +41,7 @@ curl -s -H "Authorization: Bearer dev-token-0123456789abcdef0123456789ab" \
 | `first_pct` | 履歴の無い初回に本人が選ぶ重さ（実力の%） | 70 |
 | `body_weight` | kg | 75 |
 | `orm` | `bench:120,pull_up:0`（自重種目は加重ぶん） | 種目ごと（options の `default_1rm_kg`） |
+| `custom` | `名前\|区分:寄与,区分:寄与\|刻み` を `;` で並べる（例 `アイソラテラル・ロー\|TRAP_MID:1,LAT:0.5,BICEPS:0.5,REAR_DELT:0.5\|2.5`）。ID は並び順で `u-sim01`… が振られ、応答の `settings.custom` に `{id, name, stimulus, increment_kg}` で出る。`orm` の上書きもこの ID で指す | 無し |
 
 **既定は中立ではない。**伸び率の既定は 0.5%/週。「実力が一定なら」を問うなら `growth=0` を必ず書く。
 **答える前に `.settings` を読む。**既定値を解決したあとの全設定（全種目の1RMを含む）が返る。問いと違っていたら、クエリが違う。

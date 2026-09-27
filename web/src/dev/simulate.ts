@@ -85,6 +85,17 @@ export type DevSettings = {
   weekdays: number[];
   exercises_per_session: number;
   sets_per_exercise: number;
+  /** 足した自分の種目。ID は orm= の上書きで指すのに使う。 */
+  custom?: DevCustom[];
+};
+
+/** DevCustom は自分の種目の1件。dev_simulation.go の devCustomDTO と対。 */
+export type DevCustom = {
+  id: string;
+  name: string;
+  /** 区分ごとの寄与度の生の値（例: {"TRAP_MID": 1, "LAT": 0.5}）。 */
+  stimulus: Record<string, number>;
+  increment_kg: number;
 };
 
 export type DevResult = {
@@ -115,6 +126,9 @@ export type Form = {
   days: number[] | null;
   /** 開始日（YYYY-MM-DD）。null はサーバーの既定。 */
   start: string | null;
+  /** 自分の種目。サーバーと同じ「名前|区分:寄与,区分:寄与|刻み」を ; で並べた
+   *  1行のまま持つ。空なら足さない。 */
+  custom: string;
 };
 
 export const defaultForm: Form = {
@@ -131,6 +145,7 @@ export const defaultForm: Form = {
   sets: null,
   days: null,
   start: null,
+  custom: '',
 };
 
 /** buildQuery は設定を問い合わせ文字列にする。空の項目は送らない。
@@ -158,6 +173,7 @@ export function buildQuery(form: Form): string {
     .sort()
     .map((id) => `${id}:${form.orm[id]}`);
   if (orm.length > 0) q.set('orm', orm.join(','));
+  if (form.custom.trim() !== '') q.set('custom', form.custom.trim());
   return q.toString();
 }
 
@@ -198,6 +214,7 @@ export function parseForm(search: string, fallback: Form): Form {
     sets: q.has('sets') ? num(q.get('sets')) : fallback.sets,
     days: q.has('days') ? days(q.get('days') ?? '') : fallback.days,
     start: q.get('start') || fallback.start,
+    custom: q.has('custom') ? (q.get('custom') ?? '') : fallback.custom,
   };
 }
 

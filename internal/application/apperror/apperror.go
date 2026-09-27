@@ -67,15 +67,20 @@ var (
 
 	// ErrDuplicateName は同じ名前の種目が既にあること。
 	//
+	// POST（足す）でも PUT（直す）でも同じ経路を通るので、「足せない」
+	// のような一方に偏った言い方はしない。編集中に出ると「足そうとして
+	// いない」利用者を混乱させる（最終レビューで指摘）。
+	//
 	// ドメインの exercise.ErrDuplicateExerciseName と文言を揃えない。
 	// Classify がこれを "%w: %w" でドメインのエラーの前に付けるので、
 	// 同じ文言だと「同じ名前の種目がある: 同じ名前の種目がある: サイドレイズ」
-	// と重複する。ErrConflict と同じく、ここでは「足せない」だけ言い、
+	// と重複する。ErrConflict と同じく、ここでは「保存できない」だけ言い、
 	// 中身の説明はドメイン側に任せる。
-	ErrDuplicateName = newError("DUPLICATE_NAME", "種目を足せない", http.StatusConflict)
+	ErrDuplicateName = newError("DUPLICATE_NAME", "種目を保存できない", http.StatusConflict)
 
-	// ErrExerciseNotFound は消そうとした種目が無いこと。共通の種目と
-	// 他人の種目もここに入る（その利用者から見て「消せる種目」が無い）。
+	// ErrExerciseNotFound は消す・直そうとした種目が無いこと。存在しない
+	// ID・他人の種目・消した種目がここに入る。プリセット由来かどうかで
+	// 扱いを変えないので、共通の種目はここには入らない（消せる・直せる）。
 	ErrExerciseNotFound = newError("EXERCISE_NOT_FOUND", "種目が見つからない", http.StatusNotFound)
 
 	// ErrStillDeclared は伸ばしたい種目に入っている種目を消そうとしたこと。

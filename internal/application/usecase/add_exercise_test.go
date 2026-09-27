@@ -35,13 +35,37 @@ func newExerciseRepo(seedAll []*exercise.Exercise) *exerciseRepo {
 	return &exerciseRepo{seed: seedAll, mine: map[account.UserID][]*exercise.Exercise{}}
 }
 
-// FindAll はシードの後ろに、その利用者が足した種目を足した順で返す。
+// FindAll はシードの位置に、その利用者が直した版があればそちらを差し込み、
+// シードに無い ID（足した種目）は足した順で後ろに続ける。
+//
+// Edit がプリセット由来の種目も直せるようになった（docs/specs/2026-09-26-custom-exercises-design.md
+// 「プリセット由来も消せる・直せる」）ので、同じ ID を seed と mine の
+// 両方に持たせたままにすると FindAll が同じ種目を2件返してしまう。
+// 実物の memory・Postgres リポジトリは1件に畳んで返すので、フェイクも
+// 揃える。
 func (r *exerciseRepo) FindAll(_ context.Context, user account.UserID) ([]*exercise.Exercise, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	out := make([]*exercise.Exercise, 0, len(r.seed)+len(r.mine[user]))
-	out = append(out, r.seed...)
-	out = append(out, r.mine[user]...)
+	mine := r.mine[user]
+	override := make(map[exercise.ExerciseID]*exercise.Exercise, len(mine))
+	for _, e := range mine {
+		override[e.ID()] = e
+	}
+	out := make([]*exercise.Exercise, 0, len(r.seed)+len(mine))
+	seen := make(map[exercise.ExerciseID]bool, len(r.seed))
+	for _, e := range r.seed {
+		seen[e.ID()] = true
+		if o, ok := override[e.ID()]; ok {
+			out = append(out, o)
+			continue
+		}
+		out = append(out, e)
+	}
+	for _, e := range mine {
+		if !seen[e.ID()] {
+			out = append(out, e)
+		}
+	}
 	return out, nil
 }
 
@@ -92,7 +116,7 @@ func (r *programRepo) Save(_ context.Context, user account.UserID, p *program.Pr
 	return nil
 }
 
-func newAdd(t *testing.T) (*usecase.AddCustomExercise, *exerciseRepo, *programRepo, account.UserID) {
+func newAdd(t *testing.T) (*usecase.AddExercise, *exerciseRepo, *programRepo, account.UserID) {
 	t.Helper()
 	seedAll, err := seed.Exercises()
 	if err != nil {
@@ -108,19 +132,22 @@ func newAdd(t *testing.T) (*usecase.AddCustomExercise, *exerciseRepo, *programRe
 	if err := programs.Save(context.Background(), user, prog); err != nil {
 		t.Fatalf("プログラムの保存に失敗: %v", err)
 	}
-	return usecase.NewAddCustomExercise(exercises, programs, programs), exercises, programs, user
+	return usecase.NewAddExercise(exercises, programs, programs), exercises, programs, user
 }
 
-func isoRow() usecase.AddCustomExerciseInput {
-	return usecase.AddCustomExerciseInput{
-		Name:        "アイソラテラル・ロー",
-		Primary:     []training.MuscleRegion{training.TrapMid},
-		Secondary:   []training.MuscleRegion{training.Lat, training.Biceps},
+func isoRow() usecase.AddExerciseInput {
+	return usecase.AddExerciseInput{
+		Name: "アイソラテラル・ロー",
+		Stimulus: map[training.MuscleRegion]float64{
+			training.TrapMid: 1.0,
+			training.Lat:     0.5,
+			training.Biceps:  0.5,
+		},
 		IncrementKg: 2.5,
 	}
 }
 
-func TestAddCustomExercise_AddsAndSelects(t *testing.T) {
+func TestAddExercise_AddsAndSelects(t *testing.T) {
 	ctx := context.Background()
 	add, exercises, programs, user := newAdd(t)
 
@@ -138,18 +165,18 @@ func TestAddCustomExercise_AddsAndSelects(t *testing.T) {
 	}
 }
 
-func TestAddCustomExercise_RejectsDuplicateNames(t *testing.T) {
+func TestAddExercise_RejectsDuplicateNames(t *testing.T) {
 	ctx := context.Background()
 	cases := []struct {
 		name string
-		prep func(*usecase.AddCustomExercise, account.UserID)
+		prep func(*usecase.AddExercise, account.UserID)
 		in   string
 	}{
-		{"共通の種目と同じ", func(*usecase.AddCustomExercise, account.UserID) {}, "サイドレイズ"},
-		{"自分の種目と同じ", func(a *usecase.AddCustomExercise, u account.UserID) {
+		{"共通の種目と同じ", func(*usecase.AddExercise, account.UserID) {}, "サイドレイズ"},
+		{"自分の種目と同じ", func(a *usecase.AddExercise, u account.UserID) {
 			_, _ = a.Execute(ctx, u, isoRow())
 		}, "アイソラテラル・ロー"},
-		{"前後の空白だけ違う", func(a *usecase.AddCustomExercise, u account.UserID) {
+		{"前後の空白だけ違う", func(a *usecase.AddExercise, u account.UserID) {
 			_, _ = a.Execute(ctx, u, isoRow())
 		}, " アイソラテラル・ロー "},
 	}
@@ -166,22 +193,24 @@ func TestAddCustomExercise_RejectsDuplicateNames(t *testing.T) {
 	}
 }
 
-func TestAddCustomExercise_InvalidInputIs400(t *testing.T) {
+func TestAddExercise_InvalidInputIs400(t *testing.T) {
 	add, _, _, user := newAdd(t)
 	in := isoRow()
-	in.Primary = nil
+	// 寄与1.0の区分を無くす（主が無い入力）。NewExercise の
+	// hasFullContribution 検査を通してユースケースが 400 に分類すること。
+	in.Stimulus = map[training.MuscleRegion]float64{training.Lat: 0.5}
 	if _, err := add.Execute(context.Background(), user, in); !errors.Is(err, apperror.ErrInvalidInput) {
 		t.Errorf("主なしが ErrInvalidInput にならない: %v", err)
 	}
 }
 
-func TestAddCustomExercise_RequiresAProgram(t *testing.T) {
+func TestAddExercise_RequiresAProgram(t *testing.T) {
 	seedAll, err := seed.Exercises()
 	if err != nil {
 		t.Fatalf("シードが不正: %v", err)
 	}
 	programs := newProgramRepo()
-	add := usecase.NewAddCustomExercise(newExerciseRepo(seedAll), programs, programs)
+	add := usecase.NewAddExercise(newExerciseRepo(seedAll), programs, programs)
 	_, err = add.Execute(context.Background(), testUser, isoRow())
 	if !errors.Is(err, apperror.ErrNotConfigured) {
 		t.Errorf("プログラム未設定で通った: %v", err)

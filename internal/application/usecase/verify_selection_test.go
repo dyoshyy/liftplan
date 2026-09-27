@@ -120,10 +120,10 @@ func TestSetSelectedExercises_RejectsDeletedExercise(t *testing.T) {
 	if err != nil {
 		t.Fatalf("シードが不正: %v", err)
 	}
-	e, err := exercise.NewCustomExercise(exercise.CustomExerciseParams{
+	e, err := exercise.NewExercise(exercise.ExerciseParams{
 		ID:          "u-000000000000000a",
 		Name:        "アイソラテラル・ロー",
-		Primary:     []training.MuscleRegion{training.Lat},
+		Stimulus:    map[training.MuscleRegion]float64{training.Lat: 1.0},
 		IncrementKg: 2.5,
 	})
 	if err != nil {

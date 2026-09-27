@@ -34,3 +34,16 @@ const LABELS: Record<string, string> = {
 export function regionLabel(region: string): string {
   return LABELS[region] ?? region;
 }
+
+/** ORDER は区分の並び順（体の上から下）。LABELS の定義順をそのまま使う。 */
+const ORDER = Object.keys(LABELS);
+
+/** regionOrder は区分を体の上から下へ並べるための位置。
+ *
+ *  同じ寄与度どうしを並べるときの決着に使う（`dev/summary.ts` の
+ *  `customLine`）。区分名の文字コード順だと LAT が BICEPS より後ろに
+ *  来て体の並びと食い違うため、専用の並びを持つ。知らない区分は末尾に置く。 */
+export function regionOrder(region: string): number {
+  const i = ORDER.indexOf(region);
+  return i === -1 ? ORDER.length : i;
+}

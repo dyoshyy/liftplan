@@ -1,10 +1,13 @@
 package exercise
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"sort"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/dyoshyy/liftplan/internal/domain/training"
 )
@@ -12,6 +15,25 @@ import (
 // maxStimulusRegions は1種目が寄与できる筋区分の数の上限。
 // これを超える種目は、寄与度の設定を誤っているとみなす。
 const maxStimulusRegions = 8
+
+// maxNameRunes は種目名の上限（rune 数）。エラー文や画面に出るので置く。
+const maxNameRunes = 40
+
+// CustomExerciseIDPrefix は利用者が足した種目の ID の接頭辞。
+//
+// シードの ID は英小文字と "_" だけなので、この接頭辞とは衝突しない
+// （seed の TestExercises_NoIDUsesTheCustomPrefix が守る）。
+const CustomExerciseIDPrefix = "u-"
+
+// primaryContribution は寄与1.0を表す値。hasFullContribution が、この値の
+// 区分が1つ以上あるかを見る。
+const primaryContribution = 1.0
+
+// minStimulusContribution は1区分あたりの寄与度の下限
+// （設計書「各区分 0.1〜1.0」）。training.NewContribution は SmallestPositive
+// まで通してしまうので、ここでエクササイズ側の規則として下限を課す。
+// シードの最小は 0.2（barbell_row の RearDelt）なので、この下限はシードを壊さない。
+const minStimulusContribution = 0.1
 
 // ExerciseID は種目の同一性。
 // maxExerciseIDLen は種目IDの長さの上限。
@@ -91,6 +113,31 @@ func (p StimulusProfile) Contribution(r training.MuscleRegion) (training.Contrib
 
 func (p StimulusProfile) IsEmpty() bool { return len(p.m) == 0 }
 
+// hasFullContribution は寄与1.0の区分が1つ以上あるかを返す。
+//
+// 分割のどの日にも入らない種目（planning の isPrimaryIn）を防ぐため、
+// 全種目に課す。プリセットもユーザーが足す種目も同じ規則で通す。
+func (p StimulusProfile) hasFullContribution() bool {
+	for _, c := range p.m {
+		if c.Float() == primaryContribution {
+			return true
+		}
+	}
+	return false
+}
+
+// belowFloor は minStimulusContribution を下回る区分があれば、その区分と
+// 値を返す。Regions() の順（ソート済み）で見るのは、複数の区分が下限を
+// 下回ったときにエラー文が実行のたびに変わらないようにするため。
+func (p StimulusProfile) belowFloor(min float64) (training.MuscleRegion, training.Contribution, bool) {
+	for _, r := range p.Regions() {
+		if c := p.m[r]; c.Float() < min {
+			return r, c, true
+		}
+	}
+	return "", training.Contribution{}, false
+}
+
 // ExerciseParams は Exercise の生成入力。
 type ExerciseParams struct {
 	ID               string
@@ -112,8 +159,6 @@ type Exercise struct {
 	bodyweightFactor training.BodyweightFactor
 	derivedFrom      ExerciseID
 	hasDerivedFrom   bool
-	// custom はその利用者が足した種目か。共通の種目（シード）は false。
-	custom bool
 	// deleted は消したか。消した種目も記録と履歴の名前のために残る。
 	deleted bool
 }
@@ -133,9 +178,20 @@ func NewExercise(p ExerciseParams) (*Exercise, error) {
 	if name == "" {
 		return nil, fmt.Errorf("種目 %s の名前が空である", id)
 	}
+	if n := utf8.RuneCountInString(name); n > maxNameRunes {
+		return nil, fmt.Errorf("種目 %s: 名前が長すぎる: %d文字（上限 %d）", id, n, maxNameRunes)
+	}
 	stimulus, err := NewStimulusProfile(p.Stimulus)
 	if err != nil {
 		return nil, fmt.Errorf("種目 %s: %w", id, err)
+	}
+	if !stimulus.hasFullContribution() {
+		return nil, fmt.Errorf("種目 %s: 寄与1.0の区分が1つも無い", id)
+	}
+	if r, c, ok := stimulus.belowFloor(minStimulusContribution); ok {
+		return nil, fmt.Errorf(
+			"種目 %s: 筋区分 %s の寄与度が下限を下回る: %v（下限 %v）",
+			id, r, c.Float(), minStimulusContribution)
 	}
 	increment, err := training.NewIncrement(p.IncrementKg)
 	if err != nil {
@@ -186,9 +242,6 @@ func (e *Exercise) SameIdentity(o *Exercise) bool {
 	return e.id == o.id
 }
 
-// IsCustom は利用者が足した種目かを返す。共通の種目を消させない判定に使う。
-func (e *Exercise) IsCustom() bool { return e.custom }
-
 // IsDeleted は消した種目かを返す。
 func (e *Exercise) IsDeleted() bool { return e.deleted }
 
@@ -199,23 +252,46 @@ func (e *Exercise) Delete() *Exercise {
 	return &c
 }
 
-// PrimaryRegions は寄与1.0の区分をソートして返す。自分の種目の保存に使う。
-func (e *Exercise) PrimaryRegions() []training.MuscleRegion {
-	return e.regionsAt(primaryContribution)
+// ExerciseEdit は種目を直す入力。直せるのは名前・効き方・刻みだけで、
+// ID・自重係数・派生元は元から引き継ぐ（プリセット由来かどうかで扱いを
+// 変えないため。docs/specs/2026-09-26-custom-exercises-design.md
+// 「直した値を返すメソッドを1つにまとめ」）。
+type ExerciseEdit struct {
+	Name        string
+	Stimulus    map[training.MuscleRegion]float64
+	IncrementKg float64
 }
 
-// SecondaryRegions は寄与0.5の区分をソートして返す。自分の種目の保存に使う。
-func (e *Exercise) SecondaryRegions() []training.MuscleRegion {
-	return e.regionsAt(secondaryContribution)
-}
-
-func (e *Exercise) regionsAt(v float64) []training.MuscleRegion {
-	// nil ではなく空で始める。保存（jsonb）で null ではなく [] にするため。
-	out := []training.MuscleRegion{}
-	for _, r := range e.stimulus.Regions() {
-		if c, ok := e.stimulus.Contribution(r); ok && c.Float() == v {
-			out = append(out, r)
-		}
+// Edit は名前・効き方・刻みを差し替えた新しい値を返す。元は変えない。
+// ID・自重係数・派生元・deleted は引き継ぐ。検証は NewExercise と同じ
+// （プリセット由来もユーザーが足した種目も同じ規則で通す）。
+func (e *Exercise) Edit(p ExerciseEdit) (*Exercise, error) {
+	params := ExerciseParams{
+		ID:               string(e.id),
+		Name:             p.Name,
+		Stimulus:         p.Stimulus,
+		IncrementKg:      p.IncrementKg,
+		BodyweightFactor: e.bodyweightFactor.Float(),
 	}
-	return out
+	if e.hasDerivedFrom {
+		params.DerivedFrom = string(e.derivedFrom)
+	}
+	edited, err := NewExercise(params)
+	if err != nil {
+		return nil, err
+	}
+	edited.deleted = e.deleted
+	return edited, nil
+}
+
+// NewRandomExerciseID は種目の ID を採番する。
+//
+// サーバーが採番するのは、種目を足すのが設定画面で、圏外で足す必要が
+// 無いから。二度押しは名前の重複で止まる。
+func NewRandomExerciseID() (ExerciseID, error) {
+	var b [8]byte
+	if _, err := rand.Read(b[:]); err != nil {
+		return "", fmt.Errorf("乱数を取得できない: %w", err)
+	}
+	return ExerciseID(CustomExerciseIDPrefix + hex.EncodeToString(b[:])), nil
 }

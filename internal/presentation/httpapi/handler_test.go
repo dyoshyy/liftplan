@@ -90,7 +90,7 @@ func buildRoutes(t *testing.T, configured bool) http.Handler {
 }
 
 // exerciseStore は種目の読み書き。dependencies が AddExercise・
-// DeleteExercise を組むのに要る（usecase 側の要求と同じ形）。
+// EditExercise・DeleteExercise を組むのに要る（usecase 側の要求と同じ形）。
 type exerciseStore interface {
 	exercise.Reader
 	exercise.Writer
@@ -120,8 +120,9 @@ func dependencies(
 		SetSplit:         usecase.NewSetSplitCycle(exercises, programs, programs),
 		GetProgram:       usecase.NewGetProgram(programs),
 		DeleteSetLog:     usecase.NewDeleteSetLog(logs),
-		AddExercise:      usecase.NewAddCustomExercise(exercises, programs, programs),
-		DeleteExercise:   usecase.NewDeleteCustomExercise(exercises, programs, programs),
+		AddExercise:      usecase.NewAddExercise(exercises, programs, programs),
+		EditExercise:     usecase.NewEditExercise(exercises, programs),
+		DeleteExercise:   usecase.NewDeleteExercise(exercises, programs, programs),
 		Exercises:        query.NewExercises(exercises),
 		History:          query.NewHistory(logs, exercises),
 		Stats:            query.NewStats(logs, exercises, programs, planning.DefaultOneRepMaxEstimator()),
