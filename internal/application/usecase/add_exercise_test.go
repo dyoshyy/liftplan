@@ -38,7 +38,7 @@ func newExerciseRepo(seedAll []*exercise.Exercise) *exerciseRepo {
 // FindAll はシードの位置に、その利用者が直した版があればそちらを差し込み、
 // シードに無い ID（足した種目）は足した順で後ろに続ける。
 //
-// Edit がプリセット由来の種目も直せるようになった（global-constraints
+// Edit がプリセット由来の種目も直せるようになった（docs/specs/2026-09-26-custom-exercises-design.md
 // 「プリセット由来も消せる・直せる」）ので、同じ ID を seed と mine の
 // 両方に持たせたままにすると FindAll が同じ種目を2件返してしまう。
 // 実物の memory・Postgres リポジトリは1件に畳んで返すので、フェイクも

@@ -55,7 +55,7 @@ func TestDeleteExercise_DeletesAndUnselects(t *testing.T) {
 }
 
 // プリセット由来の種目も消せること。プリセット由来かどうかで扱いを
-// 変えない（global-constraints「プリセット由来も消せる・直せる」）。
+// 変えない（docs/specs/2026-09-26-custom-exercises-design.md「プリセット由来も消せる・直せる」）。
 // 伸ばしたい種目（bench/squat/deadlift）に入っていない共通の種目を選ぶ。
 func TestDeleteExercise_AllowsDeletingAPresetExercise(t *testing.T) {
 	ctx := context.Background()

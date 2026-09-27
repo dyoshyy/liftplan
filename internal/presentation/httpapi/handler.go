@@ -34,6 +34,7 @@ type Handler struct {
 	getProgram       *usecase.GetProgram
 	deleteSetLog     *usecase.DeleteSetLog
 	addExercise      *usecase.AddExercise
+	editExercise     *usecase.EditExercise
 	deleteExercise   *usecase.DeleteExercise
 	exercises        *query.Exercises
 	history          *query.History
@@ -59,6 +60,7 @@ type Dependencies struct {
 	GetProgram       *usecase.GetProgram
 	DeleteSetLog     *usecase.DeleteSetLog
 	AddExercise      *usecase.AddExercise
+	EditExercise     *usecase.EditExercise
 	DeleteExercise   *usecase.DeleteExercise
 	Exercises        *query.Exercises
 	History          *query.History
@@ -103,6 +105,8 @@ func NewHandler(d Dependencies) (*Handler, error) {
 		return nil, errMissingDependency("DeleteSetLog")
 	case d.AddExercise == nil:
 		return nil, errMissingDependency("AddExercise")
+	case d.EditExercise == nil:
+		return nil, errMissingDependency("EditExercise")
 	case d.DeleteExercise == nil:
 		return nil, errMissingDependency("DeleteExercise")
 	case d.Exercises == nil:
@@ -129,6 +133,7 @@ func NewHandler(d Dependencies) (*Handler, error) {
 		getProgram:       d.GetProgram,
 		deleteSetLog:     d.DeleteSetLog,
 		addExercise:      d.AddExercise,
+		editExercise:     d.EditExercise,
 		deleteExercise:   d.DeleteExercise,
 		exercises:        d.Exercises,
 		history:          d.History,
@@ -359,29 +364,31 @@ func (h *Handler) handlePostConditions(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// exerciseStimulusFrom はリクエストの区分ごとの寄与度をドメインの型へ移す。
+//
+// AddExercise・EditExercise は同じ形の入力を受け取るので、POST と PUT の
+// 両方がここを通る。
+func exerciseStimulusFrom(raw map[string]float64) map[training.MuscleRegion]float64 {
+	stimulus := make(map[training.MuscleRegion]float64, len(raw))
+	for region, v := range raw {
+		stimulus[training.MuscleRegion(region)] = v
+	}
+	return stimulus
+}
+
 // handlePostExercise は利用者が種目を足す。
 func (h *Handler) handlePostExercise(w http.ResponseWriter, r *http.Request) {
 	user, ok := requireUser(w, r)
 	if !ok {
 		return
 	}
-	var req addCustomExerciseDTO
+	var req exerciseInputDTO
 	if err := decodeJSON(r, &req); err != nil {
 		respondError(w, err)
 		return
 	}
-	// AddExercise はユースケースの生の入力（区分ごとの寄与度）を受け取る。
-	// リクエストはまだ主・副の一覧なので、ここで 1.0・0.5 の寄与に変換する
-	// （API の形そのものを主・副から寄与度に変えるのは Task 5）。
-	stimulus := make(map[training.MuscleRegion]float64, len(req.Primary)+len(req.Secondary))
-	for _, s := range req.Primary {
-		stimulus[training.MuscleRegion(s)] = 1.0
-	}
-	for _, s := range req.Secondary {
-		stimulus[training.MuscleRegion(s)] = 0.5
-	}
 	e, err := h.addExercise.Execute(r.Context(), user, usecase.AddExerciseInput{
-		Name: req.Name, Stimulus: stimulus, IncrementKg: req.IncrementKg,
+		Name: req.Name, Stimulus: exerciseStimulusFrom(req.Stimulus), IncrementKg: req.IncrementKg,
 	})
 	if err != nil {
 		respondError(w, err)
@@ -390,7 +397,33 @@ func (h *Handler) handlePostExercise(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, exerciseDTOFrom(query.ExerciseFrom(e)))
 }
 
-// handleDeleteExercise は利用者が足した種目を消す。
+// handlePutExercise は利用者が種目の名前・効き方・刻みを直す。
+//
+// プリセット由来かどうかで扱いを変えない。本文は POST と同じ形
+// （設計書「PUT は同じ本文」）。
+func (h *Handler) handlePutExercise(w http.ResponseWriter, r *http.Request) {
+	user, ok := requireUser(w, r)
+	if !ok {
+		return
+	}
+	var req exerciseInputDTO
+	if err := decodeJSON(r, &req); err != nil {
+		respondError(w, err)
+		return
+	}
+	id := exercise.ExerciseID(r.PathValue("id"))
+	e, err := h.editExercise.Execute(r.Context(), user, id, usecase.EditExerciseInput{
+		Name: req.Name, Stimulus: exerciseStimulusFrom(req.Stimulus), IncrementKg: req.IncrementKg,
+	})
+	if err != nil {
+		respondError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, exerciseDTOFrom(query.ExerciseFrom(e)))
+}
+
+// handleDeleteExercise は種目を消す（論理削除）。プリセット由来かどうかで
+// 扱いを変えない。
 func (h *Handler) handleDeleteExercise(w http.ResponseWriter, r *http.Request) {
 	user, ok := requireUser(w, r)
 	if !ok {

@@ -19,7 +19,8 @@ type exerciseStore interface {
 
 // AddExerciseInput は利用者が足す種目の入力。
 //
-// プリセット由来かどうかで扱いを変えない（global-constraints）。効き方は
+// プリセット由来かどうかで扱いを変えない
+// （docs/specs/2026-09-26-custom-exercises-design.md）。効き方は
 // 区分ごとの寄与度の生の値で受け取り、検証は exercise.NewExercise に
 // 一本化する。
 type AddExerciseInput struct {

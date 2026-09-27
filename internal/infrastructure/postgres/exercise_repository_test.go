@@ -50,9 +50,10 @@ func newUser(t *testing.T) account.UserID {
 
 func mustCustom(t *testing.T, id, name string) *exercise.Exercise {
 	t.Helper()
-	e, err := exercise.NewCustomExercise(exercise.CustomExerciseParams{
+	e, err := exercise.NewExercise(exercise.ExerciseParams{
 		ID: id, Name: name,
-		Primary: []training.MuscleRegion{training.Lat}, IncrementKg: 2.5,
+		Stimulus:    map[training.MuscleRegion]float64{training.Lat: 1.0},
+		IncrementKg: 2.5,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -113,8 +114,9 @@ func TestExerciseRepository_SeedsOnFirstRead(t *testing.T) {
 }
 
 // 全部消してから保存しても、次の FindAll は消した件数のまま。
-// 「行がある」を件数で判定すると、全消しの直後にまたシードが入り直り、
-// 消した記録が生き返る（global-constraints「消した行も『行がある』に数える」）。
+// ensureSeeded の count(*) は消した行も数えるので、全消しの直後に
+// またシードが入り直り消した記録が生き返る、ということが起きない
+// （docs/specs/2026-09-26-custom-exercises-design.md「いつコピーするか」）。
 func TestExerciseRepository_DoesNotReseedAfterDeletingAll(t *testing.T) {
 	ctx := context.Background()
 	seedAll, err := seed.Exercises()
@@ -149,7 +151,7 @@ func TestExerciseRepository_DoesNotReseedAfterDeletingAll(t *testing.T) {
 }
 
 // シードの種目を Edit して保存すると、FindAll は直した値を返す。
-// プリセット由来かどうかで Save の扱いを変えない（IsCustom は見ない）。
+// プリセット由来かどうかで Save の扱いを変えない。
 func TestExerciseRepository_SavesAnyExercise(t *testing.T) {
 	ctx := context.Background()
 	seedAll, err := seed.Exercises()
@@ -286,9 +288,10 @@ func TestExerciseRepository_SaveOverwritesTheSameID(t *testing.T) {
 	repo := postgres.NewExerciseRepository(migratedDB(t), seedAll)
 	a := newUser(t)
 
-	first, err := exercise.NewCustomExercise(exercise.CustomExerciseParams{
+	first, err := exercise.NewExercise(exercise.ExerciseParams{
 		ID: "u-000000000000000a", Name: "アイソラテラル・ロー",
-		Primary: []training.MuscleRegion{training.Lat}, IncrementKg: 2.5,
+		Stimulus:    map[training.MuscleRegion]float64{training.Lat: 1.0},
+		IncrementKg: 2.5,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -297,9 +300,10 @@ func TestExerciseRepository_SaveOverwritesTheSameID(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	second, err := exercise.NewCustomExercise(exercise.CustomExerciseParams{
+	second, err := exercise.NewExercise(exercise.ExerciseParams{
 		ID: "u-000000000000000a", Name: "シーテッドロー2",
-		Primary: []training.MuscleRegion{training.TrapMid}, IncrementKg: 5.0,
+		Stimulus:    map[training.MuscleRegion]float64{training.TrapMid: 1.0},
+		IncrementKg: 5.0,
 	})
 	if err != nil {
 		t.Fatal(err)

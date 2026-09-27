@@ -12,8 +12,9 @@ import (
 	"github.com/dyoshyy/liftplan/internal/domain/training/program"
 )
 
-// EditExerciseInput は種目を直す入力。Add と同じ形（global-constraints
-// 「直せるのは名前・効き方・刻み」）。
+// EditExerciseInput は種目を直す入力。Add と同じ形
+// （docs/specs/2026-09-26-custom-exercises-design.md
+// 「直せるもの | 名前、効き方（区分ごとの寄与）、刻み」）。
 type EditExerciseInput struct {
 	Name        string
 	Stimulus    map[training.MuscleRegion]float64
@@ -67,7 +68,7 @@ func (u *EditExercise) Execute(ctx context.Context, user account.UserID, id exer
 	}
 
 	// 重複チェックは自分自身を除く。消していない他の種目とだけ比べる
-	// （global-constraints「直すときは自分自身を除く」）。
+	// （docs/specs/2026-09-26-custom-exercises-design.md「自分自身を除く」）。
 	for _, other := range pool {
 		if other != nil && other.ID() != id && !other.IsDeleted() && other.Name() == edited.Name() {
 			return nil, fmt.Errorf("%w: %s", exercise.ErrDuplicateExerciseName, edited.Name())

@@ -19,8 +19,9 @@ import (
 )
 
 // ExerciseRepository は種目を保持する。種目は利用者ごとの一覧で、
-// プリセット（シード）はその人の行が1件も無いときに一度だけコピーする
-// （global-constraints「消した行も『行がある』に数える」）。
+// プリセット（シード）はその人の行が1件も無いときに一度だけコピーする。
+// 消した行も件数に数えるので、全部消してもプリセットが入り直らない
+// （docs/specs/2026-09-26-custom-exercises-design.md「いつコピーするか」）。
 type ExerciseRepository struct {
 	mu     sync.Mutex
 	seed   []*exercise.Exercise
@@ -72,8 +73,8 @@ func (r *ExerciseRepository) FindAll(
 }
 
 // Save はその利用者の一覧に保存する。プリセット由来かどうかで扱いを
-// 変えない（IsCustom は見ない）。同じ ID は上書きする。FindAll 同様、
-// その利用者の最初の呼び出しならプリセットを入れてから保存する。
+// 変えない。同じ ID は上書きする。FindAll 同様、その利用者の最初の呼び出し
+// ならプリセットを入れてから保存する。
 func (r *ExerciseRepository) Save(_ context.Context, user account.UserID, e *exercise.Exercise) error {
 	if e == nil {
 		return errors.New("種目が nil である")

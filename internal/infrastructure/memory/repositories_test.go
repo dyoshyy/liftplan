@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"slices"
 	"sync"
 	"testing"
 	"time"
@@ -22,9 +21,10 @@ var day = training.MustDate(2026, time.August, 17)
 
 func mustCustom(t *testing.T, id, name string) *exercise.Exercise {
 	t.Helper()
-	e, err := exercise.NewCustomExercise(exercise.CustomExerciseParams{
+	e, err := exercise.NewExercise(exercise.ExerciseParams{
 		ID: id, Name: name,
-		Primary: []training.MuscleRegion{training.Lat}, IncrementKg: 2.5,
+		Stimulus:    map[training.MuscleRegion]float64{training.Lat: 1.0},
+		IncrementKg: 2.5,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -197,9 +197,9 @@ func TestExerciseRepository_SeedsOnFirstRead(t *testing.T) {
 }
 
 // 全部消してから保存しても、次の FindAll は消した件数のまま。
-// 「行がある」を空かどうかで判定すると、全消しの直後にまたシードが
-// 入り直り、消した記録が生き返る（global-constraints「消した行も
-// 『行がある』に数える」）。
+// ensureSeeded は map の有無で判定する（件数では判定しない）ので、全消しの
+// 直後にまたシードが入り直り消した記録が生き返る、ということが起きない
+// （docs/specs/2026-09-26-custom-exercises-design.md「いつコピーするか」）。
 func TestExerciseRepository_DoesNotReseedAfterDeletingAll(t *testing.T) {
 	ctx := context.Background()
 	seedAll, err := seed.Exercises()
@@ -256,7 +256,7 @@ func TestExerciseRepository_KeepsDeletedCustoms(t *testing.T) {
 }
 
 // シードの種目を Edit して保存すると、FindAll は直した値を返す。
-// プリセット由来かどうかで Save の扱いを変えない（IsCustom は見ない）。
+// プリセット由来かどうかで Save の扱いを変えない。
 func TestExerciseRepository_SavesAnyExercise(t *testing.T) {
 	ctx := context.Background()
 	seedAll, err := seed.Exercises()
@@ -339,8 +339,8 @@ func TestExerciseRepository_SaveKeepsItsOwnName(t *testing.T) {
 }
 
 // 消していない同じ名前は弾き、消した種目と同じ名前は通す（DB の部分一意
-// 索引と同じふるまい）。比べる相手はシードも含む（global-constraints
-// 「消していない種目の中で重複しない」）。
+// 索引と同じふるまい）。比べる相手はシードも含む
+// （docs/specs/2026-09-26-custom-exercises-design.md「消していない種目の中で重複しない」）。
 func TestExerciseRepository_NameIsUniqueAmongAliveCustoms(t *testing.T) {
 	ctx := context.Background()
 	seedAll, err := seed.Exercises()
@@ -408,7 +408,7 @@ func TestExerciseRepository_OrdersByID(t *testing.T) {
 }
 
 // 同じ ID を二度渡したら上書きする（exercise.Writer の契約）。
-// 名前・部位・刻みも含めて、2回目の値だけが残ること。
+// 名前・効き方・刻みも含めて、2回目の値だけが残ること。
 func TestExerciseRepository_SaveOverwritesTheSameID(t *testing.T) {
 	ctx := context.Background()
 	seedAll, err := seed.Exercises()
@@ -418,9 +418,10 @@ func TestExerciseRepository_SaveOverwritesTheSameID(t *testing.T) {
 	repo := memory.NewExerciseRepository(seedAll)
 	a := newUser(t)
 
-	first, err := exercise.NewCustomExercise(exercise.CustomExerciseParams{
+	first, err := exercise.NewExercise(exercise.ExerciseParams{
 		ID: "u-000000000000000a", Name: "アイソラテラル・ロー",
-		Primary: []training.MuscleRegion{training.Lat}, IncrementKg: 2.5,
+		Stimulus:    map[training.MuscleRegion]float64{training.Lat: 1.0},
+		IncrementKg: 2.5,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -429,9 +430,10 @@ func TestExerciseRepository_SaveOverwritesTheSameID(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	second, err := exercise.NewCustomExercise(exercise.CustomExerciseParams{
+	second, err := exercise.NewExercise(exercise.ExerciseParams{
 		ID: "u-000000000000000a", Name: "シーテッドロー2",
-		Primary: []training.MuscleRegion{training.TrapMid}, IncrementKg: 5.0,
+		Stimulus:    map[training.MuscleRegion]float64{training.TrapMid: 1.0},
+		IncrementKg: 5.0,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -451,8 +453,13 @@ func TestExerciseRepository_SaveOverwritesTheSameID(t *testing.T) {
 	if back == nil {
 		t.Fatalf("%s が見つからない", second.ID())
 	}
-	if back.Name() != second.Name() || back.Increment().Kg() != second.Increment().Kg() ||
-		!slices.Equal(back.PrimaryRegions(), second.PrimaryRegions()) {
+	if back.Name() != second.Name() || back.Increment().Kg() != second.Increment().Kg() {
 		t.Errorf("2回目の値で上書きされていない: %+v", back)
+	}
+	if c, ok := back.Stimulus().Contribution(training.TrapMid); !ok || c.Float() != 1.0 {
+		t.Errorf("2回目の効き方（TrapMid）が反映されていない: %+v", back)
+	}
+	if _, ok := back.Stimulus().Contribution(training.Lat); ok {
+		t.Errorf("1回目の効き方（Lat）が残っている: %+v", back)
 	}
 }

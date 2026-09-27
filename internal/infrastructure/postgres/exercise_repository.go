@@ -18,9 +18,9 @@ import (
 // ExerciseRepository は種目の Postgres 実装。
 //
 // 種目は共通/個人の2つに分かれていない。利用者の行が1件も無いときに
-// 一度だけシードをコピーする（消した行も「行がある」に数える）。以後は
-// user_exercises の行がその人の種目一覧そのもの
-// （docs/specs/2026-09-26-custom-exercises-design.md）。
+// 一度だけシードをコピーする。消した行も件数に数えるので、全部消しても
+// プリセットが入り直らない。以後は user_exercises の行がその人の種目一覧
+// そのもの（docs/specs/2026-09-26-custom-exercises-design.md「いつコピーするか」）。
 type ExerciseRepository struct {
 	pool *pgxpool.Pool
 	seed []*exercise.Exercise
@@ -90,11 +90,11 @@ func (r *ExerciseRepository) FindAll(ctx context.Context, user account.UserID) (
 
 // ensureSeeded は、その利用者の行が1件も無ければシードを全部コピーする。
 //
-// count → 挿入を別のトランザクションに分けない。同時に来た2つの読み出しが
-// どちらも「0件」を見てから挿入すると、ON CONFLICT DO NOTHING が二重挿入を
-// 防いでも、片方が挿入した直後にもう片方の count がずれて読む余地が残る。
-// count と挿入を同じトランザクションにまとめ、実際の投入は
-// ON CONFLICT DO NOTHING に任せることで、同時に2回呼ばれても安全にする。
+// 同時に2回呼ばれても安全なのは ON CONFLICT DO NOTHING が二重挿入を吸収
+// するからで、トランザクションが守っているのはそこではない。トランザクション
+// が要るのは原子性のため。バッチの途中（何行か挿入した後）で失敗すると、
+// ロールバックしない限りシードが半端に入った行が残り、count はもう0件では
+// ないので次回以降 ensureSeeded がスキップし続け、二度と直らない。
 //
 // 対象（arbiter）を (user_id, id) に絞らないのは、それだと user_exercises_alive_name
 // （名前の部分一意索引）との衝突が素通しになるため。同じ利用者に同じシードを
@@ -161,9 +161,9 @@ func (r *ExerciseRepository) ensureSeeded(ctx context.Context, user account.User
 	return nil
 }
 
-// Save は種目を保存する。プリセット由来かどうかで扱いを変えない
-// （IsCustom は見ない）。同じ ID は上書きする。消した時刻は最初に消した
-// ときのまま保つ（二度消しても動かさない）。
+// Save は種目を保存する。プリセット由来かどうかで扱いを変えない。
+// 同じ ID は上書きする。消した時刻は最初に消したときのまま保つ
+// （二度消しても動かさない）。
 func (r *ExerciseRepository) Save(ctx context.Context, user account.UserID, e *exercise.Exercise) error {
 	if e == nil {
 		return errors.New("種目が nil である")
