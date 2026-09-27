@@ -120,11 +120,10 @@ type devSettingsDTO struct {
 }
 
 type devCustomDTO struct {
-	ID          string   `json:"id"`
-	Name        string   `json:"name"`
-	Primary     []string `json:"primary"`
-	Secondary   []string `json:"secondary"`
-	IncrementKg float64  `json:"increment_kg"`
+	ID          string             `json:"id"`
+	Name        string             `json:"name"`
+	Stimulus    map[string]float64 `json:"stimulus"`
+	IncrementKg float64            `json:"increment_kg"`
 }
 
 type devDayDTO struct {
@@ -362,11 +361,11 @@ func parseDevRequest(r *http.Request) (devsim.Request, error) {
 	return out, nil
 }
 
-// parseDevCustom は "名前|主|少し|刻み;..." を自分の種目の並びにする。
+// parseDevCustom は "名前|区分:寄与,区分:寄与|刻み;..." を自分の種目の並びにする。
 //
-// 部位は "," 区切り。少しは空でよい。本番の POST /api/exercises と同じ4つを
+// 効き方は本番の POST /api/exercises と同じ、区分ごとの寄与度の生の値。
 // URL の1行で書けるようにした（Claude がクエリで条件を変えて読むため）。
-// 部位の妥当性と名前の重複は devsim（exercise.NewCustomExercise）が見る。
+// 寄与の範囲・寄与1.0の区分の有無・名前の重複は devsim（exercise.NewExercise）が見る。
 func parseDevCustom(v string) ([]devsim.CustomExercise, error) {
 	var out []devsim.CustomExercise
 	for _, item := range strings.Split(v, ";") {
@@ -374,31 +373,46 @@ func parseDevCustom(v string) ([]devsim.CustomExercise, error) {
 			continue
 		}
 		fields := strings.Split(item, "|")
-		if len(fields) != 4 {
+		if len(fields) != 3 {
 			return nil, errDevQuery("custom", item)
 		}
-		inc, err := strconv.ParseFloat(strings.TrimSpace(fields[3]), 64)
+		inc, err := strconv.ParseFloat(strings.TrimSpace(fields[2]), 64)
+		if err != nil {
+			return nil, errDevQuery("custom", item)
+		}
+		stimulus, err := parseDevStimulus(fields[1])
 		if err != nil {
 			return nil, errDevQuery("custom", item)
 		}
 		out = append(out, devsim.CustomExercise{
 			Name:        strings.TrimSpace(fields[0]),
-			Primary:     parseDevRegions(fields[1]),
-			Secondary:   parseDevRegions(fields[2]),
+			Stimulus:    stimulus,
 			IncrementKg: inc,
 		})
 	}
 	return out, nil
 }
 
-func parseDevRegions(v string) []training.MuscleRegion {
-	var out []training.MuscleRegion
-	for _, r := range strings.Split(v, ",") {
-		if r = strings.TrimSpace(r); r != "" {
-			out = append(out, training.MuscleRegion(r))
+// parseDevStimulus は "TRAP_MID:1,LAT:0.5" を区分ごとの寄与度にする。
+// 区分の妥当性と範囲は devsim（exercise.NewExercise）が見るので、ここでは
+// 数値として読めるかだけを見る。
+func parseDevStimulus(v string) (map[training.MuscleRegion]float64, error) {
+	raw := map[string]float64{}
+	for _, pair := range strings.Split(v, ",") {
+		if pair = strings.TrimSpace(pair); pair == "" {
+			continue
 		}
+		region, kg, ok := strings.Cut(pair, ":")
+		if !ok {
+			return nil, fmt.Errorf("寄与の形式が不正: %s", pair)
+		}
+		n, err := strconv.ParseFloat(strings.TrimSpace(kg), 64)
+		if err != nil {
+			return nil, fmt.Errorf("寄与の値が数値でない: %s", pair)
+		}
+		raw[strings.TrimSpace(region)] = n
 	}
-	return out
+	return exerciseStimulusFrom(raw), nil
 }
 
 // parseDevOneRepMax は "bench:100,squat:140" を種目ごとの1RMにする。
@@ -479,19 +493,26 @@ func toDevSettingsDTO(req devsim.Request, pool []*exercise.Exercise) devSettings
 	if len(out.Weekdays) == 0 {
 		out.Weekdays, _ = devsim.DefaultWeekdays(req.Frequency)
 	}
+	// 自分の種目かどうかは、devsim が並び順で振る ID（CustomExerciseID）で見分ける。
+	// IsCustom のような区分は無い（プリセット由来かどうかで扱いを変えないため）。
+	customIDs := make(map[exercise.ExerciseID]bool, len(req.Custom))
+	for i := range req.Custom {
+		customIDs[devsim.CustomExerciseID(i)] = true
+	}
 	out.Custom = []devCustomDTO{}
 	for _, e := range pool {
 		out.Athlete.OneRepMaxKg[string(e.ID())] = req.Athlete.OneRepMax(e.ID())
-		if !e.IsCustom() {
+		if !customIDs[e.ID()] {
 			continue
 		}
-		c := devCustomDTO{ID: string(e.ID()), Name: e.Name(), IncrementKg: e.Increment().Kg()}
-		for _, r := range e.PrimaryRegions() {
-			c.Primary = append(c.Primary, string(r))
+		c := devCustomDTO{
+			ID: string(e.ID()), Name: e.Name(), IncrementKg: e.Increment().Kg(),
+			Stimulus: map[string]float64{},
 		}
-		c.Secondary = []string{}
-		for _, r := range e.SecondaryRegions() {
-			c.Secondary = append(c.Secondary, string(r))
+		for _, r := range e.Stimulus().Regions() {
+			if v, ok := e.Stimulus().Contribution(r); ok {
+				c.Stimulus[string(r)] = v.Float()
+			}
 		}
 		out.Custom = append(out.Custom, c)
 	}

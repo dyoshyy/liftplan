@@ -165,11 +165,10 @@ func (s *Simulator) Presets() []seed.SplitPreset { return s.presets }
 func (s *Simulator) Pool() []*exercise.Exercise { return s.pool }
 
 // CustomExercise は模擬ユーザーが足した自分の種目。本番の POST /api/exercises と
-// 同じ入力（名前・主に効く部位・少し効く部位・刻み）で表す。
+// 同じ入力（名前・区分ごとの寄与・刻み）で表す。
 type CustomExercise struct {
 	Name        string
-	Primary     []training.MuscleRegion
-	Secondary   []training.MuscleRegion
+	Stimulus    map[training.MuscleRegion]float64
 	IncrementKg float64
 }
 
@@ -196,9 +195,9 @@ func (s *Simulator) poolFor(req Request) ([]*exercise.Exercise, error) {
 		names[e.Name()] = true
 	}
 	for i, c := range req.Custom {
-		e, err := exercise.NewCustomExercise(exercise.CustomExerciseParams{
+		e, err := exercise.NewExercise(exercise.ExerciseParams{
 			ID: string(CustomExerciseID(i)), Name: c.Name,
-			Primary: c.Primary, Secondary: c.Secondary, IncrementKg: c.IncrementKg,
+			Stimulus: c.Stimulus, IncrementKg: c.IncrementKg,
 		})
 		if err != nil {
 			return nil, fmt.Errorf("自分の種目 %d 番目（%s）が不正: %w", i+1, c.Name, err)

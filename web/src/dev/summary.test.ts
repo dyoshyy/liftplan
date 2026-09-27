@@ -125,13 +125,20 @@ describe('settingsLine', () => {
       {
         ...settings,
         custom: [
-          { id: 'u-sim01', name: 'アイソラテラル・ロー', primary: ['TRAP_MID'], secondary: ['BICEPS', 'LAT'], increment_kg: 2.5 },
+          {
+            id: 'u-sim01',
+            name: 'アイソラテラル・ロー',
+            // 挿入順をわざと逆にする。並びが挿入順のままなら BICEPS が
+            // LAT より先に出て、regionOrder による決着を検査できない。
+            stimulus: { BICEPS: 0.5, LAT: 0.5, TRAP_MID: 1 },
+            increment_kg: 2.5,
+          },
         ],
       },
       names,
       '',
     );
-    expect(got).toContain('自分の種目: アイソラテラル・ロー（主 僧帽筋中部・少し 上腕二頭筋,広背筋）');
+    expect(got).toContain('自分の種目: アイソラテラル・ロー（僧帽筋中部 1.0・広背筋 0.5・上腕二頭筋 0.5）');
     expect(settingsLine({ ...settings, custom: [] }, names, '')).not.toContain('自分の種目');
   });
 

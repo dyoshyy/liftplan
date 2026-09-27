@@ -506,9 +506,10 @@ func TestSimulator_RejectsBadSchedule(t *testing.T) {
 // isoRow はアイソラテラル・ロー相当の自分の種目。
 func isoRow() devsim.CustomExercise {
 	return devsim.CustomExercise{
-		Name:        "アイソラテラル・ロー",
-		Primary:     []training.MuscleRegion{training.TrapMid},
-		Secondary:   []training.MuscleRegion{training.Lat, training.Biceps},
+		Name: "アイソラテラル・ロー",
+		Stimulus: map[training.MuscleRegion]float64{
+			training.TrapMid: 1, training.Lat: 0.5, training.Biceps: 0.5,
+		},
 		IncrementKg: 2.5,
 	}
 }
@@ -568,7 +569,9 @@ func TestSimulator_RejectsBadCustomExercise(t *testing.T) {
 		name   string
 		modify func(*devsim.CustomExercise)
 	}{
-		{"主が無い", func(c *devsim.CustomExercise) { c.Primary = nil }},
+		{"寄与1.0の区分が無い", func(c *devsim.CustomExercise) {
+			c.Stimulus = map[training.MuscleRegion]float64{training.Lat: 0.5}
+		}},
 		{"共通の種目と同名", func(c *devsim.CustomExercise) { c.Name = "サイドレイズ" }},
 	}
 	for _, c := range cases {

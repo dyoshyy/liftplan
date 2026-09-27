@@ -225,19 +225,19 @@ function Settings({
 
         <OneRepMaxGrid options={options} form={form} setForm={setForm} />
 
-        {/* 自分の種目。本番で利用者が足す種目を、同じ4つ（名前・主・少し・刻み）で
+        {/* 自分の種目。本番で利用者が足す種目を、同じ3つ（名前・効き方・刻み）で
             書く。サーバーと同じ1行の書式のまま URL に載るので、Claude がクエリを
             書き換えて条件を変えられる。ID は並び順に u-sim01, u-sim02… で、
             1RM の上書きは orm に u-sim01:80 のように書く（応答の settings に出る）。 */}
         <label htmlFor="custom" className="grid gap-1.5">
           <span className="text-[12px] font-bold text-muted">
-            自分の種目（名前|主に効く部位|少し効く部位|刻み を ; で並べる。部位は , 区切りの区分コード）
+            自分の種目（名前|区分:寄与,区分:寄与|刻み を ; で並べる。寄与1.0の区分が1つ以上要る）
           </span>
           <textarea
             id="custom"
             rows={3}
             value={form.custom}
-            placeholder="アイソラテラル・ロー|TRAP_MID|LAT,BICEPS|2.5;アイソラテラル・フロント・プルダウン|LAT|BICEPS|2.5"
+            placeholder="アイソラテラル・ロー|TRAP_MID:1,LAT:0.5,BICEPS:0.5|2.5;アイソラテラル・フロント・プルダウン|LAT:1,BICEPS:0.5|2.5"
             onChange={(ev) => setForm({ ...form, custom: ev.target.value })}
             className={`font-mono text-[12px] ${FIELD}`}
           />

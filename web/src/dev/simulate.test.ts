@@ -273,7 +273,8 @@ describe('describeFailure', () => {
 });
 
 describe('custom（自分の種目）', () => {
-  const custom = 'アイソラテラル・ロー|TRAP_MID|LAT,BICEPS|2.5;アイソラテラル・フロント・プルダウン|LAT||2.5';
+  const custom =
+    'アイソラテラル・ロー|TRAP_MID:1,LAT:0.5,BICEPS:0.5|2.5;アイソラテラル・フロント・プルダウン|LAT:1|2.5';
 
   // 自分の種目はサーバーと同じ1行の書式のまま URL に載せる。画面で組み直すと、
   // URL を開き直したときに書式の違いで別の条件になる。

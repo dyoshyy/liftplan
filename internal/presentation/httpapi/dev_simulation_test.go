@@ -465,10 +465,10 @@ func TestDevSimulation_OptionsCarryScheduleDefaults(t *testing.T) {
 // 自分の種目を custom= で渡せること。設定の echo に ID つきで返り、
 // 1RM の上書きもその ID で効くこと。
 //
-// 形は「名前|主に効く部位|少し効く部位|刻み」を ; で並べる。部位は , 区切り。
-// 本番の POST /api/exercises と同じ4つを1行で書ける形にした。
+// 形は「名前|区分:寄与,区分:寄与|刻み」を ; で並べる。本番の POST
+// /api/exercises と同じ、区分ごとの寄与度の生の値を1行で書ける形にした。
 func TestDevSimulation_TakesCustomExercisesAndEchoesThem(t *testing.T) {
-	custom := "アイソラテラル・ロー|TRAP_MID|LAT,BICEPS|2.5;アイソラテラル・フロント・プルダウン|LAT||2.5"
+	custom := "アイソラテラル・ロー|TRAP_MID:1,LAT:0.5,BICEPS:0.5|2.5;アイソラテラル・フロント・プルダウン|LAT:1|2.5"
 	rec := devGet(t, "/api/dev/simulate?declared=bench&weeks=2&orm=u-sim01:80&custom="+url.QueryEscape(custom))
 	if rec.Code != http.StatusOK {
 		t.Fatalf("%d が返った。200 のはず: %s", rec.Code, rec.Body.String())
@@ -477,11 +477,10 @@ func TestDevSimulation_TakesCustomExercisesAndEchoesThem(t *testing.T) {
 	var got struct {
 		Settings struct {
 			Custom []struct {
-				ID          string   `json:"id"`
-				Name        string   `json:"name"`
-				Primary     []string `json:"primary"`
-				Secondary   []string `json:"secondary"`
-				IncrementKg float64  `json:"increment_kg"`
+				ID          string             `json:"id"`
+				Name        string             `json:"name"`
+				Stimulus    map[string]float64 `json:"stimulus"`
+				IncrementKg float64            `json:"increment_kg"`
 			} `json:"custom"`
 			Athlete struct {
 				OneRepMaxKg map[string]float64 `json:"one_rep_max_kg"`
@@ -493,8 +492,8 @@ func TestDevSimulation_TakesCustomExercisesAndEchoesThem(t *testing.T) {
 	}
 	c := got.Settings.Custom
 	if len(c) != 2 || c[0].ID != "u-sim01" || c[0].Name != "アイソラテラル・ロー" ||
-		strings.Join(c[0].Primary, ",") != "TRAP_MID" || strings.Join(c[0].Secondary, ",") != "BICEPS,LAT" ||
-		c[0].IncrementKg != 2.5 || c[1].ID != "u-sim02" || len(c[1].Secondary) != 0 {
+		c[0].Stimulus["TRAP_MID"] != 1 || c[0].Stimulus["LAT"] != 0.5 || c[0].Stimulus["BICEPS"] != 0.5 ||
+		c[0].IncrementKg != 2.5 || c[1].ID != "u-sim02" || len(c[1].Stimulus) != 1 {
 		t.Errorf("自分の種目が返っていない: %+v", c)
 	}
 	orm := got.Settings.Athlete.OneRepMaxKg
@@ -507,10 +506,11 @@ func TestDevSimulation_TakesCustomExercisesAndEchoesThem(t *testing.T) {
 func TestDevSimulation_RejectsBadCustomQuery(t *testing.T) {
 	for _, custom := range []string{
 		"名前だけ",
-		"a|NECK||2.5",
-		"a|LAT||heavy",
-		"a||LAT|2.5",
-		"サイドレイズ|SIDE_DELT||1",
+		"a|NECK:1|2.5",
+		"a|LAT:heavy|2.5",
+		"a|LAT:0.5|2.5",        // 寄与1.0の区分が無い
+		"a|LAT:1|heavy",        // 刻みが数値でない
+		"サイドレイズ|SIDE_DELT:1|1", // 共通の種目と同名
 	} {
 		t.Run(custom, func(t *testing.T) {
 			rec := devGet(t, "/api/dev/simulate?declared=bench&custom="+url.QueryEscape(custom))

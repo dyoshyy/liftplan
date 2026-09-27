@@ -93,8 +93,8 @@ export type DevSettings = {
 export type DevCustom = {
   id: string;
   name: string;
-  primary: string[];
-  secondary: string[];
+  /** 区分ごとの寄与度の生の値（例: {"TRAP_MID": 1, "LAT": 0.5}）。 */
+  stimulus: Record<string, number>;
   increment_kg: number;
 };
 
@@ -126,8 +126,8 @@ export type Form = {
   days: number[] | null;
   /** 開始日（YYYY-MM-DD）。null はサーバーの既定。 */
   start: string | null;
-  /** 自分の種目。サーバーと同じ「名前|主|少し|刻み」を ; で並べた1行のまま持つ。
-   *  空なら足さない。 */
+  /** 自分の種目。サーバーと同じ「名前|区分:寄与,区分:寄与|刻み」を ; で並べた
+   *  1行のまま持つ。空なら足さない。 */
   custom: string;
 };
 

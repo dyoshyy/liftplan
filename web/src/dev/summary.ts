@@ -5,7 +5,7 @@
 // 数字の確かめはこちら。
 
 import { PART_ORDER, partOf } from '../domain/parts';
-import { regionLabel } from '../domain/regions';
+import { regionLabel, regionOrder } from '../domain/regions';
 import { shortDate, type WeightSeries } from './chart';
 import { outOfRange, type DevSettings, type DevWeek } from './simulate';
 
@@ -80,13 +80,20 @@ export function settingsLine(
   );
 }
 
-/** customLine は自分の種目を前提の末尾に足す。無ければ空。 */
+/** customLine は自分の種目を前提の末尾に足す。無ければ空。
+ *
+ *  効き方は寄与度の大きい区分から並べる。同点は体の上から下の並びで決着
+ *  する（`regionOrder`）。区分名の文字コード順だと LAT が BICEPS の後ろに
+ *  来て、寄与が同じでも並びが体の並びと食い違う。 */
 function customLine(s: DevSettings): string {
   if (!s.custom || s.custom.length === 0) return '';
-  const regions = (rs: string[]) => rs.map(regionLabel).join(',');
-  const items = s.custom.map(
-    (c) => `${c.name}（主 ${regions(c.primary)}${c.secondary.length ? `・少し ${regions(c.secondary)}` : ''}）`,
-  );
+  const items = s.custom.map((c) => {
+    const entries = Object.entries(c.stimulus).sort(
+      ([ra, va], [rb, vb]) => vb - va || regionOrder(ra) - regionOrder(rb),
+    );
+    const desc = entries.map(([region, v]) => `${regionLabel(region)} ${v.toFixed(1)}`).join('・');
+    return `${c.name}（${desc}）`;
+  });
   return `。自分の種目: ${items.join(', ')}`;
 }
 
