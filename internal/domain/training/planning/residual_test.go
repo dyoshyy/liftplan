@@ -59,7 +59,9 @@ func TestStimulusCoverage_ZeroValueIsUsable(t *testing.T) {
 // 端数が残ると「わずかに残っている」区分が生まれ、選択が不安定になる。
 func TestStimulusCoverage_IsQuantized(t *testing.T) {
 	p := benchParams()
-	p.Stimulus = map[training.MuscleRegion]float64{training.ChestMid: 0.3}
+	// NewExercise は寄与1.0の区分を1つ以上要求するので、検査対象の
+	// ChestMid（0.3）とは別に1.0の区分を1つ足す。
+	p.Stimulus = map[training.MuscleRegion]float64{training.ChestMid: 0.3, training.Lat: 1.0}
 	e := mustExercise(t, p)
 
 	coverage := planning.StimulusCoverage{}

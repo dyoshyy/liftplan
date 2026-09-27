@@ -1,8 +1,6 @@
 package exercise
 
 import (
-	"crypto/rand"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"strings"
@@ -27,11 +25,9 @@ const (
 	secondaryContribution = 0.5
 )
 
-// maxCustomNameRunes は自分の種目の名前の上限。
-//
-// シードの最長は「デフィシットデッドリフト」の12文字。Hammer Strength の
-// 機種名でも20文字に届かない。エラー文や画面に出るので上限を置く。
-const maxCustomNameRunes = 40
+// maxCustomNameRunes は自分の種目の名前の上限。exercise.go の
+// maxNameRunes（全種目に課す上限）に寄せてある。
+const maxCustomNameRunes = maxNameRunes
 
 // CustomExerciseParams は利用者が足す種目の生成入力。
 type CustomExerciseParams struct {
@@ -86,12 +82,8 @@ func NewCustomExercise(p CustomExerciseParams) (*Exercise, error) {
 
 // NewRandomCustomExerciseID は自分の種目の ID を採番する。
 //
-// サーバーが採番するのは、種目を足すのが設定画面で、圏外で足す必要が
-// 無いから。二度押しは名前の重複で止まる。
+// NewRandomExerciseID の旧名。呼び先を変えるだけの互換名として残す
+// （Task 5 で削る）。
 func NewRandomCustomExerciseID() (ExerciseID, error) {
-	var b [8]byte
-	if _, err := rand.Read(b[:]); err != nil {
-		return "", fmt.Errorf("乱数を取得できない: %w", err)
-	}
-	return ExerciseID(CustomExerciseIDPrefix + hex.EncodeToString(b[:])), nil
+	return NewRandomExerciseID()
 }

@@ -259,6 +259,78 @@ func TestExercise_SameIdentity(t *testing.T) {
 	}
 }
 
+func TestNewExercise_RequiresARegionAtFullContribution(t *testing.T) {
+	_, err := exercise.NewExercise(exercise.ExerciseParams{
+		ID: "x", Name: "x", IncrementKg: 2.5,
+		Stimulus: map[training.MuscleRegion]float64{training.Lat: 0.9},
+	})
+	if err == nil {
+		t.Error("寄与1.0の区分が無い種目が通った")
+	}
+}
+
+func TestNewExercise_NameUpToFortyRunes(t *testing.T) {
+	p := exercise.ExerciseParams{ID: "x", IncrementKg: 2.5, Stimulus: map[training.MuscleRegion]float64{training.Lat: 1}}
+	p.Name = strings.Repeat("あ", 40)
+	if _, err := exercise.NewExercise(p); err != nil {
+		t.Fatal(err)
+	}
+	p.Name = strings.Repeat("あ", 41)
+	if _, err := exercise.NewExercise(p); err == nil {
+		t.Error("41文字が通った")
+	}
+}
+
+// 名前だけ直しても、プリセットの細かい寄与（0.7・0.4）は変わらないこと。
+// 画面は直さない項目も今の値のまま送るので、Edit は渡された値をそのまま使う。
+func TestExercise_EditKeepsBodyweightAndDerivedFrom(t *testing.T) {
+	squat, _ := exercise.NewExercise(exercise.ExerciseParams{
+		ID: "pull_up_like", Name: "チンニング", IncrementKg: 2.5, BodyweightFactor: 0.95, DerivedFrom: "parent",
+		Stimulus: map[training.MuscleRegion]float64{training.Lat: 1, training.Biceps: 0.5},
+	})
+	got, err := squat.Edit(exercise.ExerciseEdit{
+		Name: "  懸垂  ", IncrementKg: 1.25,
+		Stimulus: map[training.MuscleRegion]float64{training.Lat: 1, training.Biceps: 0.7},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.ID() != "pull_up_like" || got.Name() != "懸垂" || got.Increment().Kg() != 1.25 {
+		t.Errorf("直した値が違う: %s %s %v", got.ID(), got.Name(), got.Increment().Kg())
+	}
+	if c, _ := got.Stimulus().Contribution(training.Biceps); c.Float() != 0.7 {
+		t.Errorf("寄与が %v", c.Float())
+	}
+	if got.BodyweightFactor().Float() != 0.95 {
+		t.Error("自重係数が引き継がれていない")
+	}
+	if from, ok := got.DerivedFrom(); !ok || from != "parent" {
+		t.Error("派生元が引き継がれていない")
+	}
+	if c, _ := squat.Stimulus().Contribution(training.Biceps); c.Float() != 0.5 {
+		t.Error("元の値が書き換わった")
+	}
+}
+
+func TestExercise_EditValidatesLikeNewExercise(t *testing.T) {
+	e, _ := exercise.NewExercise(exercise.ExerciseParams{ID: "x", Name: "x", IncrementKg: 2.5,
+		Stimulus: map[training.MuscleRegion]float64{training.Lat: 1}})
+	if _, err := e.Edit(exercise.ExerciseEdit{Name: "x", IncrementKg: 2.5,
+		Stimulus: map[training.MuscleRegion]float64{training.Lat: 0.5}}); err == nil {
+		t.Error("寄与1.0の区分が無くなる編集が通った")
+	}
+}
+
+func TestExercise_EditKeepsDeleted(t *testing.T) {
+	e, _ := exercise.NewExercise(exercise.ExerciseParams{ID: "x", Name: "x", IncrementKg: 2.5,
+		Stimulus: map[training.MuscleRegion]float64{training.Lat: 1}})
+	got, _ := e.Delete().Edit(exercise.ExerciseEdit{Name: "y", IncrementKg: 2.5,
+		Stimulus: map[training.MuscleRegion]float64{training.Lat: 1}})
+	if !got.IsDeleted() {
+		t.Error("消した印が落ちた")
+	}
+}
+
 func TestNewExercise_StimulusRegionLimitBoundary(t *testing.T) {
 	const max = 8
 	all := training.AllMuscleRegions()
@@ -269,7 +341,11 @@ func TestNewExercise_StimulusRegionLimitBoundary(t *testing.T) {
 	build := func(n int) exercise.ExerciseParams {
 		p := benchParams()
 		p.Stimulus = map[training.MuscleRegion]float64{}
-		for _, r := range all[:n] {
+		for i, r := range all[:n] {
+			if i == 0 {
+				p.Stimulus[r] = 1.0
+				continue
+			}
 			p.Stimulus[r] = 0.5
 		}
 		return p
