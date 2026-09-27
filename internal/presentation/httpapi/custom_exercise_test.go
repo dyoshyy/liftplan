@@ -107,41 +107,95 @@ func TestExercises_ErrorStatuses(t *testing.T) {
 		// 検査していないテストになる（decodeJSON の失敗も同じ code を返す）。
 		// hasFullContribution が実際に働いたことを、そのエラー文言で見る。
 		wantMsg string
+		// wantAbsent は本文に含まれてはいけない部分文字列。空なら見ない。
+		// 「名前で伝わっている」ことを、raw ID が出ていないことの側からも確かめる。
+		wantAbsent string
+		// setup は c の本番のリクエストの前に、同じ mux へ追加のリクエストを
+		// 行う。nil なら newServer(t, true) の既定状態のまま本番のリクエストを送る。
+		setup func(t *testing.T, mux http.Handler)
 	}{
 		{
-			"寄与1.0が無い", http.MethodPost, "/api/exercises",
-			`{"name":"x","stimulus":{"LAT":0.5},"increment_kg":2.5}`,
-			400, "INVALID_INPUT", "寄与1.0",
+			name: "寄与1.0が無い", method: http.MethodPost, path: "/api/exercises",
+			body:     `{"name":"x","stimulus":{"LAT":0.5},"increment_kg":2.5}`,
+			want:     400,
+			wantCode: "INVALID_INPUT", wantMsg: "寄与1.0",
 		},
 		{
-			"共通と同名", http.MethodPost, "/api/exercises",
-			`{"name":"サイドレイズ","stimulus":{"SIDE_DELT":1},"increment_kg":2.5}`,
-			409, "DUPLICATE_NAME", "",
+			// 名前が読めることとフレーズが1回しか出ないことは、下の
+			// DUPLICATE_NAME 分岐と wantMsg の両方で見る。
+			name: "共通と同名", method: http.MethodPost, path: "/api/exercises",
+			body:     `{"name":"サイドレイズ","stimulus":{"SIDE_DELT":1},"increment_kg":2.5}`,
+			want:     409,
+			wantCode: "DUPLICATE_NAME", wantMsg: "サイドレイズ",
 		},
 		{
-			"PUT 無い ID", http.MethodPut, "/api/exercises/nonexistent",
-			`{"name":"x","stimulus":{"LAT":1},"increment_kg":2.5}`,
-			404, "EXERCISE_NOT_FOUND", "",
+			// PUT は編集中なので「足せない」ではなく、足す・直すの両方に
+			// 合う言い方（apperror.ErrDuplicateName「種目を保存できない」）
+			// になっていること。
+			name: "PUT 共通と同名", method: http.MethodPut, path: "/api/exercises/side_raise",
+			body:     `{"name":"ベンチプレス","stimulus":{"SIDE_DELT":1},"increment_kg":2.5}`,
+			want:     409,
+			wantCode: "DUPLICATE_NAME", wantMsg: "保存できない",
 		},
 		{
-			"存在しない種目を消す", http.MethodDelete, "/api/exercises/nonexistent", "",
-			404, "EXERCISE_NOT_FOUND", "",
+			name: "PUT 無い ID", method: http.MethodPut, path: "/api/exercises/nonexistent",
+			body:     `{"name":"x","stimulus":{"LAT":1},"increment_kg":2.5}`,
+			want:     404,
+			wantCode: "EXERCISE_NOT_FOUND",
+		},
+		{
+			name: "存在しない種目を消す", method: http.MethodDelete, path: "/api/exercises/nonexistent",
+			want:     404,
+			wantCode: "EXERCISE_NOT_FOUND",
 		},
 		{
 			// newServer(t, true) の伸ばしたい種目は bench・squat・deadlift。
-			"伸ばしたい種目を消す", http.MethodDelete, "/api/exercises/bench", "",
-			409, "STILL_DECLARED", "",
+			name: "伸ばしたい種目を消す", method: http.MethodDelete, path: "/api/exercises/bench",
+			want:     409,
+			wantCode: "STILL_DECLARED",
 		},
 		{
 			// プリセット由来かどうかで扱いを変えない。伸ばしたい種目に
 			// 入っていないプリセットは消せる。
-			"プリセットを消す", http.MethodDelete, "/api/exercises/side_raise", "",
-			204, "", "",
+			name: "プリセットを消す", method: http.MethodDelete, path: "/api/exercises/side_raise",
+			want: 204,
+		},
+		{
+			// 分割を「胸のみ」に絞ったうえで、宣言種目 bench（ChestMid 主働）の
+			// 効き方を胸を含まない形へ直すと、bench がどの分割日にも出られなく
+			// なる。原因は「いま直した効き方」なので、メッセージは raw ID の
+			// "bench" ではなく名前「ベンチプレス」で伝わること
+			// （verifyDeclaredHaveADay ではなく editLosesADayError を経由する）。
+			name:   "PUT で宣言種目が分割日を失う",
+			method: http.MethodPut, path: "/api/exercises/bench",
+			body:       `{"name":"ベンチプレス","stimulus":{"QUAD":1},"increment_kg":2.5}`,
+			want:       400,
+			wantCode:   "INVALID_INPUT",
+			wantMsg:    "ベンチプレス",
+			wantAbsent: `"bench"`,
+			setup: func(t *testing.T, mux http.Handler) {
+				t.Helper()
+				// squat・deadlift を宣言から外す。この分割は胸しか含まないので、
+				// 外さないとこの2つも同時に分割日を失い、この setup 自体が
+				// 400 で失敗してしまう。
+				if rec := do(t, mux, http.MethodPut, "/api/program/declared",
+					`{"declared_exercises":["bench"]}`); rec.Code != http.StatusNoContent {
+					t.Fatalf("宣言の変更に失敗: %d %s", rec.Code, rec.Body.String())
+				}
+				if rec := do(t, mux, http.MethodPut, "/api/program/split",
+					`{"splits":[{"name":"胸のみ","regions":["CHEST_MID"]}]}`); rec.Code != http.StatusNoContent {
+					t.Fatalf("分割の設定に失敗: %d %s", rec.Code, rec.Body.String())
+				}
+			},
 		},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			rec := do(t, newServer(t, true), c.method, c.path, c.body)
+			mux := newServer(t, true)
+			if c.setup != nil {
+				c.setup(t, mux)
+			}
+			rec := do(t, mux, c.method, c.path, c.body)
 			if rec.Code != c.want {
 				t.Errorf("%d（期待 %d）: %s", rec.Code, c.want, rec.Body.String())
 			}
@@ -161,16 +215,16 @@ func TestExercises_ErrorStatuses(t *testing.T) {
 			if c.wantMsg != "" && !strings.Contains(body.Error, c.wantMsg) {
 				t.Errorf("エラーメッセージに %q が無い: %q", c.wantMsg, body.Error)
 			}
+			if c.wantAbsent != "" && strings.Contains(body.Error, c.wantAbsent) {
+				t.Errorf("エラーメッセージに出てはいけない %q がある: %q", c.wantAbsent, body.Error)
+			}
 			// DUPLICATE_NAME は apperror.ErrDuplicateName とドメインの
 			// exercise.ErrDuplicateExerciseName を ": " で連結して返す。
-			// 両者の文言が同じだと「同じ名前の種目がある: 同じ名前の種目がある: サイドレイズ」
-			// と重複するので、種目名が読めることと、フレーズが1回しか
-			// 出ないことを見る。
+			// 両者の文言が同じだと「同じ名前の種目がある: 同じ名前の種目がある: X」
+			// と重複するので、フレーズが1回しか出ないことを見る（名前が
+			// 読めることは各ケースの wantMsg で見る）。
 			if c.wantCode == "DUPLICATE_NAME" {
 				const phrase = "同じ名前の種目がある"
-				if !strings.Contains(body.Error, "サイドレイズ") {
-					t.Errorf("エラーメッセージに種目名が無い: %q", body.Error)
-				}
 				if strings.Count(body.Error, phrase) != 1 {
 					t.Errorf("エラーメッセージでフレーズが重複している: %q", body.Error)
 				}

@@ -9,6 +9,7 @@ import (
 	"github.com/dyoshyy/liftplan/internal/domain/account"
 	"github.com/dyoshyy/liftplan/internal/domain/training"
 	"github.com/dyoshyy/liftplan/internal/domain/training/exercise"
+	"github.com/dyoshyy/liftplan/internal/domain/training/planning"
 	"github.com/dyoshyy/liftplan/internal/domain/training/program"
 )
 
@@ -79,8 +80,13 @@ func (u *EditExercise) Execute(ctx context.Context, user account.UserID, id exer
 	switch {
 	case err == nil:
 		pool = replaceByID(pool, id, edited)
-		if err := verifyDeclaredHaveADay(pool, prog); err != nil {
-			return nil, err
+		// verifyDeclaredHaveADay ではなく直接 planning を見るのは、あちらの
+		// 文言が raw ID を埋め込んでいるため。SetDeclaredExercises・
+		// SetSplitCycle では「そのIDの種目を選び直す／分割を直す」操作
+		// なので ID で十分だが、Edit の原因は「いま直した効き方」であり、
+		// 利用者は画面の名前でしか種目を特定できない。
+		if without := planning.DeclaredWithoutADay(pool, prog); len(without) > 0 {
+			return nil, editLosesADayError(pool, without[0])
 		}
 	case errors.Is(err, program.ErrProgramNotConfigured):
 		// プログラムがまだ無い。出られる日の判定は保留し、カタログの
@@ -96,6 +102,22 @@ func (u *EditExercise) Execute(ctx context.Context, user account.UserID, id exer
 		return nil, err
 	}
 	return edited, nil
+}
+
+// editLosesADayError は、効き方の変更で宣言種目がどの分割日にも出られなく
+// なったことを、名前で伝えるエラーを作る。id は pool（直した後の姿）から
+// 名前を引く。見つからない場合（起こらないはずだが）は ID をそのまま使う。
+func editLosesADayError(pool []*exercise.Exercise, id exercise.ExerciseID) error {
+	name := string(id)
+	for _, e := range pool {
+		if e != nil && e.ID() == id {
+			name = e.Name()
+			break
+		}
+	}
+	return fmt.Errorf(
+		"%w: 効き方をこう直すと、伸ばしたい種目 %q がどの分割日にも出られなくなる。主働の筋区分をどれかの分割に入れること",
+		apperror.ErrInvalidInput, name)
 }
 
 // replaceByID は同じ ID の要素を differ に差し替えた新しいスライスを返す。

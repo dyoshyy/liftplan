@@ -400,7 +400,7 @@ func (h *Handler) handlePostExercise(w http.ResponseWriter, r *http.Request) {
 // handlePutExercise は利用者が種目の名前・効き方・刻みを直す。
 //
 // プリセット由来かどうかで扱いを変えない。本文は POST と同じ形
-// （設計書「PUT は同じ本文」）。
+// （設計書「同じ本文」）。
 func (h *Handler) handlePutExercise(w http.ResponseWriter, r *http.Request) {
 	user, ok := requireUser(w, r)
 	if !ok {

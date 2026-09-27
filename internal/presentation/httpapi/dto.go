@@ -294,7 +294,7 @@ type exercisesResponse struct {
 }
 
 // exerciseInputDTO は種目を足す・直す入力（POST /api/exercises・
-// PUT /api/exercises/{id} で共通。設計書「PUT は同じ本文」）。
+// PUT /api/exercises/{id} で共通。設計書「同じ本文」）。
 //
 // Stimulus は区分ごとの寄与度の生の値。本人には主・副の2値しか選ばせない
 // という決めはドメイン側にも画面側にも置かない。API はドメインが検証する

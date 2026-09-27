@@ -3,6 +3,7 @@ package usecase_test
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/dyoshyy/liftplan/internal/application/apperror"
@@ -196,10 +197,15 @@ func TestEditExercise_NotFound(t *testing.T) {
 // プログラムを組む。SetSplitCycle の TestSetSplitCycle_PrimaryBoundary と
 // 同じ形（自前の種目＋1日だけの周期）。シードだけで書くと、境界となる
 // 区分をシードの都合で選ばざるを得ず、テストの意図がぼやける。
+//
+// 名前を ID（"leg_focus"）とわざと違えるのは、TestEditExercise_
+// RefusesToLeaveADeclaredExerciseWithoutADay がエラー文に出るのが
+// 名前であって raw ID ではないことを検査するため。同じ文字列だと、
+// メッセージが ID を埋め込んでいても名前を埋め込んでいても見分けが付かない。
 func declaredDayFixture(t *testing.T) (*exerciseRepo, *programRepo, account.UserID) {
 	t.Helper()
 	e, err := exercise.NewExercise(exercise.ExerciseParams{
-		ID: "leg_focus", Name: "leg_focus",
+		ID: "leg_focus", Name: "レッグフォーカス",
 		Stimulus:    map[training.MuscleRegion]float64{training.Hamstring: 1.0},
 		IncrementKg: 2.5,
 	})
@@ -244,12 +250,21 @@ func TestEditExercise_RefusesToLeaveADeclaredExerciseWithoutADay(t *testing.T) {
 	edit := usecase.NewEditExercise(exercises, programs)
 
 	_, err := edit.Execute(ctx, user, "leg_focus", usecase.EditExerciseInput{
-		Name:        "leg_focus",
+		Name:        "レッグフォーカス",
 		Stimulus:    map[training.MuscleRegion]float64{training.Biceps: 1.0},
 		IncrementKg: 2.5,
 	})
 	if !errors.Is(err, apperror.ErrInvalidInput) {
 		t.Errorf("出られる日を失う編集が通った: %v", err)
+	}
+	// 原因は「このIDの種目」ではなく「いま直した効き方」なので、名前で
+	// 示す。raw ID の "leg_focus" を埋め込むと、利用者は画面のどの種目か
+	// 特定できない。
+	if !strings.Contains(err.Error(), "レッグフォーカス") {
+		t.Errorf("エラーメッセージに種目名が無い: %v", err)
+	}
+	if strings.Contains(err.Error(), "leg_focus") {
+		t.Errorf("エラーメッセージに raw ID が出ている: %v", err)
 	}
 
 	stored := findExercise(t, exercises, user, "leg_focus")

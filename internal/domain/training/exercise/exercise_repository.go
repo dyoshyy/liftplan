@@ -17,7 +17,8 @@ var ErrExerciseNotFound = errors.New("種目が見つからない")
 
 // ErrDuplicateExerciseName は同じ名前の種目が既にあることを表す。
 //
-// 比べる相手は、共通の種目と、その利用者のまだ消していない種目。
+// 種目は利用者ごとの一覧で、共通/個人には分かれていない（Reader のコメント）
+// ので、比べる相手はその利用者の一覧のうち、まだ消していない種目全部。
 // 一覧で見分けられなくなるのと、二度押しで同じ種目が2つできるのを止める。
 var ErrDuplicateExerciseName = errors.New("同じ名前の種目がある")
 
