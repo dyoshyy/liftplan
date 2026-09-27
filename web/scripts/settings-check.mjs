@@ -125,7 +125,7 @@ console.log('消す前: サイドレイズが使う種目に居る', presetInUse
 // ボタンから別ページへ移る。
 await page.getByRole('button', { name: '種目を管理する' }).click();
 await page.waitForTimeout(1200);
-const addTop = page.getByRole('button', { name: '種目を足す', exact: true });
+const addTop = page.getByRole('button', { name: '種目を追加', exact: true });
 const exercisesPageOpened = (await addTop.count()) === 1;
 console.log('種目のページが開いた:', exercisesPageOpened);
 
@@ -134,17 +134,17 @@ console.log('種目のページが開いた:', exercisesPageOpened);
 // 1行の幅として行を広げると、scrollWidth は innerWidth のままなのに（どこかで
 // overflow:hidden により切られるだけで）ボタンには実機で指が届かなくなる。
 // 横スクロールの有無ではなく、ボタンの実座標が 390px の中にあるかで見る。
-const firstEdit = page.getByRole('button', { name: /を直す$/ }).first();
-const firstDelete = page.getByRole('button', { name: /を消す$/ }).first();
+const firstEdit = page.getByRole('button', { name: /を編集$/ }).first();
+const firstDelete = page.getByRole('button', { name: /を削除$/ }).first();
 const editBox = await firstEdit.boundingBox();
 const deleteBox = await firstDelete.boundingBox();
 const rowButtonsVisible =
   !!editBox && !!deleteBox && editBox.x + editBox.width <= 390 && deleteBox.x + deleteBox.width <= 390;
 console.log(
-  '一覧1行目の直す/消すが390px内:',
+  '一覧1行目の編集/削除が390px内:',
   rowButtonsVisible,
-  '（直す right =', editBox ? Math.round(editBox.x + editBox.width) : null,
-  '/ 消す right =', deleteBox ? Math.round(deleteBox.x + deleteBox.width) : null, '）',
+  '（編集 right =', editBox ? Math.round(editBox.x + editBox.width) : null,
+  '/ 削除 right =', deleteBox ? Math.round(deleteBox.x + deleteBox.width) : null, '）',
 );
 
 await addTop.click();
@@ -168,7 +168,7 @@ console.log('足した種目:', JSON.stringify(added ? { stimulus: added.stimulu
   '/ 使う種目に入った', addedInUse);
 
 // 直す。同じ編集フォームが、押した種目の値で開くはず。
-await page.getByRole('button', { name: `${CUSTOM}を直す` }).click();
+await page.getByRole('button', { name: `${CUSTOM}を編集` }).click();
 await page.waitForTimeout(300);
 await editGroup.getByLabel('名前').fill(RENAMED);
 await editGroup.getByRole('button', { name: '保存' }).click();
@@ -183,11 +183,11 @@ console.log('直した後: name =', edited?.name, '（期待', RENAMED, '）/ �
 // 消す。1タップ目は確認待ちに入るだけで消えないこと（D-116同様、undo が
 // 無い操作は誤タップで即実行させない）。「本当に消す」まで押して初めて
 // DELETE が飛ぶ。
-await page.getByRole('button', { name: `${RENAMED}を消す` }).click();
+await page.getByRole('button', { name: `${RENAMED}を削除` }).click();
 await page.waitForTimeout(500);
 const notYetDeleted = (await exercises()).exercises.find((e) => e.id === added?.id);
 console.log('1タップ目: まだ消えていない deleted =', notYetDeleted?.deleted, '（期待 undefined か false）');
-await page.getByRole('button', { name: `${RENAMED}を本当に消す` }).click();
+await page.getByRole('button', { name: `${RENAMED}を本当に削除` }).click();
 await page.waitForTimeout(2000);
 const deleted = (await exercises()).exercises.find((e) => e.id === added?.id);
 const removedFromList = (await page.getByText(RENAMED, { exact: true }).count()) === 0;
@@ -198,11 +198,11 @@ const customOk = added !== undefined && added.stimulus.TRAP_MID === 1 && added.s
   && notYetDeleted?.deleted !== true && deleted?.deleted === true && removedFromList;
 
 // プリセット由来も消せる。同じく1タップ目では消えないことを見る。
-await page.getByRole('button', { name: `${PRESET}を消す`, exact: true }).click();
+await page.getByRole('button', { name: `${PRESET}を削除`, exact: true }).click();
 await page.waitForTimeout(500);
 const presetNotYetDeleted = (await exercises()).exercises.find((e) => e.name === PRESET);
 console.log('プリセット1タップ目: まだ消えていない deleted =', presetNotYetDeleted?.deleted, '（期待 undefined か false）');
-await page.getByRole('button', { name: `${PRESET}を本当に消す`, exact: true }).click();
+await page.getByRole('button', { name: `${PRESET}を本当に削除`, exact: true }).click();
 await page.waitForTimeout(2000);
 const presetDeleted = (await exercises()).exercises.find((e) => e.name === PRESET);
 const presetGoneFromList = (await page.getByText(PRESET, { exact: true }).count()) === 0;

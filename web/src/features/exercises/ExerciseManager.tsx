@@ -60,7 +60,7 @@ export function ExerciseManager({ exercises, onChanged, onBack }: Props) {
       <div>
         <h1 className="text-[19px] font-semibold">種目</h1>
         <Note className="mt-1">
-          自分の器具に合わせて種目を足す・直す・消せます。消しても、これまでの記録と履歴は残ります。
+          自分の器具に合わせて種目を追加・編集・削除できます。削除しても、これまでの記録と履歴は残ります。
         </Note>
       </div>
 
@@ -84,7 +84,7 @@ export function ExerciseManager({ exercises, onChanged, onBack }: Props) {
       ) : (
         <>
           <Button disabled={busy} onClick={openAdd}>
-            種目を足す
+            種目を追加
           </Button>
 
           {groupByPart(alive).map((group) => (
@@ -115,10 +115,10 @@ export function ExerciseManager({ exercises, onChanged, onBack }: Props) {
                             size="md"
                             variant="quiet"
                             disabled={busy}
-                            aria-label={`${e.name}を直す`}
+                            aria-label={`${e.name}を編集`}
                             onClick={() => openEdit(e)}
                           >
-                            直す
+                            編集
                           </Button>
                           {confirmingDelete ? (
                             <>
@@ -126,7 +126,7 @@ export function ExerciseManager({ exercises, onChanged, onBack }: Props) {
                                 size="md"
                                 variant="quiet"
                                 disabled={busy}
-                                aria-label={`${e.name}を消すのをやめる`}
+                                aria-label={`${e.name}の削除をやめる`}
                                 onClick={cancelDelete}
                               >
                                 やめる
@@ -135,10 +135,10 @@ export function ExerciseManager({ exercises, onChanged, onBack }: Props) {
                                 size="md"
                                 variant="danger"
                                 disabled={busy}
-                                aria-label={`${e.name}を本当に消す`}
+                                aria-label={`${e.name}を本当に削除`}
                                 onClick={() => void requestDelete(e.id)}
                               >
-                                本当に消す
+                                本当に削除
                               </Button>
                             </>
                           ) : (
@@ -147,10 +147,10 @@ export function ExerciseManager({ exercises, onChanged, onBack }: Props) {
                               variant="danger"
                               disabled={busy || why !== null}
                               title={why ?? undefined}
-                              aria-label={`${e.name}を消す`}
+                              aria-label={`${e.name}を削除`}
                               onClick={() => void requestDelete(e.id)}
                             >
-                              消す
+                              削除
                             </Button>
                           )}
                         </div>
