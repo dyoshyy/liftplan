@@ -504,11 +504,12 @@ func TestSimulator_RejectsBadSchedule(t *testing.T) {
 }
 
 // isoRow はアイソラテラル・ロー相当の自分の種目。
+// 効き方は設計書の付録（docs/specs/2026-09-26-custom-exercises-design.md）と揃える。
 func isoRow() devsim.CustomExercise {
 	return devsim.CustomExercise{
 		Name: "アイソラテラル・ロー",
 		Stimulus: map[training.MuscleRegion]float64{
-			training.TrapMid: 1, training.Lat: 0.5, training.Biceps: 0.5,
+			training.TrapMid: 1, training.Lat: 0.5, training.Biceps: 0.5, training.RearDelt: 0.5,
 		},
 		IncrementKg: 2.5,
 	}

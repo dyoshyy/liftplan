@@ -508,9 +508,12 @@ func TestDevSimulation_RejectsBadCustomQuery(t *testing.T) {
 		"名前だけ",
 		"a|NECK:1|2.5",
 		"a|LAT:heavy|2.5",
-		"a|LAT:0.5|2.5",        // 寄与1.0の区分が無い
-		"a|LAT:1|heavy",        // 刻みが数値でない
-		"サイドレイズ|SIDE_DELT:1|1", // 共通の種目と同名
+		"a|LAT:0.5|2.5",                 // 寄与1.0の区分が無い
+		"a|LAT:1|heavy",                 // 刻みが数値でない
+		"サイドレイズ|SIDE_DELT:1|1",          // 共通の種目と同名
+		"a|TRAP_MID:1,TRAP_MID:0.5|2.5", // 同じ区分の2回指定
+		"a||2.5",                        // 寄与が1つも無い
+		"a|LAT|2.5",                     // コロンが無い
 	} {
 		t.Run(custom, func(t *testing.T) {
 			rec := devGet(t, "/api/dev/simulate?declared=bench&custom="+url.QueryEscape(custom))
@@ -520,6 +523,31 @@ func TestDevSimulation_RejectsBadCustomQuery(t *testing.T) {
 			// custom を知らないキーとして弾いているだけなら、形を見ていない。
 			if strings.Contains(rec.Body.String(), "知らないキー") {
 				t.Errorf("形ではなくキーで弾いている: %s", rec.Body.String())
+			}
+		})
+	}
+}
+
+// 効き方の書式が壊れている理由は、本文にそのまま出す。
+//
+// 「custom が不正である」とだけ返すと、区分の重複と桁の書き間違いが
+// 見分けられず、読み返した本人が同じ間違いをもう一度探すことになる。
+func TestDevSimulation_NamesTheReasonForBadCustomStimulus(t *testing.T) {
+	cases := []struct {
+		custom string
+		want   string
+	}{
+		{"a|TRAP_MID:1,TRAP_MID:0.5|2.5", "TRAP_MID"},
+		{"a|LAT|2.5", "寄与の形式が不正"},
+	}
+	for _, c := range cases {
+		t.Run(c.custom, func(t *testing.T) {
+			rec := devGet(t, "/api/dev/simulate?declared=bench&custom="+url.QueryEscape(c.custom))
+			if rec.Code != http.StatusBadRequest {
+				t.Fatalf("%d が返った。400 のはず: %s", rec.Code, rec.Body.String())
+			}
+			if !strings.Contains(rec.Body.String(), c.want) {
+				t.Errorf("本文に %q が無い: %s", c.want, rec.Body.String())
 			}
 		})
 	}

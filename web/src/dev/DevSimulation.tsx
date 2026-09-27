@@ -237,7 +237,7 @@ function Settings({
             id="custom"
             rows={3}
             value={form.custom}
-            placeholder="アイソラテラル・ロー|TRAP_MID:1,LAT:0.5,BICEPS:0.5|2.5;アイソラテラル・フロント・プルダウン|LAT:1,BICEPS:0.5|2.5"
+            placeholder="アイソラテラル・ロー|TRAP_MID:1,LAT:0.5,BICEPS:0.5,REAR_DELT:0.5|2.5;アイソラテラル・フロント・プルダウン|LAT:1,BICEPS:0.5|2.5"
             onChange={(ev) => setForm({ ...form, custom: ev.target.value })}
             className={`font-mono text-[12px] ${FIELD}`}
           />

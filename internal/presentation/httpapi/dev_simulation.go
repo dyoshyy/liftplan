@@ -376,11 +376,13 @@ func parseDevCustom(v string) ([]devsim.CustomExercise, error) {
 		if len(fields) != 3 {
 			return nil, errDevQuery("custom", item)
 		}
-		inc, err := strconv.ParseFloat(strings.TrimSpace(fields[2]), 64)
-		if err != nil {
-			return nil, errDevQuery("custom", item)
-		}
 		stimulus, err := parseDevStimulus(fields[1])
+		if err != nil {
+			// 理由を出さず item だけ返すと、区分の書き間違いと桁の書き間違いが
+			// 見分けられない。parseDevStimulus の理由をそのまま本文に出す。
+			return nil, errDevQuery("custom", fmt.Sprintf("%s（%s）", item, err))
+		}
+		inc, err := strconv.ParseFloat(strings.TrimSpace(fields[2]), 64)
 		if err != nil {
 			return nil, errDevQuery("custom", item)
 		}
@@ -395,7 +397,7 @@ func parseDevCustom(v string) ([]devsim.CustomExercise, error) {
 
 // parseDevStimulus は "TRAP_MID:1,LAT:0.5" を区分ごとの寄与度にする。
 // 区分の妥当性と範囲は devsim（exercise.NewExercise）が見るので、ここでは
-// 数値として読めるかだけを見る。
+// 形（コロンの有無・数値として読めるか・同じ区分の2回指定）だけを見る。
 func parseDevStimulus(v string) (map[training.MuscleRegion]float64, error) {
 	raw := map[string]float64{}
 	for _, pair := range strings.Split(v, ",") {
@@ -406,11 +408,18 @@ func parseDevStimulus(v string) (map[training.MuscleRegion]float64, error) {
 		if !ok {
 			return nil, fmt.Errorf("寄与の形式が不正: %s", pair)
 		}
+		region = strings.TrimSpace(region)
+		// 黙って後勝ちにすると、書き間違い（同じ区分の2回指定）が
+		// 「寄与1.0の区分が1つも無い」のような別の理由で弾かれ、
+		// 何が悪いのか本文から読めなくなる。
+		if _, dup := raw[region]; dup {
+			return nil, fmt.Errorf("区分 %s が2回指定されている", region)
+		}
 		n, err := strconv.ParseFloat(strings.TrimSpace(kg), 64)
 		if err != nil {
 			return nil, fmt.Errorf("寄与の値が数値でない: %s", pair)
 		}
-		raw[strings.TrimSpace(region)] = n
+		raw[region] = n
 	}
 	return exerciseStimulusFrom(raw), nil
 }
