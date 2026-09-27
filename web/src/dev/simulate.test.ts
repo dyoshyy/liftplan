@@ -271,3 +271,21 @@ describe('describeFailure', () => {
     expect(describeFailure('落ちた')).toBe('落ちた');
   });
 });
+
+describe('custom（自分の種目）', () => {
+  const custom = 'アイソラテラル・ロー|TRAP_MID|LAT,BICEPS|2.5;アイソラテラル・フロント・プルダウン|LAT||2.5';
+
+  // 自分の種目はサーバーと同じ1行の書式のまま URL に載せる。画面で組み直すと、
+  // URL を開き直したときに書式の違いで別の条件になる。
+  it('空なら送らず、書いたらそのまま送る', () => {
+    expect(new URLSearchParams(buildQuery(defaultForm)).has('custom')).toBe(false);
+    const q = new URLSearchParams(buildQuery({ ...defaultForm, custom: `  ${custom}  ` }));
+    expect(q.get('custom')).toBe(custom);
+  });
+
+  it('URL から読み戻せる', () => {
+    const search = buildQuery({ ...defaultForm, custom });
+    expect(parseForm(search, defaultForm).custom).toBe(custom);
+    expect(parseForm('', defaultForm).custom).toBe('');
+  });
+});

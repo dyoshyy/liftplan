@@ -502,3 +502,91 @@ func TestSimulator_RejectsBadSchedule(t *testing.T) {
 		})
 	}
 }
+
+// isoRow はアイソラテラル・ロー相当の自分の種目。
+func isoRow() devsim.CustomExercise {
+	return devsim.CustomExercise{
+		Name:        "アイソラテラル・ロー",
+		Primary:     []training.MuscleRegion{training.TrapMid},
+		Secondary:   []training.MuscleRegion{training.Lat, training.Biceps},
+		IncrementKg: 2.5,
+	}
+}
+
+// 自分の種目を渡すと、補助の候補に入って処方されること。
+//
+// 本番では利用者が足した種目が計画に出る。模擬ユーザーに渡せないと、
+// 足した種目で割り振りが偏るかを確かめる手段が無い（設計書「自分の種目が
+// 計画をどう動かすか」）。
+//
+// 12週で見る。種目が38ある中で1回の補助は数枠しかないので、4週では同じ
+// 部位の共通の種目（シーテッドロウ）も一度も出ないことがある。
+func TestSimulator_PlansCustomExercises(t *testing.T) {
+	req := baseRequest()
+	req.Weeks = 12
+	req.Custom = []devsim.CustomExercise{isoRow()}
+	got := mustRun(t, req)
+
+	id := devsim.CustomExerciseID(0)
+	found := false
+	for _, d := range got.Days {
+		for _, s := range d.Accessories {
+			if s.ExerciseID == id {
+				found = true
+				if s.Name != "アイソラテラル・ロー" {
+					t.Errorf("名前が %q", s.Name)
+				}
+			}
+		}
+	}
+	if !found {
+		t.Errorf("自分の種目 %s が12週で一度も処方されない", id)
+	}
+}
+
+// 自分の種目を渡しても週目標は変わらないこと。
+//
+// 週目標は共通の一覧だけから計算する（設計書「週目標」）。変わるなら、
+// 自分の種目が週目標に漏れている。
+func TestSimulator_CustomExercisesDoNotMoveTheWeeklyTarget(t *testing.T) {
+	without := mustRun(t, baseRequest())
+	req := baseRequest()
+	req.Custom = []devsim.CustomExercise{isoRow()}
+	with := mustRun(t, req)
+
+	for i, w := range without.Weeks {
+		for j, r := range w.Regions {
+			if got := with.Weeks[i].Regions[j].Target; got != r.Target {
+				t.Errorf("週%d %s の目標が %v → %v", w.Index, r.Region, r.Target, got)
+			}
+		}
+	}
+}
+
+func TestSimulator_RejectsBadCustomExercise(t *testing.T) {
+	cases := []struct {
+		name   string
+		modify func(*devsim.CustomExercise)
+	}{
+		{"主が無い", func(c *devsim.CustomExercise) { c.Primary = nil }},
+		{"共通の種目と同名", func(c *devsim.CustomExercise) { c.Name = "サイドレイズ" }},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			custom := isoRow()
+			c.modify(&custom)
+			req := baseRequest()
+			req.Custom = []devsim.CustomExercise{custom}
+			if _, err := newSimulator(t).Run(req); err == nil {
+				t.Error("通ってしまった")
+			}
+		})
+	}
+	t.Run("自分の種目どうしで同名", func(t *testing.T) {
+		req := baseRequest()
+		req.Custom = []devsim.CustomExercise{isoRow(), isoRow()}
+		if _, err := newSimulator(t).Run(req); err == nil {
+			t.Error("通ってしまった")
+		}
+	})
+}

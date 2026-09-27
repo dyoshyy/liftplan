@@ -36,6 +36,10 @@ type Request struct {
 	SetsPerExercise     int
 	// Weekdays は通う曜日（開始日からの日数 0〜6）。空なら頻度ごとの既定。
 	Weekdays []int
+
+	// Custom は利用者が足した種目。共通の一覧に加えて全部「使う種目」に入る。
+	// ID は並び順で CustomExerciseID が振る。
+	Custom []CustomExercise
 }
 
 // Set は計画された1種目。
@@ -160,13 +164,69 @@ func (s *Simulator) Presets() []seed.SplitPreset { return s.presets }
 // Pool は種目マスタ。画面が宣言と重点種目の候補に使う。
 func (s *Simulator) Pool() []*exercise.Exercise { return s.pool }
 
+// CustomExercise は模擬ユーザーが足した自分の種目。本番の POST /api/exercises と
+// 同じ入力（名前・主に効く部位・少し効く部位・刻み）で表す。
+type CustomExercise struct {
+	Name        string
+	Primary     []training.MuscleRegion
+	Secondary   []training.MuscleRegion
+	IncrementKg float64
+}
+
+// CustomExerciseID は i 番目（0始まり）の自分の種目の ID。
+//
+// 本番は乱数で振るが、ここでは同じ設定から同じ結果を出したいので並び順で振る。
+// orm=u-sim01:80 のように、1RM の上書きもこの ID で指す。
+func CustomExerciseID(i int) exercise.ExerciseID {
+	return exercise.ExerciseID(fmt.Sprintf("%ssim%02d", exercise.CustomExerciseIDPrefix, i+1))
+}
+
+// poolFor は共通の一覧に req の自分の種目を足した一覧を返す。
+//
+// 名前の重複は本番と同じく弾く（共通の種目と、自分の種目どうし）。
+// 週目標はこの一覧ではなく共通の一覧から出る（seed.DefaultWeeklyTarget）。
+func (s *Simulator) poolFor(req Request) ([]*exercise.Exercise, error) {
+	if len(req.Custom) == 0 {
+		return s.pool, nil
+	}
+	out := make([]*exercise.Exercise, 0, len(s.pool)+len(req.Custom))
+	out = append(out, s.pool...)
+	names := make(map[string]bool, cap(out))
+	for _, e := range s.pool {
+		names[e.Name()] = true
+	}
+	for i, c := range req.Custom {
+		e, err := exercise.NewCustomExercise(exercise.CustomExerciseParams{
+			ID: string(CustomExerciseID(i)), Name: c.Name,
+			Primary: c.Primary, Secondary: c.Secondary, IncrementKg: c.IncrementKg,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("自分の種目 %d 番目（%s）が不正: %w", i+1, c.Name, err)
+		}
+		if names[e.Name()] {
+			return nil, fmt.Errorf("自分の種目 %d 番目: %w: %s", i+1, exercise.ErrDuplicateExerciseName, e.Name())
+		}
+		names[e.Name()] = true
+		out = append(out, e)
+	}
+	return out, nil
+}
+
+// PoolFor は req で使う種目の一覧（共通の一覧＋自分の種目）。画面が1RM の
+// 既定値と名前を出すのに使う。
+func (s *Simulator) PoolFor(req Request) ([]*exercise.Exercise, error) { return s.poolFor(req) }
+
 // Run は req の設定で Weeks 週ぶんの計画を作る。
 //
 // 処方どおり全部こなしたことにして履歴を進める。**やめどきを本人が決める**
 // のが本来の姿（D-116）だが、途中でやめる量を仮定すると、その仮定のほうが
 // 結果を決めてしまう。全部こなした場合を見る。
 func (s *Simulator) Run(req Request) (Result, error) {
-	prog, err := s.buildProgram(req)
+	pool, err := s.poolFor(req)
+	if err != nil {
+		return Result{}, err
+	}
+	prog, err := s.buildProgram(req, pool)
 	if err != nil {
 		return Result{}, err
 	}
@@ -183,8 +243,8 @@ func (s *Simulator) Run(req Request) (Result, error) {
 		return Result{}, err
 	}
 
-	byID := make(map[exercise.ExerciseID]*exercise.Exercise, len(s.pool))
-	for _, e := range s.pool {
+	byID := make(map[exercise.ExerciseID]*exercise.Exercise, len(pool))
+	for _, e := range pool {
 		byID[e.ID()] = e
 	}
 	if err := req.Athlete.validate(byID); err != nil {
@@ -216,7 +276,7 @@ func (s *Simulator) Run(req Request) (Result, error) {
 			planned, err := s.planner.Plan(planning.PlanRequest{
 				Program:    prog,
 				Target:     target,
-				Pool:       s.pool,
+				Pool:       pool,
 				History:    history,
 				Conditions: conditions,
 				Date:       date,
@@ -279,7 +339,7 @@ func (s *Simulator) Run(req Request) (Result, error) {
 }
 
 // buildProgram は入力からプログラムを組み立てる。
-func (s *Simulator) buildProgram(req Request) (*program.Program, error) {
+func (s *Simulator) buildProgram(req Request, pool []*exercise.Exercise) (*program.Program, error) {
 	freq, err := program.NewFrequency(req.Frequency)
 	if err != nil {
 		return nil, fmt.Errorf("頻度が不正: %w", err)
@@ -290,8 +350,8 @@ func (s *Simulator) buildProgram(req Request) (*program.Program, error) {
 	}
 
 	// 使う種目は全件。外したときの挙動を見たいときは宣言と重点種目で足りる。
-	selected := make([]exercise.ExerciseID, 0, len(s.pool))
-	for _, e := range s.pool {
+	selected := make([]exercise.ExerciseID, 0, len(pool))
+	for _, e := range pool {
 		selected = append(selected, e.ID())
 	}
 
