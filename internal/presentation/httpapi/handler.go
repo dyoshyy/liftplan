@@ -33,6 +33,8 @@ type Handler struct {
 	setSplit         *usecase.SetSplitCycle
 	getProgram       *usecase.GetProgram
 	deleteSetLog     *usecase.DeleteSetLog
+	addExercise      *usecase.AddCustomExercise
+	deleteExercise   *usecase.DeleteCustomExercise
 	exercises        *query.Exercises
 	history          *query.History
 	stats            *query.Stats
@@ -56,6 +58,8 @@ type Dependencies struct {
 	SetSplit         *usecase.SetSplitCycle
 	GetProgram       *usecase.GetProgram
 	DeleteSetLog     *usecase.DeleteSetLog
+	AddExercise      *usecase.AddCustomExercise
+	DeleteExercise   *usecase.DeleteCustomExercise
 	Exercises        *query.Exercises
 	History          *query.History
 	Stats            *query.Stats
@@ -97,6 +101,10 @@ func NewHandler(d Dependencies) (*Handler, error) {
 		return nil, errMissingDependency("GetProgram")
 	case d.DeleteSetLog == nil:
 		return nil, errMissingDependency("DeleteSetLog")
+	case d.AddExercise == nil:
+		return nil, errMissingDependency("AddExercise")
+	case d.DeleteExercise == nil:
+		return nil, errMissingDependency("DeleteExercise")
 	case d.Exercises == nil:
 		return nil, errMissingDependency("Exercises")
 	case d.History == nil:
@@ -120,6 +128,8 @@ func NewHandler(d Dependencies) (*Handler, error) {
 		setSplit:         d.SetSplit,
 		getProgram:       d.GetProgram,
 		deleteSetLog:     d.DeleteSetLog,
+		addExercise:      d.AddExercise,
+		deleteExercise:   d.DeleteExercise,
 		exercises:        d.Exercises,
 		history:          d.History,
 		stats:            d.Stats,
@@ -343,6 +353,48 @@ func (h *Handler) handlePostConditions(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := h.recordConditions.Execute(r.Context(), user, items); err != nil {
+		respondError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// handlePostExercise は利用者が種目を足す。
+func (h *Handler) handlePostExercise(w http.ResponseWriter, r *http.Request) {
+	user, ok := requireUser(w, r)
+	if !ok {
+		return
+	}
+	var req addCustomExerciseDTO
+	if err := decodeJSON(r, &req); err != nil {
+		respondError(w, err)
+		return
+	}
+	toRegions := func(ss []string) []training.MuscleRegion {
+		out := make([]training.MuscleRegion, 0, len(ss))
+		for _, s := range ss {
+			out = append(out, training.MuscleRegion(s))
+		}
+		return out
+	}
+	e, err := h.addExercise.Execute(r.Context(), user, usecase.AddCustomExerciseInput{
+		Name: req.Name, Primary: toRegions(req.Primary), Secondary: toRegions(req.Secondary),
+		IncrementKg: req.IncrementKg,
+	})
+	if err != nil {
+		respondError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, exerciseDTOFrom(query.ExerciseFrom(e)))
+}
+
+// handleDeleteExercise は利用者が足した種目を消す。
+func (h *Handler) handleDeleteExercise(w http.ResponseWriter, r *http.Request) {
+	user, ok := requireUser(w, r)
+	if !ok {
+		return
+	}
+	if err := h.deleteExercise.Execute(r.Context(), user, exercise.ExerciseID(r.PathValue("id"))); err != nil {
 		respondError(w, err)
 		return
 	}

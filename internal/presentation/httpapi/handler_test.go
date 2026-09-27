@@ -89,13 +89,20 @@ func buildRoutes(t *testing.T, configured bool) http.Handler {
 	return routesFrom(t, dependencies(exercises, logs, conditions, programs))
 }
 
+// exerciseStore は種目の読み書き。dependencies が AddExercise・
+// DeleteExercise を組むのに要る（usecase 側の要求と同じ形）。
+type exerciseStore interface {
+	exercise.Reader
+	exercise.Writer
+}
+
 // dependencies はリポジトリ一式から Dependencies を組む。
 //
-// 種目の読み口だけインターフェースで受けるのは、障害のテストが
-// そこだけを壊れた実装に差し替えるため。差し替える1つが配線の8箇所に
+// 種目の読み書きをインターフェースで受けるのは、障害のテストが
+// そこだけを壊れた実装に差し替えるため。差し替える1つが配線の複数箇所に
 // 現れるので、ここに寄せておかないと差し替えるたびに全部を書き写すことになる。
 func dependencies(
-	exercises exercise.Reader,
+	exercises exerciseStore,
 	logs *memory.SetLogRepository,
 	conditions *memory.ConditionRepository,
 	programs *memory.ProgramRepository,
@@ -113,6 +120,8 @@ func dependencies(
 		SetSplit:         usecase.NewSetSplitCycle(exercises, programs, programs),
 		GetProgram:       usecase.NewGetProgram(programs),
 		DeleteSetLog:     usecase.NewDeleteSetLog(logs),
+		AddExercise:      usecase.NewAddCustomExercise(exercises, programs, programs),
+		DeleteExercise:   usecase.NewDeleteCustomExercise(exercises, programs, programs),
 		Exercises:        query.NewExercises(exercises),
 		History:          query.NewHistory(logs, exercises),
 		Stats:            query.NewStats(logs, exercises, programs, planning.DefaultOneRepMaxEstimator()),
@@ -1347,6 +1356,11 @@ func (unavailableExercises) FindAll(context.Context, account.UserID) ([]*exercis
 		training.ErrRepositoryUnavailable)
 }
 
+func (unavailableExercises) Save(context.Context, account.UserID, *exercise.Exercise) error {
+	return fmt.Errorf("種目の保存: %w: dial tcp 10.0.0.1:5432: connect: refused",
+		training.ErrRepositoryUnavailable)
+}
+
 func TestGetSession_UnavailableIsNot500(t *testing.T) {
 	pool, err := seed.Exercises()
 	if err != nil {
@@ -1530,7 +1544,6 @@ func TestRoutes_RejectWrongMethod(t *testing.T) {
 		{http.MethodPost, "/api/program/selected"},
 		{http.MethodPost, "/api/program/split"},
 		{http.MethodPost, "/api/split-presets"},
-		{http.MethodPost, "/api/exercises"},
 		{http.MethodPost, "/api/stats"},
 	} {
 		if rec := do(t, mux, c.method, c.path, "{}"); rec.Code != http.StatusMethodNotAllowed {
@@ -1556,6 +1569,10 @@ type brokenExercises struct{}
 
 func (brokenExercises) FindAll(context.Context, account.UserID) ([]*exercise.Exercise, error) {
 	return nil, errors.New("種目テーブル exercises_v2 の接続文字列が不正: user=admin")
+}
+
+func (brokenExercises) Save(context.Context, account.UserID, *exercise.Exercise) error {
+	return errors.New("種目テーブル exercises_v2 の接続文字列が不正: user=admin")
 }
 
 // 500 のときに内部のエラー文を返さないこと。

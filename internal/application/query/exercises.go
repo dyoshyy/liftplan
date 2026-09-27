@@ -29,6 +29,33 @@ type Exercise struct {
 	// あるため（2026-09-06-training-goals-design.md）。表示のために先に
 	// 作ると、意味の違う2つが同じ名前で並ぶ。
 	Stimulus map[training.MuscleRegion]float64
+	// Custom は利用者が足した種目か。画面が「消す」を出すかに使う。
+	Custom bool
+	// Deleted は消した種目か。履歴の名前のために一覧には残す。設定の
+	// 一覧には出さない（画面が落とす）。
+	Deleted bool
+}
+
+// ExerciseFrom はドメインの種目から Exercise を作る。
+//
+// GET /api/exercises の一覧（All）と POST /api/exercises の応答が同じ
+// 変換を通るよう、ここに1つだけ置く。2箇所に書くと、どちらかが
+// Custom・Deleted を詰め忘れて食い違う。
+func ExerciseFrom(e *exercise.Exercise) Exercise {
+	stimulus := make(map[training.MuscleRegion]float64, len(e.Stimulus().Regions()))
+	for _, r := range e.Stimulus().Regions() {
+		if c, ok := e.Stimulus().Contribution(r); ok {
+			stimulus[r] = c.Float()
+		}
+	}
+	return Exercise{
+		ID:          e.ID(),
+		Name:        e.Name(),
+		IncrementKg: e.Increment().Kg(),
+		Stimulus:    stimulus,
+		Custom:      e.IsCustom(),
+		Deleted:     e.IsDeleted(),
+	}
 }
 
 // Exercises は種目マスタを読む経路。
@@ -58,20 +85,7 @@ func (q *Exercises) All(ctx context.Context, user account.UserID) (_ []Exercise,
 		if e == nil {
 			continue
 		}
-		stimulus := make(map[training.MuscleRegion]float64, len(e.Stimulus().Regions()))
-		for _, r := range e.Stimulus().Regions() {
-			if c, ok := e.Stimulus().Contribution(r); ok {
-				stimulus[r] = c.Float()
-			}
-		}
-
-		item := Exercise{
-			ID:          e.ID(),
-			Name:        e.Name(),
-			IncrementKg: e.Increment().Kg(),
-			Stimulus:    stimulus,
-		}
-		out = append(out, item)
+		out = append(out, ExerciseFrom(e))
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
 	return out, nil
