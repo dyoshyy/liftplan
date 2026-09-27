@@ -40,7 +40,9 @@ type Props = {
 export function ProgramSettings({ nameOf, exercises: all, onChanged }: Props) {
   // 消した種目はサーバーから返ってくる（履歴の名前のため）が、ここでは選べない。
   const exercises = aliveExercises(all);
-  const mine = exercises.filter((e) => e.custom);
+  // Exercise はもう custom を持たない（プリセット由来かどうかで扱いを変えない）。
+  // ここの「自分の種目」節は次のコミットで別ページに移す。
+  const mine: Exercise[] = [];
   const {
     program,
     note,

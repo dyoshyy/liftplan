@@ -100,7 +100,7 @@ describe('aliveExercises', () => {
   // 消した種目もサーバーは返す（履歴の名前のため）。設定の一覧に出すと、
   // 消したはずの種目がまた選べてしまい、選ぶと 400 で断られる。
   it('消した種目を落とす', () => {
-    const got = aliveExercises([ex('bench'), ex('u-1', { custom: true, deleted: true }), ex('u-2', { custom: true })]);
+    const got = aliveExercises([ex('bench'), ex('u-1', { deleted: true }), ex('u-2')]);
     expect(got.map((e) => e.id)).toEqual(['bench', 'u-2']);
   });
 });
