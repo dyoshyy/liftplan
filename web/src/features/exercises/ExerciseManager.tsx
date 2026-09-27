@@ -84,11 +84,20 @@ export function ExerciseManager({ exercises, onChanged, onBack }: Props) {
                   return (
                     <li
                       key={e.id}
-                      className="flex items-center justify-between gap-2 rounded-xl border border-line bg-surface p-3"
+                      className="flex min-w-0 items-center justify-between gap-2 rounded-xl border border-line bg-surface p-3"
                     >
-                      <div className="min-w-0">
+                      {/* flex-1 は flex-basis を 0 にするので、寄与の要約が
+                          折り返さない全角文字列でも、それを基準に幅を決めない
+                          （auto のままだと中身の自然な幅が基準になり、隣の
+                          ボタンごと画面の外へ押し出す）。min-w-0 は自動最小幅
+                          （auto）を 0 に上書きして、実際に縮められるようにする。
+                          要約は truncate（nowrap）をやめて折り返す：nowrap は
+                          自身の内容を1行の幅として持たせてしまい、縮んだ枠の中で
+                          見た目上は切れて隠れるだけで、行の外形には影響しない
+                          はずが、実機ではここが崩れて行ごと画面の外に出た。 */}
+                      <div className="min-w-0 flex-1">
                         <p className="truncate text-sm font-medium">{e.name}</p>
-                        <p className="truncate text-xs text-faint">{stimulusSummary(e.stimulus)}</p>
+                        <p className="break-words text-xs text-faint">{stimulusSummary(e.stimulus)}</p>
                       </div>
                       <div className="flex shrink-0 gap-2">
                         <Button

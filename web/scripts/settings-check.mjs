@@ -119,6 +119,24 @@ const addTop = page.getByRole('button', { name: '種目を足す', exact: true }
 const exercisesPageOpened = (await addTop.count()) === 1;
 console.log('種目のページが開いた:', exercisesPageOpened);
 
+// 一覧の最初の行の「直す」「消す」が画面の外に押し出されていないか。
+// 寄与の要約（例：「大胸筋下部 1.0・上腕三頭筋外側頭 0.6・…」）が折り返さずに
+// 1行の幅として行を広げると、scrollWidth は innerWidth のままなのに（どこかで
+// overflow:hidden により切られるだけで）ボタンには実機で指が届かなくなる。
+// 横スクロールの有無ではなく、ボタンの実座標が 390px の中にあるかで見る。
+const firstEdit = page.getByRole('button', { name: /を直す$/ }).first();
+const firstDelete = page.getByRole('button', { name: /を消す$/ }).first();
+const editBox = await firstEdit.boundingBox();
+const deleteBox = await firstDelete.boundingBox();
+const rowButtonsVisible =
+  !!editBox && !!deleteBox && editBox.x + editBox.width <= 390 && deleteBox.x + deleteBox.width <= 390;
+console.log(
+  '一覧1行目の直す/消すが390px内:',
+  rowButtonsVisible,
+  '（直す right =', editBox ? Math.round(editBox.x + editBox.width) : null,
+  '/ 消す right =', deleteBox ? Math.round(deleteBox.x + deleteBox.width) : null, '）',
+);
+
 await addTop.click();
 await page.waitForTimeout(300);
 const editGroup = page.getByRole('group', { name: '種目の編集' });
@@ -202,7 +220,7 @@ const ok = after.per_week === want && after.declared_exercises.length === before
   && repicked.selected_exercises.length === before.selected_exercises.length
   && Array.isArray(realAccount.accounts) && realAccount.accounts.length === 0
   && accountSummary.includes('gym@example.com') && signedInAs
-  && exercisesPageOpened && customOk && presetOk;
+  && exercisesPageOpened && rowButtonsVisible && customOk && presetOk;
 console.log(ok ? '\n✓ 設定の保存は壊れていない' : '\n✗ 壊れている');
 await browser.close();
 process.exit(ok ? 0 : 1);
