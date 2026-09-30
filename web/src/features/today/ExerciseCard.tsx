@@ -1,10 +1,13 @@
 import type { PlannedSet, RecordedSet } from '../../api/types';
 import { formatLast, type LastPerformance } from '../../domain/sets';
 import { Card, Note } from '../../ui/Card';
+import { slotCount } from './slots';
 
 export type CardPlan = PlannedSet & {
   /** finished_only は今日やったが今の予定には入っていないもの。 */
   finished_only?: boolean;
+  /** adhoc は本人が「種目を選んで記録」で選んだもの。目標は無い。 */
+  adhoc?: boolean;
 };
 
 type Props = {
@@ -16,9 +19,7 @@ type Props = {
 };
 
 export function ExerciseCard({ plan, name, last, recorded, onOpen }: Props) {
-  // 予定より多く記録することはある。予定の数しか枠を出さないと、
-  // はみ出したセットが画面から消えて、取り消すこともできなくなる。
-  const slots = plan.finished_only ? recorded.length : Math.max(plan.sets, recorded.length);
+  const slots = slotCount(plan, recorded.length);
 
   return (
     <Card className="grid gap-3">
@@ -47,7 +48,7 @@ export function ExerciseCard({ plan, name, last, recorded, onOpen }: Props) {
       <div className="grid auto-cols-fr grid-flow-col gap-2">
         {Array.from({ length: slots }, (_, i) => {
           const rec = recorded[i];
-          const extra = !plan.finished_only && i >= plan.sets;
+          const extra = !plan.finished_only && !plan.adhoc && i >= plan.sets;
           return (
             <button
               key={i}
@@ -70,6 +71,12 @@ export function ExerciseCard({ plan, name, last, recorded, onOpen }: Props) {
 }
 
 export function Target({ plan }: { plan: CardPlan }) {
+  if (plan.adhoc) {
+    // 目標を出すと、アプリが決めたように読める。何kgで何セットやるかは
+    // 本人が決めたことなので、選んだ事実だけを出す。
+    return <span className="text-[13px] text-muted">自分で選んだ種目・好きなだけ</span>;
+  }
+
   if (plan.finished_only) {
     // 予定として出すと「これからやる」ように読めるので、済んだ事実だけを出す。
     return (
