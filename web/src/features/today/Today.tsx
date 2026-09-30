@@ -4,7 +4,8 @@ import type { Data } from '../../app/useLiftplan';
 import { ExerciseCard, type CardPlan } from './ExerciseCard';
 import { PRCelebration } from './PRCelebration';
 import type { PersonalRecord } from './pr';
-import { leftovers } from './leftovers';
+import { belowPlan, withPicked } from './adhoc';
+import { ExercisePicker } from './ExercisePicker';
 import { RecordSheet } from './RecordSheet';
 import { useRecordOrchestrator } from './useRecordOrchestrator';
 import { BodyWeightRow } from './BodyWeightRow';
@@ -40,6 +41,13 @@ export function Today(props: Props) {
   );
   const dismiss = useCallback(() => setCelebration(null), []);
 
+  // 「種目を選んで記録」で選んだ種目。画面を開き直すと消えるが、記録したセットは
+  // 消えない（「今日やったもの」に出る。belowPlan）。
+  const [picked, setPicked] = useState<string[]>([]);
+  const [picking, setPicking] = useState(false);
+  const pick = useCallback((id: string) => setPicked((p) => withPicked(p, id)), []);
+  const closePicker = useCallback(() => setPicking(false), []);
+
   const nameOf = useCallback((id: string) => data.names.get(id) ?? id, [data.names]);
 
   // 記録の手順はオーケストレーターが持つ。この部品は描画だけをする。
@@ -59,11 +67,12 @@ export function Today(props: Props) {
   const variation = data.session?.variation ?? [];
   const accessories = data.session?.accessories ?? [];
 
-  const done = leftovers([main, variation, accessories], data.doneToday);
+  const lanes = [main, variation, accessories];
+  const { adhoc, done } = belowPlan(lanes, picked, data.doneToday);
 
   const card = (plan: CardPlan) => (
     <ExerciseCard
-      key={`${plan.exercise_id}-${plan.finished_only ? 'done' : 'plan'}`}
+      key={`${plan.exercise_id}-${plan.finished_only ? 'done' : plan.adhoc ? 'adhoc' : 'plan'}`}
       plan={plan}
       name={nameOf(plan.exercise_id)}
       last={data.last[plan.exercise_id]}
@@ -96,8 +105,26 @@ export function Today(props: Props) {
       {accessories.length > 0 && <SectionTitle>補助種目</SectionTitle>}
       {accessories.map(card)}
 
+      {adhoc.length > 0 && <SectionTitle>選んだ種目</SectionTitle>}
+      {adhoc.map(card)}
+
       {done.length > 0 && <SectionTitle>今日やったもの</SectionTitle>}
       {done.map(card)}
+
+      {/* 予定に無い種目をやりたい日の入口。今日どこまでやるかは本人が決める
+          ので、予定の下に控えめに置く。 */}
+      <Button variant="quiet" onClick={() => setPicking(true)}>
+        種目を選んで記録
+      </Button>
+
+      {picking && (
+        <ExercisePicker
+          exercises={data.exercises}
+          planned={lanes}
+          onPick={pick}
+          onClose={closePicker}
+        />
+      )}
 
       <div className="mt-1 border-t border-line-soft pt-3.5">
         <button
