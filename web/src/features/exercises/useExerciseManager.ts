@@ -30,7 +30,6 @@ export function useExerciseManager(onChanged: () => Promise<void>) {
     // 開いたときの1回だけ読む。以後は declared が変わっても（設定側で
     // 触られても）この画面を開き直すまでは古いままでよい。押す前に
     // 読める案内でしかなく、最後の砦はサーバーの409。
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // request はその場で送る。成否は describePutFailure が組む1行を note に置く。

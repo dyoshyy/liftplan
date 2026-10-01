@@ -94,6 +94,13 @@ jobs:
       - name: typecheck
         run: pnpm typecheck
 
+      # 直し方は `pnpm format` と `pnpm lint:fix`。コミット時の hook も同じものを走らせる。
+      - name: prettier
+        run: pnpm format:check
+
+      - name: eslint
+        run: pnpm lint
+
       - name: vitest
         run: pnpm test
 

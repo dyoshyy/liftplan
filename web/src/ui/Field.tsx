@@ -11,9 +11,7 @@ const control =
 export function Field({ label, children }: { label?: ReactNode; children: ReactNode }) {
   return (
     <div className="grid gap-1.5">
-      {label !== undefined && (
-        <span className="text-xs tracking-[0.04em] text-muted">{label}</span>
-      )}
+      {label !== undefined && <span className="text-xs tracking-[0.04em] text-muted">{label}</span>}
       {children}
     </div>
   );

@@ -13,9 +13,7 @@ const plan = (id: string): PlannedSet => ({
 const set = (id: string): RecordedSet => ({ id, weight_kg: 80, reps: 8, rir: 2 });
 
 const done = (m: Record<string, number>) =>
-  new Map(
-    Object.entries(m).map(([id, n]) => [id, Array.from({ length: n }, (_, i) => set(`${id}-${i}`))]),
-  );
+  new Map(Object.entries(m).map(([id, n]) => [id, Array.from({ length: n }, (_, i) => set(`${id}-${i}`))]));
 
 describe('leftovers', () => {
   it('予定に無いものだけを返す', () => {

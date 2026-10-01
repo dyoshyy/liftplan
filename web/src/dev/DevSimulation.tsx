@@ -262,7 +262,15 @@ function Settings({
 const FIELD = 'w-full rounded-md border border-line bg-ground px-2 py-1 text-[13px]';
 
 /** Weekdays は通う曜日。未指定なら頻度ごとの既定の曜日を点けて出す。 */
-function Weekdays({ options, form, setForm }: { options: DevOptions | null; form: Form; setForm: (f: Form) => void }) {
+function Weekdays({
+  options,
+  form,
+  setForm,
+}: {
+  options: DevOptions | null;
+  form: Form;
+  setForm: (f: Form) => void;
+}) {
   const defaults = options?.schedule_defaults.weekdays_by_frequency ?? {};
   const on = form.days ?? defaults[String(form.frequency)] ?? [];
   const start = form.start ?? options?.schedule_defaults.start ?? '';
@@ -364,13 +372,22 @@ function OneRepMaxGrid({
   );
 }
 
-function Results({ options, result, ranForm }: { options: DevOptions | null; result: DevResult; ranForm: Form }) {
+function Results({
+  options,
+  result,
+  ranForm,
+}: {
+  options: DevOptions | null;
+  result: DevResult;
+  ranForm: Form;
+}) {
   // 自分の種目は options に無い（設定ごとに変わる）。結果の settings から足す。
   const names = Object.fromEntries([
     ...(options?.exercises ?? []).map((e) => [e.id, e.name]),
     ...(result.settings.custom ?? []).map((c) => [c.id, c.name]),
   ]);
-  const splitName = options?.presets.find((p) => p.key === result.settings.split)?.name ?? result.settings.split;
+  const splitName =
+    options?.presets.find((p) => p.key === result.settings.split)?.name ?? result.settings.split;
   const series = weightSeries(
     result,
     result.settings.declared.map((id) => ({ id, name: names[id] ?? id })),
@@ -395,10 +412,12 @@ function Results({ options, result, ranForm }: { options: DevOptions | null; res
         </ul>
         <div className="grid gap-1 border-t border-line-soft pt-2 text-[12px] text-muted">
           <div>
-            この画面: <code className="num select-all text-text">{`${window.location.origin}${window.location.pathname}?${buildQuery(ranForm)}`}</code>
+            この画面:{' '}
+            <code className="num select-all text-text">{`${window.location.origin}${window.location.pathname}?${buildQuery(ranForm)}`}</code>
           </div>
           <div>
-            JSON（トークンは $LIFTPLAN_TOKEN）: <code className="num select-all text-text">{curlCommand(API_BASE, ranForm)}</code>
+            JSON（トークンは $LIFTPLAN_TOKEN）:{' '}
+            <code className="num select-all text-text">{curlCommand(API_BASE, ranForm)}</code>
           </div>
         </div>
       </section>

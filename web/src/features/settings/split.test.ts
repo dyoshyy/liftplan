@@ -9,11 +9,7 @@ import {
 } from './split';
 import type { Program, SplitPreset } from '../../api/types';
 
-const preset = (
-  key: string,
-  splits: SplitPreset['splits'],
-  minFrequencyPerWeek = 0,
-): SplitPreset => ({
+const preset = (key: string, splits: SplitPreset['splits'], minFrequencyPerWeek = 0): SplitPreset => ({
   key,
   name: key,
   splits,

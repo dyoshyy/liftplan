@@ -10,7 +10,10 @@ const { chromium } = await import(process.env.PLAYWRIGHT ?? 'playwright-core');
 const APP = process.env.APP ?? 'http://localhost:4173';
 const TOKEN = 'dev-token-0123456789abcdef0123456789ab';
 const results = [];
-const check = (n, ok, d = '') => { results.push({ n, ok, d }); console.log(`${ok ? '✓' : '✗'} ${n}${d ? ' — ' + d : ''}`); };
+const check = (n, ok, d = '') => {
+  results.push({ n, ok, d });
+  console.log(`${ok ? '✓' : '✗'} ${n}${d ? ' — ' + d : ''}`);
+};
 
 const API = process.env.API ?? 'http://127.0.0.1:8080';
 const day = () => {
@@ -19,9 +22,14 @@ const day = () => {
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
 };
 const auth = { Authorization: `Bearer ${TOKEN}` };
-const todaysSets = () => fetch(`${API}/api/set-logs?from=${day()}&to=${day()}`, { headers: auth })
-  .then((r) => r.json())
-  .then((b) => (b.days ?? []).flatMap((d) => d.exercises.flatMap((e) => e.sets.map((s) => ({ ...s, exercise_id: e.exercise_id })))));
+const todaysSets = () =>
+  fetch(`${API}/api/set-logs?from=${day()}&to=${day()}`, { headers: auth })
+    .then((r) => r.json())
+    .then((b) =>
+      (b.days ?? []).flatMap((d) =>
+        d.exercises.flatMap((e) => e.sets.map((s) => ({ ...s, exercise_id: e.exercise_id }))),
+      ),
+    );
 const clearToday = async () => {
   for (const x of await todaysSets()) {
     await fetch(`${API}/api/set-logs/${encodeURIComponent(x.id)}`, { method: 'DELETE', headers: auth });
@@ -29,11 +37,18 @@ const clearToday = async () => {
 };
 await clearToday();
 
-const browser = await chromium.launch({ executablePath: process.env.CHROME ?? '/usr/bin/chromium', args: ['--no-sandbox'] });
-const page = await (await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2 })).newPage();
+const browser = await chromium.launch({
+  executablePath: process.env.CHROME ?? '/usr/bin/chromium',
+  args: ['--no-sandbox'],
+});
+const page = await (
+  await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2 })
+).newPage();
 const errs = [];
 page.on('pageerror', (e) => errs.push('pageerror: ' + e.message));
-page.on('console', (m) => { if (m.type() === 'error') errs.push(m.text()); });
+page.on('console', (m) => {
+  if (m.type() === 'error') errs.push(m.text());
+});
 
 await page.goto(`${APP}/#token=${TOKEN}`);
 await page.waitForTimeout(2500);
@@ -94,7 +109,11 @@ await settle();
 await cdp.send('Emulation.setCPUThrottlingRate', { rate: 1 });
 await page.waitForTimeout(1500);
 sets = await todaysSets();
-check('遅い端末で40ms空けて2回押しても、サーバーに届くのは1セット', sets.length === 1, `${sets.length}セット`);
+check(
+  '遅い端末で40ms空けて2回押しても、サーバーに届くのは1セット',
+  sets.length === 1,
+  `${sets.length}セット`,
+);
 
 // 3. 取り消しの連打。
 await clearToday();
@@ -106,7 +125,9 @@ await page.waitForTimeout(900);
 await page.locator('button.set').nth(0).click();
 await page.waitForTimeout(400);
 await page.evaluate(() => {
-  const b = [...document.querySelectorAll('dialog button')].find((x) => x.textContent.includes('この記録を取り消す'));
+  const b = [...document.querySelectorAll('dialog button')].find((x) =>
+    x.textContent.includes('この記録を取り消す'),
+  );
   b.click();
   b.click();
 });
@@ -118,14 +139,22 @@ check('取り消しを連打しても、記録は消えている', sets.length =
 await clearToday();
 await page.reload();
 await page.waitForTimeout(2500);
-for (const [slot, w, r] of [[0, 100, 5], [1, 100, 5], [2, 97.5, 6]]) {
+for (const [slot, w, r] of [
+  [0, 100, 5],
+  [1, 100, 5],
+  [2, 97.5, 6],
+]) {
   await open(slot, w, r);
   await page.click('dialog >> text=記録する');
   await page.waitForTimeout(900);
 }
 await settle();
 sets = await todaysSets();
-check('続けて3セット記録すると3セット届く（ガードが次の記録を止めない）', sets.length === 3, `${sets.length}セット`);
+check(
+  '続けて3セット記録すると3セット届く（ガードが次の記録を止めない）',
+  sets.length === 3,
+  `${sets.length}セット`,
+);
 
 check('コンソールにエラーが出ない', errs.length === 0, errs.join(' | '));
 await clearToday();

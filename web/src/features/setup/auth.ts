@@ -9,8 +9,7 @@ export type Provider = 'github' | 'google';
 /** loginUrl は認可を始める URL。**fetch ではなくトップレベル遷移で開くこと。**
  *  fetch にすると CORS とリダイレクト追従の問題になり、そもそも認可画面を
  *  人に見せられない。 */
-export const loginUrl = (apiBase: string, provider: Provider): string =>
-  `${apiBase}/auth/${provider}/start`;
+export const loginUrl = (apiBase: string, provider: Provider): string => `${apiBase}/auth/${provider}/start`;
 
 /** tokenFromHash はコールバックが置いていったトークンを取り出す。無ければ null。
  *
@@ -25,10 +24,7 @@ export function tokenFromHash(hash: string): string | null {
 }
 
 /** IntakeStep は取り込みで何をするか。実行はしない。 */
-export type IntakeStep =
-  | { kind: 'saveToken'; token: string }
-  | { kind: 'clearHash' }
-  | { kind: 'signIn' };
+export type IntakeStep = { kind: 'saveToken'; token: string } | { kind: 'clearHash' } | { kind: 'signIn' };
 
 /** IntakePorts は IntakeStep の実体。副作用はすべてここから外へ出す。 */
 export type IntakePorts = {

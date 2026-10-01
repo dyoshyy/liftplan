@@ -23,18 +23,27 @@ const realAccount = await fetch(`${API}/api/account`, { headers: auth }).then((r
 console.log('本物の /api/account:', JSON.stringify(realAccount), '（期待 {"accounts":[]}）');
 console.log('保存前: per_week =', before.per_week, '/ declared =', before.declared_exercises.length, '件');
 
-const browser = await chromium.launch({ executablePath: process.env.CHROME ?? '/usr/bin/chromium', args: ['--no-sandbox'] });
+const browser = await chromium.launch({
+  executablePath: process.env.CHROME ?? '/usr/bin/chromium',
+  args: ['--no-sandbox'],
+});
 const page = await (await browser.newContext({ viewport: { width: 390, height: 844 } })).newPage();
 const errs = [];
 page.on('pageerror', (e) => errs.push(e.message));
-page.on('console', (m) => { if (m.type() === 'error') errs.push(m.text()); });
-await page.route('**/api/account', (route) => route.fulfill({
-  contentType: 'application/json',
-  body: JSON.stringify({ accounts: [
-    { provider: 'github', email: 'gym@example.com' },
-    { provider: 'google', email: 'gym@example.com' },
-  ] }),
-}));
+page.on('console', (m) => {
+  if (m.type() === 'error') errs.push(m.text());
+});
+await page.route('**/api/account', (route) =>
+  route.fulfill({
+    contentType: 'application/json',
+    body: JSON.stringify({
+      accounts: [
+        { provider: 'github', email: 'gym@example.com' },
+        { provider: 'google', email: 'gym@example.com' },
+      ],
+    }),
+  }),
+);
 
 // ログインはフラグメントで済ませる。/auth/* を通すとプロバイダの画面が
 // 挟まり、自動では抜けられない。#token= はサーバーがコールバックで戻して
@@ -54,7 +63,13 @@ await page.waitForTimeout(2500);
 
 const after = await program();
 console.log('保存後: per_week =', after.per_week, '（期待', want, '）');
-console.log('他が壊れていないか: declared =', after.declared_exercises.length, '件 / selected =', after.selected_exercises.length, '件');
+console.log(
+  '他が壊れていないか: declared =',
+  after.declared_exercises.length,
+  '件 / selected =',
+  after.selected_exercises.length,
+  '件',
+);
 
 // 元に戻す
 await page.selectOption(FREQ, String(before.per_week));
@@ -69,7 +84,17 @@ const wantEx = restored.exercises_per_session === 4 ? 5 : 4;
 await page.selectOption(EX, String(wantEx));
 await page.waitForTimeout(2500);
 const vol = await program();
-console.log('1回の量: ', vol.exercises_per_session, '種目 ×', vol.sets_per_exercise, 'セット（期待', wantEx, '種目 ×', restored.sets_per_exercise, 'セット）');
+console.log(
+  '1回の量: ',
+  vol.exercises_per_session,
+  '種目 ×',
+  vol.sets_per_exercise,
+  'セット（期待',
+  wantEx,
+  '種目 ×',
+  restored.sets_per_exercise,
+  'セット）',
+);
 await page.selectOption(EX, String(restored.exercises_per_session));
 await page.waitForTimeout(2000);
 const volRestored = await program();
@@ -93,8 +118,18 @@ const leftInGrow = await growGroup.locator('button', { hasText: unpickedName }).
 await exHeader.click();
 await page.waitForTimeout(300);
 const summary = (await exHeader.textContent()) ?? '';
-console.log('外した種目（', unpickedName, '）: selected =', unpicked.selected_exercises.length, '件（期待', before.selected_exercises.length - 1,
-  '）/ 伸ばしたいの候補に残った数 =', leftInGrow, '（期待 0）/ 畳んだ要約 =', summary);
+console.log(
+  '外した種目（',
+  unpickedName,
+  '）: selected =',
+  unpicked.selected_exercises.length,
+  '件（期待',
+  before.selected_exercises.length - 1,
+  '）/ 伸ばしたいの候補に残った数 =',
+  leftInGrow,
+  '（期待 0）/ 畳んだ要約 =',
+  summary,
+);
 
 // 入れ直して元に戻す。
 await exHeader.click();
@@ -143,8 +178,11 @@ const rowButtonsVisible =
 console.log(
   '一覧1行目の編集/削除が390px内:',
   rowButtonsVisible,
-  '（編集 right =', editBox ? Math.round(editBox.x + editBox.width) : null,
-  '/ 削除 right =', deleteBox ? Math.round(deleteBox.x + deleteBox.width) : null, '）',
+  '（編集 right =',
+  editBox ? Math.round(editBox.x + editBox.width) : null,
+  '/ 削除 right =',
+  deleteBox ? Math.round(deleteBox.x + deleteBox.width) : null,
+  '）',
 );
 
 await addTop.click();
@@ -164,8 +202,14 @@ const inList = await page.getByText(CUSTOM, { exact: true }).count();
 // 種目マスタ（/api/exercises）とは別の口（/api/program）で見る。
 const afterAdd = await program();
 const addedInUse = added !== undefined && afterAdd.selected_exercises.includes(added.id);
-console.log('足した種目:', JSON.stringify(added ? { stimulus: added.stimulus } : null), '/ 一覧に出た数 =', inList,
-  '/ 使う種目に入った', addedInUse);
+console.log(
+  '足した種目:',
+  JSON.stringify(added ? { stimulus: added.stimulus } : null),
+  '/ 一覧に出た数 =',
+  inList,
+  '/ 使う種目に入った',
+  addedInUse,
+);
 
 // 直す。同じ編集フォームが、押した種目の値で開くはず。
 await page.getByRole('button', { name: `${CUSTOM}を編集` }).click();
@@ -178,7 +222,16 @@ const afterEditList = (await exercises()).exercises;
 const edited = afterEditList.find((e) => e.id === added?.id);
 const oldNameGone = (await page.getByText(CUSTOM, { exact: true }).count()) === 0;
 const newNameThere = (await page.getByText(RENAMED, { exact: true }).count()) === 1;
-console.log('直した後: name =', edited?.name, '（期待', RENAMED, '）/ 古い名前が消えた', oldNameGone, '/ 新しい名前が出た', newNameThere);
+console.log(
+  '直した後: name =',
+  edited?.name,
+  '（期待',
+  RENAMED,
+  '）/ 古い名前が消えた',
+  oldNameGone,
+  '/ 新しい名前が出た',
+  newNameThere,
+);
 
 // 消す。1タップ目は確認待ちに入るだけで消えないこと（D-116同様、undo が
 // 無い操作は誤タップで即実行させない）。「本当に消す」まで押して初めて
@@ -193,20 +246,38 @@ const deleted = (await exercises()).exercises.find((e) => e.id === added?.id);
 const removedFromList = (await page.getByText(RENAMED, { exact: true }).count()) === 0;
 console.log('消した後: deleted =', deleted?.deleted, '/ 一覧から消えた', removedFromList);
 
-const customOk = added !== undefined && added.stimulus.TRAP_MID === 1 && added.stimulus.LAT === 0.5
-  && inList === 1 && addedInUse && edited?.name === RENAMED && oldNameGone && newNameThere
-  && notYetDeleted?.deleted !== true && deleted?.deleted === true && removedFromList;
+const customOk =
+  added !== undefined &&
+  added.stimulus.TRAP_MID === 1 &&
+  added.stimulus.LAT === 0.5 &&
+  inList === 1 &&
+  addedInUse &&
+  edited?.name === RENAMED &&
+  oldNameGone &&
+  newNameThere &&
+  notYetDeleted?.deleted !== true &&
+  deleted?.deleted === true &&
+  removedFromList;
 
 // プリセット由来も消せる。同じく1タップ目では消えないことを見る。
 await page.getByRole('button', { name: `${PRESET}を削除`, exact: true }).click();
 await page.waitForTimeout(500);
 const presetNotYetDeleted = (await exercises()).exercises.find((e) => e.name === PRESET);
-console.log('プリセット1タップ目: まだ消えていない deleted =', presetNotYetDeleted?.deleted, '（期待 undefined か false）');
+console.log(
+  'プリセット1タップ目: まだ消えていない deleted =',
+  presetNotYetDeleted?.deleted,
+  '（期待 undefined か false）',
+);
 await page.getByRole('button', { name: `${PRESET}を本当に削除`, exact: true }).click();
 await page.waitForTimeout(2000);
 const presetDeleted = (await exercises()).exercises.find((e) => e.name === PRESET);
 const presetGoneFromList = (await page.getByText(PRESET, { exact: true }).count()) === 0;
-console.log('プリセットを消した後: deleted =', presetDeleted?.deleted, '/ 一覧から消えた', presetGoneFromList);
+console.log(
+  'プリセットを消した後: deleted =',
+  presetDeleted?.deleted,
+  '/ 一覧から消えた',
+  presetGoneFromList,
+);
 
 // 設定へ戻り、「使う種目」からも消えているかを見る。消した分を API で
 // 足し直す必要は無い（インメモリなので再起動で戻る）。
@@ -217,11 +288,16 @@ await page.waitForTimeout(800);
 // hasText の文字列指定は部分一致なので、素の PRESET だとサイドレイズも
 // ケーブルサイドレイズも同じヒットになる。ここで見たいのは前者だけが
 // 消えたことなので、行末に固定して区別する。
-const presetGoneFromUse = (await useGroup.locator('button', { hasText: new RegExp(`^✓?\\s*${PRESET}$`) }).count()) === 0;
+const presetGoneFromUse =
+  (await useGroup.locator('button', { hasText: new RegExp(`^✓?\\s*${PRESET}$`) }).count()) === 0;
 console.log('設定の使う種目から消えた:', presetGoneFromUse);
 
-const presetOk = presetInUseBefore && presetNotYetDeleted?.deleted !== true && presetDeleted?.deleted === true
-  && presetGoneFromList && presetGoneFromUse;
+const presetOk =
+  presetInUseBefore &&
+  presetNotYetDeleted?.deleted !== true &&
+  presetDeleted?.deleted === true &&
+  presetGoneFromList &&
+  presetGoneFromUse;
 await exHeader.click();
 await page.waitForTimeout(300);
 
@@ -234,17 +310,26 @@ const signedInAs = await page.getByText('gym@example.com（GitHub・Google）で
 console.log('アカウント: 畳んだ見出し =', accountSummary, '/ 開いた中の1行', signedInAs, '（期待 true）');
 
 console.log('エラー:', errs.length ? errs.join('\n') : '(なし)');
-const ok = after.per_week === want && after.declared_exercises.length === before.declared_exercises.length && restored.per_week === before.per_week
-  && vol.exercises_per_session === wantEx && vol.sets_per_exercise === restored.sets_per_exercise
-  && volRestored.exercises_per_session === restored.exercises_per_session
-  && after.selected_exercises.length === before.selected_exercises.length
-  && unpicked.selected_exercises.length === before.selected_exercises.length - 1
-  && leftInGrow === 0
-  && summary.includes(`使う${before.selected_exercises.length - 1}・`)
-  && repicked.selected_exercises.length === before.selected_exercises.length
-  && Array.isArray(realAccount.accounts) && realAccount.accounts.length === 0
-  && accountSummary.includes('gym@example.com') && signedInAs
-  && exercisesPageOpened && rowButtonsVisible && customOk && presetOk;
+const ok =
+  after.per_week === want &&
+  after.declared_exercises.length === before.declared_exercises.length &&
+  restored.per_week === before.per_week &&
+  vol.exercises_per_session === wantEx &&
+  vol.sets_per_exercise === restored.sets_per_exercise &&
+  volRestored.exercises_per_session === restored.exercises_per_session &&
+  after.selected_exercises.length === before.selected_exercises.length &&
+  unpicked.selected_exercises.length === before.selected_exercises.length - 1 &&
+  leftInGrow === 0 &&
+  summary.includes(`使う${before.selected_exercises.length - 1}・`) &&
+  repicked.selected_exercises.length === before.selected_exercises.length &&
+  Array.isArray(realAccount.accounts) &&
+  realAccount.accounts.length === 0 &&
+  accountSummary.includes('gym@example.com') &&
+  signedInAs &&
+  exercisesPageOpened &&
+  rowButtonsVisible &&
+  customOk &&
+  presetOk;
 console.log(ok ? '\n✓ 設定の保存は壊れていない' : '\n✗ 壊れている');
 await browser.close();
 process.exit(ok ? 0 : 1);

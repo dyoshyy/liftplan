@@ -23,16 +23,7 @@ type Props = {
 //
 // 記録シートと休憩タイマーの両方が使う。片方だけ押しやすさが違う状態を
 // 作らないために、ここ1箇所に置く。
-export function Stepper({
-  label,
-  value,
-  onChange,
-  step,
-  decimal,
-  min = 0,
-  suffix,
-  className,
-}: Props) {
+export function Stepper({ label, value, onChange, step, decimal, min = 0, suffix, className }: Props) {
   const id = useId();
 
   const bump = (by: number) => {
@@ -48,8 +39,13 @@ export function Stepper({
         {label}
       </label>
       <div className="grid grid-cols-[60px_1fr_60px] gap-2">
-        <Button variant="quiet" size="icon" className="w-full" onClick={() => bump(-step)}
-          aria-label={`${step} 減らす`}>
+        <Button
+          variant="quiet"
+          size="icon"
+          className="w-full"
+          onClick={() => bump(-step)}
+          aria-label={`${step} 減らす`}
+        >
           −
         </Button>
         <div className="relative">
@@ -72,8 +68,13 @@ export function Stepper({
             </span>
           )}
         </div>
-        <Button variant="quiet" size="icon" className="w-full" onClick={() => bump(step)}
-          aria-label={`${step} 増やす`}>
+        <Button
+          variant="quiet"
+          size="icon"
+          className="w-full"
+          onClick={() => bump(step)}
+          aria-label={`${step} 増やす`}
+        >
           ＋
         </Button>
       </div>

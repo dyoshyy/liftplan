@@ -73,9 +73,7 @@ export const add = <T>(name: StoreName, value: T): Promise<void> =>
   tx<IDBValidKey>(name, 'readwrite', (s) => s.add(value)).then(() => undefined);
 
 export const remove = (name: StoreName, key: IDBValidKey): Promise<void> =>
-  tx<undefined>(name, 'readwrite', (s) => s.delete(key) as IDBRequest<undefined>).then(
-    () => undefined,
-  );
+  tx<undefined>(name, 'readwrite', (s) => s.delete(key) as IDBRequest<undefined>).then(() => undefined);
 
 export const clear = (name: StoreName): Promise<void> =>
   tx<undefined>(name, 'readwrite', (s) => s.clear() as IDBRequest<undefined>).then(() => undefined);
@@ -114,7 +112,7 @@ const LEGACY: [string, StoreName][] = [
 
 export async function adoptLegacyQueue(): Promise<void> {
   for (const [key, name] of LEGACY) {
-    let items: unknown[] = [];
+    let items: unknown[];
     try {
       items = JSON.parse(localStorage.getItem(key) ?? '[]') as unknown[];
     } catch {

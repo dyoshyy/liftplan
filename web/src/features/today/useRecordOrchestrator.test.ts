@@ -13,9 +13,7 @@ describe('planRecord', () => {
     expect(got.queue[0]).toEqual({
       path: '/api/set-logs',
       body: {
-        logs: [
-          { id: 'w-new', date, exercise_id: 'bench', weight_kg: 100, reps: 8, rir: 2 },
-        ],
+        logs: [{ id: 'w-new', date, exercise_id: 'bench', weight_kg: 100, reps: 8, rir: 2 }],
       },
     });
   });
@@ -45,9 +43,7 @@ describe('planRecord', () => {
   // 過去のセットを直しただけでタイマーが走ると、いま休んでいる時間が
   // 上書きされる。
   it('休憩を始めるのは新しく積んだときだけ', () => {
-    expect(planRecord({ plan, recorded: undefined, values, date, newId: () => 'a' }).startRest).toBe(
-      true,
-    );
+    expect(planRecord({ plan, recorded: undefined, values, date, newId: () => 'a' }).startRest).toBe(true);
     const recorded = { id: 'w-old', weight_kg: 90, reps: 6, rir: 1 };
     expect(planRecord({ plan, recorded, values, date, newId: () => 'a' }).startRest).toBe(false);
   });

@@ -5,9 +5,7 @@
  * 保存のたびに画面の順序が入れ替わる。
  */
 export function toggleDeclared(current: readonly string[], id: string): string[] {
-  const next = current.includes(id)
-    ? current.filter((x) => x !== id)
-    : [...current, id];
+  const next = current.includes(id) ? current.filter((x) => x !== id) : [...current, id];
   return [...next].sort();
 }
 
@@ -22,10 +20,7 @@ export function toggleDeclared(current: readonly string[], id: string): string[]
  *
  * 選べない理由を出し分けるため、ID ではなく理由つきで返す。
  */
-export function lockedDeclared(
-  declared: readonly string[],
-  focus: string | null,
-): Map<string, string> {
+export function lockedDeclared(declared: readonly string[], focus: string | null): Map<string, string> {
   const out = new Map<string, string>();
   if (declared.length === 1 && declared[0] !== undefined) {
     out.set(declared[0], '最後の1つは外せません');

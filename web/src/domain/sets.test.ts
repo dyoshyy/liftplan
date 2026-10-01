@@ -50,7 +50,10 @@ describe('formatLast', () => {
 
 describe('parseSetInput', () => {
   it('数として読めれば値を返す', () => {
-    expect(parseSetInput('102.5', '8', '2')).toEqual({ ok: true, values: { weight: 102.5, reps: 8, rir: 2 } });
+    expect(parseSetInput('102.5', '8', '2')).toEqual({
+      ok: true,
+      values: { weight: 102.5, reps: 8, rir: 2 },
+    });
   });
 
   // RIR 0 は「限界まで」で、正しい記録。0 を弾くと限界まで追い込んだ日が
@@ -64,7 +67,10 @@ describe('parseSetInput', () => {
     { weight: '100', reps: '', rir: '2' },
     { weight: '100', reps: '8', rir: '' },
   ])('空欄があれば止める（$weight / $reps / $rir）', ({ weight, reps, rir }) => {
-    expect(parseSetInput(weight, reps, rir)).toEqual({ ok: false, warning: '重量・レップ・RIR を入れてください' });
+    expect(parseSetInput(weight, reps, rir)).toEqual({
+      ok: false,
+      warning: '重量・レップ・RIR を入れてください',
+    });
   });
 
   // 0kg や 0レップが通ると、推定1RM が 0 に引きずられる。

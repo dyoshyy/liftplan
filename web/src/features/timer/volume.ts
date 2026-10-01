@@ -43,8 +43,7 @@ export function peakGain(volume: number): number {
 }
 
 /** volumeSummary は畳んだ節に出す現在値。0 は「0%」だと壊れて見えるので言葉にする。 */
-export const volumeSummary = (volume: number): string =>
-  volume === 0 ? '音なし' : `${volume}%`;
+export const volumeSummary = (volume: number): string => (volume === 0 ? '音なし' : `${volume}%`);
 
 /** Tone は鳴らす音1つ。at は AudioContext の時計での開始時刻（秒）。 */
 export type Tone = { at: number; peak: number };

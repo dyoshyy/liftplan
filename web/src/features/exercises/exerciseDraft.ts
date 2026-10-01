@@ -31,7 +31,11 @@ export type ExerciseDraft = {
   incrementKg: number;
 };
 
-export const emptyDraft = (): ExerciseDraft => ({ name: '', stimulus: {}, incrementKg: DEFAULT_INCREMENT_KG });
+export const emptyDraft = (): ExerciseDraft => ({
+  name: '',
+  stimulus: {},
+  incrementKg: DEFAULT_INCREMENT_KG,
+});
 
 /** draftOf は「直す」の初期値。寄与はそのまま持ってくる。
  *
@@ -87,7 +91,9 @@ export const draftProblem = (draft: ExerciseDraft): string | null => {
 /** draftBody は POST/PUT /api/exercises の本文。サーバーの exerciseDTO と対。
  *
  *  区分を並べるのは、同じ下書きから毎回同じ本文ができるようにするため。 */
-export const draftBody = (draft: ExerciseDraft): { name: string; stimulus: Record<string, number>; increment_kg: number } => {
+export const draftBody = (
+  draft: ExerciseDraft,
+): { name: string; stimulus: Record<string, number>; increment_kg: number } => {
   const stimulus = Object.fromEntries(
     Object.entries(draft.stimulus).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)),
   );
@@ -98,7 +104,8 @@ export const draftBody = (draft: ExerciseDraft): { name: string; stimulus: Recor
  *
  *  サーバーは消した種目も返す（履歴に名前を出すため）。一覧に出すと、
  *  選んだ瞬間に 400 で断られる。 */
-export const aliveExercises = (exercises: readonly Exercise[]): Exercise[] => exercises.filter((e) => !e.deleted);
+export const aliveExercises = (exercises: readonly Exercise[]): Exercise[] =>
+  exercises.filter((e) => !e.deleted);
 
 /** deleteBlockedReason は消せない理由を返す。消せるなら null。
  *

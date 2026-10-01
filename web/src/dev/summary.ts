@@ -22,9 +22,7 @@ export function liftLine(s: WeightSeries): string {
   const last = s.points[s.points.length - 1]!;
   const parts = [`${s.name}: ${s.points.length}回`];
 
-  parts.push(
-    `初回 ${kg(first.kg)}×${first.reps} RIR${first.rir}${first.chosen ? '（本人が選んだ）' : ''}`,
-  );
+  parts.push(`初回 ${kg(first.kg)}×${first.reps} RIR${first.rir}${first.chosen ? '（本人が選んだ）' : ''}`);
 
   const mains = s.points.filter((p) => p.lane === 'main' && p.prescribedKg !== null);
   const lastMain = mains[mains.length - 1];
@@ -61,11 +59,7 @@ export function weekLine(w: DevWeek): string {
  *
  *  1RM は宣言種目だけ。全種目を並べると1行に収まらず、読む側が探すことになる
  *  （全種目の値は API の応答の settings にある）。 */
-export function settingsLine(
-  s: DevSettings,
-  names: Record<string, string>,
-  splitName: string,
-): string {
+export function settingsLine(s: DevSettings, names: Record<string, string>, splitName: string): string {
   const name = (id: string) => names[id] ?? id;
   const a = s.athlete;
   const orm = s.declared.map((id) => `${name(id)} ${kg(a.one_rep_max_kg?.[id] ?? 0)}`);

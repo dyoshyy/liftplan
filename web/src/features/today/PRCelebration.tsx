@@ -18,12 +18,7 @@ const HOLD_MS = 2600;
 /** SHARDS は飛び散る破片の数。IPF のプレート色を順に割り当てる。 */
 const SHARDS = 44;
 
-const COLORS = [
-  'var(--color-amber)',
-  'var(--color-green)',
-  'var(--color-red)',
-  'var(--color-text)',
-];
+const COLORS = ['var(--color-amber)', 'var(--color-green)', 'var(--color-red)', 'var(--color-text)'];
 
 /** PARROTS は跳ねるパロットの置き場所。左右に振り分けて、中央の数字を隠さない。 */
 const PARROTS: { left?: string; right?: string; bottom: string; size: number; delay: string }[] = [
