@@ -130,8 +130,7 @@ export function useLiftplan() {
   }, []);
 
   const forgetLocally = useCallback(
-    (exerciseId: string, id: string) =>
-      applyLocally({ kind: 'remove', date: today(), exerciseId, id }),
+    (exerciseId: string, id: string) => applyLocally({ kind: 'remove', date: today(), exerciseId, id }),
     [applyLocally],
   );
 

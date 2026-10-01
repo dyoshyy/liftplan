@@ -25,9 +25,7 @@ const PROVIDERS: readonly {
 export function Setup({ pending }: { pending: number }) {
   return (
     <Card title="ログイン">
-      <Note className="mb-3">
-        記録はアカウントに紐づきます。この端末には、送るための印だけを保存します。
-      </Note>
+      <Note className="mb-3">記録はアカウントに紐づきます。この端末には、送るための印だけを保存します。</Note>
       <div className="grid gap-2">
         {PROVIDERS.map(({ provider, label, Icon }) => (
           <a

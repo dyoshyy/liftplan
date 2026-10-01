@@ -32,7 +32,8 @@ export function pickableExercises(
   const ids = plannedIds(planned);
   const q = query.trim().toLowerCase();
   return exercises.filter(
-    (e) => !ids.has(e.id) && (selected === null || selected.includes(e.id)) && e.name.toLowerCase().includes(q),
+    (e) =>
+      !ids.has(e.id) && (selected === null || selected.includes(e.id)) && e.name.toLowerCase().includes(q),
   );
 }
 
@@ -53,7 +54,14 @@ export function adhocCards(
   const ids = plannedIds(planned);
   return picked
     .filter((id) => !ids.has(id))
-    .map((id) => ({ exercise_id: id, weight_kg: null, sets: 0, target_rir: ADHOC_RIR, target_reps: 0, adhoc: true }));
+    .map((id) => ({
+      exercise_id: id,
+      weight_kg: null,
+      sets: 0,
+      target_rir: ADHOC_RIR,
+      target_reps: 0,
+      adhoc: true,
+    }));
 }
 
 /**

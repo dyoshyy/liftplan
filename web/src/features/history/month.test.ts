@@ -134,7 +134,11 @@ describe('pickMonthDays', () => {
 describe('patchFetched', () => {
   const set = { id: 'a', weight_kg: 100, reps: 8, rir: 2 };
   const aug = [
-    { date: '2026-08-31', total_sets: 1, exercises: [{ exercise_id: 'squat', name: 'スクワット', sets: [set] }] },
+    {
+      date: '2026-08-31',
+      total_sets: 1,
+      exercises: [{ exercise_id: 'squat', name: 'スクワット', sets: [set] }],
+    },
   ];
   const fetched = new Map([['2026-08', aug]]);
 
@@ -154,7 +158,13 @@ describe('patchFetched', () => {
   // まだ取っていない月に「空の月＋1日」を作ると、取ってきたことに
   // なって、その月の残りの日が出なくなる。
   it('取っていない月は作らない', () => {
-    const got = patchFetched(fetched, { kind: 'put', date: '2026-07-01', exerciseId: 'squat', name: '', set });
+    const got = patchFetched(fetched, {
+      kind: 'put',
+      date: '2026-07-01',
+      exerciseId: 'squat',
+      name: '',
+      set,
+    });
     expect(got.has('2026-07')).toBe(false);
     expect(got).toBe(fetched);
   });

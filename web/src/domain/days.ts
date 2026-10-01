@@ -43,7 +43,9 @@ export function patchDays(days: readonly Day[], change: DayChange): Day[] {
     const day = days[i];
     if (!day) return [...days];
     const exercises = day.exercises
-      .map((e) => (e.exercise_id === change.exerciseId ? { ...e, sets: e.sets.filter((s) => s.id !== change.id) } : e))
+      .map((e) =>
+        e.exercise_id === change.exerciseId ? { ...e, sets: e.sets.filter((s) => s.id !== change.id) } : e,
+      )
       .filter((e) => e.sets.length > 0);
     const next = withTotal(day.date, exercises);
     return exercises.length === 0 ? days.filter((_, j) => j !== i) : days.map((d, j) => (j === i ? next : d));
@@ -84,6 +86,7 @@ export function applyDayChange(state: LocalRecords, change: DayChange, today: st
   if (change.date !== today) return { days, doneToday: state.doneToday };
 
   const sets =
-    days.find((d) => d.date === today)?.exercises.find((e) => e.exercise_id === change.exerciseId)?.sets ?? [];
+    days.find((d) => d.date === today)?.exercises.find((e) => e.exercise_id === change.exerciseId)?.sets ??
+    [];
   return { days, doneToday: new Map(state.doneToday).set(change.exerciseId, sets) };
 }

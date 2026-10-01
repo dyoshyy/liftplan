@@ -1,13 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import {
-  daysBetween,
-  heatLevel,
-  heatRows,
-  niceAxis,
-  shortDate,
-  weekTicks,
-  weightSeries,
-} from './chart';
+import { daysBetween, heatLevel, heatRows, niceAxis, shortDate, weekTicks, weightSeries } from './chart';
 import { tone, type DevDay, type DevResult, type DevSet, type DevWeek } from './simulate';
 
 const set = (over: Partial<DevSet>): DevSet => ({
@@ -200,9 +192,7 @@ describe('heatRows', () => {
 
   // 目標0を達成率0として塗ると、目標の無い区分が「不足」の色になる。
   it('目標が0のセルは達成率も段階も持たない', () => {
-    const rows = heatRows([
-      { index: 1, regions: [{ region: 'CALF', target: 0, done: 0 }] },
-    ]);
+    const rows = heatRows([{ index: 1, regions: [{ region: 'CALF', target: 0, done: 0 }] }]);
     expect(rows[0]?.cells[0]).toEqual({ week: 1, target: 0, done: 0, rate: null, level: null });
   });
 

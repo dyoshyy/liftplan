@@ -149,9 +149,7 @@ export function Today(props: Props) {
         />
       )}
 
-      {celebration && (
-        <PRCelebration key={celebration.seq} pr={celebration.pr} onDone={dismiss} />
-      )}
+      {celebration && <PRCelebration key={celebration.seq} pr={celebration.pr} onDone={dismiss} />}
     </div>
   );
 }

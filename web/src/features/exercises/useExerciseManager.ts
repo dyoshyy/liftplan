@@ -37,7 +37,6 @@ export function useExerciseManager(onChanged: () => Promise<void>) {
     void loadProgram();
     // 開いたときの1回だけ読む。伸ばしたい種目は設定側で変わりうるが、押す前に
     // 読める案内でしかなく、最後の砦はサーバーの400。
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // request はその場で送る。成否は describePutFailure が組む1行を note に置く。

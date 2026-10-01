@@ -1,4 +1,4 @@
-@import "tailwindcss";
+@import 'tailwindcss';
 
 /* ジムで使う器具としての画面。暗い側に振り切っている。
    照明の下でまぶしくないこと、有機ELで電池を食わないこと、
@@ -24,8 +24,8 @@
   --color-green: #4f9d63;
   --color-red: #c4453c;
 
-  --font-num: Oswald, "Zen Kaku Gothic New", sans-serif;
-  --font-sans: "Zen Kaku Gothic New", system-ui, sans-serif;
+  --font-num: Oswald, 'Zen Kaku Gothic New', sans-serif;
+  --font-sans: 'Zen Kaku Gothic New', system-ui, sans-serif;
 
   --radius-card: 14px;
 }
@@ -83,7 +83,7 @@
   }
 
   /* 数値入力のスピナーは指で押せる大きさにならない。ステッパーを別に置く。 */
-  input[type="number"] {
+  input[type='number'] {
     -moz-appearance: textfield;
   }
   input::-webkit-outer-spin-button,
@@ -108,12 +108,6 @@
     font-variant-numeric: tabular-nums;
   }
 
-
-
-
-
-
-
   .chip {
     padding: 8px 12px;
     border-radius: 999px;
@@ -123,13 +117,11 @@
     color: var(--color-muted);
   }
 
-  .chip[aria-pressed="true"] {
+  .chip[aria-pressed='true'] {
     background: color-mix(in srgb, var(--color-amber) 16%, transparent);
     border-color: color-mix(in srgb, var(--color-amber) 45%, transparent);
     color: var(--color-text);
   }
-
-
 
   .set {
     min-height: 64px;
@@ -170,9 +162,6 @@
   dialog::backdrop {
     background: rgb(0 0 0 / 0.66);
   }
-
-
-
 }
 
 /* ── 自己ベスト更新の演出 ────────────────────────────────────────
@@ -338,57 +327,124 @@
 }
 
 @keyframes pr-shake {
-  0%, 100% { transform: translate3d(0, 0, 0); }
-  12% { transform: translate3d(-9px, 4px, 0); }
-  28% { transform: translate3d(8px, -6px, 0); }
-  44% { transform: translate3d(-6px, -3px, 0); }
-  62% { transform: translate3d(5px, 4px, 0); }
-  80% { transform: translate3d(-3px, -2px, 0); }
+  0%,
+  100% {
+    transform: translate3d(0, 0, 0);
+  }
+  12% {
+    transform: translate3d(-9px, 4px, 0);
+  }
+  28% {
+    transform: translate3d(8px, -6px, 0);
+  }
+  44% {
+    transform: translate3d(-6px, -3px, 0);
+  }
+  62% {
+    transform: translate3d(5px, 4px, 0);
+  }
+  80% {
+    transform: translate3d(-3px, -2px, 0);
+  }
 }
 
 @keyframes pr-flash {
-  0% { opacity: 0.92; }
-  100% { opacity: 0; }
+  0% {
+    opacity: 0.92;
+  }
+  100% {
+    opacity: 0;
+  }
 }
 
 @keyframes pr-rays {
-  0% { transform: rotate(0deg) scale(0.2); opacity: 0; }
-  14% { opacity: 0.85; }
-  100% { transform: rotate(150deg) scale(1); opacity: 0; }
+  0% {
+    transform: rotate(0deg) scale(0.2);
+    opacity: 0;
+  }
+  14% {
+    opacity: 0.85;
+  }
+  100% {
+    transform: rotate(150deg) scale(1);
+    opacity: 0;
+  }
 }
 
 @keyframes pr-ring {
-  0% { transform: scale(0.15); opacity: 0.95; }
-  100% { transform: scale(3.4); opacity: 0; }
+  0% {
+    transform: scale(0.15);
+    opacity: 0.95;
+  }
+  100% {
+    transform: scale(3.4);
+    opacity: 0;
+  }
 }
 
 @keyframes pr-shard {
-  0% { transform: rotate(var(--a)) translateY(0) scale(0.35); opacity: 0; }
-  10% { opacity: 1; }
-  100% { transform: rotate(var(--a)) translateY(calc(var(--d) * -1)) rotate(var(--r)) scale(1); opacity: 0; }
+  0% {
+    transform: rotate(var(--a)) translateY(0) scale(0.35);
+    opacity: 0;
+  }
+  10% {
+    opacity: 1;
+  }
+  100% {
+    transform: rotate(var(--a)) translateY(calc(var(--d) * -1)) rotate(var(--r)) scale(1);
+    opacity: 0;
+  }
 }
 
 @keyframes pr-slam {
-  0% { transform: scale(2.6) rotate(-9deg); opacity: 0; }
-  55% { transform: scale(0.92) rotate(2deg); opacity: 1; }
-  100% { transform: scale(1) rotate(0deg); opacity: 1; }
+  0% {
+    transform: scale(2.6) rotate(-9deg);
+    opacity: 0;
+  }
+  55% {
+    transform: scale(0.92) rotate(2deg);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(1) rotate(0deg);
+    opacity: 1;
+  }
 }
 
 @keyframes pr-badge {
-  0%, 100% { transform: scale(1) rotate(-2deg); }
-  50% { transform: scale(1.1) rotate(2deg); }
+  0%,
+  100% {
+    transform: scale(1) rotate(-2deg);
+  }
+  50% {
+    transform: scale(1.1) rotate(2deg);
+  }
 }
 
 /* パロットは連続ではなく段で跳ねる。GIF のコマ送りに寄せる。 */
 @keyframes pr-parrot-hop {
-  0% { transform: translateY(0) rotate(-8deg) scaleX(1); }
-  25% { transform: translateY(-16px) rotate(0deg) scaleX(1); }
-  50% { transform: translateY(-22px) rotate(8deg) scaleX(-1); }
-  75% { transform: translateY(-16px) rotate(0deg) scaleX(-1); }
-  100% { transform: translateY(0) rotate(-8deg) scaleX(1); }
+  0% {
+    transform: translateY(0) rotate(-8deg) scaleX(1);
+  }
+  25% {
+    transform: translateY(-16px) rotate(0deg) scaleX(1);
+  }
+  50% {
+    transform: translateY(-22px) rotate(8deg) scaleX(-1);
+  }
+  75% {
+    transform: translateY(-16px) rotate(0deg) scaleX(-1);
+  }
+  100% {
+    transform: translateY(0) rotate(-8deg) scaleX(1);
+  }
 }
 
 @keyframes pr-parrot-hue {
-  0% { filter: hue-rotate(0deg); }
-  100% { filter: hue-rotate(360deg); }
+  0% {
+    filter: hue-rotate(0deg);
+  }
+  100% {
+    filter: hue-rotate(360deg);
+  }
 }

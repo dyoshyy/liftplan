@@ -21,9 +21,7 @@ export function UpdateBanner() {
       {/* Card の title は薄い灰色で、注意を引くカードには弱い。
           本文の1行目として普通の明るさで出す。 */}
       <p className="mb-1 font-bold">新しいバージョンがあります</p>
-      <Note className="mb-3">
-        記録の途中なら、終わってから押してください。押すまで今の画面のままです。
-      </Note>
+      <Note className="mb-3">記録の途中なら、終わってから押してください。押すまで今の画面のままです。</Note>
       {/* ボタンは quiet。カード自体が黄で主張しているので、塗りまで黄にすると
           強調が2箇所に割れる。黄は「その画面で一番やりたいこと」1つに使う。 */}
       <Button variant="quiet" onClick={() => void applyUpdate()}>

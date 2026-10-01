@@ -1,0 +1,34 @@
+#!/usr/bin/env bash
+# コミットされる web/ のファイルを prettier と eslint --fix で直し、
+# 直したものを同じコミットに入れ直す。直せない誤りだけが残って落ちる。
+#
+# 有効にするのは `pnpm install`（web/package.json の prepare）。
+# 手で入れるなら: git config core.hooksPath .githooks
+set -euo pipefail
+
+root=$(git rev-parse --show-toplevel)
+cd "$root/web"
+
+# ルートからのパスで集め、web/ を外した形も作る。git は常にルート基準で呼ぶ
+# （cwd や GIT_PREFIX に依存すると、add が別の場所のパスを作る）。
+mapfile -t staged < <(git -C "$root" diff --cached --name-only --diff-filter=ACMR -- web ':!web/pnpm-lock.yaml')
+[ ${#staged[@]} -gt 0 ] || exit 0
+files=("${staged[@]#web/}")
+
+lintable=()
+for f in "${files[@]}"; do
+  case "$f" in *.ts | *.tsx | *.js | *.mjs) lintable+=("$f") ;; esac
+done
+
+# 未ステージの変更が残っているファイルを直して add し直すと、
+# git add -p で外したはずの差分までコミットに入る。その場合は検査だけにする。
+if [ -n "$(git -C "$root" diff --name-only -- "${staged[@]}")" ]; then
+  echo "pre-commit: 未ステージの変更があるため自動修正せず検査だけ行う" >&2
+  pnpm exec prettier --check --ignore-unknown "${files[@]}"
+  [ ${#lintable[@]} -eq 0 ] || pnpm exec eslint "${lintable[@]}"
+  exit 0
+fi
+
+pnpm exec prettier --write --ignore-unknown "${files[@]}" >/dev/null
+[ ${#lintable[@]} -eq 0 ] || pnpm exec eslint --fix "${lintable[@]}"
+git -C "$root" add -- "${staged[@]}"

@@ -118,7 +118,17 @@ describe('draftProblem', () => {
   });
 
   it('区分は合わせて8つまで', () => {
-    const regions = ['LAT', 'TRAP_MID', 'TRAP_UPPER', 'ERECTOR', 'BICEPS', 'FOREARM', 'REAR_DELT', 'SIDE_DELT', 'ABS'];
+    const regions = [
+      'LAT',
+      'TRAP_MID',
+      'TRAP_UPPER',
+      'ERECTOR',
+      'BICEPS',
+      'FOREARM',
+      'REAR_DELT',
+      'SIDE_DELT',
+      'ABS',
+    ];
     const stimulus = Object.fromEntries(regions.map((r, i) => [r, i === 0 ? 1 : 0.5]));
     expect(draftProblem(withStimulus(stimulus))).toMatch(/8/);
     delete stimulus.ABS;

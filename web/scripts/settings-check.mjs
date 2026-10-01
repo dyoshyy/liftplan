@@ -23,18 +23,27 @@ const realAccount = await fetch(`${API}/api/account`, { headers: auth }).then((r
 console.log('本物の /api/account:', JSON.stringify(realAccount), '（期待 {"accounts":[]}）');
 console.log('保存前: per_week =', before.per_week, '/ declared =', before.declared_exercises.length, '件');
 
-const browser = await chromium.launch({ executablePath: process.env.CHROME ?? '/usr/bin/chromium', args: ['--no-sandbox'] });
+const browser = await chromium.launch({
+  executablePath: process.env.CHROME ?? '/usr/bin/chromium',
+  args: ['--no-sandbox'],
+});
 const page = await (await browser.newContext({ viewport: { width: 390, height: 844 } })).newPage();
 const errs = [];
 page.on('pageerror', (e) => errs.push(e.message));
-page.on('console', (m) => { if (m.type() === 'error') errs.push(m.text()); });
-await page.route('**/api/account', (route) => route.fulfill({
-  contentType: 'application/json',
-  body: JSON.stringify({ accounts: [
-    { provider: 'github', email: 'gym@example.com' },
-    { provider: 'google', email: 'gym@example.com' },
-  ] }),
-}));
+page.on('console', (m) => {
+  if (m.type() === 'error') errs.push(m.text());
+});
+await page.route('**/api/account', (route) =>
+  route.fulfill({
+    contentType: 'application/json',
+    body: JSON.stringify({
+      accounts: [
+        { provider: 'github', email: 'gym@example.com' },
+        { provider: 'google', email: 'gym@example.com' },
+      ],
+    }),
+  }),
+);
 
 // ログインはフラグメントで済ませる。/auth/* を通すとプロバイダの画面が
 // 挟まり、自動では抜けられない。#token= はサーバーがコールバックで戻して
@@ -54,7 +63,13 @@ await page.waitForTimeout(2500);
 
 const after = await program();
 console.log('保存後: per_week =', after.per_week, '（期待', want, '）');
-console.log('他が壊れていないか: declared =', after.declared_exercises.length, '件 / selected =', after.selected_exercises.length, '件');
+console.log(
+  '他が壊れていないか: declared =',
+  after.declared_exercises.length,
+  '件 / selected =',
+  after.selected_exercises.length,
+  '件',
+);
 
 // 元に戻す
 await page.selectOption(FREQ, String(before.per_week));
@@ -69,7 +84,17 @@ const wantEx = restored.exercises_per_session === 4 ? 5 : 4;
 await page.selectOption(EX, String(wantEx));
 await page.waitForTimeout(2500);
 const vol = await program();
-console.log('1回の量: ', vol.exercises_per_session, '種目 ×', vol.sets_per_exercise, 'セット（期待', wantEx, '種目 ×', restored.sets_per_exercise, 'セット）');
+console.log(
+  '1回の量: ',
+  vol.exercises_per_session,
+  '種目 ×',
+  vol.sets_per_exercise,
+  'セット（期待',
+  wantEx,
+  '種目 ×',
+  restored.sets_per_exercise,
+  'セット）',
+);
 await page.selectOption(EX, String(restored.exercises_per_session));
 await page.waitForTimeout(2000);
 const volRestored = await program();
@@ -116,8 +141,11 @@ const rowButtonsVisible =
 console.log(
   '一覧1行目の編集/使うが390px内:',
   rowButtonsVisible,
-  '（編集 right =', editBox ? Math.round(editBox.x + editBox.width) : null,
-  '/ 使う right =', useBox ? Math.round(useBox.x + useBox.width) : null, '）',
+  '（編集 right =',
+  editBox ? Math.round(editBox.x + editBox.width) : null,
+  '/ 使う right =',
+  useBox ? Math.round(useBox.x + useBox.width) : null,
+  '）',
 );
 
 await addTop.click();
@@ -137,8 +165,14 @@ const inList = await page.getByText(CUSTOM, { exact: true }).count();
 // 種目マスタ（/api/exercises）とは別の口（/api/program）で見る。
 const afterAdd = await program();
 const addedInUse = added !== undefined && afterAdd.selected_exercises.includes(added.id);
-console.log('足した種目:', JSON.stringify(added ? { stimulus: added.stimulus } : null), '/ 一覧に出た数 =', inList,
-  '/ 使う種目に入った', addedInUse);
+console.log(
+  '足した種目:',
+  JSON.stringify(added ? { stimulus: added.stimulus } : null),
+  '/ 一覧に出た数 =',
+  inList,
+  '/ 使う種目に入った',
+  addedInUse,
+);
 
 // 直す。同じ編集フォームが、押した種目の値で開くはず。
 await page.getByRole('button', { name: `${CUSTOM}を編集` }).click();
@@ -151,25 +185,41 @@ const afterEditList = (await exercises()).exercises;
 const edited = afterEditList.find((e) => e.id === added?.id);
 const oldNameGone = (await page.getByText(CUSTOM, { exact: true }).count()) === 0;
 const newNameThere = (await page.getByText(RENAMED, { exact: true }).count()) === 1;
-console.log('直した後: name =', edited?.name, '（期待', RENAMED, '）/ 古い名前が消えた', oldNameGone, '/ 新しい名前が出た', newNameThere);
+console.log(
+  '直した後: name =',
+  edited?.name,
+  '（期待',
+  RENAMED,
+  '）/ 古い名前が消えた',
+  oldNameGone,
+  '/ 新しい名前が出た',
+  newNameThere,
+);
 
 // 消す口は無い。使う種目から外す（使わない）と、計画にも出なくなる。
 // 「使う」ボタンは aria-pressed で状態を持つ。
-const useBtn = (name) => page.getByRole('button', { name: `${name}を使う`, exact: true });
-const pressed = async (name) => (await useBtn(name).getAttribute('aria-pressed')) === 'true';
+const toggleOf = (name) => page.getByRole('button', { name: `${name}を使う`, exact: true });
+const pressed = async (name) => (await toggleOf(name).getAttribute('aria-pressed')) === 'true';
 
 const noDeleteButton = (await page.getByRole('button', { name: /削除/ }).count()) === 0;
 console.log('削除のボタンが無い:', noDeleteButton, '（期待 true）');
 
 const customInUseBefore = await pressed(RENAMED);
-await useBtn(RENAMED).click();
+await toggleOf(RENAMED).click();
 await page.waitForTimeout(1500);
 const afterHide = await program();
 const customHidden = added !== undefined && !afterHide.selected_exercises.includes(added.id);
 const stillThere = (await exercises()).exercises.find((e) => e.id === added?.id);
-console.log('使わないにした: 前は使う', customInUseBefore, '/ selected から外れた', customHidden,
-  '/ 種目そのものは残る deleted =', stillThere?.deleted, '（期待 undefined か false）');
-await useBtn(RENAMED).click();
+console.log(
+  '使わないにした: 前は使う',
+  customInUseBefore,
+  '/ selected から外れた',
+  customHidden,
+  '/ 種目そのものは残る deleted =',
+  stillThere?.deleted,
+  '（期待 undefined か false）',
+);
+await toggleOf(RENAMED).click();
 await page.waitForTimeout(1500);
 const afterShow = await program();
 const customShown = added !== undefined && afterShow.selected_exercises.includes(added.id);
@@ -178,7 +228,7 @@ console.log('また使うにした: selected に戻った', customShown);
 // プリセット由来も同じ。既定では伸ばしたい種目に入っていない
 // （seed.DefaultDeclared）ので、外せるはず。
 const presetInUseBefore = await pressed(PRESET);
-await useBtn(PRESET).click();
+await toggleOf(PRESET).click();
 await page.waitForTimeout(1500);
 const presetId = (await exercises()).exercises.find((e) => e.name === PRESET)?.id;
 const presetHidden = !(await program()).selected_exercises.includes(presetId);
@@ -186,7 +236,7 @@ console.log('プリセットを使わないにした: 前は使う', presetInUse
 
 // 伸ばしたい種目は外せない。理由が出て、押せない。
 const BENCH = 'ベンチプレス';
-const benchLocked = await useBtn(BENCH).isDisabled();
+const benchLocked = await toggleOf(BENCH).isDisabled();
 console.log('伸ばしたい種目（ベンチプレス）は外せない（disabled）:', benchLocked, '（期待 true）');
 
 // 設定へ戻ると、外した種目は「伸ばしたい種目」の候補から消えている。
@@ -202,17 +252,32 @@ console.log('畳んだ要約 =', summary);
 // 元に戻す（インメモリでも、続けて回す検査のため）。
 await page.getByRole('button', { name: '種目を管理する' }).click();
 await page.waitForTimeout(1200);
-await useBtn(PRESET).click();
+await toggleOf(PRESET).click();
 await page.waitForTimeout(1500);
 const restoredSelected = (await program()).selected_exercises.length;
 await page.getByRole('button', { name: '← 設定' }).click();
 await page.waitForTimeout(1500);
 
-const customOk = added !== undefined && added.stimulus.TRAP_MID === 1 && added.stimulus.LAT === 0.5
-  && inList === 1 && addedInUse && edited?.name === RENAMED && oldNameGone && newNameThere
-  && noDeleteButton && customInUseBefore && customHidden && stillThere?.deleted !== true && customShown;
-const presetOk = presetInUseBefore && presetHidden && benchLocked && leftInGrow === 0
-  && restoredSelected === before.selected_exercises.length + 1;
+const customOk =
+  added !== undefined &&
+  added.stimulus.TRAP_MID === 1 &&
+  added.stimulus.LAT === 0.5 &&
+  inList === 1 &&
+  addedInUse &&
+  edited?.name === RENAMED &&
+  oldNameGone &&
+  newNameThere &&
+  noDeleteButton &&
+  customInUseBefore &&
+  customHidden &&
+  stillThere?.deleted !== true &&
+  customShown;
+const presetOk =
+  presetInUseBefore &&
+  presetHidden &&
+  benchLocked &&
+  leftInGrow === 0 &&
+  restoredSelected === before.selected_exercises.length + 1;
 await exHeader.click();
 await page.waitForTimeout(300);
 
@@ -225,14 +290,23 @@ const signedInAs = await page.getByText('gym@example.com（GitHub・Google）で
 console.log('アカウント: 畳んだ見出し =', accountSummary, '/ 開いた中の1行', signedInAs, '（期待 true）');
 
 console.log('エラー:', errs.length ? errs.join('\n') : '(なし)');
-const ok = after.per_week === want && after.declared_exercises.length === before.declared_exercises.length && restored.per_week === before.per_week
-  && vol.exercises_per_session === wantEx && vol.sets_per_exercise === restored.sets_per_exercise
-  && volRestored.exercises_per_session === restored.exercises_per_session
-  && after.selected_exercises.length === before.selected_exercises.length
-  && !settingsHasUseGroup
-  && Array.isArray(realAccount.accounts) && realAccount.accounts.length === 0
-  && accountSummary.includes('gym@example.com') && signedInAs
-  && exercisesPageOpened && rowButtonsVisible && customOk && presetOk;
+const ok =
+  after.per_week === want &&
+  after.declared_exercises.length === before.declared_exercises.length &&
+  restored.per_week === before.per_week &&
+  vol.exercises_per_session === wantEx &&
+  vol.sets_per_exercise === restored.sets_per_exercise &&
+  volRestored.exercises_per_session === restored.exercises_per_session &&
+  after.selected_exercises.length === before.selected_exercises.length &&
+  !settingsHasUseGroup &&
+  Array.isArray(realAccount.accounts) &&
+  realAccount.accounts.length === 0 &&
+  accountSummary.includes('gym@example.com') &&
+  signedInAs &&
+  exercisesPageOpened &&
+  rowButtonsVisible &&
+  customOk &&
+  presetOk;
 console.log(ok ? '\n✓ 設定の保存は壊れていない' : '\n✗ 壊れている');
 await browser.close();
 process.exit(ok ? 0 : 1);

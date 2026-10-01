@@ -3,9 +3,20 @@ import type { Exercise, PlannedSet, RecordedSet } from '../../api/types';
 import { adhocCards, belowPlan, pickableExercises, withPicked } from './adhoc';
 
 const ex = (id: string, name: string): Exercise => ({ id, name, increment_kg: 2.5, stimulus: {} });
-const plan = (id: string): PlannedSet => ({ exercise_id: id, weight_kg: null, sets: 3, target_rir: 2, target_reps: 10 });
+const plan = (id: string): PlannedSet => ({
+  exercise_id: id,
+  weight_kg: null,
+  sets: 3,
+  target_rir: 2,
+  target_reps: 10,
+});
 
-const all = [ex('bench', 'ベンチプレス'), ex('squat', 'スクワット'), ex('dip', 'ディップス'), ex('curl', 'バーベルカール')];
+const all = [
+  ex('bench', 'ベンチプレス'),
+  ex('squat', 'スクワット'),
+  ex('dip', 'ディップス'),
+  ex('curl', 'バーベルカール'),
+];
 
 describe('pickableExercises', () => {
   // 使わない種目は計画にも出ないので、選んで記録のシートにも出さない。
@@ -50,7 +61,12 @@ describe('pickableExercises', () => {
   });
 
   it('サーバーが返した並びを崩さない', () => {
-    expect(pickableExercises(all, [[]], '', null).map((e) => e.id)).toEqual(['bench', 'squat', 'dip', 'curl']);
+    expect(pickableExercises(all, [[]], '', null).map((e) => e.id)).toEqual([
+      'bench',
+      'squat',
+      'dip',
+      'curl',
+    ]);
   });
 
   it('一致するものが無ければ空', () => {
@@ -72,7 +88,9 @@ describe('withPicked', () => {
 describe('adhocCards', () => {
   it('選んだ種目を、重量未定・セット数0の計画として返す', () => {
     const got = adhocCards(['dip'], [[]]);
-    expect(got).toEqual([{ exercise_id: 'dip', weight_kg: null, sets: 0, target_rir: 2, target_reps: 0, adhoc: true }]);
+    expect(got).toEqual([
+      { exercise_id: 'dip', weight_kg: null, sets: 0, target_rir: 2, target_reps: 0, adhoc: true },
+    ]);
   });
 
   // 選んだあとで予定に入った（計画を取り直した）種目は、予定のカードに

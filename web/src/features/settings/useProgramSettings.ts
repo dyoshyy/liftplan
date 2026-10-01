@@ -51,7 +51,6 @@ export function useProgramSettings(onChanged: () => Promise<void>) {
     void load();
     // load は描画ごとに作り直されるので、依存に入れると読むたびに読み直す。
     // load 自体は二度読みを見張らないので、初回だけに絞るのはこの [] の役目。
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // 取りに行く。呼ぶのは画面を開いたときの1回だけ。
@@ -98,7 +97,8 @@ export function useProgramSettings(onChanged: () => Promise<void>) {
   };
 
   // put は1フィールドだけの口へ送る。成否をそのまま返す。
-  const put = async (path: string, body: unknown): Promise<boolean> => (await request(path, 'PUT', body)) !== null;
+  const put = async (path: string, body: unknown): Promise<boolean> =>
+    (await request(path, 'PUT', body)) !== null;
 
   const chooseFocus = async (id: string) => {
     if (!program || busy) return;
