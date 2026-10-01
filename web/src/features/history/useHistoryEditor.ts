@@ -40,7 +40,13 @@ export function planHistoryEdit(target: EditTarget, values: SetValues): EditPlan
   });
   return {
     queue: plan.queue,
-    change: { kind: 'put', date: target.date, exerciseId: target.exerciseId, name: target.name, set: plan.local.set },
+    change: {
+      kind: 'put',
+      date: target.date,
+      exerciseId: target.exerciseId,
+      name: target.name,
+      set: plan.local.set,
+    },
   };
 }
 

@@ -1,12 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import {
-  beepTones,
-  clampVolume,
-  DEFAULT_VOLUME,
-  parseVolume,
-  peakGain,
-  volumeSummary,
-} from './volume';
+import { beepTones, clampVolume, DEFAULT_VOLUME, parseVolume, peakGain, volumeSummary } from './volume';
 
 describe('peakGain', () => {
   // 音量を足す前は、ピークを 0.25 に固定していた。既定の音量がこれと違うと、

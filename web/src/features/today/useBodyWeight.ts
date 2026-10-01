@@ -20,10 +20,7 @@ export function parseBodyWeight(raw: string): number | null {
 //
 // 単純な数値が1つあるだけの入力で、置き場所も決まっている。押せない理由は
 // 見れば分かるので、文で言う必要がない。
-export function useBodyWeight(
-  enqueue: (item: QueueItem) => Promise<void>,
-  recorded: number | undefined,
-) {
+export function useBodyWeight(enqueue: (item: QueueItem) => Promise<void>, recorded: number | undefined) {
   const [value, setValue] = useState('');
   const [justSaved, setJustSaved] = useState<number | undefined>(undefined);
   const [editing, setEditing] = useState(false);

@@ -8,7 +8,10 @@ const { chromium } = await import(process.env.PLAYWRIGHT ?? 'playwright-core');
 const APP = process.env.APP ?? 'http://localhost:4173';
 const TOKEN = 'dev-token-0123456789abcdef0123456789ab';
 const results = [];
-const check = (n, ok, d = '') => { results.push({ n, ok, d }); console.log(`${ok ? '✓' : '✗'} ${n}${d ? ' — ' + d : ''}`); };
+const check = (n, ok, d = '') => {
+  results.push({ n, ok, d });
+  console.log(`${ok ? '✓' : '✗'} ${n}${d ? ' — ' + d : ''}`);
+};
 
 // 静的な確認：useForecast が Outbox（送信の待ち行列）を使っていないこと。
 // 実行時ではなくソースを直接見る。
@@ -23,11 +26,16 @@ const fs = await import('node:fs');
 const hookSrc = fs.readFileSync(new URL('../src/features/forecast/useForecast.ts', import.meta.url), 'utf8');
 check('useForecast が Outbox を使っていない', !hookSrc.includes('outbox'));
 
-const browser = await chromium.launch({ executablePath: process.env.CHROME ?? '/usr/bin/chromium', args: ['--no-sandbox'] });
+const browser = await chromium.launch({
+  executablePath: process.env.CHROME ?? '/usr/bin/chromium',
+  args: ['--no-sandbox'],
+});
 const page = await (await browser.newContext({ viewport: { width: 390, height: 844 } })).newPage();
 const errs = [];
 page.on('pageerror', (e) => errs.push('pageerror: ' + e.message));
-page.on('console', (m) => { if (m.type() === 'error') errs.push(m.text()); });
+page.on('console', (m) => {
+  if (m.type() === 'error') errs.push(m.text());
+});
 
 await page.goto(`${APP}/#token=${TOKEN}`);
 await page.waitForTimeout(2500);

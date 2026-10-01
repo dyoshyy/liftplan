@@ -19,17 +19,25 @@ const { chromium } = await import(process.env.PLAYWRIGHT ?? 'playwright-core');
 const WEB = process.env.WEB ?? new URL('..', import.meta.url).pathname;
 const BUILD = 'VITE_API_BASE=https://liftplan-server-vjeuvyzwlq-as.a.run.app pnpm build';
 
-const states = (page) => page.evaluate(async () => {
-  const r = await navigator.serviceWorker.getRegistration();
-  return { installing: r?.installing?.state ?? null, waiting: r?.waiting?.state ?? null, active: r?.active?.state ?? null };
-});
+const states = (page) =>
+  page.evaluate(async () => {
+    const r = await navigator.serviceWorker.getRegistration();
+    return {
+      installing: r?.installing?.state ?? null,
+      waiting: r?.waiting?.state ?? null,
+      active: r?.active?.state ?? null,
+    };
+  });
 
 // まず v1 を作る。前回の実行が dist に v2 を残していると、同じものを
 // 配ることになって更新が検知されない。
 execSync("sed -i 's|<title>liftplan v2</title>|<title>liftplan</title>|' index.html", { cwd: WEB });
 execSync(BUILD, { cwd: WEB, stdio: 'ignore', shell: '/bin/bash' });
 
-const browser = await chromium.launch({ executablePath: process.env.CHROME ?? '/usr/bin/chromium', args: ['--no-sandbox'] });
+const browser = await chromium.launch({
+  executablePath: process.env.CHROME ?? '/usr/bin/chromium',
+  args: ['--no-sandbox'],
+});
 const page = await (await browser.newContext()).newPage();
 const errs = [];
 page.on('pageerror', (e) => errs.push(e.message));
@@ -43,7 +51,10 @@ await page.waitForTimeout(1200);
 await page.reload();
 await page.waitForTimeout(1500);
 console.log('制御下にあるか:', await page.evaluate(() => navigator.serviceWorker.controller !== null));
-console.log('SW 登録数（トークン未入力）:', await page.evaluate(async () => (await navigator.serviceWorker.getRegistrations()).length));
+console.log(
+  'SW 登録数（トークン未入力）:',
+  await page.evaluate(async () => (await navigator.serviceWorker.getRegistrations()).length),
+);
 console.log('v1 の状態:', JSON.stringify(await states(page)));
 console.log('バナー（まだ出ないはず）:', await page.locator('text=新しいバージョンがあります').count());
 
@@ -73,7 +84,12 @@ if (shown) {
   await page.click('text=新しいバージョンにする');
   await page.waitForTimeout(8000);
   console.log('押したあとのタイトル:', await page.title(), '（v2 になっていれば新しいバージョンが有効）');
-  console.log('押したあと: バナー=', await page.locator('text=新しいバージョンがあります').count(), '状態=', JSON.stringify(await states(page)));
+  console.log(
+    '押したあと: バナー=',
+    await page.locator('text=新しいバージョンがあります').count(),
+    '状態=',
+    JSON.stringify(await states(page)),
+  );
 }
 console.log('エラー:', errs.length ? errs.join('\n') : '(なし)');
 // 後片付け。index.html を戻し、dist も v1 に戻しておく。

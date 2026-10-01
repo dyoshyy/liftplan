@@ -2,22 +2,15 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { readJSON, restKeys, writeJSON } from '../../storage/local';
 import { askNotificationPermission, beep, notifyRestOver, primeSound } from './alert';
 import { clampVolume, DEFAULT_VOLUME } from './volume';
-import {
-  clampDuration,
-  DEFAULT_DURATION_SEC,
-  remainingMs,
-  type RestState,
-} from './rest';
+import { clampDuration, DEFAULT_DURATION_SEC, remainingMs, type RestState } from './rest';
 
 /** TICK_MS は表示の更新間隔。秒を出すだけなので 250ms で十分。
  *  1000ms にすると、秒の変わり目が最大1秒ずれて見える。 */
 const TICK_MS = 250;
 
-const loadDuration = (): number =>
-  clampDuration(readJSON<number>(restKeys.duration) ?? DEFAULT_DURATION_SEC);
+const loadDuration = (): number => clampDuration(readJSON<number>(restKeys.duration) ?? DEFAULT_DURATION_SEC);
 
-const loadVolume = (): number =>
-  clampVolume(readJSON<number>(restKeys.volume) ?? DEFAULT_VOLUME);
+const loadVolume = (): number => clampVolume(readJSON<number>(restKeys.volume) ?? DEFAULT_VOLUME);
 
 const loadState = (duration: number): RestState => {
   const saved = readJSON<RestState>(restKeys.state);
@@ -87,17 +80,14 @@ export function useRestTimer() {
     save({ kind: 'idle', durationSec });
   }, [durationSec, save]);
 
-  const setDurationSec = useCallback(
-    (sec: number) => {
-      const next = clampDuration(sec);
-      setDurationSecState(next);
-      writeJSON(restKeys.duration, next);
-      // 動いていないときは表示にも即座に効かせる。動いている最中に
-      // 変えたら、次に始めたときから効く（走っているものを伸び縮みさせない）。
-      setState((s) => (s.kind === 'idle' ? { kind: 'idle', durationSec: next } : s));
-    },
-    [],
-  );
+  const setDurationSec = useCallback((sec: number) => {
+    const next = clampDuration(sec);
+    setDurationSecState(next);
+    writeJSON(restKeys.duration, next);
+    // 動いていないときは表示にも即座に効かせる。動いている最中に
+    // 変えたら、次に始めたときから効く（走っているものを伸び縮みさせない）。
+    setState((s) => (s.kind === 'idle' ? { kind: 'idle', durationSec: next } : s));
+  }, []);
 
   // 音量は次に鳴る合図から効く。保存して、開き直しても残す。
   const setVolume = useCallback((next: number) => {

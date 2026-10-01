@@ -58,15 +58,15 @@ node scripts/forecast-check.mjs     # この先の予定（今日のリンク・
 
 ## 分割
 
-| 場所 | 役割 | 何を知らないか |
-|---|---|---|
-| `src/api/` | fetch と契約の型 | 画面を知らない |
-| `src/outbox/` | 送信の待ち行列（IndexedDB） | **React も fetch も知らない** |
-| `src/domain/` | 日付・セットの整形・区分の日本語 | React も fetch も知らない |
-| `src/storage/` | localStorage（トークン） | 画面を知らない |
-| `src/features/` | 今日・履歴・最初の設定 | — |
-| `src/ui/` | 画面をまたぐ部品（Button / Card / Field / Stepper） | 画面の事情を知らない |
-| `src/app/` | 画面の骨組みと状態表示 | — |
+| 場所            | 役割                                                | 何を知らないか                |
+| --------------- | --------------------------------------------------- | ----------------------------- |
+| `src/api/`      | fetch と契約の型                                    | 画面を知らない                |
+| `src/outbox/`   | 送信の待ち行列（IndexedDB）                         | **React も fetch も知らない** |
+| `src/domain/`   | 日付・セットの整形・区分の日本語                    | React も fetch も知らない     |
+| `src/storage/`  | localStorage（トークン）                            | 画面を知らない                |
+| `src/features/` | 今日・履歴・最初の設定                              | —                             |
+| `src/ui/`       | 画面をまたぐ部品（Button / Card / Field / Stepper） | 画面の事情を知らない          |
+| `src/app/`      | 画面の骨組みと状態表示                              | —                             |
 
 **`features/history/` はまだどこからも呼ばれていない。**部品だけがある状態で、
 どこから行くかはナビゲーションの設計を待っている（D-127）。

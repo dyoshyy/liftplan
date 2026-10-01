@@ -31,7 +31,10 @@ const APP = process.env.APP ?? 'http://localhost:4173';
 const TOKEN = 'dev-token-0123456789abcdef0123456789ab';
 
 const results = [];
-const check = (n, ok, d = '') => { results.push({ n, ok, d }); console.log(`${ok ? '✓' : '✗'} ${n}${d ? ' — ' + d : ''}`); };
+const check = (n, ok, d = '') => {
+  results.push({ n, ok, d });
+  console.log(`${ok ? '✓' : '✗'} ${n}${d ? ' — ' + d : ''}`);
+};
 
 // 前回の実行が残した記録を消す。
 //
@@ -53,11 +56,18 @@ for (const s of existing) {
 }
 console.log(`（前回の記録を ${existing.length} 件消した）\n`);
 
-const browser = await chromium.launch({ executablePath: process.env.CHROME ?? '/usr/bin/chromium', args: ['--no-sandbox'] });
-const page = await (await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2 })).newPage();
+const browser = await chromium.launch({
+  executablePath: process.env.CHROME ?? '/usr/bin/chromium',
+  args: ['--no-sandbox'],
+});
+const page = await (
+  await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2 })
+).newPage();
 const errs = [];
 page.on('pageerror', (e) => errs.push('pageerror: ' + e.message));
-page.on('console', (m) => { if (m.type() === 'error') errs.push(m.text()); });
+page.on('console', (m) => {
+  if (m.type() === 'error') errs.push(m.text());
+});
 
 // ログインはフラグメントで済ませる。/auth/* を通すとプロバイダの画面が
 // 挟まり、自動では抜けられない。#token= はサーバーがコールバックで戻して

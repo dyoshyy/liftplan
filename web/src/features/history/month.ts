@@ -41,8 +41,7 @@ export function monthLabel(m: Month): string {
 export const canGoNext = (m: Month, today: string): boolean => m < monthOf(today);
 
 /** daysIn はその月の日だけを返す。並び（新しい順）は変えない。 */
-export const daysIn = (days: readonly Day[], m: Month): Day[] =>
-  days.filter((d) => monthOf(d.date) === m);
+export const daysIn = (days: readonly Day[], m: Month): Day[] => days.filter((d) => monthOf(d.date) === m);
 
 export type MonthSummary = { sessions: number; sets: number };
 
@@ -51,10 +50,7 @@ export function summarize(days: readonly Day[]): MonthSummary {
   return { sessions: days.length, sets: days.reduce((a, d) => a + d.total_sets, 0) };
 }
 
-export type MonthLoad =
-  | { kind: 'recent' }
-  | { kind: 'cached' }
-  | { kind: 'fetch'; path: string };
+export type MonthLoad = { kind: 'recent' } | { kind: 'cached' } | { kind: 'fetch'; path: string };
 
 /** planMonthLoad はその月の記録をどこから持ってくるかを決める。
  *

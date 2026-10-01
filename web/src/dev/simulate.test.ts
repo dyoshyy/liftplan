@@ -48,7 +48,13 @@ describe('buildQuery', () => {
     }
 
     const got = new URLSearchParams(
-      buildQuery({ ...defaultForm, growth: 0, firstPct: 60, bodyWeight: 82, orm: { squat: 150, bench: 110 } }),
+      buildQuery({
+        ...defaultForm,
+        growth: 0,
+        firstPct: 60,
+        bodyWeight: 82,
+        orm: { squat: 150, bench: 110 },
+      }),
     );
     // 0 は「伸びない」という設定で、未指定ではない。
     expect(got.get('growth')).toBe('0');

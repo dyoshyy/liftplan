@@ -25,7 +25,14 @@ describe('liftLine', () => {
       points: [
         point({ date: '2026-08-03', kg: 70, reps: 12, prescribedKg: null, chosen: true, athlete1rm: 100 }),
         point({ date: '2026-08-07', kg: 82.5, reps: 5, prescribedKg: 82.5, athlete1rm: 100.3 }),
-        point({ date: '2026-08-09', lane: 'variation', kg: 75, reps: 8, prescribedKg: 75, athlete1rm: 100.4 }),
+        point({
+          date: '2026-08-09',
+          lane: 'variation',
+          kg: 75,
+          reps: 8,
+          prescribedKg: 75,
+          athlete1rm: 100.4,
+        }),
         point({ date: '2026-08-14', kg: 90, reps: 2, prescribedKg: 90, athlete1rm: 104 }),
       ],
     });

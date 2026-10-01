@@ -74,16 +74,23 @@ const ctx = await browser.newContext({ viewport: { width: 390, height: 844 } });
 const page = await ctx.newPage();
 const errors = [];
 page.on('pageerror', (e) => errors.push('pageerror: ' + e.message));
-page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
-
-const queueDump = () => page.evaluate(async () => {
-  const req = indexedDB.open('liftplan', 1);
-  await new Promise((r) => { req.onsuccess = r; });
-  const tx = req.result.transaction('queue', 'readonly');
-  const all = tx.objectStore('queue').getAll();
-  await new Promise((r) => { tx.oncomplete = r; });
-  return all.result.map((i) => `${i.method ?? 'POST'} ${i.path}`);
+page.on('console', (m) => {
+  if (m.type() === 'error') errors.push(m.text());
 });
+
+const queueDump = () =>
+  page.evaluate(async () => {
+    const req = indexedDB.open('liftplan', 1);
+    await new Promise((r) => {
+      req.onsuccess = r;
+    });
+    const tx = req.result.transaction('queue', 'readonly');
+    const all = tx.objectStore('queue').getAll();
+    await new Promise((r) => {
+      tx.oncomplete = r;
+    });
+    return all.result.map((i) => `${i.method ?? 'POST'} ${i.path}`);
+  });
 
 const record = async (setIndex, weight, reps) => {
   await page.locator('button.set').nth(setIndex).click();
@@ -124,20 +131,23 @@ await record(1, 100, 7);
 
 const offlineStatus = await syncLabel();
 console.log('  待ち行列:', JSON.stringify(await queueDump()));
-check('圏外でも記録が手元に残る',
+check(
+  '圏外でも記録が手元に残る',
   (await page.locator('button.set').nth(0).innerText()).includes('100'),
-  offlineStatus);
-check('圏外で未送信件数が出る', /未送信\s*2/.test(offlineStatus.replace(/\s+/g,' ')) || /オフライン/.test(offlineStatus),
-  offlineStatus);
+  offlineStatus,
+);
+check(
+  '圏外で未送信件数が出る',
+  /未送信\s*2/.test(offlineStatus.replace(/\s+/g, ' ')) || /オフライン/.test(offlineStatus),
+  offlineStatus,
+);
 check('圏外では実際にサーバーへ届いていない', (await serverSets(today())).length === before);
 
 // --- 2. 圏外のまま再読み込みしても消えないか（一番怖い経路）---
 await page.reload();
 await page.waitForTimeout(2500);
 const afterReload = await syncLabel();
-check('圏外で再読み込みしても未送信が残っている',
-  /未送信 2 件/.test(afterReload),
-  afterReload);
+check('圏外で再読み込みしても未送信が残っている', /未送信 2 件/.test(afterReload), afterReload);
 
 // --- 3. 復帰したら送られるか ---
 await ctx.setOffline(false);
@@ -147,14 +157,15 @@ await page.waitForTimeout(2500);
 
 // 復帰したらメニューが自分で戻ってくること。
 // 「更新」を押さないと出ないなら、ジムで開いて何も出ないのと同じ。
-check('復帰後にメニューが自動で戻る', (await page.locator('button.set').count()) > 0,
-  `button.set = ${await page.locator('button.set').count()}`);
+check(
+  '復帰後にメニューが自動で戻る',
+  (await page.locator('button.set').count()) > 0,
+  `button.set = ${await page.locator('button.set').count()}`,
+);
 
 const afterOnline = await serverSets(today());
-check('復帰後にサーバーへ届く', afterOnline.length === before + 2,
-  `${before} → ${afterOnline.length}`);
-check('復帰後は同期済みになる', /同期済み/.test(await syncLabel()),
-  await syncLabel());
+check('復帰後にサーバーへ届く', afterOnline.length === before + 2, `${before} → ${afterOnline.length}`);
+check('復帰後は同期済みになる', /同期済み/.test(await syncLabel()), await syncLabel());
 
 // --- 4. 二重送信していないか ---
 const ids = afterOnline.map((s) => s.id);
@@ -164,33 +175,44 @@ check('IDが重複していない', new Set(ids).size === ids.length, ids.join('
 await record(0, 105, 8);
 await page.waitForTimeout(1200);
 const afterEdit = await serverSets(today());
-check('修正しても件数が増えない', afterEdit.length === afterOnline.length,
-  `${afterOnline.length} → ${afterEdit.length}`);
-check('修正が反映されている', afterEdit.some((s) => s.weight_kg === 105));
+check(
+  '修正しても件数が増えない',
+  afterEdit.length === afterOnline.length,
+  `${afterOnline.length} → ${afterEdit.length}`,
+);
+check(
+  '修正が反映されている',
+  afterEdit.some((s) => s.weight_kg === 105),
+);
 
 // --- 6. サーバーが 400 を返す記録は rejected に落ちて、後続を詰まらせないか ---
 await page.evaluate(async () => {
   const req = indexedDB.open('liftplan', 1);
-  await new Promise((r) => { req.onsuccess = r; });
+  await new Promise((r) => {
+    req.onsuccess = r;
+  });
   const db = req.result;
   const tx = db.transaction('queue', 'readwrite');
   // 契約に無いフィールドを混ぜる。サーバーは DisallowUnknownFields なので 400。
   tx.objectStore('queue').add({ path: '/api/set-logs', body: { logs: [{ bogus: true }] } });
-  await new Promise((r) => { tx.oncomplete = r; });
+  await new Promise((r) => {
+    tx.oncomplete = r;
+  });
 });
 await page.reload();
 await page.waitForTimeout(3000);
 const stuck = await syncLabel();
-check('通らない記録は待ち行列を詰まらせない',
-  !/未送信 [1-9]/.test(stuck),
-  stuck);
+check('通らない記録は待ち行列を詰まらせない', !/未送信 [1-9]/.test(stuck), stuck);
 check('捨てた記録が画面に出る', /送れなかった/.test(await page.locator('body').innerText()));
 
 // --- 7. 記録の途中でトークンが無効になっても、記録が消えないか ---
 await page.evaluate(() => localStorage.setItem('liftplan.token', 'x'.repeat(40)));
 await page.reload();
 await page.waitForTimeout(2500);
-check('トークンが無効ならログイン画面に戻る', /GitHub でログイン/.test(await page.locator('body').innerText()));
+check(
+  'トークンが無効ならログイン画面に戻る',
+  /GitHub でログイン/.test(await page.locator('body').innerText()),
+);
 
 console.log('\n--- コンソールエラー ---');
 console.log(errors.length ? errors.join('\n') : '(なし)');

@@ -118,12 +118,7 @@ export function Today(props: Props) {
       </Button>
 
       {picking && (
-        <ExercisePicker
-          exercises={data.exercises}
-          planned={lanes}
-          onPick={pick}
-          onClose={closePicker}
-        />
+        <ExercisePicker exercises={data.exercises} planned={lanes} onPick={pick} onClose={closePicker} />
       )}
 
       <div className="mt-1 border-t border-line-soft pt-3.5">
@@ -148,9 +143,7 @@ export function Today(props: Props) {
         />
       )}
 
-      {celebration && (
-        <PRCelebration key={celebration.seq} pr={celebration.pr} onDone={dismiss} />
-      )}
+      {celebration && <PRCelebration key={celebration.seq} pr={celebration.pr} onDone={dismiss} />}
     </div>
   );
 }

@@ -30,7 +30,8 @@ type Props = {
  * useExerciseManager、描画はここ）。
  */
 export function ExerciseManager({ exercises, onChanged, onBack }: Props) {
-  const { declared, note, busy, save, pendingDeleteId, requestDelete, cancelDelete } = useExerciseManager(onChanged);
+  const { declared, note, busy, save, pendingDeleteId, requestDelete, cancelDelete } =
+    useExerciseManager(onChanged);
   // null = 一覧、'new' = 足す、Exercise = 直す。フォームは足す・直すで共用する。
   const [target, setTarget] = useState<Exercise | 'new' | null>(null);
   const [draft, setDraft] = useState<ExerciseDraft>(emptyDraft);
@@ -161,7 +162,9 @@ export function ExerciseManager({ exercises, onChanged, onBack }: Props) {
                           消す確認中は理由を出す必要が無い（why が無いから
                           確認に進めている）。 */}
                       {why && !confirmingDelete && <Note>{why}</Note>}
-                      {confirmingDelete && <Note>本当に消しますか？消した種目は直せません（記録は残ります）</Note>}
+                      {confirmingDelete && (
+                        <Note>本当に消しますか？消した種目は直せません（記録は残ります）</Note>
+                      )}
                     </li>
                   );
                 })}

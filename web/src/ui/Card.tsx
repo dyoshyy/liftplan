@@ -18,9 +18,7 @@ export function Card({ title, tone = 'default', className, children, ...props }:
       )}
       {...props}
     >
-      {title !== undefined && (
-        <p className="mb-3 text-xs uppercase tracking-[0.12em] text-faint">{title}</p>
-      )}
+      {title !== undefined && <p className="mb-3 text-xs uppercase tracking-[0.12em] text-faint">{title}</p>}
       {children}
     </div>
   );

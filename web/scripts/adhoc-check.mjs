@@ -10,7 +10,10 @@ const { chromium } = await import(process.env.PLAYWRIGHT ?? 'playwright-core');
 const APP = process.env.APP ?? 'http://localhost:4173';
 const TOKEN = 'dev-token-0123456789abcdef0123456789ab';
 const results = [];
-const check = (n, ok, d = '') => { results.push({ n, ok, d }); console.log(`${ok ? '✓' : '✗'} ${n}${d ? ' — ' + d : ''}`); };
+const check = (n, ok, d = '') => {
+  results.push({ n, ok, d });
+  console.log(`${ok ? '✓' : '✗'} ${n}${d ? ' — ' + d : ''}`);
+};
 
 // 前回の実行が残した記録を消す。残っていると「今日やったもの」の数が合わない。
 const API = process.env.API ?? 'http://127.0.0.1:8080';
@@ -20,18 +23,30 @@ const day = () => {
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
 };
 const auth = { Authorization: `Bearer ${TOKEN}` };
-const todaysSets = () => fetch(`${API}/api/set-logs?from=${day()}&to=${day()}`, { headers: auth })
-  .then((r) => r.json())
-  .then((b) => (b.days ?? []).flatMap((d) => d.exercises.flatMap((e) => e.sets.map((s) => ({ ...s, exercise_id: e.exercise_id })))));
+const todaysSets = () =>
+  fetch(`${API}/api/set-logs?from=${day()}&to=${day()}`, { headers: auth })
+    .then((r) => r.json())
+    .then((b) =>
+      (b.days ?? []).flatMap((d) =>
+        d.exercises.flatMap((e) => e.sets.map((s) => ({ ...s, exercise_id: e.exercise_id }))),
+      ),
+    );
 for (const x of await todaysSets()) {
   await fetch(`${API}/api/set-logs/${encodeURIComponent(x.id)}`, { method: 'DELETE', headers: auth });
 }
 
-const browser = await chromium.launch({ executablePath: process.env.CHROME ?? '/usr/bin/chromium', args: ['--no-sandbox'] });
-const page = await (await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2 })).newPage();
+const browser = await chromium.launch({
+  executablePath: process.env.CHROME ?? '/usr/bin/chromium',
+  args: ['--no-sandbox'],
+});
+const page = await (
+  await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2 })
+).newPage();
 const errs = [];
 page.on('pageerror', (e) => errs.push('pageerror: ' + e.message));
-page.on('console', (m) => { if (m.type() === 'error') errs.push(m.text()); });
+page.on('console', (m) => {
+  if (m.type() === 'error') errs.push(m.text());
+});
 
 await page.goto(`${APP}/#token=${TOKEN}`);
 await page.waitForTimeout(2500);
@@ -53,7 +68,11 @@ check('選択シートが開く', (await page.locator('dialog[open]').count()) =
 
 const options = await dialogButtons().allInnerTexts();
 check('選択肢に種目が並ぶ', options.length > 5, `${options.length}件`);
-check('予定に出ている種目は選択肢に無い', plannedNames.every((n) => !options.includes(n)), `予定=${plannedNames.join(',')}`);
+check(
+  '予定に出ている種目は選択肢に無い',
+  plannedNames.every((n) => !options.includes(n)),
+  `予定=${plannedNames.join(',')}`,
+);
 
 // 絞り込み。
 const first = options.find((o) => o !== '閉じる');
@@ -61,7 +80,11 @@ const keyword = first.slice(0, 2);
 await page.fill('dialog input[type=search]', keyword);
 await page.waitForTimeout(300);
 const filtered = (await dialogButtons().allInnerTexts()).filter((o) => o !== '閉じる');
-check('名前で絞れる', filtered.length > 0 && filtered.every((o) => o.toLowerCase().includes(keyword.toLowerCase())), `「${keyword}」→ ${filtered.join(',')}`);
+check(
+  '名前で絞れる',
+  filtered.length > 0 && filtered.every((o) => o.toLowerCase().includes(keyword.toLowerCase())),
+  `「${keyword}」→ ${filtered.join(',')}`,
+);
 
 await page.fill('dialog input[type=search]', 'ありえない名前zzz');
 await page.waitForTimeout(300);
@@ -79,7 +102,10 @@ check('選んだ種目のカードが出る', afterPick.includes(first), afterPi
 check('目標は出さない（自分で選んだ種目）', (await body()).includes('自分で選んだ種目・好きなだけ'));
 
 // カードの枠は空き1つだけ。
-const slotsOf = (name) => page.locator('div.grid.gap-3', { has: page.locator(`span.font-bold:text-is("${name}")`) }).locator('button.set');
+const slotsOf = (name) =>
+  page
+    .locator('div.grid.gap-3', { has: page.locator(`span.font-bold:text-is("${name}")`) })
+    .locator('button.set');
 check('記録前の枠は1つ', (await slotsOf(first).count()) === 1);
 
 // 1セット目を記録。
@@ -105,12 +131,19 @@ check('カードは1枚だけ', (await cardNames()).filter((n) => n === first).l
 
 // サーバーに届いている。
 const saved = (await todaysSets()).filter((s) => s.weight_kg === 40 || s.weight_kg === 42.5);
-check('サーバーに2セット届く', saved.length === 2, JSON.stringify(saved.map((s) => [s.exercise_id, s.weight_kg, s.reps])));
+check(
+  'サーバーに2セット届く',
+  saved.length === 2,
+  JSON.stringify(saved.map((s) => [s.exercise_id, s.weight_kg, s.reps])),
+);
 
 // 同じ種目を選び直しても増えない。
 await entry.click();
 await page.waitForTimeout(400);
-check('選び済みの種目は選択肢に残る（追加のために選び直せる）', (await dialogButtons().allInnerTexts()).includes(first));
+check(
+  '選び済みの種目は選択肢に残る（追加のために選び直せる）',
+  (await dialogButtons().allInnerTexts()).includes(first),
+);
 await page.locator('dialog[open] button', { hasText: first }).first().click();
 await page.waitForTimeout(500);
 check('選び直してもカードは増えない', (await cardNames()).filter((n) => n === first).length === 1);
@@ -119,7 +152,10 @@ check('選び直してもカードは増えない', (await cardNames()).filter((
 await page.reload();
 await page.waitForTimeout(2500);
 check('開き直すと「選んだ種目」の見出しは消える', !(await body()).includes('選んだ種目\n'));
-check('開き直しても記録は「今日やったもの」に残る', (await body()).includes('今日やったもの') && (await cardNames()).includes(first));
+check(
+  '開き直しても記録は「今日やったもの」に残る',
+  (await body()).includes('今日やったもの') && (await cardNames()).includes(first),
+);
 
 await page.screenshot({ path: '/tmp/adhoc-check.png' });
 console.log('\nエラー:', errs.length ? errs.join('\n') : '(なし)');

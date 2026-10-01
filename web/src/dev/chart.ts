@@ -38,10 +38,7 @@ export type WeightSeries = { id: string; name: string; points: WeightPoint[] };
  *
  *  処方の無い回（履歴の無い初回）も点にする。落とすと推移が2回目から
  *  始まり、何から始めたのかが見えない。 */
-export function weightSeries(
-  result: DevResult,
-  declared: { id: string; name: string }[],
-): WeightSeries[] {
+export function weightSeries(result: DevResult, declared: { id: string; name: string }[]): WeightSeries[] {
   const lanes = [
     ['main', 'main'],
     ['variation', 'variation'],
@@ -196,11 +193,7 @@ function addDays(date: string, n: number): string {
 
 /** weekTicks は from から7日ごとの目盛り。max を超えるときは、先頭を残して
  *  週の整数倍の間隔で間引く。 */
-export function weekTicks(
-  from: string,
-  to: string,
-  max: number,
-): { date: string; offset: number }[] {
+export function weekTicks(from: string, to: string, max: number): { date: string; offset: number }[] {
   const weeks = Math.floor(daysBetween(from, to) / 7) + 1;
   const stride = Math.max(1, Math.ceil(weeks / max));
 

@@ -48,7 +48,14 @@ export function adhocCards(
   const ids = plannedIds(planned);
   return picked
     .filter((id) => !ids.has(id))
-    .map((id) => ({ exercise_id: id, weight_kg: null, sets: 0, target_rir: ADHOC_RIR, target_reps: 0, adhoc: true }));
+    .map((id) => ({
+      exercise_id: id,
+      weight_kg: null,
+      sets: 0,
+      target_rir: ADHOC_RIR,
+      target_reps: 0,
+      adhoc: true,
+    }));
 }
 
 /**

@@ -6,7 +6,6 @@ import { App } from './app/App';
 import './app/swUpdate';
 import './styles/index.css';
 
-
 const root = document.getElementById('root');
 if (!root) throw new Error('#root が無い');
 

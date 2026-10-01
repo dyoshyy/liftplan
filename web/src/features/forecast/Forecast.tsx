@@ -15,9 +15,7 @@ export function Forecast({ nameOf, onBack }: Props) {
   // どの回を開いて始めるかは forecast.ts の isInitiallyOpen が決める
   // （今日＝回0だけ）。一度開閉を操作したあとは、押した回だけを覚える
   // 単純な状態にする。
-  const [openIndex, setOpenIndex] = useState<number>(() =>
-    isInitiallyOpen(0) ? 0 : -1,
-  );
+  const [openIndex, setOpenIndex] = useState<number>(() => (isInitiallyOpen(0) ? 0 : -1));
 
   return (
     <div className="grid gap-3.5">
@@ -41,9 +39,7 @@ export function Forecast({ nameOf, onBack }: Props) {
           session={session}
           nameOf={nameOf}
           open={openIndex === session.index}
-          onToggle={() =>
-            setOpenIndex((cur) => (cur === session.index ? -1 : session.index))
-          }
+          onToggle={() => setOpenIndex((cur) => (cur === session.index ? -1 : session.index))}
         />
       ))}
     </div>

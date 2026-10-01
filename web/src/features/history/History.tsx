@@ -209,9 +209,7 @@ function Stats({
             いないように見える。 */}
         <WeeklySummary volume={stats.weekly_volume} />
         <WeeklyVolume volume={stats.weekly_volume} />
-        <Note className="mt-3">
-          補助種目は、足りていない区分から選ばれます。
-        </Note>
+        <Note className="mt-3">補助種目は、足りていない区分から選ばれます。</Note>
       </Card>
 
       <Card title="推定1RM の推移">
@@ -241,9 +239,7 @@ function WeeklySummary({ volume }: { volume: Volume[] }) {
   return (
     <div className="mb-4">
       <div className="flex items-baseline gap-2">
-        <span className="num text-[28px] font-semibold leading-none">
-          {total.done.toFixed(0)}
-        </span>
+        <span className="num text-[28px] font-semibold leading-none">{total.done.toFixed(0)}</span>
         <span className="text-[13px] text-muted">/ {total.target.toFixed(0)} セット</span>
         <span className="num ml-auto text-[13px] text-muted">{total.pct.toFixed(0)}%</span>
       </div>

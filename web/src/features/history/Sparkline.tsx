@@ -20,9 +20,7 @@ export function Sparkline({ points }: { points: TrendPoint[] }) {
   const x = (i: number) => PAD + (i * (W - PAD * 2)) / (points.length - 1);
   const y = (v: number) => H - PAD - ((v - min) / span) * (H - PAD * 2);
 
-  const line = points
-    .map((p, i) => `${i ? 'L' : 'M'}${x(i).toFixed(1)},${y(p.kg).toFixed(1)}`)
-    .join(' ');
+  const line = points.map((p, i) => `${i ? 'L' : 'M'}${x(i).toFixed(1)},${y(p.kg).toFixed(1)}`).join(' ');
   const lastKg = points[points.length - 1]?.kg ?? 0;
 
   return (
@@ -46,12 +44,7 @@ export function Sparkline({ points }: { points: TrendPoint[] }) {
         strokeLinejoin="round"
         vectorEffect="non-scaling-stroke"
       />
-      <circle
-        cx={x(points.length - 1).toFixed(1)}
-        cy={y(lastKg).toFixed(1)}
-        r={3}
-        fill="currentColor"
-      />
+      <circle cx={x(points.length - 1).toFixed(1)} cy={y(lastKg).toFixed(1)} r={3} fill="currentColor" />
     </svg>
   );
 }

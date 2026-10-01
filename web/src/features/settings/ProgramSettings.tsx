@@ -73,9 +73,7 @@ export function ProgramSettings({ nameOf, exercises: all, onChanged, onOpenExerc
           回数を先に置くのは、選べる分割が回数で決まるため。 */}
       <Section title="通い方" summary={program ? scheduleSummary(program) : ''} defaultOpen>
         <p className="text-[13px] font-bold">週に通う回数</p>
-        <Note className="mb-3 mt-1">
-          1週間に通う回数です。補助種目の量はこの回数に合わせて決まります。
-        </Note>
+        <Note className="mb-3 mt-1">1週間に通う回数です。補助種目の量はこの回数に合わせて決まります。</Note>
 
         {program && (
           <Select
@@ -95,8 +93,7 @@ export function ProgramSettings({ nameOf, exercises: all, onChanged, onOpenExerc
         <p className="mt-6 text-[13px] font-bold">1回の量</p>
         <Note className="mb-3 mt-1">
           1回に出る種目の数と、1種目あたりのセット数です。ジムで取れる時間に
-          合わせてください。どの部位をどれだけやるかは、この量と通う回数から
-          決まります。
+          合わせてください。どの部位をどれだけやるかは、この量と通う回数から 決まります。
         </Note>
 
         {program && (
@@ -105,9 +102,7 @@ export function ProgramSettings({ nameOf, exercises: all, onChanged, onOpenExerc
               aria-label="1回の種目数"
               value={program.exercises_per_session}
               disabled={busy}
-              onChange={(e) =>
-                void saveVolume(Number(e.target.value), program.sets_per_exercise)
-              }
+              onChange={(e) => void saveVolume(Number(e.target.value), program.sets_per_exercise)}
             >
               {[2, 3, 4, 5, 6].map((n) => (
                 <option key={n} value={n}>
@@ -119,9 +114,7 @@ export function ProgramSettings({ nameOf, exercises: all, onChanged, onOpenExerc
               aria-label="1種目あたりのセット数"
               value={program.sets_per_exercise}
               disabled={busy}
-              onChange={(e) =>
-                void saveVolume(program.exercises_per_session, Number(e.target.value))
-              }
+              onChange={(e) => void saveVolume(program.exercises_per_session, Number(e.target.value))}
             >
               {[2, 3, 4, 5, 6].map((n) => (
                 <option key={n} value={n}>
@@ -162,9 +155,7 @@ export function ProgramSettings({ nameOf, exercises: all, onChanged, onOpenExerc
         </div>
 
         {program && program.splits.length > 1 && (
-          <Note className="mt-3">
-            {program.splits.map((s) => s.name).join(' → ')} の順に回ります。
-          </Note>
+          <Note className="mt-3">{program.splits.map((s) => s.name).join(' → ')} の順に回ります。</Note>
         )}
       </Section>
 
@@ -174,8 +165,7 @@ export function ProgramSettings({ nameOf, exercises: all, onChanged, onOpenExerc
       <Section title="種目" summary={program ? exercisesSummary(program, nameOf) : ''}>
         <p className="text-[13px] font-bold">種目そのものを変える</p>
         <Note className="mb-3 mt-1">
-          一覧に無い器具の追加、名前や効き方の編集、使わなくなった種目の
-          削除ができます。
+          一覧に無い器具の追加、名前や効き方の編集、使わなくなった種目の 削除ができます。
         </Note>
         <Button variant="quiet" disabled={busy} onClick={onOpenExercises}>
           種目を管理する
@@ -183,8 +173,7 @@ export function ProgramSettings({ nameOf, exercises: all, onChanged, onOpenExerc
 
         <p className="mt-6 text-[13px] font-bold">使う種目</p>
         <Note className="mb-3 mt-1">
-          ここで選んだ種目だけが補助として出ます。
-          下の「伸ばしたい種目」に入れた種目は外せません。
+          ここで選んだ種目だけが補助として出ます。 下の「伸ばしたい種目」に入れた種目は外せません。
         </Note>
 
         {program && (
@@ -200,8 +189,7 @@ export function ProgramSettings({ nameOf, exercises: all, onChanged, onOpenExerc
 
         <p className="mt-6 text-[13px] font-bold">伸ばしたい種目</p>
         <Note className="mb-3 mt-1">
-          毎回1種目ずつ、しばらくやっていないものから出ます。
-          増やすほど1種目あたりの間隔があきます。
+          毎回1種目ずつ、しばらくやっていないものから出ます。 増やすほど1種目あたりの間隔があきます。
           候補は上の「使う種目」で選んだ種目です。
         </Note>
 

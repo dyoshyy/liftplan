@@ -3,7 +3,15 @@ import { getJSON } from '../../api/client';
 import type { Day, HistoryResponse } from '../../api/types';
 import { today } from '../../domain/date';
 import type { DayChange } from '../../domain/days';
-import { canGoNext, monthOf, patchFetched, pickMonthDays, planMonthLoad, shiftMonth, type Month } from './month';
+import {
+  canGoNext,
+  monthOf,
+  patchFetched,
+  pickMonthDays,
+  planMonthLoad,
+  shiftMonth,
+  type Month,
+} from './month';
 
 export type MonthLogs = {
   month: Month;

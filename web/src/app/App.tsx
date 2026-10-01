@@ -132,9 +132,7 @@ export function App() {
               />
             )}
 
-            {route === 'forecast' && (
-              <Forecast nameOf={nameOf} onBack={() => go('today')} />
-            )}
+            {route === 'forecast' && <Forecast nameOf={nameOf} onBack={() => go('today')} />}
 
             {route === 'exercises' && (
               <ExerciseManager exercises={data.exercises} onChanged={reload} onBack={() => go('settings')} />

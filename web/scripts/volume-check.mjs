@@ -14,7 +14,10 @@ const APP = process.env.APP ?? 'http://localhost:4173';
 const API = process.env.API ?? 'http://127.0.0.1:8080';
 const TOKEN = 'dev-token-0123456789abcdef0123456789ab';
 const results = [];
-const check = (n, ok, d = '') => { results.push({ n, ok, d }); console.log(`${ok ? '✓' : '✗'} ${n}${d ? ' — ' + d : ''}`); };
+const check = (n, ok, d = '') => {
+  results.push({ n, ok, d });
+  console.log(`${ok ? '✓' : '✗'} ${n}${d ? ' — ' + d : ''}`);
+};
 
 const day = () => {
   const d = new Date();
@@ -26,7 +29,8 @@ const clearToday = async () => {
   const sets = await fetch(`${API}/api/set-logs?from=${day()}&to=${day()}`, { headers: auth })
     .then((r) => r.json())
     .then((b) => (b.days ?? []).flatMap((d) => d.exercises.flatMap((e) => e.sets)));
-  for (const s of sets) await fetch(`${API}/api/set-logs/${encodeURIComponent(s.id)}`, { method: 'DELETE', headers: auth });
+  for (const s of sets)
+    await fetch(`${API}/api/set-logs/${encodeURIComponent(s.id)}`, { method: 'DELETE', headers: auth });
 };
 await clearToday();
 
@@ -39,7 +43,9 @@ const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, de
 const page = await ctx.newPage();
 const errs = [];
 page.on('pageerror', (e) => errs.push('pageerror: ' + e.message));
-page.on('console', (m) => { if (m.type() === 'error') errs.push(m.text()); });
+page.on('console', (m) => {
+  if (m.type() === 'error') errs.push(m.text());
+});
 
 // 音を横取りする。ピークの大きさと、発振器の数。
 // 休憩は最短（15秒）にして、終わるまでの待ちを短くする。
@@ -70,7 +76,11 @@ const reopen = async () => {
 };
 const peaks = () => page.evaluate(() => [...window.__peaks]);
 const oscillators = () => page.evaluate(() => window.__oscillators);
-const resetCounters = () => page.evaluate(() => { window.__peaks = []; window.__oscillators = 0; });
+const resetCounters = () =>
+  page.evaluate(() => {
+    window.__peaks = [];
+    window.__oscillators = 0;
+  });
 const near = (a, b) => Math.abs(a - b) < 1e-9;
 
 await page.goto(`${APP}/#token=${TOKEN}`);
@@ -82,7 +92,8 @@ const openSection = async () => {
   await page.click('text=休憩終了の音量');
   await page.waitForTimeout(400);
 };
-const volumeInput = () => page.locator('div:has(> label:has-text("休憩が終わったときの合図")) input[type=number]');
+const volumeInput = () =>
+  page.locator('div:has(> label:has-text("休憩が終わったときの合図")) input[type=number]');
 const summary = () => page.locator('button[aria-controls]', { hasText: '休憩終了の音量' }).innerText();
 
 await openSection();
@@ -118,7 +129,11 @@ check('30ならピークは0.09', p.length === 3 && p.every((v) => near(v, 0.09)
 // 範囲の外は100に収まる。
 await volumeInput().fill('250');
 await page.waitForTimeout(300);
-check('250と打っても100に収まる', (await volumeInput().inputValue()) === '100', await volumeInput().inputValue());
+check(
+  '250と打っても100に収まる',
+  (await volumeInput().inputValue()) === '100',
+  await volumeInput().inputValue(),
+);
 
 // 0 は鳴らさない。
 await volumeInput().fill('0');
@@ -146,7 +161,10 @@ const finishWith = async (vol) => {
   await page.waitForTimeout(1500);
   await resetCounters();
   if ((await page.locator('button.set').count()) === 0) {
-    console.log('（今日の画面に記録の枠が無い）', (await page.innerText('body')).slice(0, 300).replace(/\n/g, ' | '));
+    console.log(
+      '（今日の画面に記録の枠が無い）',
+      (await page.innerText('body')).slice(0, 300).replace(/\n/g, ' | '),
+    );
   }
   await page.locator('button.set').nth(0).click({ timeout: 5000 });
   await page.waitForTimeout(400);
@@ -156,13 +174,21 @@ const finishWith = async (vol) => {
   await page.waitForTimeout(900);
   await page.waitForFunction(() => document.body.innerText.includes('休憩中'), null, { timeout: 5000 });
   await resetCounters(); // 記録時に鳴った音（無い）を数えない。終わりの合図だけを見る。
-  await page.waitForFunction(() => window.__oscillators > 0 || !document.body.innerText.includes('休憩中'), null, { timeout: 25000 }).catch(() => {});
+  await page
+    .waitForFunction(() => window.__oscillators > 0 || !document.body.innerText.includes('休憩中'), null, {
+      timeout: 25000,
+    })
+    .catch(() => {});
   await page.waitForTimeout(1500);
 };
 
 await finishWith(100);
 p = await peaks();
-check('休憩が終わると、100の音量（ピーク1）で3音鳴る', p.length === 3 && p.every((v) => near(v, 1)), p.join(','));
+check(
+  '休憩が終わると、100の音量（ピーク1）で3音鳴る',
+  p.length === 3 && p.every((v) => near(v, 1)),
+  p.join(','),
+);
 
 await clearToday();
 await reopen();

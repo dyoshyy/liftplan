@@ -53,7 +53,15 @@ export function WeightTrend({ series, from, to }: { series: WeightSeries[]; from
         </span>
         <span className="inline-flex items-center gap-1.5">
           <svg width="22" height="12" aria-hidden="true">
-            <line x1="1" x2="21" y1="6" y2="6" strokeWidth="1.5" strokeDasharray="4 3" className="stroke-muted" />
+            <line
+              x1="1"
+              x2="21"
+              y1="6"
+              y2="6"
+              strokeWidth="1.5"
+              strokeDasharray="4 3"
+              className="stroke-muted"
+            />
           </svg>
           実力（その日の1RM）
         </span>
@@ -154,7 +162,14 @@ function Chart({
       ))}
 
       {weekTicks(from, to, 12).map((t) => (
-        <text key={t.date} x={x(t.date)} y={H - 7} textAnchor="middle" fontSize="10" className="num fill-faint">
+        <text
+          key={t.date}
+          x={x(t.date)}
+          y={H - 7}
+          textAnchor="middle"
+          fontSize="10"
+          className="num fill-faint"
+        >
           {shortDate(t.date)}
         </text>
       ))}
@@ -220,7 +235,9 @@ function PointTable({ points }: { points: WeightPoint[] }) {
                 {p.kg}kg×{p.reps} RIR{p.rir}
               </td>
               <td className="text-right">{p.athlete1rm.toFixed(1)}kg</td>
-              <td className="text-right">{p.athlete1rm > 0 ? `${Math.round((p.kg / p.athlete1rm) * 100)}%` : '–'}</td>
+              <td className="text-right">
+                {p.athlete1rm > 0 ? `${Math.round((p.kg / p.athlete1rm) * 100)}%` : '–'}
+              </td>
               <td className="text-right">{p.estPct === null ? '–' : p.estPct.toFixed(2)}</td>
             </tr>
           ))}

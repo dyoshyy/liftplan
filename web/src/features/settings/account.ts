@@ -35,6 +35,7 @@ export function accountSummary(logins: readonly Login[]): string | undefined {
 export function accountLine(logins: readonly Login[]): string | null {
   if (logins.length === 0) return null;
   const found = emails(logins);
-  if (found.length === 0) return `${providers(logins)} でログインしています。メールアドレスは記録されていません`;
+  if (found.length === 0)
+    return `${providers(logins)} でログインしています。メールアドレスは記録されていません`;
   return `${found.join('・')}（${providers(logins)}）でログインしています`;
 }
