@@ -189,6 +189,7 @@ func TestGetSession_Success(t *testing.T) {
 			WeightKg   *float64 `json:"weight_kg"`
 			Sets       int      `json:"sets"`
 			TargetRIR  int      `json:"target_rir"`
+			TargetReps int      `json:"target_reps"`
 		} `json:"main"`
 		Accessories []struct {
 			ExerciseID string `json:"exercise_id"`
@@ -214,6 +215,10 @@ func TestGetSession_Success(t *testing.T) {
 		}
 		if m.Sets <= 0 {
 			t.Errorf("セット数が0以下: %s", m.ExerciseID)
+		}
+		// 重量が null でも、何レップ狙いかは届く。軸は3レップ相当。
+		if m.TargetReps != 3 {
+			t.Errorf("目標レップが %d。軸は3のはず: %s", m.TargetReps, m.ExerciseID)
 		}
 	}
 }

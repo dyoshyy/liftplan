@@ -10,6 +10,8 @@ export type PlannedSet = {
   weight_kg: number | null;
   sets: number;
   target_rir: number;
+  /** 狙うレップ数。重量が null でも来る。 */
+  target_reps: number;
 };
 
 /**
