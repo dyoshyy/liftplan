@@ -74,35 +74,15 @@ await page.selectOption(EX, String(restored.exercises_per_session));
 await page.waitForTimeout(2000);
 const volRestored = await program();
 
-// 種目。「使う種目」のチェックを1つ外すだけで保存されるかを見る。初期状態は
-// 全種目が選ばれているので、入れるのではなく外す。伸ばしたい種目は外せない
-// （disabled）ので、押せるものから選ぶ。節は畳んであるので開いてから触る。
-// 見出しは aria-expanded で指す。種目のボタンと取り違えない。
+// 種目。使う種目の入れ替えは設定のトップではなく、種目ページ（設定 → 種目 →
+// 種目を管理する）でする。設定のトップに使わない種目が並ばないため。
+// 節は畳んであるので開いてから触る。見出しは aria-expanded で指す。
 const exHeader = page.locator('button[aria-expanded]', { hasText: /^種目/ });
 await exHeader.click();
 await page.waitForTimeout(500);
-const useGroup = page.getByRole('group', { name: '使う種目' });
 const growGroup = page.getByRole('group', { name: '伸ばしたい種目' });
-const toUnpick = useGroup.locator('button:not([disabled])').filter({ hasText: '✓' }).first();
-const unpickedName = (await toUnpick.textContent())?.replace('✓', '').trim();
-await toUnpick.click();
-await page.waitForTimeout(1500);
-const unpicked = await program();
-// 外した種目は、下の「伸ばしたい種目」の候補からも消えているはず。
-const leftInGrow = await growGroup.locator('button', { hasText: unpickedName }).count();
-await exHeader.click();
-await page.waitForTimeout(300);
-const summary = (await exHeader.textContent()) ?? '';
-console.log('外した種目（', unpickedName, '）: selected =', unpicked.selected_exercises.length, '件（期待', before.selected_exercises.length - 1,
-  '）/ 伸ばしたいの候補に残った数 =', leftInGrow, '（期待 0）/ 畳んだ要約 =', summary);
-
-// 入れ直して元に戻す。
-await exHeader.click();
-await page.waitForTimeout(300);
-await useGroup.locator('button', { hasText: unpickedName }).click();
-await page.waitForTimeout(1500);
-const repicked = await program();
-console.log('入れ直した後: selected =', repicked.selected_exercises.length, '件');
+const settingsHasUseGroup = (await page.getByRole('group', { name: '使う種目' }).count()) > 0;
+console.log('設定のトップに「使う種目」の一覧が出ない:', !settingsHasUseGroup, '（期待 true）');
 
 // 種目は別ページ（設定 → 種目 → 種目を管理する）で足す・直す・消す。
 // 押したその場で送るので、送った後に一覧（種目マスタ）を取り直さないと
@@ -114,13 +94,6 @@ const RENAMED = 'チェック用マシン（直した）';
 // 入っていない（seed.DefaultDeclared）ので、409 を踏まずに消せるはず。
 const PRESET = 'サイドレイズ';
 
-// 消す前に「使う種目」に居ることを確かめる。ここを見ずに「消えた」だけ見ると、
-// 最初から出ていない（一覧の絞り込みが壊れている等）場合も「消えた」が
-// 真になってしまい、消す操作そのものは何も検査していないことになる。
-const presetInUseBefore =
-  (await useGroup.locator('button', { hasText: new RegExp(`^✓?\\s*${PRESET}$`) }).count()) === 1;
-console.log('消す前: サイドレイズが使う種目に居る', presetInUseBefore, '（期待 true）');
-
 // 「種目」は前の操作で開いたまま。種目マスタの一覧はこの節の中の
 // ボタンから別ページへ移る。
 await page.getByRole('button', { name: '種目を管理する' }).click();
@@ -129,22 +102,22 @@ const addTop = page.getByRole('button', { name: '種目を追加', exact: true }
 const exercisesPageOpened = (await addTop.count()) === 1;
 console.log('種目のページが開いた:', exercisesPageOpened);
 
-// 一覧の最初の行の「直す」「消す」が画面の外に押し出されていないか。
+// 一覧の最初の行の「編集」「使う」が画面の外に押し出されていないか。
 // 寄与の要約（例：「大胸筋下部 1.0・上腕三頭筋外側頭 0.6・…」）が折り返さずに
 // 1行の幅として行を広げると、scrollWidth は innerWidth のままなのに（どこかで
 // overflow:hidden により切られるだけで）ボタンには実機で指が届かなくなる。
 // 横スクロールの有無ではなく、ボタンの実座標が 390px の中にあるかで見る。
 const firstEdit = page.getByRole('button', { name: /を編集$/ }).first();
-const firstDelete = page.getByRole('button', { name: /を削除$/ }).first();
+const firstUse = page.getByRole('button', { name: /を使う$/ }).first();
 const editBox = await firstEdit.boundingBox();
-const deleteBox = await firstDelete.boundingBox();
+const useBox = await firstUse.boundingBox();
 const rowButtonsVisible =
-  !!editBox && !!deleteBox && editBox.x + editBox.width <= 390 && deleteBox.x + deleteBox.width <= 390;
+  !!editBox && !!useBox && editBox.x + editBox.width <= 390 && useBox.x + useBox.width <= 390;
 console.log(
-  '一覧1行目の編集/削除が390px内:',
+  '一覧1行目の編集/使うが390px内:',
   rowButtonsVisible,
   '（編集 right =', editBox ? Math.round(editBox.x + editBox.width) : null,
-  '/ 削除 right =', deleteBox ? Math.round(deleteBox.x + deleteBox.width) : null, '）',
+  '/ 使う right =', useBox ? Math.round(useBox.x + useBox.width) : null, '）',
 );
 
 await addTop.click();
@@ -180,48 +153,66 @@ const oldNameGone = (await page.getByText(CUSTOM, { exact: true }).count()) === 
 const newNameThere = (await page.getByText(RENAMED, { exact: true }).count()) === 1;
 console.log('直した後: name =', edited?.name, '（期待', RENAMED, '）/ 古い名前が消えた', oldNameGone, '/ 新しい名前が出た', newNameThere);
 
-// 消す。1タップ目は確認待ちに入るだけで消えないこと（D-116同様、undo が
-// 無い操作は誤タップで即実行させない）。「本当に消す」まで押して初めて
-// DELETE が飛ぶ。
-await page.getByRole('button', { name: `${RENAMED}を削除` }).click();
-await page.waitForTimeout(500);
-const notYetDeleted = (await exercises()).exercises.find((e) => e.id === added?.id);
-console.log('1タップ目: まだ消えていない deleted =', notYetDeleted?.deleted, '（期待 undefined か false）');
-await page.getByRole('button', { name: `${RENAMED}を本当に削除` }).click();
-await page.waitForTimeout(2000);
-const deleted = (await exercises()).exercises.find((e) => e.id === added?.id);
-const removedFromList = (await page.getByText(RENAMED, { exact: true }).count()) === 0;
-console.log('消した後: deleted =', deleted?.deleted, '/ 一覧から消えた', removedFromList);
+// 消す口は無い。使う種目から外す（使わない）と、計画にも出なくなる。
+// 「使う」ボタンは aria-pressed で状態を持つ。
+const useBtn = (name) => page.getByRole('button', { name: `${name}を使う`, exact: true });
+const pressed = async (name) => (await useBtn(name).getAttribute('aria-pressed')) === 'true';
 
-const customOk = added !== undefined && added.stimulus.TRAP_MID === 1 && added.stimulus.LAT === 0.5
-  && inList === 1 && addedInUse && edited?.name === RENAMED && oldNameGone && newNameThere
-  && notYetDeleted?.deleted !== true && deleted?.deleted === true && removedFromList;
+const noDeleteButton = (await page.getByRole('button', { name: /削除/ }).count()) === 0;
+console.log('削除のボタンが無い:', noDeleteButton, '（期待 true）');
 
-// プリセット由来も消せる。同じく1タップ目では消えないことを見る。
-await page.getByRole('button', { name: `${PRESET}を削除`, exact: true }).click();
-await page.waitForTimeout(500);
-const presetNotYetDeleted = (await exercises()).exercises.find((e) => e.name === PRESET);
-console.log('プリセット1タップ目: まだ消えていない deleted =', presetNotYetDeleted?.deleted, '（期待 undefined か false）');
-await page.getByRole('button', { name: `${PRESET}を本当に削除`, exact: true }).click();
-await page.waitForTimeout(2000);
-const presetDeleted = (await exercises()).exercises.find((e) => e.name === PRESET);
-const presetGoneFromList = (await page.getByText(PRESET, { exact: true }).count()) === 0;
-console.log('プリセットを消した後: deleted =', presetDeleted?.deleted, '/ 一覧から消えた', presetGoneFromList);
+const customInUseBefore = await pressed(RENAMED);
+await useBtn(RENAMED).click();
+await page.waitForTimeout(1500);
+const afterHide = await program();
+const customHidden = added !== undefined && !afterHide.selected_exercises.includes(added.id);
+const stillThere = (await exercises()).exercises.find((e) => e.id === added?.id);
+console.log('使わないにした: 前は使う', customInUseBefore, '/ selected から外れた', customHidden,
+  '/ 種目そのものは残る deleted =', stillThere?.deleted, '（期待 undefined か false）');
+await useBtn(RENAMED).click();
+await page.waitForTimeout(1500);
+const afterShow = await program();
+const customShown = added !== undefined && afterShow.selected_exercises.includes(added.id);
+console.log('また使うにした: selected に戻った', customShown);
 
-// 設定へ戻り、「使う種目」からも消えているかを見る。消した分を API で
-// 足し直す必要は無い（インメモリなので再起動で戻る）。
+// プリセット由来も同じ。既定では伸ばしたい種目に入っていない
+// （seed.DefaultDeclared）ので、外せるはず。
+const presetInUseBefore = await pressed(PRESET);
+await useBtn(PRESET).click();
+await page.waitForTimeout(1500);
+const presetId = (await exercises()).exercises.find((e) => e.name === PRESET)?.id;
+const presetHidden = !(await program()).selected_exercises.includes(presetId);
+console.log('プリセットを使わないにした: 前は使う', presetInUseBefore, '/ selected から外れた', presetHidden);
+
+// 伸ばしたい種目は外せない。理由が出て、押せない。
+const BENCH = 'ベンチプレス';
+const benchLocked = await useBtn(BENCH).isDisabled();
+console.log('伸ばしたい種目（ベンチプレス）は外せない（disabled）:', benchLocked, '（期待 true）');
+
+// 設定へ戻ると、外した種目は「伸ばしたい種目」の候補から消えている。
 await page.getByRole('button', { name: '← 設定' }).click();
 await page.waitForTimeout(1800);
 await exHeader.click();
 await page.waitForTimeout(800);
-// hasText の文字列指定は部分一致なので、素の PRESET だとサイドレイズも
-// ケーブルサイドレイズも同じヒットになる。ここで見たいのは前者だけが
-// 消えたことなので、行末に固定して区別する。
-const presetGoneFromUse = (await useGroup.locator('button', { hasText: new RegExp(`^✓?\\s*${PRESET}$`) }).count()) === 0;
-console.log('設定の使う種目から消えた:', presetGoneFromUse);
+const leftInGrow = await growGroup.locator('button', { hasText: new RegExp(`^✓?\\s*${PRESET}$`) }).count();
+console.log('伸ばしたい種目の候補からも消えた:', leftInGrow === 0, '（残った数 =', leftInGrow, '）');
+const summary = (await exHeader.textContent()) ?? '';
+console.log('畳んだ要約 =', summary);
 
-const presetOk = presetInUseBefore && presetNotYetDeleted?.deleted !== true && presetDeleted?.deleted === true
-  && presetGoneFromList && presetGoneFromUse;
+// 元に戻す（インメモリでも、続けて回す検査のため）。
+await page.getByRole('button', { name: '種目を管理する' }).click();
+await page.waitForTimeout(1200);
+await useBtn(PRESET).click();
+await page.waitForTimeout(1500);
+const restoredSelected = (await program()).selected_exercises.length;
+await page.getByRole('button', { name: '← 設定' }).click();
+await page.waitForTimeout(1500);
+
+const customOk = added !== undefined && added.stimulus.TRAP_MID === 1 && added.stimulus.LAT === 0.5
+  && inList === 1 && addedInUse && edited?.name === RENAMED && oldNameGone && newNameThere
+  && noDeleteButton && customInUseBefore && customHidden && stillThere?.deleted !== true && customShown;
+const presetOk = presetInUseBefore && presetHidden && benchLocked && leftInGrow === 0
+  && restoredSelected === before.selected_exercises.length + 1;
 await exHeader.click();
 await page.waitForTimeout(300);
 
@@ -238,10 +229,7 @@ const ok = after.per_week === want && after.declared_exercises.length === before
   && vol.exercises_per_session === wantEx && vol.sets_per_exercise === restored.sets_per_exercise
   && volRestored.exercises_per_session === restored.exercises_per_session
   && after.selected_exercises.length === before.selected_exercises.length
-  && unpicked.selected_exercises.length === before.selected_exercises.length - 1
-  && leftInGrow === 0
-  && summary.includes(`使う${before.selected_exercises.length - 1}・`)
-  && repicked.selected_exercises.length === before.selected_exercises.length
+  && !settingsHasUseGroup
   && Array.isArray(realAccount.accounts) && realAccount.accounts.length === 0
   && accountSummary.includes('gym@example.com') && signedInAs
   && exercisesPageOpened && rowButtonsVisible && customOk && presetOk;

@@ -22,13 +22,19 @@ export function useExerciseManager(onChanged: () => Promise<void>) {
   const [note, setNote] = useState('');
   const [busy, setBusy] = useState(false);
 
-  useEffect(() => {
-    void getJSON<Program>('/api/program')
+  // loadProgram は使う種目と伸ばしたい種目を読む。開いたときと、種目を足したあとに
+  // 呼ぶ。足した種目はサーバーが使う種目に入れるので、読み直さないと
+  // 「使わない」と出たまま食い違う。
+  const loadProgram = () =>
+    getJSON<Program>('/api/program')
       .then((p) => {
         setDeclared(p.declared_exercises);
         setSelected(p.selected_exercises);
       })
       .catch(() => setNote('使う種目を読めませんでした'));
+
+  useEffect(() => {
+    void loadProgram();
     // 開いたときの1回だけ読む。伸ばしたい種目は設定側で変わりうるが、押す前に
     // 読める案内でしかなく、最後の砦はサーバーの400。
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -69,7 +75,7 @@ export function useExerciseManager(onChanged: () => Promise<void>) {
     }
     const res = await request('/api/exercises', 'POST', draftBody(draft));
     if (!res) return false;
-    await onChanged();
+    await Promise.all([onChanged(), loadProgram()]);
     return true;
   };
 
