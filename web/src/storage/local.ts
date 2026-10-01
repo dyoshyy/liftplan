@@ -19,6 +19,7 @@ export const clearToken = (): void => localStorage.removeItem(KEY_TOKEN);
 
 const KEY_REST_DURATION = 'liftplan.rest.duration';
 const KEY_REST_STATE = 'liftplan.rest.state';
+const KEY_REST_VOLUME = 'liftplan.rest.volume';
 
 export function readJSON<T>(key: string): T | null {
   try {
@@ -38,4 +39,8 @@ export function writeJSON(key: string, value: unknown): void {
   }
 }
 
-export const restKeys = { duration: KEY_REST_DURATION, state: KEY_REST_STATE } as const;
+export const restKeys = {
+  duration: KEY_REST_DURATION,
+  state: KEY_REST_STATE,
+  volume: KEY_REST_VOLUME,
+} as const;

@@ -4,6 +4,8 @@
 // 回すと JS は止まる。復帰すれば「もう過ぎている」ことは必ず分かるが、
 // ポケットの中で鳴る保証は無い（Push を入れない限り）。ここは割り切る。
 
+import { beepTones } from './volume';
+
 let audio: AudioContext | null = null;
 
 /** primeSound は利用者の操作の中で呼ぶ。
@@ -19,23 +21,21 @@ export function primeSound(): void {
   }
 }
 
-/** beep は短い音を3回鳴らす。
+/** beep は短い音を鳴らす。何を何回鳴らすかは beepTones が決める（volume.ts）。
  *
  *  音源のファイルを持たないのは、オフラインでも鳴らすため。殻に載せると
  *  プリキャッシュが増えるうえ、鳴らない端末では無駄になる。 */
-export function beep(): void {
+export function beep(volume: number): void {
   if (!audio) return;
   try {
-    const now = audio.currentTime;
-    for (let i = 0; i < 3; i++) {
+    for (const { at, peak } of beepTones(volume, audio.currentTime)) {
       const osc = audio.createOscillator();
       const gain = audio.createGain();
       osc.type = 'sine';
       osc.frequency.value = 880;
       // 立ち上がりと減衰を付ける。矩形に切ると耳障りなクリックが入る。
-      const at = now + i * 0.28;
       gain.gain.setValueAtTime(0, at);
-      gain.gain.linearRampToValueAtTime(0.25, at + 0.02);
+      gain.gain.linearRampToValueAtTime(peak, at + 0.02);
       gain.gain.exponentialRampToValueAtTime(0.0001, at + 0.22);
       osc.connect(gain).connect(audio.destination);
       osc.start(at);

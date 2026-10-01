@@ -3,6 +3,7 @@ import { Button } from '../../ui/Button';
 import { Note } from '../../ui/Card';
 import { Section } from '../../ui/Section';
 import { Stepper } from '../../ui/Stepper';
+import { MAX_VOLUME, MIN_VOLUME, parseVolume, volumeSummary } from '../timer/volume';
 import type { RestTimer } from '../timer/useRestTimer';
 import { ProgramSettings } from './ProgramSettings';
 import { accountLine, accountSummary } from './account';
@@ -22,6 +23,7 @@ type Props = {
 };
 
 const STEP_MIN = 0.25;
+const STEP_VOLUME = 10;
 
 // 歯車から入る画面。毎日は触らないものを集める。
 //
@@ -55,6 +57,23 @@ export function SettingsScreen({ nameOf, exercises, onChanged, timer, onForget, 
         />
         <Note className="mt-3">
           動いている最中に変えても、いま数えているぶんは伸び縮みしません。次に始めたときから効きます。
+        </Note>
+      </Section>
+
+      <Section title="休憩終了の音量" summary={volumeSummary(timer.volume)}>
+        <Stepper
+          label={`休憩が終わったときの合図（${MIN_VOLUME}〜${MAX_VOLUME}）`}
+          value={String(timer.volume)}
+          onChange={(v) => timer.setVolume(parseVolume(v, timer.volume))}
+          step={STEP_VOLUME}
+          min={MIN_VOLUME}
+          suffix="%"
+        />
+        <Button variant="quiet" className="mt-3" onClick={timer.previewSound}>
+          試しに鳴らす
+        </Button>
+        <Note className="mt-3">
+          0 にすると音は鳴らさず、通知だけ出ます。変えた音量は、次に鳴る合図から効きます。
         </Note>
       </Section>
 
