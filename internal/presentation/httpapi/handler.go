@@ -33,6 +33,9 @@ type Handler struct {
 	setSplit         *usecase.SetSplitCycle
 	getProgram       *usecase.GetProgram
 	deleteSetLog     *usecase.DeleteSetLog
+	addExercise      *usecase.AddExercise
+	editExercise     *usecase.EditExercise
+	deleteExercise   *usecase.DeleteExercise
 	exercises        *query.Exercises
 	history          *query.History
 	stats            *query.Stats
@@ -56,6 +59,9 @@ type Dependencies struct {
 	SetSplit         *usecase.SetSplitCycle
 	GetProgram       *usecase.GetProgram
 	DeleteSetLog     *usecase.DeleteSetLog
+	AddExercise      *usecase.AddExercise
+	EditExercise     *usecase.EditExercise
+	DeleteExercise   *usecase.DeleteExercise
 	Exercises        *query.Exercises
 	History          *query.History
 	Stats            *query.Stats
@@ -97,6 +103,12 @@ func NewHandler(d Dependencies) (*Handler, error) {
 		return nil, errMissingDependency("GetProgram")
 	case d.DeleteSetLog == nil:
 		return nil, errMissingDependency("DeleteSetLog")
+	case d.AddExercise == nil:
+		return nil, errMissingDependency("AddExercise")
+	case d.EditExercise == nil:
+		return nil, errMissingDependency("EditExercise")
+	case d.DeleteExercise == nil:
+		return nil, errMissingDependency("DeleteExercise")
 	case d.Exercises == nil:
 		return nil, errMissingDependency("Exercises")
 	case d.History == nil:
@@ -120,6 +132,9 @@ func NewHandler(d Dependencies) (*Handler, error) {
 		setSplit:         d.SetSplit,
 		getProgram:       d.GetProgram,
 		deleteSetLog:     d.DeleteSetLog,
+		addExercise:      d.AddExercise,
+		editExercise:     d.EditExercise,
+		deleteExercise:   d.DeleteExercise,
 		exercises:        d.Exercises,
 		history:          d.History,
 		stats:            d.Stats,
@@ -343,6 +358,78 @@ func (h *Handler) handlePostConditions(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := h.recordConditions.Execute(r.Context(), user, items); err != nil {
+		respondError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// exerciseStimulusFrom はリクエストの区分ごとの寄与度をドメインの型へ移す。
+//
+// AddExercise・EditExercise は同じ形の入力を受け取るので、POST と PUT の
+// 両方がここを通る。
+func exerciseStimulusFrom(raw map[string]float64) map[training.MuscleRegion]float64 {
+	stimulus := make(map[training.MuscleRegion]float64, len(raw))
+	for region, v := range raw {
+		stimulus[training.MuscleRegion(region)] = v
+	}
+	return stimulus
+}
+
+// handlePostExercise は利用者が種目を足す。
+func (h *Handler) handlePostExercise(w http.ResponseWriter, r *http.Request) {
+	user, ok := requireUser(w, r)
+	if !ok {
+		return
+	}
+	var req exerciseInputDTO
+	if err := decodeJSON(r, &req); err != nil {
+		respondError(w, err)
+		return
+	}
+	e, err := h.addExercise.Execute(r.Context(), user, usecase.AddExerciseInput{
+		Name: req.Name, Stimulus: exerciseStimulusFrom(req.Stimulus), IncrementKg: req.IncrementKg,
+	})
+	if err != nil {
+		respondError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, exerciseDTOFrom(query.ExerciseFrom(e)))
+}
+
+// handlePutExercise は利用者が種目の名前・効き方・刻みを直す。
+//
+// プリセット由来かどうかで扱いを変えない。本文は POST と同じ形
+// （設計書「同じ本文」）。
+func (h *Handler) handlePutExercise(w http.ResponseWriter, r *http.Request) {
+	user, ok := requireUser(w, r)
+	if !ok {
+		return
+	}
+	var req exerciseInputDTO
+	if err := decodeJSON(r, &req); err != nil {
+		respondError(w, err)
+		return
+	}
+	id := exercise.ExerciseID(r.PathValue("id"))
+	e, err := h.editExercise.Execute(r.Context(), user, id, usecase.EditExerciseInput{
+		Name: req.Name, Stimulus: exerciseStimulusFrom(req.Stimulus), IncrementKg: req.IncrementKg,
+	})
+	if err != nil {
+		respondError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, exerciseDTOFrom(query.ExerciseFrom(e)))
+}
+
+// handleDeleteExercise は種目を消す（論理削除）。プリセット由来かどうかで
+// 扱いを変えない。
+func (h *Handler) handleDeleteExercise(w http.ResponseWriter, r *http.Request) {
+	user, ok := requireUser(w, r)
+	if !ok {
+		return
+	}
+	if err := h.deleteExercise.Execute(r.Context(), user, exercise.ExerciseID(r.PathValue("id"))); err != nil {
 		respondError(w, err)
 		return
 	}

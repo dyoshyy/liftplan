@@ -185,6 +185,11 @@ type programStore interface {
 	program.Writer
 }
 
+type exerciseStore interface {
+	exercise.Reader
+	exercise.Writer
+}
+
 type accountStore interface {
 	account.AccountReader
 	account.AccountWriter
@@ -201,7 +206,7 @@ type sessionStore interface {
 // 組み立ての途中に条件分岐が散ると、どちらの実装が使われているかが
 // 読めなくなる。
 type repositories struct {
-	exercises  exercise.Reader
+	exercises  exerciseStore
 	logs       setLogStore
 	conditions conditionStore
 	programs   programStore
@@ -251,6 +256,9 @@ func buildHandler(ctx context.Context) (http.Handler, func(), error) {
 		SetSplit:         usecase.NewSetSplitCycle(exercises, programs, programs),
 		GetProgram:       usecase.NewGetProgram(programs),
 		DeleteSetLog:     usecase.NewDeleteSetLog(logs),
+		AddExercise:      usecase.NewAddExercise(exercises, programs, programs),
+		EditExercise:     usecase.NewEditExercise(exercises, programs),
+		DeleteExercise:   usecase.NewDeleteExercise(exercises, programs, programs),
 		Exercises:        query.NewExercises(exercises),
 		History:          query.NewHistory(logs, exercises),
 		Stats:            query.NewStats(logs, exercises, programs, planning.DefaultOneRepMaxEstimator()),
@@ -487,12 +495,10 @@ func withHealthCheck(next http.Handler, ping func(context.Context) error) http.H
 // インメモリを残すのは、ドメインの検証を DB 無しで回せる状態を捨てないため。
 // 「とりあえず動かす」ための逃げ道でもある。
 //
-// 種目マスタだけは常にインメモリ。シードはバイナリ同梱の静的なマスタで、
-// DB に置くとマイグレーションのたびに種目の追加・改名が絡み、
-// ErrExerciseNotFound の意味が「まだ流していない」と混ざる。
+// 種目は共通/個人に分かれていない。シード（pool）はバイナリ同梱の出発点で、
+// 利用者の行が1件も無いときに一度だけ user_exercises へコピーされる。
+// 以後は DB の行がその人の種目一覧そのもの。
 func openRepositories(ctx context.Context, pool []*exercise.Exercise) (repositories, error) {
-	exercises := memory.NewExerciseRepository(pool)
-
 	url := os.Getenv("DATABASE_URL")
 	if url == "" {
 		slog.Warn("DATABASE_URL が無いのでインメモリで動く。再起動すると記録は消える")
@@ -511,7 +517,7 @@ func openRepositories(ctx context.Context, pool []*exercise.Exercise) (repositor
 			return repositories{}, err
 		}
 		return repositories{
-			exercises:  exercises,
+			exercises:  memory.NewExerciseRepository(pool),
 			logs:       memory.NewSetLogRepository(),
 			conditions: memory.NewConditionRepository(),
 			programs:   programs,
@@ -536,7 +542,7 @@ func openRepositories(ctx context.Context, pool []*exercise.Exercise) (repositor
 
 	slog.Info("Postgres に接続した")
 	return repositories{
-		exercises:  exercises,
+		exercises:  postgres.NewExerciseRepository(db, pool),
 		logs:       postgres.NewSetLogRepository(db),
 		conditions: postgres.NewConditionRepository(db),
 		programs:   postgres.NewProgramRepository(db),

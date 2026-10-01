@@ -6,6 +6,7 @@ package memory
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sort"
 	"sync"
@@ -17,25 +18,91 @@ import (
 	"github.com/dyoshyy/liftplan/internal/domain/training/setlog"
 )
 
-// ExerciseRepository は種目マスタを保持する。起動時にシードを流し込む。
+// ExerciseRepository は種目を保持する。種目は利用者ごとの一覧で、
+// プリセット（シード）はその人の行が1件も無いときに一度だけコピーする。
+// 消した行も件数に数えるので、全部消してもプリセットが入り直らない
+// （docs/specs/2026-09-26-custom-exercises-design.md「いつコピーするか」）。
 type ExerciseRepository struct {
-	mu  sync.RWMutex
-	all []*exercise.Exercise
+	mu     sync.Mutex
+	seed   []*exercise.Exercise
+	byUser map[account.UserID]map[exercise.ExerciseID]*exercise.Exercise
 }
 
-func NewExerciseRepository(all []*exercise.Exercise) *ExerciseRepository {
-	copied := make([]*exercise.Exercise, len(all))
-	copy(copied, all)
-	return &ExerciseRepository{all: copied}
+func NewExerciseRepository(seed []*exercise.Exercise) *ExerciseRepository {
+	copied := make([]*exercise.Exercise, len(seed))
+	copy(copied, seed)
+	return &ExerciseRepository{
+		seed:   copied,
+		byUser: map[account.UserID]map[exercise.ExerciseID]*exercise.Exercise{},
+	}
 }
 
-func (r *ExerciseRepository) FindAll(context.Context) ([]*exercise.Exercise, error) {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
+// seeded はプリセットだけを持つ新しい map を作る。呼び出し側がロックを
+// 持っている前提（r.seed を読むだけで、r.byUser には触れない）。
+func (r *ExerciseRepository) seeded() map[exercise.ExerciseID]*exercise.Exercise {
+	m := make(map[exercise.ExerciseID]*exercise.Exercise, len(r.seed))
+	for _, e := range r.seed {
+		m[e.ID()] = e
+	}
+	return m
+}
 
-	out := make([]*exercise.Exercise, len(r.all))
-	copy(out, r.all)
+// FindAll はその利用者の一覧を ID 昇順で返す。map が無ければ（nil なら）
+// プリセットを全部入れてから返す。「無ければ」の判定は map の有無であって
+// 中身の件数ではない。件数で判定すると、全部消した直後（中身はあるが
+// 生きている行が無い状態）にまたプリセットが入り、消した記録が生き返る。
+func (r *ExerciseRepository) FindAll(
+	_ context.Context, user account.UserID,
+) ([]*exercise.Exercise, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	mine := r.ensureSeeded(user)
+
+	ids := make([]exercise.ExerciseID, 0, len(mine))
+	for id := range mine {
+		ids = append(ids, id)
+	}
+	sort.Slice(ids, func(i, j int) bool { return ids[i] < ids[j] })
+
+	out := make([]*exercise.Exercise, 0, len(mine))
+	for _, id := range ids {
+		out = append(out, mine[id])
+	}
 	return out, nil
+}
+
+// Save はその利用者の一覧に保存する。プリセット由来かどうかで扱いを
+// 変えない。同じ ID は上書きする。FindAll 同様、その利用者の最初の呼び出し
+// ならプリセットを入れてから保存する。
+func (r *ExerciseRepository) Save(_ context.Context, user account.UserID, e *exercise.Exercise) error {
+	if e == nil {
+		return errors.New("種目が nil である")
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	mine := r.ensureSeeded(user)
+	if !e.IsDeleted() {
+		for id, other := range mine {
+			if id != e.ID() && !other.IsDeleted() && other.Name() == e.Name() {
+				return fmt.Errorf("%w: %s", exercise.ErrDuplicateExerciseName, e.Name())
+			}
+		}
+	}
+	mine[e.ID()] = e
+	return nil
+}
+
+// ensureSeeded はその利用者の map を返す。無ければプリセットを入れて
+// 作る。呼び出し側が r.mu を持っている前提。
+func (r *ExerciseRepository) ensureSeeded(user account.UserID) map[exercise.ExerciseID]*exercise.Exercise {
+	mine := r.byUser[user]
+	if mine == nil {
+		mine = r.seeded()
+		r.byUser[user] = mine
+	}
+	return mine
 }
 
 // SetLogRepository は実績ログを「所有者とID」のキーで保持する。

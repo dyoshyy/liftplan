@@ -72,29 +72,33 @@ export function useProgramSettings(onChanged: () => Promise<void>) {
     }
   };
 
-  // put は1フィールドだけの口へ送る。成否をそのまま返す。
-  const put = async (path: string, body: unknown): Promise<boolean> => {
+  // request はその場で送る。成功なら応答を、失敗なら null を返す。
+  // 失敗の理由は note に出す。
+  const request = async (path: string, method: string, body?: unknown): Promise<Response | null> => {
     if (!navigator.onLine) {
       setNote('つながらないので変えられません');
-      return false;
+      return null;
     }
     setBusy(true);
     setNote('');
     try {
-      const res = await send({ path, method: 'PUT', body });
+      const res = await send({ path, method, body });
       if (!res.ok) {
         const failure = (await res.json().catch(() => null)) as { error?: string } | null;
         setNote(describePutFailure(res.status, failure));
-        return false;
+        return null;
       }
-      return true;
+      return res;
     } catch {
       setNote('つながらないので変えられません');
-      return false;
+      return null;
     } finally {
       setBusy(false);
     }
   };
+
+  // put は1フィールドだけの口へ送る。成否をそのまま返す。
+  const put = async (path: string, body: unknown): Promise<boolean> => (await request(path, 'PUT', body)) !== null;
 
   const chooseFocus = async (id: string) => {
     if (!program || busy) return;

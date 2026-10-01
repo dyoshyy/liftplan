@@ -62,7 +62,7 @@ DATABASE_URL='postgres://liftplan:liftplan@127.0.0.1:5433/liftplan' \
 
 インメモリで動く経路を残しているのは、ドメインの検証を DB 無しで回せる状態を捨てないため。
 
-**種目マスタだけは常にバイナリ同梱**で、DB には置かない。置くとマイグレーションのたびに種目の追加・改名が絡み、「種目が見つからない」の意味が「まだ流していない」と混ざる。
+**種目は利用者ごとの一覧。**共通/個人の2つには分かれていない。プリセット（シードにバイナリ同梱）は、その利用者の行が `user_exercises` に1件も無いときに一度だけコピーする（消した行も「行がある」に数える）。以後はこの表の行がその人の種目一覧そのもので、プリセット由来かどうかで足す・直す・消すの扱いを変えない。
 
 ## 認証
 
@@ -94,7 +94,10 @@ curl -H 'Authorization: Bearer <セッショントークン>' 'http://localhost:
 | PUT | `/api/program/focus` | 重点種目だけを差し替える。`null` で指定なしに戻す |
 | PUT | `/api/program/split` | 分割の周期だけを差し替える。空の配列で分割なしに戻す |
 | GET | `/api/split-presets` | 分割のプリセット。`splits` をそのまま `/api/program/split` へ送れる |
-| GET | `/api/exercises` | 種目マスタ（IDと日本語名） |
+| GET | `/api/exercises` | 種目マスタ（IDと日本語名・効き方）。消した種目（`deleted: true`）も含む |
+| POST | `/api/exercises` | 種目を足す（201）。足すと使う種目にも入る |
+| PUT | `/api/exercises/{id}` | 種目の名前・効き方・刻みを直す（200）。本文は POST と同じ形 |
+| DELETE | `/api/exercises/{id}` | 種目を消す（論理削除・204）。プリセット由来かどうかで扱いを変えない。伸ばしたい種目に入っている種目は消せない |
 | GET | `/api/set-logs?from=&to=` | 実績と、種目ごとの前回の実績。既定は直近56日 |
 | DELETE | `/api/set-logs/{id}` | 打ち間違いの取り消し |
 | GET | `/api/stats?from=&to=` | 推定1RMの推移と、今週の週目標の充足 |

@@ -1,6 +1,7 @@
 import { useCallback } from 'react';
 import type { DayChange } from '../domain/days';
 import { label, today } from '../domain/date';
+import { ExerciseManager } from '../features/exercises/ExerciseManager';
 import { Forecast } from '../features/forecast/Forecast';
 import { Setup } from '../features/setup/Setup';
 import { GearIcon } from '../ui/icons';
@@ -127,11 +128,16 @@ export function App() {
                   session.signOut();
                   go('today');
                 }}
+                onOpenExercises={() => go('exercises')}
               />
             )}
 
             {route === 'forecast' && (
               <Forecast nameOf={nameOf} onBack={() => go('today')} />
+            )}
+
+            {route === 'exercises' && (
+              <ExerciseManager exercises={data.exercises} onChanged={reload} onBack={() => go('settings')} />
             )}
           </>
         )}

@@ -17,6 +17,7 @@ import (
 
 	"github.com/dyoshyy/liftplan/internal/application/query"
 	"github.com/dyoshyy/liftplan/internal/application/usecase"
+	"github.com/dyoshyy/liftplan/internal/domain/account"
 	"github.com/dyoshyy/liftplan/internal/domain/training"
 	"github.com/dyoshyy/liftplan/internal/domain/training/seed"
 	"github.com/dyoshyy/liftplan/internal/infrastructure/memory"
@@ -88,13 +89,20 @@ func buildRoutes(t *testing.T, configured bool) http.Handler {
 	return routesFrom(t, dependencies(exercises, logs, conditions, programs))
 }
 
+// exerciseStore は種目の読み書き。dependencies が AddExercise・
+// EditExercise・DeleteExercise を組むのに要る（usecase 側の要求と同じ形）。
+type exerciseStore interface {
+	exercise.Reader
+	exercise.Writer
+}
+
 // dependencies はリポジトリ一式から Dependencies を組む。
 //
-// 種目の読み口だけインターフェースで受けるのは、障害のテストが
-// そこだけを壊れた実装に差し替えるため。差し替える1つが配線の8箇所に
+// 種目の読み書きをインターフェースで受けるのは、障害のテストが
+// そこだけを壊れた実装に差し替えるため。差し替える1つが配線の複数箇所に
 // 現れるので、ここに寄せておかないと差し替えるたびに全部を書き写すことになる。
 func dependencies(
-	exercises exercise.Reader,
+	exercises exerciseStore,
 	logs *memory.SetLogRepository,
 	conditions *memory.ConditionRepository,
 	programs *memory.ProgramRepository,
@@ -112,6 +120,9 @@ func dependencies(
 		SetSplit:         usecase.NewSetSplitCycle(exercises, programs, programs),
 		GetProgram:       usecase.NewGetProgram(programs),
 		DeleteSetLog:     usecase.NewDeleteSetLog(logs),
+		AddExercise:      usecase.NewAddExercise(exercises, programs, programs),
+		EditExercise:     usecase.NewEditExercise(exercises, programs),
+		DeleteExercise:   usecase.NewDeleteExercise(exercises, programs, programs),
 		Exercises:        query.NewExercises(exercises),
 		History:          query.NewHistory(logs, exercises),
 		Stats:            query.NewStats(logs, exercises, programs, planning.DefaultOneRepMaxEstimator()),
@@ -1346,8 +1357,13 @@ func do(t *testing.T, mux http.Handler, method, path, body string) *httptest.Res
 // 読んで記録を捨てる。分類を消しても 500 で緑になるので、独立に見る。
 type unavailableExercises struct{}
 
-func (unavailableExercises) FindAll(context.Context) ([]*exercise.Exercise, error) {
+func (unavailableExercises) FindAll(context.Context, account.UserID) ([]*exercise.Exercise, error) {
 	return nil, fmt.Errorf("種目の取得: %w: dial tcp 10.0.0.1:5432: connect: refused",
+		training.ErrRepositoryUnavailable)
+}
+
+func (unavailableExercises) Save(context.Context, account.UserID, *exercise.Exercise) error {
+	return fmt.Errorf("種目の保存: %w: dial tcp 10.0.0.1:5432: connect: refused",
 		training.ErrRepositoryUnavailable)
 }
 
@@ -1534,7 +1550,7 @@ func TestRoutes_RejectWrongMethod(t *testing.T) {
 		{http.MethodPost, "/api/program/selected"},
 		{http.MethodPost, "/api/program/split"},
 		{http.MethodPost, "/api/split-presets"},
-		{http.MethodPost, "/api/exercises"},
+		{http.MethodPut, "/api/exercises"},
 		{http.MethodPost, "/api/stats"},
 	} {
 		if rec := do(t, mux, c.method, c.path, "{}"); rec.Code != http.StatusMethodNotAllowed {
@@ -1558,8 +1574,12 @@ func TestGetSession_RequiresDate(t *testing.T) {
 // 取得に失敗するリポジトリ。500 の経路を作るために使う。
 type brokenExercises struct{}
 
-func (brokenExercises) FindAll(context.Context) ([]*exercise.Exercise, error) {
+func (brokenExercises) FindAll(context.Context, account.UserID) ([]*exercise.Exercise, error) {
 	return nil, errors.New("種目テーブル exercises_v2 の接続文字列が不正: user=admin")
+}
+
+func (brokenExercises) Save(context.Context, account.UserID, *exercise.Exercise) error {
+	return errors.New("種目テーブル exercises_v2 の接続文字列が不正: user=admin")
 }
 
 // 500 のときに内部のエラー文を返さないこと。

@@ -31,8 +31,12 @@ func verifySelection(pool []*exercise.Exercise, prog *program.Program) error {
 	}
 
 	for _, id := range prog.SelectedExercises() {
-		if _, ok := known[id]; !ok {
+		e, ok := known[id]
+		if !ok {
 			return fmt.Errorf("%w: %w: %s", apperror.ErrInvalidInput, exercise.ErrExerciseNotFound, id)
+		}
+		if e.IsDeleted() {
+			return fmt.Errorf("%w: 消した種目は選べない: %s", apperror.ErrInvalidInput, id)
 		}
 	}
 	return nil

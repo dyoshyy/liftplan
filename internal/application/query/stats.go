@@ -176,7 +176,7 @@ func (q *Stats) load(ctx context.Context, user account.UserID) (
 	if err != nil {
 		return setlog.History{}, nil, nil, fmt.Errorf("実績の取得に失敗: %w", err)
 	}
-	pool, err := q.exercises.FindAll(ctx)
+	pool, err := q.exercises.FindAll(ctx, user)
 	if err != nil {
 		return setlog.History{}, nil, nil, fmt.Errorf("種目の取得に失敗: %w", err)
 	}

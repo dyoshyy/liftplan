@@ -5,6 +5,8 @@ import (
 	"testing"
 
 	"github.com/dyoshyy/liftplan/internal/application/query"
+	"github.com/dyoshyy/liftplan/internal/domain/training"
+	"github.com/dyoshyy/liftplan/internal/domain/training/exercise"
 	"github.com/dyoshyy/liftplan/internal/domain/training/seed"
 )
 
@@ -25,7 +27,7 @@ func TestExercises_CarriesStimulus(t *testing.T) {
 		t.Fatalf("シードが不正: %v", err)
 	}
 
-	got, err := query.NewExercises(&stubExercises{all: pool}).All(context.Background())
+	got, err := query.NewExercises(&stubExercises{all: pool}).All(context.Background(), testUser)
 	if err != nil {
 		t.Fatalf("読み取りに失敗: %v", err)
 	}
@@ -45,5 +47,60 @@ func TestExercises_CarriesStimulus(t *testing.T) {
 				t.Errorf("%s の %s の寄与度が %v（正であるべき）", e.ID, region, c)
 			}
 		}
+	}
+}
+
+// Deleted が引けること。
+//
+// 消した種目を選べなくしつつ一覧には残す判定に使う。POST/PUT /api/exercises
+// の応答も同じ ExerciseFrom を通るので、ここで固定しておけば2箇所が
+// 食い違わない。プリセット由来かどうかで扱いを変えないので、Custom は
+// 見ない（無くなった）。
+func TestExercises_CarriesDeleted(t *testing.T) {
+	pool, err := seed.Exercises()
+	if err != nil {
+		t.Fatalf("シードが不正: %v", err)
+	}
+	common := pool[0]
+
+	added, err := exercise.NewExercise(exercise.ExerciseParams{
+		ID:          "u-0123456789abcdef",
+		Name:        "アイソラテラル・ロー",
+		Stimulus:    map[training.MuscleRegion]float64{training.TrapMid: 1.0},
+		IncrementKg: 2.5,
+	})
+	if err != nil {
+		t.Fatalf("種目が作れない: %v", err)
+	}
+	toDelete, err := exercise.NewExercise(exercise.ExerciseParams{
+		ID:          "u-fedcba9876543210",
+		Name:        "消した種目",
+		Stimulus:    map[training.MuscleRegion]float64{training.TrapMid: 1.0},
+		IncrementKg: 2.5,
+	})
+	if err != nil {
+		t.Fatalf("種目が作れない: %v", err)
+	}
+	deleted := toDelete.Delete()
+
+	got, err := query.NewExercises(&stubExercises{all: []*exercise.Exercise{common, added, deleted}}).
+		All(context.Background(), testUser)
+	if err != nil {
+		t.Fatalf("読み取りに失敗: %v", err)
+	}
+
+	byID := make(map[string]query.Exercise, len(got))
+	for _, e := range got {
+		byID[string(e.ID)] = e
+	}
+
+	if e := byID[string(common.ID())]; e.Deleted {
+		t.Errorf("共通の種目が Deleted で true: %+v", e)
+	}
+	if e := byID["u-0123456789abcdef"]; e.Deleted {
+		t.Errorf("足した種目が Deleted:true: %+v", e)
+	}
+	if e := byID["u-fedcba9876543210"]; !e.Deleted {
+		t.Errorf("消した種目が Deleted で false: %+v", e)
 	}
 }

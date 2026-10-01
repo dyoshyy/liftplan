@@ -115,6 +115,15 @@ type devSettingsDTO struct {
 	Weekdays  []int `json:"weekdays"`
 	Exercises int   `json:"exercises_per_session"`
 	Sets      int   `json:"sets_per_exercise"`
+	// Custom は足した自分の種目。ID は orm= で1RM を上書きするときに使う。
+	Custom []devCustomDTO `json:"custom"`
+}
+
+type devCustomDTO struct {
+	ID          string             `json:"id"`
+	Name        string             `json:"name"`
+	Stimulus    map[string]float64 `json:"stimulus"`
+	IncrementKg float64            `json:"increment_kg"`
 }
 
 type devDayDTO struct {
@@ -197,7 +206,14 @@ func (d *DevSimulation) handleSimulate(w http.ResponseWriter, r *http.Request) {
 		respondError(w, invalidInput(err.Error()))
 		return
 	}
-	writeJSON(w, http.StatusOK, toDevResultDTO(req, d.sim.Pool(), got))
+	// 応答の1RM と自分の種目は、足した種目を含む一覧から埋める。Run が
+	// 通ったので、ここで一覧が組めないことは無い。
+	pool, err := d.sim.PoolFor(req)
+	if err != nil {
+		respondError(w, invalidInput(err.Error()))
+		return
+	}
+	writeJSON(w, http.StatusOK, toDevResultDTO(req, pool, got))
 }
 
 // devDefaults は指定が無いときの既定。1ヶ月ぶんを週4で見る。
@@ -220,6 +236,7 @@ var devQueryKeys = map[string]bool{
 	"frequency": true, "weeks": true, "days": true, "start": true,
 	"exercises": true, "sets": true,
 	"growth": true, "first_pct": true, "body_weight": true, "orm": true,
+	"custom": true,
 }
 
 func parseDevRequest(r *http.Request) (devsim.Request, error) {
@@ -335,7 +352,76 @@ func parseDevRequest(r *http.Request) (devsim.Request, error) {
 		return devsim.Request{}, err
 	}
 	out.Athlete.OneRepMaxKg = orm
+
+	custom, err := parseDevCustom(q.Get("custom"))
+	if err != nil {
+		return devsim.Request{}, err
+	}
+	out.Custom = custom
 	return out, nil
+}
+
+// parseDevCustom は "名前|区分:寄与,区分:寄与|刻み;..." を自分の種目の並びにする。
+//
+// 効き方は本番の POST /api/exercises と同じ、区分ごとの寄与度の生の値。
+// URL の1行で書けるようにした（Claude がクエリで条件を変えて読むため）。
+// 寄与の範囲・寄与1.0の区分の有無・名前の重複は devsim（exercise.NewExercise）が見る。
+func parseDevCustom(v string) ([]devsim.CustomExercise, error) {
+	var out []devsim.CustomExercise
+	for _, item := range strings.Split(v, ";") {
+		if strings.TrimSpace(item) == "" {
+			continue
+		}
+		fields := strings.Split(item, "|")
+		if len(fields) != 3 {
+			return nil, errDevQuery("custom", item)
+		}
+		stimulus, err := parseDevStimulus(fields[1])
+		if err != nil {
+			// 理由を出さず item だけ返すと、区分の書き間違いと桁の書き間違いが
+			// 見分けられない。parseDevStimulus の理由をそのまま本文に出す。
+			return nil, errDevQuery("custom", fmt.Sprintf("%s（%s）", item, err))
+		}
+		inc, err := strconv.ParseFloat(strings.TrimSpace(fields[2]), 64)
+		if err != nil {
+			return nil, errDevQuery("custom", item)
+		}
+		out = append(out, devsim.CustomExercise{
+			Name:        strings.TrimSpace(fields[0]),
+			Stimulus:    stimulus,
+			IncrementKg: inc,
+		})
+	}
+	return out, nil
+}
+
+// parseDevStimulus は "TRAP_MID:1,LAT:0.5" を区分ごとの寄与度にする。
+// 区分の妥当性と範囲は devsim（exercise.NewExercise）が見るので、ここでは
+// 形（コロンの有無・数値として読めるか・同じ区分の2回指定）だけを見る。
+func parseDevStimulus(v string) (map[training.MuscleRegion]float64, error) {
+	raw := map[string]float64{}
+	for _, pair := range strings.Split(v, ",") {
+		if pair = strings.TrimSpace(pair); pair == "" {
+			continue
+		}
+		region, kg, ok := strings.Cut(pair, ":")
+		if !ok {
+			return nil, fmt.Errorf("寄与の形式が不正: %s", pair)
+		}
+		region = strings.TrimSpace(region)
+		// 黙って後勝ちにすると、書き間違い（同じ区分の2回指定）が
+		// 「寄与1.0の区分が1つも無い」のような別の理由で弾かれ、
+		// 何が悪いのか本文から読めなくなる。
+		if _, dup := raw[region]; dup {
+			return nil, fmt.Errorf("区分 %s が2回指定されている", region)
+		}
+		n, err := strconv.ParseFloat(strings.TrimSpace(kg), 64)
+		if err != nil {
+			return nil, fmt.Errorf("寄与の値が数値でない: %s", pair)
+		}
+		raw[region] = n
+	}
+	return exerciseStimulusFrom(raw), nil
 }
 
 // parseDevOneRepMax は "bench:100,squat:140" を種目ごとの1RMにする。
@@ -416,8 +502,28 @@ func toDevSettingsDTO(req devsim.Request, pool []*exercise.Exercise) devSettings
 	if len(out.Weekdays) == 0 {
 		out.Weekdays, _ = devsim.DefaultWeekdays(req.Frequency)
 	}
+	// 自分の種目かどうかは、devsim が並び順で振る ID（CustomExerciseID）で見分ける。
+	// IsCustom のような区分は無い（プリセット由来かどうかで扱いを変えないため）。
+	customIDs := make(map[exercise.ExerciseID]bool, len(req.Custom))
+	for i := range req.Custom {
+		customIDs[devsim.CustomExerciseID(i)] = true
+	}
+	out.Custom = []devCustomDTO{}
 	for _, e := range pool {
 		out.Athlete.OneRepMaxKg[string(e.ID())] = req.Athlete.OneRepMax(e.ID())
+		if !customIDs[e.ID()] {
+			continue
+		}
+		c := devCustomDTO{
+			ID: string(e.ID()), Name: e.Name(), IncrementKg: e.Increment().Kg(),
+			Stimulus: map[string]float64{},
+		}
+		for _, r := range e.Stimulus().Regions() {
+			if v, ok := e.Stimulus().Contribution(r); ok {
+				c.Stimulus[string(r)] = v.Float()
+			}
+		}
+		out.Custom = append(out.Custom, c)
 	}
 	return out
 }

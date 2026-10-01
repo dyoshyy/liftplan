@@ -31,7 +31,7 @@ type stubExercises struct {
 	err error
 }
 
-func (s *stubExercises) FindAll(context.Context) ([]*exercise.Exercise, error) {
+func (s *stubExercises) FindAll(context.Context, account.UserID) ([]*exercise.Exercise, error) {
 	return s.all, s.err
 }
 

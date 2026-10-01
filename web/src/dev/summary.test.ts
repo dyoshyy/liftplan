@@ -118,6 +118,30 @@ describe('settingsLine', () => {
     expect(got).toContain('週4回（水金）');
   });
 
+  // 自分の種目を足した結果は、足さない結果と数字が違う。前提の1行に出さないと、
+  // どちらの条件の数字かを要約だけで読み分けられない。
+  it('自分の種目があれば、名前と効く部位を書く', () => {
+    const got = settingsLine(
+      {
+        ...settings,
+        custom: [
+          {
+            id: 'u-sim01',
+            name: 'アイソラテラル・ロー',
+            // 挿入順をわざと逆にする。並びが挿入順のままなら BICEPS が
+            // LAT より先に出て、regionOrder による決着を検査できない。
+            stimulus: { BICEPS: 0.5, LAT: 0.5, TRAP_MID: 1 },
+            increment_kg: 2.5,
+          },
+        ],
+      },
+      names,
+      '',
+    );
+    expect(got).toContain('自分の種目: アイソラテラル・ロー（僧帽筋中部 1.0・広背筋 0.5・上腕二頭筋 0.5）');
+    expect(settingsLine({ ...settings, custom: [] }, names, '')).not.toContain('自分の種目');
+  });
+
   it('分割と重点が無ければ「なし」', () => {
     const got = settingsLine({ ...settings, focus: '', split: '' }, names, '');
     expect(got).toContain('分割 なし・重点 なし');

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 
@@ -458,5 +459,96 @@ func TestDevSimulation_OptionsCarryScheduleDefaults(t *testing.T) {
 		if fmt.Sprint(s.Weekdays[fmt.Sprint(f)]) != fmt.Sprint(want) {
 			t.Errorf("週%d の曜日が %v。%v のはず", f, s.Weekdays[fmt.Sprint(f)], want)
 		}
+	}
+}
+
+// 自分の種目を custom= で渡せること。設定の echo に ID つきで返り、
+// 1RM の上書きもその ID で効くこと。
+//
+// 形は「名前|区分:寄与,区分:寄与|刻み」を ; で並べる。本番の POST
+// /api/exercises と同じ、区分ごとの寄与度の生の値を1行で書ける形にした。
+func TestDevSimulation_TakesCustomExercisesAndEchoesThem(t *testing.T) {
+	custom := "アイソラテラル・ロー|TRAP_MID:1,LAT:0.5,BICEPS:0.5|2.5;アイソラテラル・フロント・プルダウン|LAT:1|2.5"
+	rec := devGet(t, "/api/dev/simulate?declared=bench&weeks=2&orm=u-sim01:80&custom="+url.QueryEscape(custom))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("%d が返った。200 のはず: %s", rec.Code, rec.Body.String())
+	}
+
+	var got struct {
+		Settings struct {
+			Custom []struct {
+				ID          string             `json:"id"`
+				Name        string             `json:"name"`
+				Stimulus    map[string]float64 `json:"stimulus"`
+				IncrementKg float64            `json:"increment_kg"`
+			} `json:"custom"`
+			Athlete struct {
+				OneRepMaxKg map[string]float64 `json:"one_rep_max_kg"`
+			} `json:"athlete"`
+		} `json:"settings"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatalf("応答が JSON でない: %v", err)
+	}
+	c := got.Settings.Custom
+	if len(c) != 2 || c[0].ID != "u-sim01" || c[0].Name != "アイソラテラル・ロー" ||
+		c[0].Stimulus["TRAP_MID"] != 1 || c[0].Stimulus["LAT"] != 0.5 || c[0].Stimulus["BICEPS"] != 0.5 ||
+		c[0].IncrementKg != 2.5 || c[1].ID != "u-sim02" || len(c[1].Stimulus) != 1 {
+		t.Errorf("自分の種目が返っていない: %+v", c)
+	}
+	orm := got.Settings.Athlete.OneRepMaxKg
+	if orm["u-sim01"] != 80 || orm["u-sim02"] != devsim.DefaultOneRepMax("u-sim02") {
+		t.Errorf("自分の種目の1RM: u-sim01=%v u-sim02=%v", orm["u-sim01"], orm["u-sim02"])
+	}
+}
+
+// 自分の種目の形が壊れていたら 400。
+func TestDevSimulation_RejectsBadCustomQuery(t *testing.T) {
+	for _, custom := range []string{
+		"名前だけ",
+		"a|NECK:1|2.5",
+		"a|LAT:heavy|2.5",
+		"a|LAT:0.5|2.5",                 // 寄与1.0の区分が無い
+		"a|LAT:1|heavy",                 // 刻みが数値でない
+		"サイドレイズ|SIDE_DELT:1|1",          // 共通の種目と同名
+		"a|TRAP_MID:1,TRAP_MID:0.5|2.5", // 同じ区分の2回指定
+		"a||2.5",                        // 寄与が1つも無い
+		"a|LAT|2.5",                     // コロンが無い
+	} {
+		t.Run(custom, func(t *testing.T) {
+			rec := devGet(t, "/api/dev/simulate?declared=bench&custom="+url.QueryEscape(custom))
+			if rec.Code != http.StatusBadRequest {
+				t.Errorf("%d が返った。400 のはず: %s", rec.Code, rec.Body.String())
+			}
+			// custom を知らないキーとして弾いているだけなら、形を見ていない。
+			if strings.Contains(rec.Body.String(), "知らないキー") {
+				t.Errorf("形ではなくキーで弾いている: %s", rec.Body.String())
+			}
+		})
+	}
+}
+
+// 効き方の書式が壊れている理由は、本文にそのまま出す。
+//
+// 「custom が不正である」とだけ返すと、区分の重複と桁の書き間違いが
+// 見分けられず、読み返した本人が同じ間違いをもう一度探すことになる。
+func TestDevSimulation_NamesTheReasonForBadCustomStimulus(t *testing.T) {
+	cases := []struct {
+		custom string
+		want   string
+	}{
+		{"a|TRAP_MID:1,TRAP_MID:0.5|2.5", "TRAP_MID"},
+		{"a|LAT|2.5", "寄与の形式が不正"},
+	}
+	for _, c := range cases {
+		t.Run(c.custom, func(t *testing.T) {
+			rec := devGet(t, "/api/dev/simulate?declared=bench&custom="+url.QueryEscape(c.custom))
+			if rec.Code != http.StatusBadRequest {
+				t.Fatalf("%d が返った。400 のはず: %s", rec.Code, rec.Body.String())
+			}
+			if !strings.Contains(rec.Body.String(), c.want) {
+				t.Errorf("本文に %q が無い: %s", c.want, rec.Body.String())
+			}
+		})
 	}
 }

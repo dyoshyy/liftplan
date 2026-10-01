@@ -67,7 +67,7 @@ func (u *GetForecast) Execute(ctx context.Context, user account.UserID, in GetFo
 		return nil, fmt.Errorf("見込みの導出が中断された: %w", err)
 	}
 
-	pool, err := u.exercises.FindAll(ctx)
+	pool, err := u.exercises.FindAll(ctx, user)
 	if err != nil {
 		return nil, fmt.Errorf("種目の取得に失敗: %w", err)
 	}

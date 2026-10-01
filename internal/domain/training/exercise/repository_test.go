@@ -6,13 +6,16 @@ import (
 	"slices"
 	"testing"
 
+	"github.com/dyoshyy/liftplan/internal/domain/account"
 	"github.com/dyoshyy/liftplan/internal/domain/training/exercise"
 )
 
 // Reader を満たす最小実装。
 type stubRepo struct{}
 
-func (stubRepo) FindAll(context.Context) ([]*exercise.Exercise, error) { return nil, nil }
+func (stubRepo) FindAll(context.Context, account.UserID) ([]*exercise.Exercise, error) {
+	return nil, nil
+}
 
 // インターフェースの形を両方向から固定する。
 //
@@ -21,19 +24,32 @@ func (stubRepo) FindAll(context.Context) ([]*exercise.Exercise, error) { return 
 // 追加とシグネチャ変更だけ。メソッド値を期待する関数型に取り出す向きが要る。
 func TestReader_KeepsItsShape(t *testing.T) {
 	var r exercise.Reader = stubRepo{}
-	var _ func(context.Context) ([]*exercise.Exercise, error) = r.FindAll
+	var _ func(context.Context, account.UserID) ([]*exercise.Exercise, error) = r.FindAll
 }
 
-// 種目マスタは実行時に書き換わらないので Writer を持たない。
-// 書ける口が生えたら、それは「必要になってから作る」判断を通っていない。
-func TestExercise_HasNoWriter(t *testing.T) {
-	typ := reflect.TypeOf((*exercise.Reader)(nil)).Elem()
+// Writer を満たす最小実装。
+type stubWriter struct{}
 
-	var got []string
-	for i := range typ.NumMethod() {
-		got = append(got, typ.Method(i).Name)
-	}
-	if want := []string{"FindAll"}; !slices.Equal(got, want) {
-		t.Errorf("メソッド集合が %v（期待 %v）", got, want)
+func (stubWriter) Save(context.Context, account.UserID, *exercise.Exercise) error { return nil }
+
+func TestWriter_KeepsItsShape(t *testing.T) {
+	var w exercise.Writer = stubWriter{}
+	var _ func(context.Context, account.UserID, *exercise.Exercise) error = w.Save
+}
+
+// 読みと書きは分けたまま。1つの口にまとめると、使う側が要らない半分まで
+// 受け取る（CLAUDE.md「リポジトリのインターフェースは読みと書きに分ける」）。
+func TestReaderAndWriter_StaySplit(t *testing.T) {
+	for typ, want := range map[reflect.Type][]string{
+		reflect.TypeOf((*exercise.Reader)(nil)).Elem(): {"FindAll"},
+		reflect.TypeOf((*exercise.Writer)(nil)).Elem(): {"Save"},
+	} {
+		var got []string
+		for i := range typ.NumMethod() {
+			got = append(got, typ.Method(i).Name)
+		}
+		if !slices.Equal(got, want) {
+			t.Errorf("%s のメソッド集合が %v（期待 %v）", typ, got, want)
+		}
 	}
 }

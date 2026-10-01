@@ -240,7 +240,7 @@ func (u *SignIn) seedProgramIfMissing(ctx context.Context, userID account.UserID
 		return fmt.Errorf("プログラムの確認に失敗: %w", err)
 	}
 
-	pool, err := u.exercises.FindAll(ctx)
+	pool, err := u.exercises.FindAll(ctx, userID)
 	if err != nil {
 		return fmt.Errorf("種目の取得に失敗: %w", err)
 	}
