@@ -1,6 +1,7 @@
 import { useCallback, useState } from 'react';
 import type { Day, RecordedSet } from '../../api/types';
 import { today } from '../../domain/date';
+import { createGate } from '../../domain/gate';
 import { newId } from '../../domain/id';
 import type { QueueItem } from '../../outbox/db';
 import { judgePersonalRecord, previousSets, type PersonalRecord } from './pr';
@@ -112,51 +113,61 @@ export function useRecordOrchestrator({
 }: Deps) {
   const [sheet, setSheet] = useState<SheetTarget | null>(null);
 
+  // 記録と取り消しは同時に1つだけ。待ち行列に積む間もシートは開いたままで、
+  // 連打すると別のIDで二重に記録される（gate.ts）。記録と取り消しで同じ門を
+  // 使うのは、記録の直後に取り消しが割り込んで順序が入れ替わるのも防ぐため。
+  const [gate] = useState(createGate);
+
   const open = useCallback((target: SheetTarget) => setSheet(target), []);
   const close = useCallback(() => setSheet(null), []);
 
   const record = useCallback(
-    async (values: { weight: number; reps: number; rir: number }) => {
-      if (!sheet) return;
+    (values: { weight: number; reps: number; rir: number }) =>
+      gate(async () => {
+        if (!sheet) return;
 
-      const date = today();
-      const plan = planRecord({ plan: sheet.plan, recorded: sheet.recorded, values, date, newId });
+        const date = today();
+        const plan = planRecord({ plan: sheet.plan, recorded: sheet.recorded, values, date, newId });
 
-      // 自己ベストの判定は**積む前**にやる。onRecordLocally が走ったあとに
-      // 母集団を作ると、いま記録したセット自身が「過去の最高」に入り、
-      // どんな更新も自分自身を超えられなくなる。
-      const pr = judgePersonalRecord({
-        exerciseId: sheet.plan.exercise_id,
-        name: nameOf(sheet.plan.exercise_id),
-        values,
-        previous: previousSets({
-          days: history.days,
-          doneToday: history.doneToday,
+        // 自己ベストの判定は**積む前**にやる。onRecordLocally が走ったあとに
+        // 母集団を作ると、いま記録したセット自身が「過去の最高」に入り、
+        // どんな更新も自分自身を超えられなくなる。
+        const pr = judgePersonalRecord({
           exerciseId: sheet.plan.exercise_id,
-          today: date,
-          excludeId: sheet.recorded?.id,
-        }),
-      });
+          name: nameOf(sheet.plan.exercise_id),
+          values,
+          previous: previousSets({
+            days: history.days,
+            doneToday: history.doneToday,
+            exerciseId: sheet.plan.exercise_id,
+            today: date,
+            excludeId: sheet.recorded?.id,
+          }),
+        });
 
-      for (const item of plan.queue) await enqueue(item);
+        for (const item of plan.queue) await enqueue(item);
 
-      onRecordLocally(plan.local.exerciseId, plan.local.set, plan.local.replacing);
-      if (plan.startRest) onRestStart();
-      if (pr) onPersonalRecord(pr);
-      setSheet(null);
-    },
-    [sheet, enqueue, onRecordLocally, onRestStart, history, nameOf, onPersonalRecord],
+        onRecordLocally(plan.local.exerciseId, plan.local.set, plan.local.replacing);
+        if (plan.startRest) onRestStart();
+        if (pr) onPersonalRecord(pr);
+        setSheet(null);
+      }),
+    [gate, sheet, enqueue, onRecordLocally, onRestStart, history, nameOf, onPersonalRecord],
   );
 
-  const undo = useCallback(async () => {
-    if (!sheet?.recorded) return;
+  const undo = useCallback(
+    () =>
+      gate(async () => {
+        if (!sheet?.recorded) return;
 
-    const plan = planUndo({ plan: sheet.plan, recorded: sheet.recorded });
-    for (const item of plan.queue) await enqueue(item);
+        const plan = planUndo({ plan: sheet.plan, recorded: sheet.recorded });
+        for (const item of plan.queue) await enqueue(item);
 
-    onForgetLocally(plan.forget.exerciseId, plan.forget.id);
-    setSheet(null);
-  }, [sheet, enqueue, onForgetLocally]);
+        onForgetLocally(plan.forget.exerciseId, plan.forget.id);
+        setSheet(null);
+      }),
+    [gate, sheet, enqueue, onForgetLocally],
+  );
 
   return { sheet, open, close, record, undo };
 }
