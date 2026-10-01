@@ -98,7 +98,8 @@ export function Target({ plan }: { plan: CardPlan }) {
         </span>
       )}
       <span className="text-[13px] text-muted">
-        {plan.sets}セット・{plan.weight_kg === null ? 'RIR' : '目標RIR'} {plan.target_rir}
+        {plan.sets}セット×{plan.target_reps}レップ・{plan.weight_kg === null ? 'RIR' : '目標RIR'}{' '}
+        {plan.target_rir}
       </span>
     </div>
   );

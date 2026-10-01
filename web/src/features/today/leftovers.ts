@@ -25,6 +25,7 @@ export function leftovers(
       weight_kg: null,
       sets: sets.length,
       target_rir: 0,
+      target_reps: 0,
       finished_only: true,
     }));
 }

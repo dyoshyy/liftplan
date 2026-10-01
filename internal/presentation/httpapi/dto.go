@@ -18,6 +18,9 @@ type plannedSetDTO struct {
 	WeightKg   *float64 `json:"weight_kg"`
 	Sets       int      `json:"sets"`
 	TargetRIR  int      `json:"target_rir"`
+	// TargetReps は役割の強度と RIR から決まる狙いのレップ数。重量が null でも付く
+	// （重量を自分で決めるとき、何レップ狙いの重量かが手がかりになる）。
+	TargetReps int `json:"target_reps"`
 }
 
 // 3レーンとも配列にする。バリエーションは高々1件だが、クライアントが
@@ -34,6 +37,7 @@ func toPlannedSetDTO(s planning.PlannedSet) plannedSetDTO {
 		ExerciseID: string(s.ExerciseID()),
 		Sets:       s.Sets().Int(),
 		TargetRIR:  s.TargetRIR().Int(),
+		TargetReps: s.TargetReps().Int(),
 	}
 	if w, ok := s.Weight(); ok {
 		kg := w.Kg()

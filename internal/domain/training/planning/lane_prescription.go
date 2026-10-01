@@ -51,6 +51,10 @@ type lanePrescription struct {
 	intensityPct float64
 	sets         int
 	targetRIR    int
+	// targetReps は狙うレップ数。強度と RIR を Epley で逆に解いた値
+	// （round(30 × (1/強度 − 1) − RIR)）。値は表に持つが、式との一致は
+	// TestSessionPlanner_TargetReps が見る。
+	targetReps int
 }
 
 // prescriptionFor は役割から強度・セット数・RIR を引く。3レーン分の定数は
@@ -82,13 +86,13 @@ type lanePrescription struct {
 func (p SessionPlanner) prescriptionFor(role laneRole, sets int) lanePrescription {
 	switch role {
 	case heavyRole:
-		return lanePrescription{intensityPct: 0.88, sets: sets, targetRIR: 1}
+		return lanePrescription{intensityPct: 0.88, sets: sets, targetRIR: 1, targetReps: 3}
 	case focusVolumeRole:
-		return lanePrescription{intensityPct: 0.81, sets: sets, targetRIR: 1}
+		return lanePrescription{intensityPct: 0.81, sets: sets, targetRIR: 1, targetReps: 6}
 	case variationRole:
-		return lanePrescription{intensityPct: 0.80, sets: sets, targetRIR: 2}
+		return lanePrescription{intensityPct: 0.80, sets: sets, targetRIR: 2, targetReps: 6}
 	case accessoryRole:
-		return lanePrescription{intensityPct: 0.71, sets: sets, targetRIR: 2}
+		return lanePrescription{intensityPct: 0.71, sets: sets, targetRIR: 2, targetReps: 10}
 	}
 	// 到達しない。役割は上の4つしか無い。ゼロ値を返すと prescribeSet が
 	// 値オブジェクトの検証で止まり、種目だけの set になる。
@@ -161,6 +165,13 @@ func (p SessionPlanner) prescribeSet(
 		return set
 	}
 	set.targetRIR = baseRIR.Plus(rirBump)
+
+	// 睡眠不足の上乗せ（rirBump）は目標レップに反映しない。あれは「今日は
+	// きつめに切り上げてよい」という調整で、狙うレップ数の再計算ではない。
+	set.targetReps, err = training.NewReps(lane.targetReps)
+	if err != nil {
+		return set
+	}
 
 	set.sets, err = training.NewSetCount(lane.sets)
 	if err != nil {

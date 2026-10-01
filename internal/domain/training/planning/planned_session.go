@@ -16,12 +16,16 @@ type PlannedSet struct {
 	hasWeight  bool
 	sets       training.SetCount
 	targetRIR  training.RIR
+	targetReps training.Reps
 }
 
 func (s PlannedSet) ExerciseID() exercise.ExerciseID { return s.exerciseID }
 func (s PlannedSet) Weight() (training.Weight, bool) { return s.weight, s.hasWeight }
 func (s PlannedSet) Sets() training.SetCount         { return s.sets }
 func (s PlannedSet) TargetRIR() training.RIR         { return s.targetRIR }
+
+// TargetReps は狙うレップ数。重量が決まっていない種目にも付く。
+func (s PlannedSet) TargetReps() training.Reps { return s.targetReps }
 
 func (s PlannedSet) IsZero() bool { return s == PlannedSet{} }
 

@@ -118,7 +118,8 @@ func (r Reps) Int() int { return r.v }
 // RIR は限界までの残りレップ数（Reps In Reserve）。
 //
 // 調整ダイヤルではなく「止め時」を表すガードレールとして使う。
-// レップ数は指示せず、その日の状態が決める。
+// 処方が示すレップ数（PlannedSet.TargetReps）は役割の目安で、実際に何回
+// 挙がるかはその日の状態が決める。止め時はこの RIR で測る。
 type RIR struct {
 	v int
 }

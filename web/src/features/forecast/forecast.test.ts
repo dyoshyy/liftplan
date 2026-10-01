@@ -8,6 +8,7 @@ const set = (exercise_id: string): PlannedSet => ({
   weight_kg: 100,
   sets: 3,
   target_rir: 2,
+  target_reps: 10,
 });
 
 describe('sessionHeading', () => {
