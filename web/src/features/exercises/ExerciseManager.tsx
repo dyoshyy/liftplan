@@ -6,9 +6,9 @@ import { Note } from '../../ui/Card';
 import { ExerciseEditor } from './ExerciseEditor';
 import {
   aliveExercises,
-  deleteBlockedReason,
   draftOf,
   emptyDraft,
+  hideBlockedReason,
   stimulusSummary,
   type ExerciseDraft,
 } from './exerciseDraft';
@@ -17,20 +17,20 @@ import { useExerciseManager } from './useExerciseManager';
 type Props = {
   /** exercises は種目マスタ。読み取りは useLiftplan が持つ。 */
   exercises: readonly Exercise[];
-  /** 足す・直す・消すが成功したら一覧を取り直す。 */
+  /** 足す・直す・使う種目の入れ替えが成功したら一覧を取り直す。 */
   onChanged: () => Promise<void>;
   onBack: () => void;
 };
 
 /**
- * 種目を足す・直す・消す画面。設定の「種目」の節から入る。
+ * 種目を使うかどうか決め、効き方を直し、足す画面。設定の「種目」の節から入る。
  *
- * 使う種目・伸ばしたい種目・重点種目の選択は設定に残る。ここは種目マスタ
- * そのものの編集だけを持つ（3層：判断は exerciseDraft.ts、手順は
- * useExerciseManager、描画はここ）。
+ * 種目は消せない。使わない種目は「使う」を外して非表示にする（計画にも
+ * 「種目を選んで記録」にも出ない）。伸ばしたい種目・重点種目の選択は設定に
+ * 残る。3層：判断は exerciseDraft.ts、手順は useExerciseManager、描画はここ。
  */
 export function ExerciseManager({ exercises, onChanged, onBack }: Props) {
-  const { declared, note, busy, save, pendingDeleteId, requestDelete, cancelDelete } = useExerciseManager(onChanged);
+  const { declared, selected, note, busy, save, toggleUse } = useExerciseManager(onChanged);
   // null = 一覧、'new' = 足す、Exercise = 直す。フォームは足す・直すで共用する。
   const [target, setTarget] = useState<Exercise | 'new' | null>(null);
   const [draft, setDraft] = useState<ExerciseDraft>(emptyDraft);
@@ -38,15 +38,11 @@ export function ExerciseManager({ exercises, onChanged, onBack }: Props) {
   const openAdd = () => {
     setDraft(emptyDraft());
     setTarget('new');
-    // 消す前に足すを開いたら、確認待ちのままフォームへ移らせない。
-    cancelDelete();
   };
 
   const openEdit = (e: Exercise) => {
     setDraft(draftOf(e));
     setTarget(e);
-    // openAdd と同じ理由。別行の確認待ちを持ち越さない。
-    cancelDelete();
   };
 
   const alive = aliveExercises(exercises);
@@ -60,7 +56,8 @@ export function ExerciseManager({ exercises, onChanged, onBack }: Props) {
       <div>
         <h1 className="text-[19px] font-semibold">種目</h1>
         <Note className="mt-1">
-          自分の器具に合わせて種目を追加・編集・削除できます。削除しても、これまでの記録と履歴は残ります。
+          使う種目を選びます。使わない種目は計画にも「種目を選んで記録」にも出ません（記録と履歴は残ります）。
+          効き方の調整と、一覧に無い器具の追加もここでできます。
         </Note>
       </div>
 
@@ -92,10 +89,15 @@ export function ExerciseManager({ exercises, onChanged, onBack }: Props) {
               <p className="text-xs tracking-[0.08em] text-faint">{group.part}</p>
               <ul className="grid gap-2">
                 {group.items.map((e) => {
-                  const why = deleteBlockedReason(declared, e.id);
-                  const confirmingDelete = pendingDeleteId === e.id;
+                  const on = selected?.includes(e.id) ?? false;
+                  const why = on ? hideBlockedReason(declared, e.id) : null;
                   return (
-                    <li key={e.id} className="grid gap-1.5 rounded-xl border border-line bg-surface p-3">
+                    <li
+                      key={e.id}
+                      className={`grid gap-1.5 rounded-xl border border-line bg-surface p-3 ${
+                        selected !== null && !on ? 'opacity-60' : ''
+                      }`}
+                    >
                       <div className="flex min-w-0 items-center justify-between gap-2">
                         {/* flex-1 は flex-basis を 0 にするので、寄与の要約が
                             折り返さない全角文字列でも、それを基準に幅を決めない
@@ -120,48 +122,23 @@ export function ExerciseManager({ exercises, onChanged, onBack }: Props) {
                           >
                             編集
                           </Button>
-                          {confirmingDelete ? (
-                            <>
-                              <Button
-                                size="md"
-                                variant="quiet"
-                                disabled={busy}
-                                aria-label={`${e.name}の削除をやめる`}
-                                onClick={cancelDelete}
-                              >
-                                やめる
-                              </Button>
-                              <Button
-                                size="md"
-                                variant="danger"
-                                disabled={busy}
-                                aria-label={`${e.name}を本当に削除`}
-                                onClick={() => void requestDelete(e.id)}
-                              >
-                                本当に削除
-                              </Button>
-                            </>
-                          ) : (
-                            <Button
-                              size="md"
-                              variant="danger"
-                              disabled={busy || why !== null}
-                              title={why ?? undefined}
-                              aria-label={`${e.name}を削除`}
-                              onClick={() => void requestDelete(e.id)}
-                            >
-                              削除
-                            </Button>
-                          )}
+                          <Button
+                            size="md"
+                            variant={on ? 'selected' : 'quiet'}
+                            disabled={busy || selected === null || why !== null}
+                            title={why ?? undefined}
+                            aria-pressed={on}
+                            aria-label={`${e.name}を使う`}
+                            onClick={() => void toggleUse(e.id)}
+                          >
+                            {on ? '✓ 使う' : '使わない'}
+                          </Button>
                         </div>
                       </div>
                       {/* title は指の操作では出ない（ホバーが無い）ので、
                           スマホでも読める場所にも同じ理由を出す
-                          （ProgramSettings の分割プリセットと同じ扱い）。
-                          消す確認中は理由を出す必要が無い（why が無いから
-                          確認に進めている）。 */}
-                      {why && !confirmingDelete && <Note>{why}</Note>}
-                      {confirmingDelete && <Note>本当に消しますか？消した種目は直せません（記録は残ります）</Note>}
+                          （ProgramSettings の分割プリセットと同じ扱い）。 */}
+                      {why && <Note>{why}</Note>}
                     </li>
                   );
                 })}

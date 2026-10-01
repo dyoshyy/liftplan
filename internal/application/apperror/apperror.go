@@ -78,16 +78,10 @@ var (
 	// 中身の説明はドメイン側に任せる。
 	ErrDuplicateName = newError("DUPLICATE_NAME", "種目を保存できない", http.StatusConflict)
 
-	// ErrExerciseNotFound は消す・直そうとした種目が無いこと。存在しない
+	// ErrExerciseNotFound は直そうとした種目が無いこと。存在しない
 	// ID・他人の種目・消した種目がここに入る。プリセット由来かどうかで
 	// 扱いを変えないので、共通の種目はここには入らない（消せる・直せる）。
 	ErrExerciseNotFound = newError("EXERCISE_NOT_FOUND", "種目が見つからない", http.StatusNotFound)
-
-	// ErrStillDeclared は伸ばしたい種目に入っている種目を消そうとしたこと。
-	//
-	// 黙って宣言から外さない。伸ばしたい種目が0個になりうるのと、軸の
-	// 顔ぶれが変わっても気づけないため（Program.WithSelected と同じ理由）。
-	ErrStillDeclared = newError("STILL_DECLARED", "伸ばしたい種目に入っている種目は消せない", http.StatusConflict)
 
 	// ErrUnavailable は保存先に到達できないこと。
 	//

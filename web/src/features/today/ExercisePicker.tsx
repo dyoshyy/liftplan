@@ -10,6 +10,8 @@ type Props = {
   exercises: readonly Exercise[];
   /** planned は今日の予定の3レーン。出ている種目は選択肢に入れない。 */
   planned: readonly (readonly PlannedSet[])[];
+  /** selected は使う種目。null は読めていない（絞らない）。 */
+  selected: readonly string[] | null;
   onPick: (exerciseId: string) => void;
   onClose: () => void;
 };
@@ -19,7 +21,7 @@ type Props = {
 // 選んだら閉じる。記録は選んだ種目のカードから始める（ここでは記録しない）。
 // 一覧の判断（何を出すか・どう絞るか）は adhoc.ts、部位でのまとめ方は
 // parts.ts（種目管理と同じ）にある。
-export function ExercisePicker({ exercises, planned, onPick, onClose }: Props) {
+export function ExercisePicker({ exercises, planned, selected, onPick, onClose }: Props) {
   const ref = useRef<HTMLDialogElement>(null);
   const [query, setQuery] = useState('');
 
@@ -27,7 +29,7 @@ export function ExercisePicker({ exercises, planned, onPick, onClose }: Props) {
     ref.current?.showModal();
   }, []);
 
-  const shown = pickableExercises(exercises, planned, query);
+  const shown = pickableExercises(exercises, planned, query, selected);
 
   return (
     <dialog ref={ref} onClose={onClose} onCancel={onClose} aria-label="種目を選ぶ">

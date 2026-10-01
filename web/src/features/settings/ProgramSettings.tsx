@@ -1,5 +1,4 @@
 import { focusOptions, NO_FOCUS } from '../today/focus';
-import { lockedSelected } from '../today/declared';
 import { aliveExercises } from '../exercises/exerciseDraft';
 import { ExercisePicker } from './ExercisePicker';
 import { isWholeBody, scheduleSummary } from './split';
@@ -47,7 +46,6 @@ export function ProgramSettings({ nameOf, exercises: all, onChanged, onOpenExerc
     busy,
     locked,
     chooseFocus,
-    toggleSelectedExercise,
     toggleDeclaredExercise,
     saveFrequency,
     saveVolume,
@@ -172,37 +170,20 @@ export function ProgramSettings({ nameOf, exercises: all, onChanged, onOpenExerc
           いくので、上で足した種目がそのまま下の候補に出る。3つとも押したその場で
           保存するので、節を分けて畳む理由も無い。 */}
       <Section title="種目" summary={program ? exercisesSummary(program, nameOf) : ''}>
-        <p className="text-[13px] font-bold">種目そのものを変える</p>
+        <p className="text-[13px] font-bold">使う種目</p>
         <Note className="mb-3 mt-1">
-          一覧に無い器具の追加、名前や効き方の編集、使わなくなった種目の
-          削除ができます。
+          使う種目の入れ替え、効き方の調整、一覧に無い器具の追加は
+          「種目を管理する」でします。使わない種目は計画にも出ません。
         </Note>
         <Button variant="quiet" disabled={busy} onClick={onOpenExercises}>
           種目を管理する
         </Button>
 
-        <p className="mt-6 text-[13px] font-bold">使う種目</p>
-        <Note className="mb-3 mt-1">
-          ここで選んだ種目だけが補助として出ます。
-          下の「伸ばしたい種目」に入れた種目は外せません。
-        </Note>
-
-        {program && (
-          <ExercisePicker
-            label="使う種目"
-            exercises={exercises}
-            chosen={program.selected_exercises}
-            lockedReason={lockedSelected(program.selected_exercises, program.declared_exercises)}
-            disabled={busy}
-            onToggle={(id) => void toggleSelectedExercise(id)}
-          />
-        )}
-
         <p className="mt-6 text-[13px] font-bold">伸ばしたい種目</p>
         <Note className="mb-3 mt-1">
           毎回1種目ずつ、しばらくやっていないものから出ます。
           増やすほど1種目あたりの間隔があきます。
-          候補は上の「使う種目」で選んだ種目です。
+          候補は「使う種目」にした種目です。
         </Note>
 
         {program && (

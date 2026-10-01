@@ -3,12 +3,12 @@ import type { Exercise } from '../../api/types';
 import {
   aliveExercises,
   cycleRegion,
-  deleteBlockedReason,
+  hideBlockedReason,
   draftBody,
   draftOf,
   draftProblem,
   emptyDraft,
-  nextDeleteStep,
+  nextSelected,
   setContribution,
   stimulusSummary,
   type ExerciseDraft,
@@ -159,26 +159,25 @@ describe('aliveExercises', () => {
   });
 });
 
-describe('deleteBlockedReason', () => {
-  it('伸ばしたい種目に入っていれば理由を返す', () => {
-    expect(deleteBlockedReason(['u-1'], 'u-1')).toMatch(/伸ばしたい種目/);
-    expect(deleteBlockedReason(['bench'], 'u-1')).toBeNull();
+describe('nextSelected', () => {
+  it('使わない種目を押すと使う種目に入る（昇順を保つ）', () => {
+    expect(nextSelected(['squat'], ['squat'], 'bench')).toEqual(['bench', 'squat']);
+  });
+
+  it('使う種目を押すと外れる', () => {
+    expect(nextSelected(['bench', 'curl', 'squat'], ['bench', 'squat'], 'curl')).toEqual(['bench', 'squat']);
+  });
+
+  // 外すとサーバーが 400 を返す。画面から到達させない。
+  it('伸ばしたい種目は外せない（null）', () => {
+    expect(nextSelected(['bench', 'squat'], ['bench'], 'bench')).toBeNull();
   });
 });
 
-describe('nextDeleteStep', () => {
-  // 消した種目は直せない・戻せない（undo が無い）ので、直すの隣の1タップで
-  // 即消えると事故になる。同じ種目をもう一度押すまでは消さない。
-  it('確認待ちが無いときの1タップは、確認待ちに入るだけでまだ消さない', () => {
-    expect(nextDeleteStep(null, 'u-1')).toEqual({ pendingId: 'u-1', act: 'arm' });
-  });
-
-  it('確認待ちの種目を続けて押すと確定する', () => {
-    expect(nextDeleteStep('u-1', 'u-1')).toEqual({ pendingId: null, act: 'confirm' });
-  });
-
-  it('確認待ち中に別の種目を押すと、そちらの確認待ちに切り替わる（前の確認は流れる）', () => {
-    expect(nextDeleteStep('u-1', 'u-2')).toEqual({ pendingId: 'u-2', act: 'arm' });
+describe('hideBlockedReason', () => {
+  it('伸ばしたい種目なら理由を返す', () => {
+    expect(hideBlockedReason(['u-1'], 'u-1')).toMatch(/伸ばしたい種目/);
+    expect(hideBlockedReason(['bench'], 'u-1')).toBeNull();
   });
 });
 

@@ -15,7 +15,9 @@ const plannedIds = (planned: readonly (readonly PlannedSet[])[]) =>
  * pickableExercises は「種目を選んで記録」の選択肢。
  *
  * 今日の予定に出ている種目は入れない。選んでも同じカードが2枚並ぶだけで、
- * 予定のカードに記録すれば済む。予定は3レーンすべてを渡すこと（leftovers と
+ * 予定のカードに記録すれば済む。使わない種目（selected に無いもの）も入れない。
+ * selected が null（読めていない）なら絞らない。一覧が空になって何も選べない
+ * より、使わない種目が混ざるほうがよい。予定は3レーンすべてを渡すこと（leftovers と
  * 同じ理由。1レーンでも渡し忘れると、その種目が選択肢に残る）。
  *
  * 並びはサーバーが返した順のまま。名前の一部で絞れる（前後の空白と
@@ -25,10 +27,13 @@ export function pickableExercises(
   exercises: readonly Exercise[],
   planned: readonly (readonly PlannedSet[])[],
   query: string,
+  selected: readonly string[] | null,
 ): Exercise[] {
   const ids = plannedIds(planned);
   const q = query.trim().toLowerCase();
-  return exercises.filter((e) => !ids.has(e.id) && e.name.toLowerCase().includes(q));
+  return exercises.filter(
+    (e) => !ids.has(e.id) && (selected === null || selected.includes(e.id)) && e.name.toLowerCase().includes(q),
+  );
 }
 
 /** withPicked は選んだ種目を足す。選び済みなら足さない（同じカードが2枚出る）。 */

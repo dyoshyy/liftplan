@@ -121,6 +121,7 @@ export function Today(props: Props) {
         <ExercisePicker
           exercises={data.exercises}
           planned={lanes}
+          selected={data.selected}
           onPick={pick}
           onClose={closePicker}
         />

@@ -6,6 +6,7 @@ import type {
   ExercisesResponse,
   HistoryResponse,
   LastPerformance,
+  Program,
   RecordedSet,
   Session,
 } from '../api/types';
@@ -20,6 +21,11 @@ export type Data = {
   names: Map<string, string>;
   /** exercises は種目マスタ。設定画面が部位ごとにまとめるのに使う。 */
   exercises: Exercise[];
+  /**
+   * selected は使う種目。「種目を選んで記録」が使わない種目を除くのに要る。
+   * null は読めていない（その間は絞らない）。
+   */
+  selected: string[] | null;
   last: Record<string, LastPerformance>;
   /** doneToday は今日の実績。サーバーから復元し、記録のたびに手元でも進める。 */
   doneToday: Map<string, RecordedSet[]>;
@@ -39,16 +45,21 @@ const empty: Data = {
   session: null,
   names: new Map(),
   exercises: [],
+  selected: null,
   last: {},
   doneToday: new Map(),
   days: [],
 };
 
-// ここで読むのは2つだけ。
+// ここで読むのは2つだけ（と、使う種目の1本）。
 //
 // /api/stats（履歴）と /api/program（設定）はここでは叩かない。それぞれの
 // 画面が開かれたときに自分で取りに行く（D-127）。ジムで毎回開く「今日」の
 // 読み込みに、見ていない画面の往復を混ぜない。
+//
+// 例外が使う種目の1本。「種目を選んで記録」が使わない種目を除くのに要り、
+// 今日の画面から開くので、開くたびに取るより先に持っておく。並べて取るので
+// 待ちは増えない。失敗しても今日の画面は出す（null のまま、絞らない）。
 export function useLiftplan() {
   const [data, setData] = useState<Data>(empty);
 
@@ -64,9 +75,13 @@ export function useLiftplan() {
   const loadAll = useCallback(async (): Promise<LoadResult> => {
     const date = today();
     try {
-      const [exercises, history] = await Promise.all([
+      const [exercises, history, program] = await Promise.all([
         getJSON<ExercisesResponse>('/api/exercises'),
         getJSON<HistoryResponse>(`/api/set-logs?from=${addDays(date, -56)}&to=${date}`),
+        getJSON<Program>('/api/program').catch((e: unknown) => {
+          if (e instanceof Unauthorized) throw e;
+          return null;
+        }),
       ]);
 
       // 「どこまでやったか」はサーバーの実績から復元する。端末の中だけに
@@ -79,6 +94,7 @@ export function useLiftplan() {
         session: null,
         names: new Map(exercises.exercises.map((e: Exercise) => [e.id, e.name])),
         exercises: exercises.exercises,
+        selected: program?.selected_exercises ?? null,
         last: history.last_performances,
         doneToday,
         // サーバーが新しい日から順に返す（query.History.Days）。並べ替えない。

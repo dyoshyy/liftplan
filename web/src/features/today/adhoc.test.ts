@@ -8,43 +8,53 @@ const plan = (id: string): PlannedSet => ({ exercise_id: id, weight_kg: null, se
 const all = [ex('bench', 'ベンチプレス'), ex('squat', 'スクワット'), ex('dip', 'ディップス'), ex('curl', 'バーベルカール')];
 
 describe('pickableExercises', () => {
+  // 使わない種目は計画にも出ないので、選んで記録のシートにも出さない。
+  it('使う種目に入っていない種目は選択肢に入れない', () => {
+    expect(pickableExercises(all, [[]], '', ['bench', 'curl']).map((e) => e.id)).toEqual(['bench', 'curl']);
+  });
+
+  // 使う種目が読めていない間に一覧を空にすると、何も選べなくなる。
+  it('使う種目が読めていない（null）ときは絞らない', () => {
+    expect(pickableExercises(all, [[]], '', null)).toHaveLength(4);
+  });
+
   // 今日の予定に出ている種目を選択肢に入れると、選んでも画面に同じカードが
   // 2枚並ぶ。予定のカードに記録すれば済むので、選ばせない。
   it('今日の予定に出ている種目は選択肢に入れない', () => {
-    const got = pickableExercises(all, [[plan('bench')], [plan('dip')], []], '');
+    const got = pickableExercises(all, [[plan('bench')], [plan('dip')], []], '', null);
     expect(got.map((e) => e.id)).toEqual(['squat', 'curl']);
   });
 
   // 3レーンの全部を見ないと、バリエーションや補助が選択肢に残る。
   it('3レーンのどれに出ていても外す', () => {
     const lanes = [[plan('bench')], [plan('squat')], [plan('dip')]];
-    expect(pickableExercises(all, lanes, '').map((e) => e.id)).toEqual(['curl']);
+    expect(pickableExercises(all, lanes, '', null).map((e) => e.id)).toEqual(['curl']);
   });
 
   it('名前の一部で絞る', () => {
-    expect(pickableExercises(all, [[]], 'カール').map((e) => e.id)).toEqual(['curl']);
+    expect(pickableExercises(all, [[]], 'カール', null).map((e) => e.id)).toEqual(['curl']);
   });
 
   // 前後の空白は入力の癖であって、種目名の一部ではない。
   it('前後の空白は無視する', () => {
-    expect(pickableExercises(all, [[]], '  ベンチ ').map((e) => e.id)).toEqual(['bench']);
+    expect(pickableExercises(all, [[]], '  ベンチ ', null).map((e) => e.id)).toEqual(['bench']);
   });
 
   // 名前の側とクエリの側、両方を揃えて比べる。片方だけ揃えると、大文字で
   // 打った／大文字で登録した、のどちらかが見つからなくなる。
   it('英字は大文字小文字を区別しない', () => {
     const list = [ex('ohp', 'OHP'), ex('bench', 'ベンチプレス')];
-    expect(pickableExercises(list, [[]], 'ohp').map((e) => e.id)).toEqual(['ohp']);
-    expect(pickableExercises(list, [[]], 'OHP').map((e) => e.id)).toEqual(['ohp']);
-    expect(pickableExercises([ex('db', 'db press')], [[]], 'DB').map((e) => e.id)).toEqual(['db']);
+    expect(pickableExercises(list, [[]], 'ohp', null).map((e) => e.id)).toEqual(['ohp']);
+    expect(pickableExercises(list, [[]], 'OHP', null).map((e) => e.id)).toEqual(['ohp']);
+    expect(pickableExercises([ex('db', 'db press')], [[]], 'DB', null).map((e) => e.id)).toEqual(['db']);
   });
 
   it('サーバーが返した並びを崩さない', () => {
-    expect(pickableExercises(all, [[]], '').map((e) => e.id)).toEqual(['bench', 'squat', 'dip', 'curl']);
+    expect(pickableExercises(all, [[]], '', null).map((e) => e.id)).toEqual(['bench', 'squat', 'dip', 'curl']);
   });
 
   it('一致するものが無ければ空', () => {
-    expect(pickableExercises(all, [[]], '存在しない')).toEqual([]);
+    expect(pickableExercises(all, [[]], '存在しない', null)).toEqual([]);
   });
 });
 
