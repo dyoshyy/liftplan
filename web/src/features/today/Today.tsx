@@ -118,7 +118,13 @@ export function Today(props: Props) {
       </Button>
 
       {picking && (
-        <ExercisePicker exercises={data.exercises} planned={lanes} onPick={pick} onClose={closePicker} />
+        <ExercisePicker
+          exercises={data.exercises}
+          planned={lanes}
+          selected={data.selected}
+          onPick={pick}
+          onClose={closePicker}
+        />
       )}
 
       <div className="mt-1 border-t border-line-soft pt-3.5">

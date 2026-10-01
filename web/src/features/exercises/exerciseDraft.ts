@@ -1,5 +1,6 @@
 import type { Exercise } from '../../api/types';
 import { regionLabel } from '../../domain/regions';
+import { toggleDeclared } from '../today/declared';
 
 // 種目の編集（足す・直す）の判断。副作用は持たない。
 //
@@ -107,26 +108,23 @@ export const draftBody = (
 export const aliveExercises = (exercises: readonly Exercise[]): Exercise[] =>
   exercises.filter((e) => !e.deleted);
 
-/** deleteBlockedReason は消せない理由を返す。消せるなら null。
+/** nextSelected は「使う」の入り切りを反映した使う種目を返す。外せないなら null。
  *
- *  サーバーも 409 で断る。押す前に読めたほうが、次に何をすればいいか分かる。 */
-export const deleteBlockedReason = (declared: readonly string[], id: string): string | null =>
-  declared.includes(id) ? '伸ばしたい種目から外すと削除できます' : null;
+ *  外せないのは伸ばしたい種目。サーバーも 400 で断る（Program.WithSelected）が、
+ *  押す前に分かるほうが次に何をすればいいか読める。昇順に保つのは
+ *  サーバーが正規化して返すのに合わせるため。 */
+export const nextSelected = (
+  selected: readonly string[],
+  declared: readonly string[],
+  id: string,
+): string[] | null => {
+  if (selected.includes(id) && declared.includes(id)) return null;
+  return toggleDeclared(selected, id);
+};
 
-/** DeleteStep は「消す」ボタンを押したときの次の一手。
- *
- *  act: 'arm' は確認待ちに入るだけで、まだ消さない。'confirm' は確認待ちの
- *  種目をもう一度押したので、実際に消してよい。 */
-export type DeleteStep = { pendingId: string | null; act: 'arm' | 'confirm' };
-
-/** nextDeleteStep は「消す」ボタンを押したときの次の確認状態を決める。
- *
- *  直しに隣接した1タップでの誤爆を防ぐため（消した種目は直せない・戻せない）、
- *  同じ id を続けて2回押したときだけ 'confirm' を返す。確認待ち中に別の id を
- *  押したら、そちらを確認待ちにする（前の確認は流れる。一覧全体で確認待ちは
- *  常に0か1個で、複数行を同時に確認待ちにしない）。 */
-export const nextDeleteStep = (pendingId: string | null, id: string): DeleteStep =>
-  pendingId === id ? { pendingId: null, act: 'confirm' } : { pendingId: id, act: 'arm' };
+/** hideBlockedReason は「使わない」にできない理由。できるなら null。 */
+export const hideBlockedReason = (declared: readonly string[], id: string): string | null =>
+  declared.includes(id) ? '伸ばしたい種目なので外せません' : null;
 
 /** stimulusSummary は一覧の1行に出す要約（例：`大腿四頭筋 1.0・臀筋 0.7・…`）。
  *

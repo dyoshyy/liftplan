@@ -20,8 +20,8 @@ type exerciseWire struct {
 //
 // プリセット由来かどうかで扱いを変えない（設計書「custom は持たない」）ので、
 // ここでは自分が足した種目だけを主役にする。PUT が同じ本文で名前・効き方・
-// 刻みを差し替え、DELETE の後も GET には deleted: true で残ることを見る。
-func TestExercises_AddEditDelete(t *testing.T) {
+// 刻みを差し替え、GET に反映されることを見る。
+func TestExercises_AddEdit(t *testing.T) {
 	srv := newServer(t, true)
 
 	rec := do(t, srv, http.MethodPost, "/api/exercises",
@@ -70,22 +70,32 @@ func TestExercises_AddEditDelete(t *testing.T) {
 	if afterEdit.Name != "シーテッドロー" || afterEdit.Stimulus["LAT"] != 1.0 || afterEdit.Deleted {
 		t.Errorf("GET に PUT の結果が反映されていない: %+v", afterEdit)
 	}
+}
 
-	if rec := do(t, srv, http.MethodDelete, "/api/exercises/"+created.ID, ""); rec.Code != http.StatusNoContent {
-		t.Fatalf("DELETE が %d: %s", rec.Code, rec.Body.String())
-	}
+// 種目は消せない。使わない種目は「使う種目」から外して非表示にする。
+//
+// 消す口を戻すと、記録が ID で指している種目の行が消える。プリセット由来も
+// 自分で足した種目も同じ扱いで、DELETE は届かず、一覧にも残る。
+func TestExercises_CannotBeDeleted(t *testing.T) {
+	srv := newServer(t, true)
 
-	rec = do(t, srv, http.MethodGet, "/api/exercises", "")
-	list.Exercises = nil
-	_ = json.Unmarshal(rec.Body.Bytes(), &list)
-	deleted := false
-	for _, e := range list.Exercises {
-		if e.ID == created.ID {
-			deleted = e.Deleted
+	for _, id := range []string{"side_raise", "bench"} {
+		if rec := do(t, srv, http.MethodDelete, "/api/exercises/"+id, ""); rec.Code != http.StatusMethodNotAllowed {
+			t.Errorf("%s: DELETE が %d。405 のはず", id, rec.Code)
 		}
 	}
-	if !deleted {
-		t.Error("消した種目が deleted: true で一覧に残っていない")
+
+	rec := do(t, srv, http.MethodGet, "/api/exercises", "")
+	var list struct {
+		Exercises []exerciseWire `json:"exercises"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &list); err != nil {
+		t.Fatalf("応答を解釈できない: %v", err)
+	}
+	for _, e := range list.Exercises {
+		if e.ID == "side_raise" && e.Deleted {
+			t.Error("DELETE が通って消えている")
+		}
 	}
 }
 
@@ -93,8 +103,7 @@ func TestExercises_AddEditDelete(t *testing.T) {
 //
 // code まで見るのは、ルートが無いだけの 404（ServeMux の素の
 // "404 page not found"）と、EXERCISE_NOT_FOUND を区別するため。
-// ステータスだけだと、DELETE のルート登録を消しても「共通の種目を消す」が
-// 誤って緑のままになる（実際にミューテーションで確認済み）。
+// ステータスだけだと、PUT のルート登録を消しても「無い ID」が誤って緑のままになる。
 func TestExercises_ErrorStatuses(t *testing.T) {
 	cases := []struct {
 		name, method, path, body string
@@ -142,23 +151,6 @@ func TestExercises_ErrorStatuses(t *testing.T) {
 			body:     `{"name":"x","stimulus":{"LAT":1},"increment_kg":2.5}`,
 			want:     404,
 			wantCode: "EXERCISE_NOT_FOUND",
-		},
-		{
-			name: "存在しない種目を消す", method: http.MethodDelete, path: "/api/exercises/nonexistent",
-			want:     404,
-			wantCode: "EXERCISE_NOT_FOUND",
-		},
-		{
-			// newServer(t, true) の伸ばしたい種目は bench・squat・deadlift。
-			name: "伸ばしたい種目を消す", method: http.MethodDelete, path: "/api/exercises/bench",
-			want:     409,
-			wantCode: "STILL_DECLARED",
-		},
-		{
-			// プリセット由来かどうかで扱いを変えない。伸ばしたい種目に
-			// 入っていないプリセットは消せる。
-			name: "プリセットを消す", method: http.MethodDelete, path: "/api/exercises/side_raise",
-			want: 204,
 		},
 		{
 			// 分割を「胸のみ」に絞ったうえで、宣言種目 bench（ChestMid 主働）の

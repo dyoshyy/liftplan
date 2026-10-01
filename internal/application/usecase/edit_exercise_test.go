@@ -129,14 +129,13 @@ func TestEditExercise_AllowsItsOwnName(t *testing.T) {
 func TestEditExercise_AllowsNameOfADeletedExercise(t *testing.T) {
 	ctx := context.Background()
 	add, exercises, programs, user := newAdd(t)
-	del := usecase.NewDeleteExercise(exercises, programs, programs)
 	edit := usecase.NewEditExercise(exercises, programs)
 
 	e, err := add.Execute(ctx, user, isoRow())
 	if err != nil {
 		t.Fatalf("足すのに失敗: %v", err)
 	}
-	if err := del.Execute(ctx, user, e.ID()); err != nil {
+	if err := exercises.Save(ctx, user, e.Delete()); err != nil {
 		t.Fatalf("削除に失敗: %v", err)
 	}
 
@@ -171,14 +170,13 @@ func TestEditExercise_NotFound(t *testing.T) {
 
 	t.Run("消した種目", func(t *testing.T) {
 		add, exercises, programs, user := newAdd(t)
-		del := usecase.NewDeleteExercise(exercises, programs, programs)
 		edit := usecase.NewEditExercise(exercises, programs)
 
 		e, err := add.Execute(ctx, user, isoRow())
 		if err != nil {
 			t.Fatalf("足すのに失敗: %v", err)
 		}
-		if err := del.Execute(ctx, user, e.ID()); err != nil {
+		if err := exercises.Save(ctx, user, e.Delete()); err != nil {
 			t.Fatalf("削除に失敗: %v", err)
 		}
 

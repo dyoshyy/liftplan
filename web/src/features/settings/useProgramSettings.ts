@@ -117,14 +117,6 @@ export function useProgramSettings(onChanged: () => Promise<void>) {
   //
   // 1つずつ送っても制約（伸ばしたい ⊆ 使う、重点 ∈ 伸ばしたい）は破れない。
   // 候補の絞り込みと外せない種目の鍵で、1回の操作ごとに守っている。
-  const toggleSelectedExercise = async (id: string) => {
-    if (!program || busy) return;
-    const next = toggleDeclared(program.selected_exercises, id);
-    if (!(await put('/api/program/selected', { selected_exercises: next }))) return;
-    setProgram({ ...program, selected_exercises: next });
-    await onChanged();
-  };
-
   const toggleDeclaredExercise = async (id: string) => {
     if (!program || busy) return;
     const next = toggleDeclared(program.declared_exercises, id);
@@ -175,7 +167,6 @@ export function useProgramSettings(onChanged: () => Promise<void>) {
     busy,
     locked,
     chooseFocus,
-    toggleSelectedExercise,
     toggleDeclaredExercise,
     saveFrequency,
     saveVolume,

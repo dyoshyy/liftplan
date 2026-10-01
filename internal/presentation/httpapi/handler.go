@@ -35,7 +35,6 @@ type Handler struct {
 	deleteSetLog     *usecase.DeleteSetLog
 	addExercise      *usecase.AddExercise
 	editExercise     *usecase.EditExercise
-	deleteExercise   *usecase.DeleteExercise
 	exercises        *query.Exercises
 	history          *query.History
 	stats            *query.Stats
@@ -61,7 +60,6 @@ type Dependencies struct {
 	DeleteSetLog     *usecase.DeleteSetLog
 	AddExercise      *usecase.AddExercise
 	EditExercise     *usecase.EditExercise
-	DeleteExercise   *usecase.DeleteExercise
 	Exercises        *query.Exercises
 	History          *query.History
 	Stats            *query.Stats
@@ -107,8 +105,6 @@ func NewHandler(d Dependencies) (*Handler, error) {
 		return nil, errMissingDependency("AddExercise")
 	case d.EditExercise == nil:
 		return nil, errMissingDependency("EditExercise")
-	case d.DeleteExercise == nil:
-		return nil, errMissingDependency("DeleteExercise")
 	case d.Exercises == nil:
 		return nil, errMissingDependency("Exercises")
 	case d.History == nil:
@@ -134,7 +130,6 @@ func NewHandler(d Dependencies) (*Handler, error) {
 		deleteSetLog:     d.DeleteSetLog,
 		addExercise:      d.AddExercise,
 		editExercise:     d.EditExercise,
-		deleteExercise:   d.DeleteExercise,
 		exercises:        d.Exercises,
 		history:          d.History,
 		stats:            d.Stats,
@@ -420,20 +415,6 @@ func (h *Handler) handlePutExercise(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, exerciseDTOFrom(query.ExerciseFrom(e)))
-}
-
-// handleDeleteExercise は種目を消す（論理削除）。プリセット由来かどうかで
-// 扱いを変えない。
-func (h *Handler) handleDeleteExercise(w http.ResponseWriter, r *http.Request) {
-	user, ok := requireUser(w, r)
-	if !ok {
-		return
-	}
-	if err := h.deleteExercise.Execute(r.Context(), user, exercise.ExerciseID(r.PathValue("id"))); err != nil {
-		respondError(w, err)
-		return
-	}
-	w.WriteHeader(http.StatusNoContent)
 }
 
 func (h *Handler) handleGetProgram(w http.ResponseWriter, r *http.Request) {
