@@ -25,6 +25,40 @@ func DefaultDeclared() []exercise.ExerciseID {
 	return []exercise.ExerciseID{"bench", "squat", "deadlift"}
 }
 
+// DefaultSelected は新規の利用者が最初から使う種目（19種目）。
+//
+// 種目は多いほど選択肢が増えるが、最初から全部使うと、使わない種目が一覧に
+// 並ぶ。ここに無い種目は、種目の管理で「使う」にするまで計画にも「種目を選んで
+// 記録」にも出ない。**既存の利用者の設定は変わらない**（この一覧が効くのは
+// 初期プログラムを作るときだけ）。
+//
+// **減らしすぎると計画が成り立たない。**11種目（BIG3＋各区分に寄与する補助）
+// では、全身法でも3〜7区分が達成率の帯（60〜145%）の外に出て、five_way では
+// 0セットの日が出た（空の日は周期が止まる）。補助の割り振りが選べる種目が
+// 足りないため。そこで、帯の外と空の日が最も減る種目を1つずつ足し、全構成
+// （全身法・upper_lower・ppl・five_way × 週2〜7回）で両方が0になる19種目に
+// なった。顔ぶれの根拠は TestDefaultSelected_PlansEveryShippedSetup。
+//
+// 貪欲に足したので、バリエーション（ナローベンチ・ポーズスクワット・ラーセン
+// プレス）やインクラインの2種が入っている。一覧を手で整えるなら、このテストが
+// 通ることを条件にする。
+func DefaultSelected() []exercise.ExerciseID {
+	return []exercise.ExerciseID{
+		// 宣言（BIG3）
+		"bench", "squat", "deadlift",
+		// 胸
+		"incline_barbell_press", "incline_db_press", "dip", "close_grip_bench", "larsen_press",
+		// 背中
+		"lat_pulldown", "pull_up", "seated_row", "shrug",
+		// 肩
+		"side_raise", "rear_delt_fly",
+		// 脚
+		"pause_squat", "romanian_deadlift", "calf_raise",
+		// 体幹
+		"cable_crunch", "side_bend",
+	}
+}
+
 // spec は種目1件を組み立てる。
 //
 // 以前は mainLift と accessory の2つに分かれていた。メイン/補助は種目

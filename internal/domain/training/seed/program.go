@@ -31,7 +31,7 @@ func DefaultSessionVolume() (program.SessionVolume, error) {
 
 // DefaultProgram はシードから初期プログラムを組む。
 //
-// バリエーションはメインに付随して自動で回るため、選択には含めない。
+// 使う種目は DefaultSelected（バリエーションも、その中で明示的に選ぶ）。
 // 初期値を入れておくのは、設定を1つも持たない利用者が、先に何かを設定
 // しないと何も使えない状態を避けるため。設定はいつでも上書きできる。
 //
@@ -52,10 +52,19 @@ func DefaultProgram(pool []*exercise.Exercise) (*program.Program, error) {
 		return nil, fmt.Errorf("既定の1回の量が不正: %w", err)
 	}
 
-	// 全種目を選んでおく。外したいものはあとから設定で外せる。
-	selected := make([]exercise.ExerciseID, 0, len(pool))
+	// 最初から使う種目は DefaultSelected だけ。カタログの全種目を使うことにすると、
+	// 使わない種目が一覧に並び、プリセットを足すたびに新規の利用者の計画が動く。
+	// ここに無い種目は、利用者が種目の管理で「使う」にする。
+	inPool := make(map[exercise.ExerciseID]bool, len(pool))
 	for _, e := range pool {
-		selected = append(selected, e.ID())
+		inPool[e.ID()] = true
+	}
+	selected := make([]exercise.ExerciseID, 0, len(DefaultSelected()))
+	for _, id := range DefaultSelected() {
+		if !inPool[id] {
+			return nil, fmt.Errorf("既定で使う種目 %s がカタログに無い", id)
+		}
+		selected = append(selected, id)
 	}
 	// 重点種目は既定では指定しない。バリエーションレーンは空のまま回る。
 	return program.NewProgram(freq, volume, selected, DefaultDeclared(), "")
