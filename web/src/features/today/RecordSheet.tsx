@@ -10,6 +10,14 @@ export type SheetTarget = {
   plan: CardPlan;
   index: number;
   recorded: RecordedSet | undefined;
+  /**
+   * draftId は、このシートを開いた1回の操作のID。新しいセットのIDになる。
+   *
+   * 押すたびに採番すると、連打した分だけ別のセットになる。開いたときに
+   * 1回だけ決めれば、2回押しても同じID・同じ内容になり、サーバーも手元の
+   * 記録も2回目を無害に吸収する（冪等）。
+   */
+  draftId: string;
 };
 
 type Props = {

@@ -91,14 +91,18 @@ export function App() {
             <SyncBanner
               offline={load === 'offline'}
               rejected={outbox.rejected}
+              failed={outbox.failed}
               onRetry={() => void reload()}
               onClearRejected={() => void outbox.clearRejected()}
+              onClearFailed={outbox.clearFailed}
             />
 
             {route === 'today' && (
               <Today
                 data={data}
                 enqueue={outbox.enqueue}
+                enqueueAll={outbox.enqueueAll}
+                onSaveFailed={outbox.reportFailure}
                 onRecordLocally={session.recordLocally}
                 onForgetLocally={session.forgetLocally}
                 onRecorded={timer.start}
