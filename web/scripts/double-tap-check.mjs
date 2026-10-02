@@ -156,6 +156,134 @@ check(
   `${sets.length}セット`,
 );
 
+// ---- 楽観的更新：押した瞬間に画面が進み、保存は裏で回る ----
+//
+// 以下は、サーバーの応答を遅らせた状態を page.route で作る。保存の完了を
+// 待たないので、遅れている間に起きることを見る。
+
+const slowPage = async (delayMs, { failIdb = false } = {}) => {
+  await clearToday();
+  const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2 });
+  if (failIdb) {
+    // 端末への書き込みを、フラグが立っているあいだだけ失敗させる
+    // （容量超過・プライベートモードの再現）。
+    await ctx.addInitScript(() => {
+      const add = IDBObjectStore.prototype.add;
+      IDBObjectStore.prototype.add = function (...a) {
+        if (window.__failIdb) throw new DOMException('容量が足りない', 'QuotaExceededError');
+        return add.apply(this, a);
+      };
+    });
+  }
+  const p = await ctx.newPage();
+  p.on('pageerror', (e) => errs.push('pageerror: ' + e.message));
+  p.on('console', (m) => {
+    if (m.type() === 'error') errs.push(m.text());
+  });
+  p.posts = 0;
+  p.on('request', (r) => {
+    if (r.method() === 'POST' && r.url().includes('/api/set-logs')) p.posts++;
+  });
+  await p.goto(`${APP}/?t=${Date.now()}#token=${TOKEN}`);
+  await p.waitForTimeout(2500);
+  if (delayMs) {
+    await p.route('**/api/set-logs', async (route) => {
+      if (route.request().method() === 'POST') await new Promise((r) => setTimeout(r, delayMs));
+      await route.continue();
+    });
+  }
+  return p;
+};
+const fillOn = async (p, slot, w, r) => {
+  await p.locator('button.set').nth(slot).click();
+  await p.waitForTimeout(400);
+  await p.fill('dialog input[inputmode=decimal]', String(w));
+  await p.fill('dialog input[inputmode=numeric] >> nth=0', String(r));
+};
+const closed = (p) =>
+  p.waitForFunction(() => !document.querySelector('dialog[open]'), null, { timeout: 15000 });
+
+// closes は閉じたかどうかを真偽で返す（例外にしない）。短く待つ。
+const closes = (p, ms = 4000) =>
+  p
+    .waitForFunction(() => !document.querySelector('dialog[open]'), null, { timeout: ms })
+    .then(
+      () => true,
+      () => false,
+    );
+
+// 5. 応答が遅いまま同じ tick に連打しても、送信は1回・記録は1セット。
+//    操作のIDを固定してあるので、仮に2回通っても同じ記録に収まる。送信が
+//    1回なのは、ラッチが副作用ごと2回目を止めているから。
+{
+  const p = await slowPage(2000);
+  await fillOn(p, 0, 100, 5);
+  await p.evaluate(() => {
+    const b = [...document.querySelectorAll('dialog button')].find((x) => x.textContent.includes('記録する'));
+    b.click();
+    b.click();
+  });
+  await closed(p);
+  check('応答が遅くても、画面の枠は1つだけ記録済み', (await p.locator('button.set-done').count()) === 1);
+  // 送信は1件ずつ順に行う。2回通っていたら 2 秒 × 2 回かかるので、それを
+  // 待ってから数える（短いと、2件目がまだ届いておらず見逃す）。
+  await p.waitForTimeout(6000);
+  check('応答が遅いまま連打しても、送信は1回', p.posts === 1, `${p.posts}回`);
+  check('応答が遅いまま連打しても、サーバーに届くのは1セット', (await todaysSets()).length === 1);
+  await p.context().close();
+}
+
+// 6. 保存を待つあいだに、続けて別のセットを記録しても、どちらも届く。
+//    保存が終わるまで操作を止める門だと、2セット目が黙って捨てられる
+//    （シートが閉じないまま残る）。例外ではなく ✗ で言うため、閉じたかどうかを
+//    真偽で受ける。
+{
+  const p = await slowPage(2000);
+  await fillOn(p, 0, 100, 5);
+  await p.click('dialog >> text=記録する');
+  check('1セット目を記録すると、シートが閉じる', await closes(p));
+  await fillOn(p, 1, 102.5, 4);
+  await p.click('dialog >> text=記録する');
+  check('保存を待つあいだの2セット目も、押した直後にシートが閉じる', await closes(p));
+  check(
+    '保存を待つあいだに続けて記録すると、2枠とも記録済みで出る',
+    (await p.locator('button.set-done').count()) === 2,
+  );
+  await p.waitForTimeout(4500);
+  const sets = await todaysSets();
+  check('続けて記録した2セットが、どちらもサーバーに届く', sets.length === 2, `${sets.length}セット`);
+  await p.context().close();
+}
+
+// 7. 端末に保存できなかったら、画面を保存されている状態へ戻して知らせる。
+//    戻さないと、画面には記録済みなのに何も保存されていない食い違いが残る。
+{
+  const p = await slowPage(0, { failIdb: true });
+  await p.evaluate(() => {
+    window.__failIdb = true;
+  });
+  await fillOn(p, 0, 100, 5);
+  await p.click('dialog >> text=記録する');
+  await closed(p);
+  await p.waitForTimeout(1200);
+  check('保存できなかった記録は、枠が元の「記録」に戻る', (await p.locator('button.set-done').count()) === 0);
+  const text = await p.innerText('body');
+  check('「保存できなかった記録」を知らせる', text.includes('保存できなかった記録'));
+  check('何を記録しようとしたか（重量×レップ）が分かる', text.includes('100kg × 5'));
+  check('サーバーには何も届いていない', (await todaysSets()).length === 0);
+
+  // 直ったあとは、また記録できる（失敗が尾を引かない）。
+  await p.evaluate(() => {
+    window.__failIdb = false;
+  });
+  await fillOn(p, 0, 100, 5);
+  await p.click('dialog >> text=記録する');
+  await closed(p);
+  await p.waitForTimeout(1500);
+  check('保存できるようになったら、また記録できる', (await todaysSets()).length === 1);
+  await p.context().close();
+}
+
 check('コンソールにエラーが出ない', errs.length === 0, errs.join(' | '));
 await clearToday();
 const failed = results.filter((r) => !r.ok);

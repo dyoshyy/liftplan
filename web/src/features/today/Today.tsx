@@ -9,13 +9,17 @@ import { ExercisePicker } from './ExercisePicker';
 import { RecordSheet } from './RecordSheet';
 import { useRecordOrchestrator } from './useRecordOrchestrator';
 import { BodyWeightRow } from './BodyWeightRow';
-import type { Enqueue } from '../../outbox/db';
+import type { Enqueue, QueueItem } from '../../outbox/db';
 import { Button } from '../../ui/Button';
 import { SectionTitle } from '../../ui/Card';
 
 type Props = {
   data: Data;
   enqueue: Enqueue;
+  /** enqueueAll は複数件を1回の書き込みで積む。修正の DELETE と POST を分けない。 */
+  enqueueAll: (items: readonly QueueItem[]) => Promise<boolean>;
+  /** onSaveFailed は端末に積めなかったことを知らせる。 */
+  onSaveFailed: (message: string) => void;
   onRecordLocally: (exerciseId: string, set: RecordedSet, replacing?: string) => void;
   onForgetLocally: (exerciseId: string, id: string) => void;
   /** 重点種目を変えたあとにメニューを取り直す。 */
@@ -52,7 +56,8 @@ export function Today(props: Props) {
 
   // 記録の手順はオーケストレーターが持つ。この部品は描画だけをする。
   const sheet = useRecordOrchestrator({
-    enqueue,
+    enqueueAll: props.enqueueAll,
+    onSaveFailed: props.onSaveFailed,
     onRecordLocally: props.onRecordLocally,
     onForgetLocally: props.onForgetLocally,
     onRestStart: onRecorded,

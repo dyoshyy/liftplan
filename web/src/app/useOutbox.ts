@@ -22,6 +22,13 @@ export function useOutbox(nameOf: (id: string) => string) {
 
   const [state, setState] = useState<OutboxState>({ pending: 0, rejected: [] });
 
+  // 端末に積めなかった記録。サーバーが断った記録（rejected）は IndexedDB に
+  // 残すが、これは IndexedDB に書けなかったものなので、残せない。画面の中だけ
+  // で持つ。件数の読み直し（refresh）で消えないよう、state とは別にしてある。
+  const [failed, setFailed] = useState<string[]>([]);
+  const reportFailure = useCallback((message: string) => setFailed((f) => [...f, message]), []);
+  const clearFailed = useCallback(() => setFailed([]), []);
+
   const refresh = useCallback(async () => {
     setState({ pending: await outbox.pendingCount(), rejected: await outbox.rejected() });
   }, [outbox]);
@@ -72,5 +79,15 @@ export function useOutbox(nameOf: (id: string) => string) {
       .then(refresh);
   }, [refresh]);
 
-  return { ...state, enqueue, enqueueAll, flush, refresh, clearRejected };
+  return {
+    ...state,
+    failed,
+    reportFailure,
+    clearFailed,
+    enqueue,
+    enqueueAll,
+    flush,
+    refresh,
+    clearRejected,
+  };
 }
