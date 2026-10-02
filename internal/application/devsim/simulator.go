@@ -183,7 +183,7 @@ func CustomExerciseID(i int) exercise.ExerciseID {
 // poolFor は共通の一覧に req の自分の種目を足した一覧を返す。
 //
 // 名前の重複は本番と同じく弾く（共通の種目と、自分の種目どうし）。
-// 週目標はこの一覧ではなく共通の一覧から出る（seed.DefaultWeeklyTarget）。
+// 週目標はどの一覧からも出ない（seed.DefaultWeeklyTarget は頻度と1回の量だけで決まる）。
 func (s *Simulator) poolFor(req Request) ([]*exercise.Exercise, error) {
 	if len(req.Custom) == 0 {
 		return s.pool, nil
