@@ -1,9 +1,6 @@
 package seed
 
 import (
-	"errors"
-	"fmt"
-
 	"github.com/dyoshyy/liftplan/internal/domain/training"
 	"github.com/dyoshyy/liftplan/internal/domain/training/program"
 )
@@ -48,39 +45,27 @@ var regionShare = map[training.MuscleRegion]float64{
 	training.Oblique: 4.5,
 }
 
-// averageStimulusPerSet は1セットが筋区分に与える寄与の合計の平均。
+// stimulusPerSet は1セットが筋区分に与える寄与の合計の平均（k）。
 //
 // 週の総セット数から「週に供給される刺激の総量」に直す係数。1セットが
 // 複数の区分に寄与する（スクワットは大腿四頭筋1.0＋臀筋0.5）ので、
 // セット数と刺激量は1対1ではない。
 //
-// **定数に書かずに数える。**この値は種目カタログの性質であって、独立した
-// 調整つまみではない。書き写すと、種目を足したときに黙ってずれる。
+// **種目カタログから数えない。**以前は seed.Exercises() の全種目の平均を
+// 実行時に数えていた。すると、プリセットを1つ足した瞬間に、その種目を
+// 持たない既存の利用者も含めた全員の週目標が動き、補助の選ばれ方まで
+// 変わる（アイソラテラル9種目で 1.755→1.802、同じ履歴から今日の補助が
+// 変わる回が全構成で961回中338回）。これはプリセットの部位ごとの種目数が
+// 釣り合っていることを暗に前提にしてしまう。目標の大きさは、プリセットの
+// 構成ではなく、利用者の設定（頻度・1回の量）だけで決める。
 //
-// 選択された種目ではなくカタログ全体で取る。利用者が種目を外すたびに週目標が
-// 動くと、目標が「何を選んだか」に依存して意味が薄れる。カタログの性質として
-// 固定しておくほうが、達成率の読み方が安定する。
-func averageStimulusPerSet() (float64, error) {
-	all, err := Exercises()
-	if err != nil {
-		return 0, fmt.Errorf("種目カタログが読めない: %w", err)
-	}
-	if len(all) == 0 {
-		return 0, errors.New("種目カタログが空である")
-	}
-
-	total := 0.0
-	for _, e := range all {
-		for _, r := range e.Stimulus().Regions() {
-			c, ok := e.Stimulus().Contribution(r)
-			if !ok {
-				continue
-			}
-			total += c.Float()
-		}
-	}
-	return total / float64(len(all)), nil
-}
+// 値は切り離した時点のカタログの平均（寄与の合計 66.7 ÷ 38種目）をそのまま
+// 置いた。数字は1つも動いていない（TestDefaultWeeklyTarget_PinnedValues）。
+// **この値が実態と合っているかは別の話**：処方どおりにこなしたときの
+// 1セットあたりの供給は、全身法・upper_lower・ppl・five_way の週2〜7回で
+// 1.9〜2.0（24構成の平均 1.947）あり、この値より約1割多い。実測に合わせる
+// のは動作の変更なので、別に行う。
+const stimulusPerSet = 66.7 / 38
 
 // DefaultWeeklyTarget は筋区分ごとの週目標セット数のプリセット。
 //
@@ -112,11 +97,7 @@ func DefaultWeeklyTarget(f program.Frequency, v program.SessionVolume) (program.
 // 「配分を動かしても総量が動かない」を検査できるようにするため。パッケージ
 // 変数を書き換えるテストは、並行に走らせた瞬間に他のテストと競合する。
 func distribute(share map[training.MuscleRegion]float64, f program.Frequency, v program.SessionVolume) (program.WeeklyVolumeTarget, error) {
-	k, err := averageStimulusPerSet()
-	if err != nil {
-		return program.WeeklyVolumeTarget{}, err
-	}
-	total := float64(f.PerWeek()*v.TotalSets()) * k
+	total := float64(f.PerWeek()*v.TotalSets()) * stimulusPerSet
 
 	// 合計は実行時に取る。定数に書くと、配分を1つ動かしたときに合計だけが
 	// 古いまま残り、割り振りが静かにずれる。
