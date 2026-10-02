@@ -18,13 +18,8 @@ import (
 // 見る構成は、全身法・upper_lower・ppl・five_way × 週2〜7回（週1回は想定しない）。
 // 受け入れ条件は2つ。
 //
-//   - どの区分も達成率が帯（60〜145%）に収まる（僧帽筋上部を除く。下の注）
+//   - どの区分も達成率が帯（60〜145%）に収まる
 //   - 0セットの日が1日も無い
-//
-// 僧帽筋上部を除くのは、シュラッグを既定で使わないと本人が決めたため。元の
-// カタログで僧帽筋上部に寄与するのはシュラッグだけで、使わなければ達成率は
-// 0%のまま。目標の側から外すのは別の設計になる（週目標は頻度と1回の量だけで
-// 決まる）ので、ここでは受け入れ条件から除く。
 //
 // 種目を足したり除いたりしたら、このテストが赤くなる。
 func TestDefaultSelected_PlansEveryShippedSetup(t *testing.T) {
@@ -48,9 +43,6 @@ func TestDefaultSelected_PlansEveryShippedSetup(t *testing.T) {
 		cfg.excluded = excluded
 		res := runSim(t, cfg)
 		for _, r := range training.AllMuscleRegions() {
-			if r == training.TrapUpper {
-				continue
-			}
 			if res.outOfBand(r) {
 				t.Errorf("%s の達成率が範囲外: %.0f%%（目標 %.1f、実測 %.1f）",
 					r, res.rate(r)*100, res.target.Sets(r), res.achieved[r])

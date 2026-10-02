@@ -23,30 +23,30 @@ func TestDefaultWeeklyTarget_PinnedValues(t *testing.T) {
 		want      map[training.MuscleRegion]float64
 	}{
 		{
-			// 3 × 4 × 3 = 36セット。36 × 1.97 = 70.92
+			// 3 × 4 × 3 = 36セット。36 × 2.04 = 73.44
 			name: "週3回・4種目・3セット", freq: 3, exercises: 4, sets: 3,
 			want: map[training.MuscleRegion]float64{
-				training.Abs: 2.557770, training.Adductor: 2.325246, training.Biceps: 2.790295,
-				training.Calf: 1.860197, training.ChestLower: 2.092721, training.ChestMid: 4.650492,
-				training.ChestUpper: 2.325246, training.Erector: 5.813115, training.Forearm: 2.325246,
-				training.FrontDelt: 3.952918, training.Glute: 6.510689, training.Hamstring: 4.883016,
-				training.Lat: 3.952918, training.Oblique: 2.092721, training.Quad: 5.813115,
-				training.RearDelt: 1.860197, training.SideDelt: 1.860197, training.TrapMid: 3.720393,
-				training.TrapUpper: 1.860197, training.TricepsLateral: 5.813115, training.TricepsLong: 1.860197,
+				training.Abs: 2.648656, training.Adductor: 2.407869, training.Biceps: 2.889443,
+				training.Calf: 1.926295, training.ChestLower: 2.167082, training.ChestMid: 4.815738,
+				training.ChestUpper: 2.407869, training.Erector: 6.019672, training.Forearm: 2.407869,
+				training.FrontDelt: 4.093377, training.Glute: 6.742033, training.Hamstring: 5.056525,
+				training.Lat: 4.093377, training.Oblique: 2.167082, training.Quad: 6.019672,
+				training.RearDelt: 1.926295, training.SideDelt: 1.926295, training.TrapMid: 3.852590,
+				training.TrapUpper: 1.926295, training.TricepsLateral: 6.019672, training.TricepsLong: 1.926295,
 			},
 		},
 		{
 			// 7 × 6 × 6 = 252セット。頻度と量が最大のとき。
 			name: "週7回・6種目・6セット", freq: 7, exercises: 6, sets: 6,
 			want: map[training.MuscleRegion]float64{
-				training.Abs: 17.904393, training.Adductor: 16.276721, training.Biceps: 19.532066,
-				training.Calf: 13.021377, training.ChestLower: 14.649049, training.ChestMid: 32.553443,
-				training.ChestUpper: 16.276721, training.Erector: 40.691803, training.Forearm: 16.276721,
-				training.FrontDelt: 27.670426, training.Glute: 45.574820, training.Hamstring: 34.181115,
-				training.Lat: 27.670426, training.Oblique: 14.649049, training.Quad: 40.691803,
-				training.RearDelt: 13.021377, training.SideDelt: 13.021377, training.TrapMid: 26.042754,
-				training.TrapUpper: 13.021377, training.TricepsLateral: 40.691803,
-				training.TricepsLong: 13.021377,
+				training.Abs: 18.540590, training.Adductor: 16.855082, training.Biceps: 20.226098,
+				training.Calf: 13.484066, training.ChestLower: 15.169574, training.ChestMid: 33.710164,
+				training.ChestUpper: 16.855082, training.Erector: 42.137705, training.Forearm: 16.855082,
+				training.FrontDelt: 28.653639, training.Glute: 47.194230, training.Hamstring: 35.395672,
+				training.Lat: 28.653639, training.Oblique: 15.169574, training.Quad: 42.137705,
+				training.RearDelt: 13.484066, training.SideDelt: 13.484066, training.TrapMid: 26.968131,
+				training.TrapUpper: 13.484066, training.TricepsLateral: 42.137705,
+				training.TricepsLong: 13.484066,
 			},
 		},
 	}

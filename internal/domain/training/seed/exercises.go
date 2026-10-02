@@ -168,9 +168,9 @@ func specs() []exercise.ExerciseParams {
 		bodyweightExercise("pull_up", "チンニング", 2.5, 0.95,
 			stimulus{r.Lat: 1.0, r.Biceps: 0.5, r.Forearm: 0.3}),
 		spec("barbell_row", "バーベルロウ", 2.5,
-			stimulus{r.Lat: 0.7, r.TrapMid: 1.0, r.RearDelt: 0.4, r.Biceps: 0.3}),
+			stimulus{r.Lat: 0.7, r.TrapMid: 1.0, r.RearDelt: 0.4, r.Biceps: 0.3, r.TrapUpper: 0.3}),
 		spec("seated_row", "シーテッドロウ", 2.5,
-			stimulus{r.TrapMid: 1.0, r.Lat: 0.6, r.Biceps: 0.3}),
+			stimulus{r.TrapMid: 1.0, r.Lat: 0.6, r.Biceps: 0.3, r.TrapUpper: 0.2}),
 		bodyweightExercise("back_extension", "バックエクステンション", 2.5, 0.55,
 			stimulus{r.Erector: 1.0, r.Glute: 0.5, r.Hamstring: 0.4}),
 		spec("shrug", "シュラッグ", 2.5,
@@ -178,15 +178,15 @@ func specs() []exercise.ExerciseParams {
 
 		// --- 肩 ---
 		spec("overhead_press", "オーバーヘッドプレス", 2.5,
-			stimulus{r.FrontDelt: 1.0, r.SideDelt: 0.5, r.TricepsLateral: 0.4}),
+			stimulus{r.FrontDelt: 1.0, r.SideDelt: 0.5, r.TricepsLateral: 0.4, r.TrapUpper: 0.3}),
 		spec("db_shoulder_press", "ダンベルショルダープレス", 2.0,
-			stimulus{r.FrontDelt: 1.0, r.SideDelt: 0.5, r.TricepsLateral: 0.4}),
+			stimulus{r.FrontDelt: 1.0, r.SideDelt: 0.5, r.TricepsLateral: 0.4, r.TrapUpper: 0.3}),
 		spec("side_raise", "サイドレイズ", 1.0,
-			stimulus{r.SideDelt: 1.0}),
+			stimulus{r.SideDelt: 1.0, r.TrapUpper: 0.3}),
 		spec("cable_side_raise", "ケーブルサイドレイズ", 2.5,
-			stimulus{r.SideDelt: 1.0}),
+			stimulus{r.SideDelt: 1.0, r.TrapUpper: 0.3}),
 		spec("rear_delt_fly", "リアデルトフライ", 1.0,
-			stimulus{r.RearDelt: 1.0, r.TrapMid: 0.3}),
+			stimulus{r.RearDelt: 1.0, r.TrapMid: 0.3, r.TrapUpper: 0.3}),
 
 		// --- 腕 ---
 		spec("triceps_pushdown", "トライセプスプレスダウン", 2.5,
