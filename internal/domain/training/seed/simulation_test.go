@@ -432,6 +432,22 @@ func TestSimulation_EveryAccessoryGetsUsedInSomeSetup(t *testing.T) {
 		}
 	}
 
+	// 出荷している分割（upper_lower・ppl・five_way）も見る。全身法だけだと、
+	// 日が部位で分かれて初めて要る種目（脚の日のヒップスラスト、引く日の
+	// バックエクステンション、ベンチの派生）の出番が数えられず、全身法で偶然
+	// 1回選ばれたかどうかの危うい検査になる（週目標の大きさを動かしたとき、
+	// 全身法の1回が消えて落ちた）。
+	for _, p := range splitCycles(t) {
+		for f := 2; f <= maxSimFrequency; f++ {
+			res := runSim(t, simConfig{
+				frequency: f, weeks: splitWeeks(f, len(p.Cycle)), cycle: p.Cycle,
+			})
+			for id := range res.picked {
+				used[id] = true
+			}
+		}
+	}
+
 	declared := lookupIDs(seed.DefaultDeclared())
 	for _, e := range all {
 		if declared[e.ID()] {
