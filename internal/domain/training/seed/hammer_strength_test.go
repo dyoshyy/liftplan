@@ -8,18 +8,29 @@ import (
 	"github.com/dyoshyy/liftplan/internal/domain/training/seed"
 )
 
-// Hammer Strength のマシンがプリセットに入っていること。
+// Hammer Strength のプリセットは、本人が通うジムにあるマシンだけであること。
 //
-// 公式カタログ（Plate-Loaded・MTS・Select の3系列）のうち、筋区分に寄与を
-// 付けられるマシンを、1台1種目で入れている。同じ動作でも、系列やマシンが違えば
-// 重量の刻みも感触も違い、推定1RMは種目ごとに持つので、別の種目にする。
-func TestHammerStrengthPresets_AreInTheCatalog(t *testing.T) {
+// 公式カタログを全部入れると多すぎ、使わないニッチなマシンが並ぶので、
+// エニタイムフィットネス 品川中延店のマシンラインナップ（2026-10-03 時点）に
+// 載っていて、機種名が Hammer Strength のカタログと一致するものに絞った
+// （hammerStrengthSpecs のコメント）。増やすときは、この一覧と出典を一緒に直す。
+func TestHammerStrengthPresets_AreOnlyTheMachinesAtTheGym(t *testing.T) {
+	want := map[string]bool{
+		"hs_pl_iso_incline_press": true, "hs_pl_iso_decline_chest_press": true,
+		"hs_pl_iso_shoulder_press": true, "hs_pl_iso_row": true, "hs_pl_iso_high_row": true,
+		"hs_pl_iso_low_row": true, "hs_pl_iso_dy_row": true, "hs_pl_iso_wide_pulldown": true,
+		"hs_pl_iso_front_pulldown": true,
+		"hs_pl_t_bar_row":          true, "hs_pl_lateral_raise": true, "hs_pl_seated_biceps": true,
+		"hs_pl_linear_leg_press": true, "hs_pl_hack_squat": true, "hs_pl_reverse_v_squat": true,
+		"hs_pl_glute_drive": true,
+	}
+
 	all, err := seed.Exercises()
 	if err != nil {
 		t.Fatalf("シードが不正: %v", err)
 	}
 
-	hs := 0
+	got := map[string]bool{}
 	ids := map[string]bool{}
 	names := map[string]bool{}
 	for _, e := range all {
@@ -32,24 +43,27 @@ func TestHammerStrengthPresets_AreInTheCatalog(t *testing.T) {
 		}
 		ids[id], names[name] = true, true
 
-		if strings.HasPrefix(id, "hs_") {
-			hs++
-			// 一覧で、汎用の種目（レッグプレスなど）と見分けがつくこと。
-			if !strings.HasPrefix(name, "HS ") {
-				t.Errorf("%s の名前が「HS 」で始まっていない: %s", id, name)
-			}
-			// 系列（プレート・MTS・セレクト）が名前の末尾に付いていること。同じ動作の
-			// マシンが系列ごとにあり、名前だけでは区別できなくなるため。
-			if !strings.HasSuffix(name, "）") {
-				t.Errorf("%s の名前に系列が付いていない: %s", id, name)
-			}
-			if n := utf8.RuneCountInString(name); n > 40 {
-				t.Errorf("%s の名前が長すぎる（%d字）: %s", id, n, name)
-			}
+		if !strings.HasPrefix(id, "hs_") {
+			continue
+		}
+		got[id] = true
+		// 一覧で、汎用の種目（レッグプレスなど）と見分けがつくこと。
+		if !strings.HasPrefix(name, "HS ") || !strings.HasSuffix(name, "（プレート）") {
+			t.Errorf("%s の名前が「HS ＋ 機種名 ＋（プレート）」でない: %s", id, name)
+		}
+		if n := utf8.RuneCountInString(name); n > 40 {
+			t.Errorf("%s の名前が長すぎる（%d字）: %s", id, n, name)
 		}
 	}
-	if hs < 60 {
-		t.Errorf("Hammer Strength のプリセットが %d 種目しか無い。3系列で80種目前後のはず", hs)
+	for id := range want {
+		if !got[id] {
+			t.Errorf("%s がプリセットに無い", id)
+		}
+	}
+	for id := range got {
+		if !want[id] {
+			t.Errorf("%s は通うジムにあるマシンの一覧に無い", id)
+		}
 	}
 }
 
