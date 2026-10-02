@@ -24,6 +24,12 @@ export type QueueItem = {
   body?: unknown;
 };
 
+/** Enqueue は待ち行列に積む関数。端末に積めたら true、積めなかったら false を返す。
+ *
+ *  送信の完了は待たない。積めなかったときに黙って返すと、呼び手は保存できた
+ *  つもりで画面を進めてしまうので、成否を戻り値で渡す。 */
+export type Enqueue = (item: QueueItem) => Promise<boolean>;
+
 /** Entry は待ち行列の1件と、その自動採番キー。 */
 export type Entry<T> = { key: IDBValidKey; value: T };
 
@@ -59,7 +65,20 @@ function tx<T>(
     (d) =>
       new Promise<T | undefined>((resolve, reject) => {
         const t = d.transaction(name, mode);
-        const req = run(t.objectStore(name));
+        let req: IDBRequest<T> | undefined;
+        try {
+          req = run(t.objectStore(name));
+        } catch (e) {
+          // 積めない値だった。ここまでに積んだぶんが残ったまま確定しないよう、
+          // トランザクションごと取り消す（addAll が「全部か、1件も」を守るため）。
+          try {
+            t.abort();
+          } catch {
+            // すでに終わっている。
+          }
+          reject(e);
+          return;
+        }
         // 完了を待ってから解決する。req.onsuccess で返すと、
         // トランザクションが中断された書き込みを成功として扱う。
         t.oncomplete = () => resolve(req ? req.result : undefined);
@@ -71,6 +90,20 @@ function tx<T>(
 
 export const add = <T>(name: StoreName, value: T): Promise<void> =>
   tx<IDBValidKey>(name, 'readwrite', (s) => s.add(value)).then(() => undefined);
+
+/** addAll は複数件を1つのトランザクションで積む。全部積めるか、1件も積まれないか。
+ *
+ *  1件ずつ別のトランザクションで積むと、途中で止まったときに前半だけが
+ *  残る。修正は「DELETE を積んでから同じIDで POST」の2件で表すので、
+ *  DELETE だけが残ると、直したつもりの記録が消える。順は渡した順のまま
+ *  （自動採番キーが増える順）。 */
+export const addAll = <T>(name: StoreName, items: readonly T[]): Promise<void> => {
+  return tx<IDBValidKey>(name, 'readwrite', (s) => {
+    let last: IDBRequest<IDBValidKey> | undefined;
+    for (const item of items) last = s.add(item);
+    return last;
+  }).then(() => undefined);
+};
 
 export const remove = (name: StoreName, key: IDBValidKey): Promise<void> =>
   tx<undefined>(name, 'readwrite', (s) => s.delete(key) as IDBRequest<undefined>).then(() => undefined);

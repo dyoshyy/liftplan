@@ -31,21 +31,34 @@ export function useOutbox(nameOf: (id: string) => string) {
     await refresh();
   }, [outbox, refresh]);
 
-  const enqueue = useCallback(
-    async (item: QueueItem) => {
+  // enqueueAll は端末に積んだところで返る。**送信の完了は待たない。**
+  //
+  // 以前は積んだあとに flush を待っていたので、押してから画面が進むまでに
+  // サーバーの往復が丸ごと入った（応答が 2 秒遅いと、シートが閉じるまで
+  // 2 秒かかった）。端末に積めた時点で記録は失われないので、送信は裏で回す。
+  //
+  // 戻り値は積めたかどうか。積めなかったとき（容量超過・プライベートモード）に
+  // 黙って返すと、呼び手は保存できたつもりで画面を進めてしまう。
+  const enqueueAll = useCallback(
+    async (items: readonly QueueItem[]): Promise<boolean> => {
+      if (items.length === 0) return true;
       // 楽観的に数えておく。押した直後に「未送信」と出ないと、
       // 記録できたのか分からない。
-      setState((s) => ({ ...s, pending: s.pending + 1 }));
+      setState((s) => ({ ...s, pending: s.pending + items.length }));
       try {
-        await outbox.enqueue(item);
+        await outbox.enqueueAll(items);
       } catch {
-        setState((s) => ({ ...s, pending: Math.max(0, s.pending - 1) }));
-        return;
+        setState((s) => ({ ...s, pending: Math.max(0, s.pending - items.length) }));
+        return false;
       }
-      await flush();
+      // 裏で送る。件数の読み直しが失敗しても、積んだ記録には関係しない。
+      void flush().catch(() => {});
+      return true;
     },
     [outbox, flush],
   );
+
+  const enqueue = useCallback((item: QueueItem) => enqueueAll([item]), [enqueueAll]);
 
   const clearRejected = useCallback(async () => {
     await outbox.clearRejected();
@@ -59,5 +72,5 @@ export function useOutbox(nameOf: (id: string) => string) {
       .then(refresh);
   }, [refresh]);
 
-  return { ...state, enqueue, flush, refresh, clearRejected };
+  return { ...state, enqueue, enqueueAll, flush, refresh, clearRejected };
 }

@@ -1,4 +1,4 @@
-import { add, clear, count, head, remove, values, type QueueItem } from './db';
+import { add, addAll, clear, count, head, remove, values, type QueueItem } from './db';
 
 /** Send は1件を実際に投げる。fetch そのものではなく関数で受け取る。
  *
@@ -51,6 +51,12 @@ export class Outbox {
 
   enqueue(item: QueueItem): Promise<void> {
     return add('queue', item);
+  }
+
+  // enqueueAll は複数件を1回の書き込みで積む。全部積めるか、1件も積まれないか。
+  // 修正（DELETE と POST の2件）は必ずこれで積む。
+  enqueueAll(items: readonly QueueItem[]): Promise<void> {
+    return addAll('queue', items);
   }
 
   // flush は先頭から順に送る。

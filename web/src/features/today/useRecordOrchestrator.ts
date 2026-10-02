@@ -3,12 +3,12 @@ import type { Day, RecordedSet } from '../../api/types';
 import { today } from '../../domain/date';
 import { createGate } from '../../domain/gate';
 import { newId } from '../../domain/id';
-import type { QueueItem } from '../../outbox/db';
+import type { Enqueue, QueueItem } from '../../outbox/db';
 import { judgePersonalRecord, previousSets, type PersonalRecord } from './pr';
 import type { SheetTarget } from './RecordSheet';
 
 type Deps = {
-  enqueue: (item: QueueItem) => Promise<void>;
+  enqueue: Enqueue;
   onRecordLocally: (exerciseId: string, set: RecordedSet, replacing?: string) => void;
   onForgetLocally: (exerciseId: string, id: string) => void;
   onRestStart: () => void;

@@ -9,13 +9,13 @@ import { ExercisePicker } from './ExercisePicker';
 import { RecordSheet } from './RecordSheet';
 import { useRecordOrchestrator } from './useRecordOrchestrator';
 import { BodyWeightRow } from './BodyWeightRow';
-import type { QueueItem } from '../../outbox/db';
+import type { Enqueue } from '../../outbox/db';
 import { Button } from '../../ui/Button';
 import { SectionTitle } from '../../ui/Card';
 
 type Props = {
   data: Data;
-  enqueue: (item: QueueItem) => Promise<void>;
+  enqueue: Enqueue;
   onRecordLocally: (exerciseId: string, set: RecordedSet, replacing?: string) => void;
   onForgetLocally: (exerciseId: string, id: string) => void;
   /** 重点種目を変えたあとにメニューを取り直す。 */

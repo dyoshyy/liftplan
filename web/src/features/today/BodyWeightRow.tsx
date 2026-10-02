@@ -1,4 +1,4 @@
-import type { QueueItem } from '../../outbox/db';
+import type { Enqueue } from '../../outbox/db';
 import { Button } from '../../ui/Button';
 import { Input } from '../../ui/Field';
 import { useBodyWeight } from './useBodyWeight';
@@ -15,7 +15,7 @@ import { useBodyWeight } from './useBodyWeight';
 //
 // **落とさないのは、体重が自重種目の処方と推定に使われるから。**入れ始めるのが
 // 遅れるほど、それ以前の懸垂やディップスが推定から外れる（D-120）。
-export function BodyWeightRow({ enqueue }: { enqueue: (item: QueueItem) => Promise<void> }) {
+export function BodyWeightRow({ enqueue }: { enqueue: Enqueue }) {
   // 今日すでに入れたかはサーバーから取れない（コンディションに取得の口が
   // 無い）。画面を開き直すと入力欄に戻るが、同じ日の同じ値は冪等なので
   // 二重に入れても壊れない。取得の口を足すのはサーバー側の変更になるので、
