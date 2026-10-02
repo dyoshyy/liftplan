@@ -112,7 +112,7 @@ func specs() []exercise.ExerciseParams {
 		training.Calf, training.Abs, training.Oblique,
 	}
 
-	return []exercise.ExerciseParams{
+	base := []exercise.ExerciseParams{
 		// --- メイン ---
 		spec("squat", "スクワット", 2.5,
 			stimulus{r.Quad: 1.0, r.Glute: 0.7, r.Adductor: 0.4, r.Erector: 0.4}),
@@ -210,6 +210,7 @@ func specs() []exercise.ExerciseParams {
 		spec("side_bend", "サイドベンド", 2.5,
 			stimulus{r.Oblique: 1.0, r.Abs: 0.3}),
 	}
+	return append(base, hammerStrengthSpecs()...)
 }
 
 // Exercises はアプリ同梱の種目マスタ。

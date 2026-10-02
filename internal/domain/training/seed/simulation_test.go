@@ -172,6 +172,25 @@ type simConfig struct {
 	cycle     []program.Split // 空なら分割なし（全身法）
 }
 
+// referenceCatalog は通し検証が使う種目。Hammer Strength のマシンを足す前の38種目。
+//
+// 検証の対象を固定する。カタログを全部使うことにすると、プリセットを足すたびに
+// 通し検証の数字（達成率・セット数・選ばれる補助）が動き、計画の変更と
+// 種目の追加を見分けられなくなる。足したプリセットが計画に出るかは、使う種目に
+// 入れたときの話で、新規の利用者の既定は TestDefaultSelected_PlansEveryShippedSetup
+// が見る。
+var referenceCatalog = map[exercise.ExerciseID]bool{
+	"squat": true, "bench": true, "deadlift": true, "larsen_press": true, "tempo_bench": true,
+	"close_grip_bench": true, "pause_squat": true, "front_squat": true, "deficit_deadlift": true,
+	"romanian_deadlift": true, "incline_db_press": true, "incline_barbell_press": true, "dip": true,
+	"decline_press": true, "pec_fly": true, "lat_pulldown": true, "pull_up": true, "barbell_row": true,
+	"seated_row": true, "back_extension": true, "shrug": true, "overhead_press": true,
+	"db_shoulder_press": true, "side_raise": true, "cable_side_raise": true, "rear_delt_fly": true,
+	"triceps_pushdown": true, "overhead_extension": true, "barbell_curl": true, "hammer_curl": true,
+	"leg_press": true, "leg_extension": true, "leg_curl": true, "hip_thrust": true,
+	"adductor_machine": true, "calf_raise": true, "cable_crunch": true, "side_bend": true,
+}
+
 // runSim は条件どおりに何週間か実施した場合を回す。
 func runSim(t *testing.T, cfg simConfig) simResult {
 	t.Helper()
@@ -198,7 +217,7 @@ func runSim(t *testing.T, cfg simConfig) simResult {
 	ids := make([]exercise.ExerciseID, 0, len(all))
 	for _, e := range all {
 		byID[e.ID()] = e
-		if !skip[e.ID()] {
+		if !skip[e.ID()] && referenceCatalog[e.ID()] {
 			ids = append(ids, e.ID())
 		}
 	}
@@ -450,7 +469,7 @@ func TestSimulation_EveryAccessoryGetsUsedInSomeSetup(t *testing.T) {
 
 	declared := lookupIDs(seed.DefaultDeclared())
 	for _, e := range all {
-		if declared[e.ID()] {
+		if declared[e.ID()] || !referenceCatalog[e.ID()] {
 			continue
 		}
 		if !used[e.ID()] {
