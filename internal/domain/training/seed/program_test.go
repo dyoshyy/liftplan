@@ -3,12 +3,16 @@ package seed_test
 import (
 	"testing"
 
+	"github.com/dyoshyy/liftplan/internal/domain/training/exercise"
 	"github.com/dyoshyy/liftplan/internal/domain/training/seed"
 )
 
-// 初期プログラムにバリエーションを含めないこと。
-// 含めると、バリエーションがメイン扱いで独立したスロットを持つ。
-func TestDefaultProgram_ExcludesVariations(t *testing.T) {
+// 初期プログラムが使う種目は DefaultSelected だけ。
+//
+// カタログの全種目を使うことにすると、プリセットを足すたびに、新規の利用者の
+// 使う種目と計画が動く。伸ばしたい種目（BIG3）は使う種目に含まれること
+// （含まれないと NewProgram が弾く）。
+func TestDefaultProgram_SelectsOnlyTheDefaultSelected(t *testing.T) {
 	pool, err := seed.Exercises()
 	if err != nil {
 		t.Fatalf("シードが不正: %v", err)
@@ -18,12 +22,20 @@ func TestDefaultProgram_ExcludesVariations(t *testing.T) {
 		t.Fatalf("初期プログラムが不正: %v", err)
 	}
 
-	// 全種目が選ばれていること。かつてバリエーションは選択に入れずとも
-	// 自動で回っていたが、その抜け道を塞いだので明示的に選ぶ必要がある。
-	for _, e := range pool {
-		if !prog.Includes(e.ID()) {
-			t.Errorf("%s が選択に含まれていない", e.ID())
+	want := map[exercise.ExerciseID]bool{}
+	for _, id := range seed.DefaultSelected() {
+		want[id] = true
+		if !prog.Includes(id) {
+			t.Errorf("%s が使う種目に含まれていない", id)
 		}
+	}
+	for _, e := range pool {
+		if !want[e.ID()] && prog.Includes(e.ID()) {
+			t.Errorf("%s は既定で使う種目ではないのに含まれている", e.ID())
+		}
+	}
+	if got := len(prog.SelectedExercises()); got != len(want) {
+		t.Errorf("使う種目が %d 件。%d 件のはず", got, len(want))
 	}
 }
 
