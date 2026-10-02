@@ -207,4 +207,22 @@ var defaultOneRepMax = map[exercise.ExerciseID]float64{
 
 	"cable_crunch": 60,
 	"side_bend":    40,
+
+	// Hammer Strength のマシン。同じ動作の汎用の種目の値を目安にした仮置き。
+	"hs_pl_iso_incline_press":       80,
+	"hs_pl_iso_decline_chest_press": 95,
+	"hs_pl_iso_shoulder_press":      60,
+	"hs_pl_iso_row":                 80,
+	"hs_pl_iso_high_row":            80,
+	"hs_pl_iso_low_row":             80,
+	"hs_pl_iso_dy_row":              70,
+	"hs_pl_iso_wide_pulldown":       80,
+	"hs_pl_iso_front_pulldown":      80,
+	"hs_pl_t_bar_row":               90,
+	"hs_pl_lateral_raise":           15,
+	"hs_pl_seated_biceps":           45,
+	"hs_pl_reverse_v_squat":         200,
+	"hs_pl_hack_squat":              200,
+	"hs_pl_linear_leg_press":        250,
+	"hs_pl_glute_drive":             160,
 }
