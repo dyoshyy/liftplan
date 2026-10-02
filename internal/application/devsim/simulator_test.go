@@ -521,10 +521,14 @@ func isoRow() devsim.CustomExercise {
 // 足した種目で割り振りが偏るかを確かめる手段が無い（設計書「自分の種目が
 // 計画をどう動かすか」）。
 //
-// 12週で見る。種目が38ある中で1回の補助は数枠しかないので、4週では同じ
-// 部位の共通の種目（シーテッドロウ）も一度も出ないことがある。
+// 12週・週6回で見る。開発用シミュレーションは119種目すべてを使う前提で、
+// 1回の補助は数枠しかない。しかもアイソラテラル・ローと同じ効き方のマシンが
+// プリセット（Hammer Strength）に複数ある。週4回では12週回しても一度も
+// 処方されず、週5〜7回で2回処方される。一度でも処方されれば、自分の種目が
+// 候補に入っていることは言える。
 func TestSimulator_PlansCustomExercises(t *testing.T) {
 	req := baseRequest()
+	req.Frequency = 6
 	req.Weeks = 12
 	req.Custom = []devsim.CustomExercise{isoRow()}
 	got := mustRun(t, req)
