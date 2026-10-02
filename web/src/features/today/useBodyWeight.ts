@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { today } from '../../domain/date';
 import type { ConditionInput } from '../../api/types';
-import type { QueueItem } from '../../outbox/db';
+import type { Enqueue } from '../../outbox/db';
 
 /** parseBodyWeight は入力を体重として読む。読めなければ null。 */
 export function parseBodyWeight(raw: string): number | null {
@@ -20,7 +20,7 @@ export function parseBodyWeight(raw: string): number | null {
 //
 // 単純な数値が1つあるだけの入力で、置き場所も決まっている。押せない理由は
 // 見れば分かるので、文で言う必要がない。
-export function useBodyWeight(enqueue: (item: QueueItem) => Promise<void>, recorded: number | undefined) {
+export function useBodyWeight(enqueue: Enqueue, recorded: number | undefined) {
   const [value, setValue] = useState('');
   const [justSaved, setJustSaved] = useState<number | undefined>(undefined);
   const [editing, setEditing] = useState(false);

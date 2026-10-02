@@ -135,3 +135,43 @@ describe('Outbox', () => {
     expect(await outbox.rejected()).toHaveLength(0);
   });
 });
+
+describe('Outbox.enqueueAll', () => {
+  beforeEach(async () => {
+    await clearAll();
+  });
+
+  const idOf = (i: QueueItem) => (i.body as { logs: { id: string }[] }).logs[0]!.id;
+
+  // 修正は「DELETE を積んでから同じIDで POST」の2件で表す。入れ替わると、
+  // 消したはずの記録が残る。1回の書き込みにまとめても、積んだ順は保つ。
+  it('渡した順に積み、その順に送る', async () => {
+    const r = recorder();
+    const outbox = new Outbox(r.send);
+
+    await outbox.enqueueAll([setLog('a'), setLog('b'), setLog('c')]);
+    await outbox.flush();
+
+    expect(r.sent.map(idOf)).toEqual(['a', 'b', 'c']);
+  });
+
+  // 修正の DELETE だけが積まれて POST が積まれないと、直したつもりの記録が
+  // 消える。書き込みは全部積むか、1件も積まないかのどちらかにする。
+  // 2件目が積めないとき（保存できない値）に、1件目だけが残ってはいけない。
+  it('1件でも積めなければ、1件も積まない', async () => {
+    const outbox = new Outbox(ok as unknown as ConstructorParameters<typeof Outbox>[0]);
+    const unsavable: QueueItem = { path: '/api/set-logs', body: () => 'IndexedDB に入らない' };
+
+    await expect(outbox.enqueueAll([setLog('a'), unsavable])).rejects.toBeDefined();
+
+    expect(await outbox.pendingCount()).toBe(0);
+  });
+
+  it('空なら何もしない', async () => {
+    const outbox = new Outbox(recorder().send);
+
+    await outbox.enqueueAll([]);
+
+    expect(await outbox.pendingCount()).toBe(0);
+  });
+});

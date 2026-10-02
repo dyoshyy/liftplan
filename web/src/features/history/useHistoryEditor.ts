@@ -2,7 +2,7 @@ import { useCallback, useState } from 'react';
 import type { RecordedSet } from '../../api/types';
 import type { DayChange } from '../../domain/days';
 import type { SetValues } from '../../domain/sets';
-import type { QueueItem } from '../../outbox/db';
+import type { Enqueue, QueueItem } from '../../outbox/db';
 import { planRecord, planUndo } from '../today/useRecordOrchestrator';
 
 /** EditTarget は履歴で直そうとしている1セット。 */
@@ -59,7 +59,7 @@ export function planHistoryDelete(target: EditTarget): EditPlan {
 }
 
 type Deps = {
-  enqueue: (item: QueueItem) => Promise<void>;
+  enqueue: Enqueue;
   /** onApplied は手元の記録に変更を当てる。直近の記録と取ってある月の両方。 */
   onApplied: (change: DayChange) => void;
 };
