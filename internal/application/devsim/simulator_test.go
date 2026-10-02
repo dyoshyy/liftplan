@@ -521,16 +521,21 @@ func isoRow() devsim.CustomExercise {
 // 足した種目で割り振りが偏るかを確かめる手段が無い（設計書「自分の種目が
 // 計画をどう動かすか」）。
 //
-// 12週・週6回で見る。開発用シミュレーションは119種目すべてを使う前提で、
-// 1回の補助は数枠しかない。しかもアイソラテラル・ローと同じ効き方のマシンが
-// プリセット（Hammer Strength）に複数ある。週4回では12週回しても一度も
-// 処方されず、週5〜7回で2回処方される。一度でも処方されれば、自分の種目が
-// 候補に入っていることは言える。
+// 見ているのは「候補に入る」ことで、「選ばれやすい」ことではない。同じ効き方の
+// 共通の種目と競うと、12週で0〜1回しか処方されず、頻度を変えるだけで通ったり
+// 落ちたりする（アイソラテラル・ローで確かめた：週3回1・4回0・5回1・6回0・7回1）。
+// そこで、同じ区分を狙う共通の種目よりはっきり多くの区分に効く種目を渡し、
+// 候補に入っていれば必ず選ばれる形にする。
 func TestSimulator_PlansCustomExercises(t *testing.T) {
 	req := baseRequest()
-	req.Frequency = 6
 	req.Weeks = 12
-	req.Custom = []devsim.CustomExercise{isoRow()}
+	req.Custom = []devsim.CustomExercise{{
+		Name: "万能ロー",
+		Stimulus: map[training.MuscleRegion]float64{
+			training.TrapMid: 1, training.Lat: 1, training.RearDelt: 1, training.Biceps: 1, training.Forearm: 1,
+		},
+		IncrementKg: 2.5,
+	}}
 	got := mustRun(t, req)
 
 	id := devsim.CustomExerciseID(0)
@@ -539,7 +544,7 @@ func TestSimulator_PlansCustomExercises(t *testing.T) {
 		for _, s := range d.Accessories {
 			if s.ExerciseID == id {
 				found = true
-				if s.Name != "アイソラテラル・ロー" {
+				if s.Name != "万能ロー" {
 					t.Errorf("名前が %q", s.Name)
 				}
 			}
