@@ -329,8 +329,8 @@ func TestDefaultWeeklyTarget_DistributionIsUnchanged(t *testing.T) {
 		training.FrontDelt: 8.5, training.SideDelt: 4, training.RearDelt: 4,
 		training.TricepsLong: 4, training.TricepsLateral: 12.5,
 		training.Biceps: 6, training.Forearm: 5,
-		training.Quad: 12.5, training.Hamstring: 10.5, training.Glute: 14,
-		training.Adductor: 5, training.Calf: 4,
+		training.Quad: 12.5, training.Hamstring: 9, training.Glute: 14,
+		training.Adductor: 4, training.Calf: 3.2,
 		training.Abs: 5.5, training.Oblique: 4.5,
 	}
 

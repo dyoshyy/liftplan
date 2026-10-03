@@ -123,11 +123,11 @@ func specs() []exercise.ExerciseParams {
 	base := []exercise.ExerciseParams{
 		// --- メイン ---
 		spec("squat", "スクワット", 2.5,
-			stimulus{r.Quad: 1.0, r.Glute: 0.7, r.Adductor: 0.4, r.Erector: 0.4, r.Abs: 0.2}),
+			stimulus{r.Quad: 1.0, r.Glute: 0.7, r.Adductor: 0.4, r.Erector: 0.4}),
 		spec("bench", "ベンチプレス", 2.5,
 			stimulus{r.ChestMid: 1.0, r.TricepsLateral: 0.5, r.FrontDelt: 0.5, r.ChestLower: 0.3, r.ChestUpper: 0.3}),
 		spec("deadlift", "デッドリフト", 5.0,
-			stimulus{r.Hamstring: 1.0, r.Glute: 0.8, r.Erector: 1.0, r.TrapMid: 0.4, r.Forearm: 0.4, r.Quad: 0.3, r.Lat: 0.3, r.Abs: 0.3}),
+			stimulus{r.Hamstring: 1.0, r.Glute: 0.8, r.Erector: 1.0, r.TrapMid: 0.4, r.Forearm: 0.4, r.Quad: 0.3, r.Lat: 0.3}),
 
 		// --- 派生（重点種目のバリエーションとして回る） ---
 		//
@@ -140,11 +140,11 @@ func specs() []exercise.ExerciseParams {
 		derived("bench", "close_grip_bench", "ナローベンチ", 2.5,
 			stimulus{r.ChestMid: 0.7, r.TricepsLateral: 1.0, r.TricepsLong: 0.6}),
 		derived("squat", "pause_squat", "ポーズスクワット", 2.5,
-			stimulus{r.Quad: 1.0, r.Glute: 0.7, r.Adductor: 0.4, r.Erector: 0.4, r.Abs: 0.2}),
+			stimulus{r.Quad: 1.0, r.Glute: 0.7, r.Adductor: 0.4, r.Erector: 0.4}),
 		derived("squat", "front_squat", "フロントスクワット", 2.5,
 			stimulus{r.Quad: 1.0, r.Glute: 0.4, r.Erector: 0.5, r.Abs: 0.4}),
 		derived("deadlift", "deficit_deadlift", "デフィシットデッドリフト", 5.0,
-			stimulus{r.Hamstring: 1.0, r.Glute: 0.8, r.Erector: 1.0, r.Quad: 0.4, r.Lat: 0.3, r.Abs: 0.3}),
+			stimulus{r.Hamstring: 1.0, r.Glute: 0.8, r.Erector: 1.0, r.Quad: 0.4, r.Lat: 0.3}),
 		// RDL は宣言（軸レーン）にも入りうる。系統に属することと、伸ばしたい
 		// 種目として宣言することは別の軸（2026-09-10 の仕様）。
 		derived("deadlift", "romanian_deadlift", "ルーマニアンデッドリフト", 2.5,
@@ -178,7 +178,7 @@ func specs() []exercise.ExerciseParams {
 
 		// --- 肩 ---
 		spec("overhead_press", "オーバーヘッドプレス", 2.5,
-			stimulus{r.FrontDelt: 1.0, r.SideDelt: 0.5, r.TricepsLateral: 0.4, r.TrapUpper: 0.3, r.ChestUpper: 0.3, r.Abs: 0.2}),
+			stimulus{r.FrontDelt: 1.0, r.SideDelt: 0.5, r.TricepsLateral: 0.4, r.TrapUpper: 0.3, r.ChestUpper: 0.3}),
 		spec("db_shoulder_press", "ダンベルショルダープレス", 2.0,
 			stimulus{r.FrontDelt: 1.0, r.SideDelt: 0.5, r.TricepsLateral: 0.4, r.TrapUpper: 0.3}),
 		spec("side_raise", "サイドレイズ", 1.0,
