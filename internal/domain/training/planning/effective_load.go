@@ -112,3 +112,34 @@ func effectiveHistory(h setlog.History, pool []*exercise.Exercise, c condition.C
 	}
 	return setlog.NewHistory(out)
 }
+
+// SessionEstimate はセッション1回ぶんの推定1RM。
+type SessionEstimate struct {
+	Date      training.Date
+	OneRepMax training.OneRepMax
+}
+
+// SessionEstimates は種目 e の履歴から、セッションごとの推定1RMを古い順に返す。
+//
+// 履歴は記録のまま渡す。体重込みへの読み替えはここで済ませる。呼び出し側に
+// 任せると、通し忘れた経路だけ自重種目が推定できなくなる（#67：推移グラフに
+// 自重種目の線が引かれなかった）。
+//
+// 推定できないセッション（体重を引けない日など）は含めない。0 として混ぜると、
+// 線が床まで落ちて推移が読めなくなる。
+func SessionEstimates(h setlog.History, e *exercise.Exercise, c condition.ConditionLog) []SessionEstimate {
+	if e == nil {
+		return nil
+	}
+	converted := effectiveHistory(h.ForExercise(e.ID()), []*exercise.Exercise{e}, c)
+
+	out := []SessionEstimate{}
+	for _, s := range converted.Sessions() {
+		v, ok := s.MedianOneRepMax()
+		if !ok {
+			continue
+		}
+		out = append(out, SessionEstimate{Date: s.Date(), OneRepMax: v})
+	}
+	return out
+}

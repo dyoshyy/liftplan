@@ -74,6 +74,21 @@ func newExercise(t *testing.T, id, name string) *exercise.Exercise {
 	return e
 }
 
+func newBodyweightExercise(t *testing.T, id, name string, factor float64) *exercise.Exercise {
+	t.Helper()
+	e, err := exercise.NewExercise(exercise.ExerciseParams{
+		ID:               id,
+		Name:             name,
+		IncrementKg:      2.5,
+		BodyweightFactor: factor,
+		Stimulus:         map[training.MuscleRegion]float64{training.Lat: 1},
+	})
+	if err != nil {
+		t.Fatalf("種目が作れない %s: %v", id, err)
+	}
+	return e
+}
+
 func newHistory(t *testing.T, logs []*setlog.SetLog, pool []*exercise.Exercise) *query.History {
 	t.Helper()
 	return query.NewHistory(
