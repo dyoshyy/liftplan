@@ -61,7 +61,7 @@ export function Today(props: Props) {
     onRecordLocally: props.onRecordLocally,
     onForgetLocally: props.onForgetLocally,
     onRestStart: onRecorded,
-    history: { days: data.days, doneToday: data.doneToday },
+    history: { days: data.days, doneToday: data.doneToday, loadOffsets: data.loadOffsets },
     nameOf,
     onPersonalRecord: celebrate,
   });

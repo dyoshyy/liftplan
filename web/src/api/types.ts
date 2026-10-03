@@ -90,7 +90,14 @@ export type ExercisesResponse = { exercises: Exercise[] };
 
 export type RecordedSet = {
   id: string;
+  /** weight_kg は記録した加重。自重なら 0。 */
   weight_kg: number;
+  /**
+   * effective_kg は、そのセットの日の体重を足した負荷（自重種目だけ。通常は weight_kg と同じ）。
+   * 0 は体重が引けず推定できない。サーバーから来たセットだけが持つ（手元で記録した
+   * 今日のセットには無い。いま足す量 `load_offsets` で読み替える）。
+   */
+  effective_kg?: number;
   reps: number;
   rir: number;
 };
@@ -120,6 +127,8 @@ export type HistoryResponse = {
   to: string;
   days: Day[];
   last_performances: Record<string, LastPerformance>;
+  /** 種目ごとの、記録した加重に足すと体重込みの負荷になる量。自重を使う種目だけ。 */
+  load_offsets: Record<string, number>;
 };
 
 export type ConditionInput = {

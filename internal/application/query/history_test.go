@@ -3,12 +3,14 @@ package query_test
 import (
 	"context"
 	"errors"
+	"math"
 	"testing"
 
 	"github.com/dyoshyy/liftplan/internal/domain/account"
 
 	"github.com/dyoshyy/liftplan/internal/application/query"
 	"github.com/dyoshyy/liftplan/internal/domain/training"
+	"github.com/dyoshyy/liftplan/internal/domain/training/condition"
 	"github.com/dyoshyy/liftplan/internal/domain/training/exercise"
 	"github.com/dyoshyy/liftplan/internal/domain/training/setlog"
 )
@@ -94,6 +96,7 @@ func newHistory(t *testing.T, logs []*setlog.SetLog, pool []*exercise.Exercise) 
 	return query.NewHistory(
 		&stubLogs{history: setlog.NewHistory(logs)},
 		&stubExercises{all: pool},
+		&stubConditions{},
 	)
 }
 
@@ -183,7 +186,7 @@ func TestDays_期間が逆なら断る(t *testing.T) {
 
 func TestDays_取得できなければ理由を返す(t *testing.T) {
 	boom := errors.New("接続できない")
-	q := query.NewHistory(&stubLogs{err: boom}, &stubExercises{})
+	q := query.NewHistory(&stubLogs{err: boom}, &stubExercises{}, &stubConditions{})
 	_, err := q.Days(context.Background(), testUser, date(t, "2026-08-01"), date(t, "2026-08-31"))
 	if err == nil {
 		t.Fatal("失敗が伝わらない")
@@ -307,5 +310,108 @@ func TestLastPerformances_過去が複数あれば最も新しい日(t *testing.
 	}
 	if len(got.Weights) != 1 || got.Weights[0] != 100 {
 		t.Fatalf("古い日のセットが混ざっている: %v", got.Weights)
+	}
+}
+
+func newHistoryWithBodyWeight(t *testing.T, logs []*setlog.SetLog, pool []*exercise.Exercise, weights map[string]float64) *query.History {
+	t.Helper()
+	var daily []condition.DailyCondition
+	for day, kg := range weights {
+		daily = append(daily, condition.NewDailyCondition(date(t, day)).WithBodyWeight(kg))
+	}
+	return query.NewHistory(
+		&stubLogs{history: setlog.NewHistory(logs)},
+		&stubExercises{all: pool},
+		&stubConditions{log: condition.NewConditionLog(daily)},
+	)
+}
+
+// 記録した重量に、その日の体重込みの負荷を添えて返す。
+//
+// 画面の自己ベスト判定は、記録した加重だけで比べると自重種目で食い違う
+// （0kg の自重10回が対象外になり、10kg を付けた5回が「更新」と祝われる）。
+// 体重を引く規則を画面に持たせないため、サーバーが読み替えた値を渡す。
+func TestDays_体重込みの負荷を添える(t *testing.T) {
+	cases := []struct {
+		name       string
+		bodyWeight map[string]float64
+		exercise   *exercise.Exercise
+		weightKg   float64
+		wantKg     float64
+	}{
+		{
+			name:       "自重のままのセットは体重ぶんの負荷になる",
+			bodyWeight: map[string]float64{"2026-08-01": 70},
+			exercise:   newBodyweightExercise(t, "chin", "チンニング", 0.95),
+			weightKg:   0,
+			// 0.95 × 70
+			wantKg: 66.5,
+		},
+		{
+			name:       "加重は体重の上に足される",
+			bodyWeight: map[string]float64{"2026-08-01": 70},
+			exercise:   newBodyweightExercise(t, "chin", "チンニング", 0.95),
+			weightKg:   10,
+			// 10 + 0.95 × 70
+			wantKg: 76.5,
+		},
+		{
+			// 後の日の体重で読み替えると、減量した人の昔の負荷が軽く見える。
+			name:       "体重はそのセットの日付時点のものを使う",
+			bodyWeight: map[string]float64{"2026-08-01": 80, "2026-08-19": 60},
+			exercise:   newBodyweightExercise(t, "chin", "チンニング", 0.95),
+			weightKg:   0,
+			// 0.95 × 80
+			wantKg: 76,
+		},
+		{
+			name:       "自重を使わない種目は記録した重量のまま",
+			bodyWeight: map[string]float64{"2026-08-01": 70},
+			exercise:   newExercise(t, "chin", "ベンチ"),
+			weightKg:   100,
+			wantKg:     100,
+		},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			q := newHistoryWithBodyWeight(t,
+				[]*setlog.SetLog{log(t, "a", "2026-08-11", "chin", c.weightKg, 5, 1)},
+				[]*exercise.Exercise{c.exercise}, c.bodyWeight)
+
+			days, err := q.Days(context.Background(), testUser, date(t, "2026-08-01"), date(t, "2026-08-31"))
+			if err != nil {
+				t.Fatalf("読めない: %v", err)
+			}
+			got := days[0].Exercises[0].Sets[0]
+			if got.WeightKg != c.weightKg {
+				t.Errorf("記録した加重が %vkg に変わった。記録は書き換えない", got.WeightKg)
+			}
+			if math.Abs(got.EffectiveKg-c.wantKg) > 1e-9 {
+				t.Errorf("体重込みが %vkg。%v のはず", got.EffectiveKg, c.wantKg)
+			}
+		})
+	}
+}
+
+// 画面が「いま上げたセット」の負荷を出すための、足す量。自重を使う種目だけ載る。
+func TestLoadOffsets(t *testing.T) {
+	q := newHistoryWithBodyWeight(t, nil,
+		[]*exercise.Exercise{
+			newBodyweightExercise(t, "chin", "チンニング", 0.95),
+			newExercise(t, "bench", "ベンチプレス"),
+		},
+		map[string]float64{"2026-08-01": 70})
+
+	got, err := q.LoadOffsets(context.Background(), testUser, date(t, "2026-08-18"))
+	if err != nil {
+		t.Fatalf("読めない: %v", err)
+	}
+	// 0.95 × 70
+	if math.Abs(got["chin"]-66.5) > 1e-9 {
+		t.Errorf("チンニングに足す量が %v。66.5 のはず", got["chin"])
+	}
+	if _, ok := got["bench"]; ok {
+		t.Errorf("自重を使わない種目まで載っている: %v", got)
 	}
 }

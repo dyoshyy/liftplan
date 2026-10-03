@@ -39,6 +39,13 @@ export type Data = {
    * 同じ記録を指す。
    */
   days: Day[];
+  /**
+   * loadOffsets は種目ごとの、記録した加重に足すと体重込みの負荷になる量。
+   * 自重種目の自己ベストを体重込みで比べるのに使う。体重を引く規則はサーバーに
+   * 1つだけ置き、ここは足す量だけを持つ。開いたときの体重で決まるので、
+   * 開いたあとに体重を入れ直しても、次に開くまで変わらない。
+   */
+  loadOffsets: Record<string, number>;
 };
 
 const empty: Data = {
@@ -49,6 +56,7 @@ const empty: Data = {
   last: {},
   doneToday: new Map(),
   days: [],
+  loadOffsets: {},
 };
 
 // ここで読むのは2つだけ（と、使う種目の1本）。
@@ -99,6 +107,7 @@ export function useLiftplan() {
         doneToday,
         // サーバーが新しい日から順に返す（query.History.Days）。並べ替えない。
         days: history.days,
+        loadOffsets: history.load_offsets,
       });
 
       await loadToday();
