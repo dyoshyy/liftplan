@@ -7,7 +7,7 @@ import (
 	"github.com/dyoshyy/liftplan/internal/domain/training/setlog"
 )
 
-// axis は今日の軸と、その役割（heavyRole か focusVolumeRole）を返す。
+// axis は今日の軸と、その役割（heavyRole・focusVolumeRole・focusVariationRole）を返す。
 //
 // 重点種目の番に来たときだけ一巡する。3レップ相当 → 6レップ相当 → 派生。
 // 一巡のどこにいるかを数えるのは種目の判断で、その位置にどの強度を当てるかは
@@ -53,7 +53,7 @@ func axis(
 			candidates = primaryIn(candidates, today)
 		}
 		if d := stalest(history, candidates); d != nil {
-			return d, heavyRole
+			return d, focusVariationRole
 		}
 	}
 	return lift, heavyRole

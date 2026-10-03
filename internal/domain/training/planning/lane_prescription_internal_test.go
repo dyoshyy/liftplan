@@ -26,6 +26,7 @@ func TestLanePrescriptions_RoundTripIsCurrentlyContractive(t *testing.T) {
 	}{
 		{"軸", heavyRole},
 		{"重点種目の6レップ相当", focusVolumeRole},
+		{"重点種目の派生の番", focusVariationRole},
 		{"バリエーション", variationRole},
 		{"補助", accessoryRole},
 	}

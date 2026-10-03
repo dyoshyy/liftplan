@@ -30,11 +30,13 @@ func TestSessionPlanner_FocusAxisRotates(t *testing.T) {
 		sessions  int
 		want      exercise.ExerciseID
 		intensity float64
+		reps      int
 	}{
-		{name: "1周目は3レップ相当", sessions: 3, want: "bench", intensity: 0.88},
-		{name: "2周目は6レップ相当", sessions: 4, want: "bench", intensity: 0.81},
-		{name: "3周目は派生", sessions: 5, want: "tempo", intensity: 0.88},
-		{name: "4周目で本体に戻る", sessions: 6, want: "bench", intensity: 0.88},
+		{name: "1周目は3レップ相当", sessions: 3, want: "bench", intensity: 0.88, reps: 3},
+		{name: "2周目は6レップ相当", sessions: 4, want: "bench", intensity: 0.81, reps: 6},
+		// 派生の目的はフォームの向上で、重くする必要が無い。軽い番で出す。
+		{name: "3周目は派生を軽い番で", sessions: 5, want: "tempo", intensity: 0.81, reps: 6},
+		{name: "4周目で本体に戻る", sessions: 6, want: "bench", intensity: 0.88, reps: 3},
 	}
 
 	for _, c := range cases {
@@ -50,6 +52,9 @@ func TestSessionPlanner_FocusAxisRotates(t *testing.T) {
 				t.Fatalf("軸が %s。%s のはず", set.ExerciseID(), c.want)
 			}
 			assertIntensity(t, req, set, c.intensity)
+			if got := set.TargetReps().Int(); got != c.reps {
+				t.Errorf("目標レップが %d。%d のはず", got, c.reps)
+			}
 		})
 	}
 }
