@@ -2,12 +2,14 @@ package query_test
 
 import (
 	"context"
+	"math"
 	"testing"
 
 	"github.com/dyoshyy/liftplan/internal/domain/account"
 
 	"github.com/dyoshyy/liftplan/internal/application/query"
 	"github.com/dyoshyy/liftplan/internal/domain/training"
+	"github.com/dyoshyy/liftplan/internal/domain/training/condition"
 	"github.com/dyoshyy/liftplan/internal/domain/training/exercise"
 	"github.com/dyoshyy/liftplan/internal/domain/training/planning"
 	"github.com/dyoshyy/liftplan/internal/domain/training/program"
@@ -24,6 +26,15 @@ func (s *stubProgram) Get(context.Context, account.UserID) (*program.Program, er
 	return s.prog, s.err
 }
 func (s *stubProgram) Save(context.Context, account.UserID, *program.Program) error { return nil }
+
+type stubConditions struct {
+	log condition.ConditionLog
+	err error
+}
+
+func (s *stubConditions) FindAll(context.Context, account.UserID) (condition.ConditionLog, error) {
+	return s.log, s.err
+}
 
 func newProgram(t *testing.T, selected []exercise.ExerciseID) *program.Program {
 	t.Helper()
@@ -43,6 +54,7 @@ func newStats(t *testing.T, logs []*setlog.SetLog, pool []*exercise.Exercise, p 
 	return query.NewStats(
 		&stubLogs{history: setlog.NewHistory(logs)},
 		&stubExercises{all: pool},
+		&stubConditions{},
 		&stubProgram{prog: p},
 		planning.DefaultOneRepMaxEstimator(),
 	)
@@ -213,6 +225,7 @@ func TestWeeklyVolume_プログラムが無ければ断る(t *testing.T) {
 	q := query.NewStats(
 		&stubLogs{history: setlog.NewHistory(nil)},
 		&stubExercises{},
+		&stubConditions{},
 		&stubProgram{prog: nil},
 		planning.DefaultOneRepMaxEstimator(),
 	)
@@ -239,3 +252,119 @@ func mustVolume(t *testing.T, exercises, sets int) program.SessionVolume {
 // （#176）ので、「既定と違う保存値」というプログラム自体が作れなくなり、
 // 検査する対象が無くなった。組み直しそのもの（Frequency・SessionVolume
 // から導く）は TestWeeklyVolume_埋まっていない順に並ぶ が同じ形で見ている。
+
+// 自重種目の推移は、体重込みの負荷で推定した線になる。
+//
+// 記録に入っているのは加重だけ（自重でやれば 0kg）。体重を足さずに推定すると
+// 全セットが推定できないセッションになり、懸垂を自重で3年続けても線が
+// 引かれない（#67）。処方（SessionPlanner）は体重込みで推定しているので、
+// 推移も同じ読み替えを通らないと、処方の根拠と画面の線が食い違う。
+//
+// 期待値は式ではなく「同じ実効負荷を実際に上げた通常種目の線」で与える。
+// 推定式（Epley など）が変わっても、この対応は変わらないため。
+func TestTrends_自重種目は体重込みの負荷で推定する(t *testing.T) {
+	const factor = 0.95 // chinning の自重係数（体重のうち持ち上げる割合）
+
+	cases := []struct {
+		name       string
+		bodyWeight map[string]float64 // 日付 → 体重
+		chin       []struct {
+			day     string
+			addedKg float64
+		}
+		// 参照線：通常種目で、その日の実効負荷をそのまま上げたことにする
+		effectiveKg []float64
+	}{
+		{
+			name:       "自重のままでも体重ぶんの負荷で点が出る",
+			bodyWeight: map[string]float64{"2026-08-01": 70},
+			chin: []struct {
+				day     string
+				addedKg float64
+			}{{"2026-08-11", 0}},
+			// 0.95 × 70
+			effectiveKg: []float64{66.5},
+		},
+		{
+			name:       "加重は体重の上に足される",
+			bodyWeight: map[string]float64{"2026-08-01": 70},
+			chin: []struct {
+				day     string
+				addedKg float64
+			}{{"2026-08-11", 10}},
+			// 10 + 0.95 × 70
+			effectiveKg: []float64{76.5},
+		},
+		{
+			// その日の体重で読み替える。減量して同じ回数ができたなら、
+			// 実効負荷は下がっている。最新の体重で全部を読み替えると、
+			// 過去の点が動いて推移が嘘になる。
+			name:       "体重はセッションの日付時点のものを使う",
+			bodyWeight: map[string]float64{"2026-08-01": 80, "2026-08-15": 70},
+			chin: []struct {
+				day     string
+				addedKg float64
+			}{{"2026-08-11", 0}, {"2026-08-18", 0}},
+			// 0.95 × 80 と 0.95 × 70
+			effectiveKg: []float64{76, 66.5},
+		},
+		{
+			// 体重を一度も測っていなくても線は引く。処方も既定体重で出す
+			// ので、そろえないと処方の根拠が画面に出ない。
+			name: "体重を一度も記録していなければ既定体重で読み替える",
+			chin: []struct {
+				day     string
+				addedKg float64
+			}{{"2026-08-11", 0}},
+			// 0.95 × 既定体重
+			effectiveKg: []float64{factor * condition.DefaultBodyWeightKg},
+		},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			var logs []*setlog.SetLog
+			for i, l := range c.chin {
+				logs = append(logs,
+					log(t, "chin"+l.day, l.day, "chin", l.addedKg, 5, 1),
+					log(t, "ref"+l.day, l.day, "ref", c.effectiveKg[i], 5, 1))
+			}
+			var daily []condition.DailyCondition
+			for day, kg := range c.bodyWeight {
+				daily = append(daily, condition.NewDailyCondition(date(t, day)).WithBodyWeight(kg))
+			}
+
+			pool := []*exercise.Exercise{
+				newBodyweightExercise(t, "chin", "チンニング", factor),
+				newExercise(t, "ref", "参照"),
+			}
+			q := query.NewStats(
+				&stubLogs{history: setlog.NewHistory(logs)},
+				&stubExercises{all: pool},
+				&stubConditions{log: condition.NewConditionLog(daily)},
+				&stubProgram{prog: newProgram(t, []exercise.ExerciseID{"chin", "ref"})},
+				planning.DefaultOneRepMaxEstimator(),
+			)
+
+			trends, err := q.Trends(context.Background(), testUser, date(t, "2026-08-01"), date(t, "2026-08-31"))
+			if err != nil {
+				t.Fatalf("読めない: %v", err)
+			}
+			byID := map[exercise.ExerciseID]query.Trend{}
+			for _, tr := range trends {
+				byID[tr.ExerciseID] = tr
+			}
+			chin, ref := byID["chin"], byID["ref"]
+			if len(chin.Points) != len(ref.Points) || len(ref.Points) != len(c.chin) {
+				t.Fatalf("点の数が合わない。自重 %d・参照 %d・期待 %d",
+					len(chin.Points), len(ref.Points), len(c.chin))
+			}
+			for i := range ref.Points {
+				if math.Abs(chin.Points[i].Kg-ref.Points[i].Kg) > 0.1 {
+					t.Errorf("%d点目が %.1fkg。実効負荷 %.1fkg の通常種目と同じ %.1fkg のはず",
+						i+1, chin.Points[i].Kg, c.effectiveKg[i], ref.Points[i].Kg)
+				}
+			}
+		})
+	}
+}

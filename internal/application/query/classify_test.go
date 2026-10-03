@@ -27,7 +27,7 @@ func TestQueries_ClassifyUnavailable(t *testing.T) {
 	}
 	exercises := query.NewExercises(unavailable)
 	history := query.NewHistory(&stubLogs{}, unavailable)
-	stats := query.NewStats(&stubLogs{}, unavailable, &stubProgram{},
+	stats := query.NewStats(&stubLogs{}, unavailable, &stubConditions{}, &stubProgram{},
 		planning.DefaultOneRepMaxEstimator())
 
 	ctx := context.Background()

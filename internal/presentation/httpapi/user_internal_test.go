@@ -109,7 +109,7 @@ func routesForUserTest(t *testing.T) (http.Handler, *memory.ProgramRepository) {
 		EditExercise:     usecase.NewEditExercise(exercises, programs),
 		Exercises:        query.NewExercises(exercises),
 		History:          query.NewHistory(logs, exercises),
-		Stats:            query.NewStats(logs, exercises, programs, planning.DefaultOneRepMaxEstimator()),
+		Stats:            query.NewStats(logs, exercises, conditions, programs, planning.DefaultOneRepMaxEstimator()),
 		Accounts:         query.NewAccounts(memory.NewAccountRepository()),
 	})
 	if err != nil {

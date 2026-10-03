@@ -8,6 +8,7 @@ import (
 	"github.com/dyoshyy/liftplan/internal/application/apperror"
 	"github.com/dyoshyy/liftplan/internal/domain/account"
 	"github.com/dyoshyy/liftplan/internal/domain/training"
+	"github.com/dyoshyy/liftplan/internal/domain/training/condition"
 	"github.com/dyoshyy/liftplan/internal/domain/training/exercise"
 	"github.com/dyoshyy/liftplan/internal/domain/training/planning"
 	"github.com/dyoshyy/liftplan/internal/domain/training/program"
@@ -43,19 +44,21 @@ type RegionVolume struct {
 
 // Stats は振り返りのための読み取り経路。
 type Stats struct {
-	logs      setlog.Reader
-	exercises exercise.Reader
-	programs  program.Reader
-	estimator planning.OneRepMaxEstimator
+	logs       setlog.Reader
+	exercises  exercise.Reader
+	conditions condition.Reader
+	programs   program.Reader
+	estimator  planning.OneRepMaxEstimator
 }
 
 func NewStats(
 	logs setlog.Reader,
 	exercises exercise.Reader,
+	conditions condition.Reader,
 	programs program.Reader,
 	estimator planning.OneRepMaxEstimator,
 ) *Stats {
-	return &Stats{logs: logs, exercises: exercises, programs: programs, estimator: estimator}
+	return &Stats{logs: logs, exercises: exercises, conditions: conditions, programs: programs, estimator: estimator}
 }
 
 // Trends は主要な種目の推定1RMの推移を返す。
@@ -75,6 +78,10 @@ func (q *Stats) Trends(ctx context.Context, user account.UserID, from, to traini
 	if err != nil {
 		return nil, err
 	}
+	conditions, err := q.conditions.FindAll(ctx, user)
+	if err != nil {
+		return nil, fmt.Errorf("コンディションの取得に失敗: %w", err)
+	}
 
 	out := []Trend{}
 	for _, e := range pool {
@@ -83,14 +90,9 @@ func (q *Stats) Trends(ctx context.Context, user account.UserID, from, to traini
 		}
 
 		points := []Point{}
-		for _, s := range h.ForExercise(e.ID()).OnOrAfter(from).OnOrBefore(to).Sessions() {
-			// 推定できないセッション（全セット自重）は点にしない。
-			// 0 として混ぜると、線が床まで落ちて推移が読めなくなる。
-			v, ok := s.MedianOneRepMax()
-			if !ok {
-				continue
-			}
-			points = append(points, Point{Date: s.Date(), Kg: v.Kg()})
+		inRange := h.ForExercise(e.ID()).OnOrAfter(from).OnOrBefore(to)
+		for _, est := range planning.SessionEstimates(inRange, e, conditions) {
+			points = append(points, Point{Date: est.Date, Kg: est.OneRepMax.Kg()})
 		}
 		if len(points) == 0 {
 			continue
