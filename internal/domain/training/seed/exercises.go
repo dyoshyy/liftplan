@@ -125,18 +125,18 @@ func specs() []exercise.ExerciseParams {
 		spec("squat", "スクワット", 2.5,
 			stimulus{r.Quad: 1.0, r.Glute: 0.7, r.Adductor: 0.4, r.Erector: 0.4}),
 		spec("bench", "ベンチプレス", 2.5,
-			stimulus{r.ChestMid: 1.0, r.TricepsLateral: 0.5, r.FrontDelt: 0.5}),
+			stimulus{r.ChestMid: 1.0, r.TricepsLateral: 0.5, r.FrontDelt: 0.5, r.ChestLower: 0.3, r.ChestUpper: 0.3}),
 		spec("deadlift", "デッドリフト", 5.0,
-			stimulus{r.Hamstring: 1.0, r.Glute: 0.8, r.Erector: 1.0, r.TrapMid: 0.4, r.Forearm: 0.4}),
+			stimulus{r.Hamstring: 1.0, r.Glute: 0.8, r.Erector: 1.0, r.TrapMid: 0.4, r.Forearm: 0.4, r.Quad: 0.3, r.Lat: 0.3}),
 
 		// --- 派生（重点種目のバリエーションとして回る） ---
 		//
 		// 補助としても残差を埋める。派生であることと、補助に選ばれることは
 		// 別の話で、どの種目の変種かを表しているだけ。
 		derived("bench", "larsen_press", "ラーセンプレス", 2.5,
-			stimulus{r.ChestMid: 1.0, r.TricepsLateral: 0.5, r.FrontDelt: 0.4}),
+			stimulus{r.ChestMid: 1.0, r.TricepsLateral: 0.5, r.FrontDelt: 0.4, r.ChestLower: 0.3, r.ChestUpper: 0.3}),
 		derived("bench", "tempo_bench", "テンポベンチ", 2.5,
-			stimulus{r.ChestMid: 1.0, r.TricepsLateral: 0.5, r.FrontDelt: 0.4}),
+			stimulus{r.ChestMid: 1.0, r.TricepsLateral: 0.5, r.FrontDelt: 0.4, r.ChestLower: 0.3, r.ChestUpper: 0.3}),
 		derived("bench", "close_grip_bench", "ナローベンチ", 2.5,
 			stimulus{r.ChestMid: 0.7, r.TricepsLateral: 1.0, r.TricepsLong: 0.6}),
 		derived("squat", "pause_squat", "ポーズスクワット", 2.5,
@@ -144,7 +144,7 @@ func specs() []exercise.ExerciseParams {
 		derived("squat", "front_squat", "フロントスクワット", 2.5,
 			stimulus{r.Quad: 1.0, r.Glute: 0.4, r.Erector: 0.5, r.Abs: 0.4}),
 		derived("deadlift", "deficit_deadlift", "デフィシットデッドリフト", 5.0,
-			stimulus{r.Hamstring: 1.0, r.Glute: 0.8, r.Erector: 1.0, r.Quad: 0.4}),
+			stimulus{r.Hamstring: 1.0, r.Glute: 0.8, r.Erector: 1.0, r.Quad: 0.4, r.Lat: 0.3}),
 		// RDL は宣言（軸レーン）にも入りうる。系統に属することと、伸ばしたい
 		// 種目として宣言することは別の軸（2026-09-10 の仕様）。
 		derived("deadlift", "romanian_deadlift", "ルーマニアンデッドリフト", 2.5,
@@ -156,7 +156,7 @@ func specs() []exercise.ExerciseParams {
 		spec("incline_barbell_press", "インクラインベンチプレス", 2.5,
 			stimulus{r.ChestUpper: 1.0, r.FrontDelt: 0.5, r.TricepsLateral: 0.3}),
 		bodyweightExercise("dip", "ディップス", 2.5, 0.93,
-			stimulus{r.ChestLower: 1.0, r.TricepsLateral: 0.6, r.TricepsLong: 0.4}),
+			stimulus{r.ChestLower: 1.0, r.TricepsLateral: 0.6, r.TricepsLong: 0.4, r.FrontDelt: 0.4, r.ChestMid: 0.4}),
 		spec("decline_press", "デクラインプレス", 2.5,
 			stimulus{r.ChestLower: 1.0, r.TricepsLateral: 0.4}),
 		spec("pec_fly", "ペックフライ", 2.5,
@@ -164,13 +164,13 @@ func specs() []exercise.ExerciseParams {
 
 		// --- 背中 ---
 		spec("lat_pulldown", "ラットプルダウン", 2.5,
-			stimulus{r.Lat: 1.0, r.Biceps: 0.4, r.RearDelt: 0.2}),
+			stimulus{r.Lat: 1.0, r.Biceps: 0.4, r.RearDelt: 0.2, r.Forearm: 0.2, r.TrapMid: 0.2}),
 		bodyweightExercise("pull_up", "チンニング", 2.5, 0.95,
-			stimulus{r.Lat: 1.0, r.Biceps: 0.5, r.Forearm: 0.3}),
+			stimulus{r.Lat: 1.0, r.Biceps: 0.5, r.Forearm: 0.3, r.RearDelt: 0.2, r.TrapMid: 0.2}),
 		spec("barbell_row", "バーベルロウ", 2.5,
-			stimulus{r.Lat: 0.7, r.TrapMid: 1.0, r.RearDelt: 0.4, r.Biceps: 0.3, r.TrapUpper: 0.3}),
+			stimulus{r.Lat: 0.7, r.TrapMid: 1.0, r.RearDelt: 0.4, r.Biceps: 0.3, r.TrapUpper: 0.3, r.Forearm: 0.3}),
 		spec("seated_row", "シーテッドロウ", 2.5,
-			stimulus{r.TrapMid: 1.0, r.Lat: 0.6, r.Biceps: 0.3, r.TrapUpper: 0.2}),
+			stimulus{r.TrapMid: 1.0, r.Lat: 0.6, r.Biceps: 0.3, r.TrapUpper: 0.2, r.RearDelt: 0.4, r.Forearm: 0.3}),
 		bodyweightExercise("back_extension", "バックエクステンション", 2.5, 0.55,
 			stimulus{r.Erector: 1.0, r.Glute: 0.5, r.Hamstring: 0.4}),
 		spec("shrug", "シュラッグ", 2.5,
@@ -178,7 +178,7 @@ func specs() []exercise.ExerciseParams {
 
 		// --- 肩 ---
 		spec("overhead_press", "オーバーヘッドプレス", 2.5,
-			stimulus{r.FrontDelt: 1.0, r.SideDelt: 0.5, r.TricepsLateral: 0.4, r.TrapUpper: 0.3}),
+			stimulus{r.FrontDelt: 1.0, r.SideDelt: 0.5, r.TricepsLateral: 0.4, r.TrapUpper: 0.3, r.ChestUpper: 0.3}),
 		spec("db_shoulder_press", "ダンベルショルダープレス", 2.0,
 			stimulus{r.FrontDelt: 1.0, r.SideDelt: 0.5, r.TricepsLateral: 0.4, r.TrapUpper: 0.3}),
 		spec("side_raise", "サイドレイズ", 1.0,
