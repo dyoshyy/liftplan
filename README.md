@@ -91,6 +91,7 @@ curl -H 'Authorization: Bearer <セッショントークン>' 'http://localhost:
 | PUT | `/api/program/target` | 週目標だけを差し替える |
 | PUT | `/api/program/selected` | 使う種目だけを差し替える |
 | PUT | `/api/program/declared` | 伸ばしたい種目だけを差し替える |
+| PUT | `/api/program/declared/{id}/reps` | 伸ばしたい種目1つの重い番・軽い番のレップ数だけを差し替える（1〜15）。`GET /api/program` の `declared_reps` に宣言すべてが入る |
 | PUT | `/api/program/focus` | 重点種目だけを差し替える。`null` で指定なしに戻す |
 | PUT | `/api/program/split` | 分割の周期だけを差し替える。空の配列で分割なしに戻す |
 | GET | `/api/split-presets` | 分割のプリセット。`splits` をそのまま `/api/program/split` へ送れる |
@@ -161,6 +162,7 @@ curl -X PUT http://localhost:8080/api/program/frequency \
 | `/api/program/target` | `{"weekly_target":{"CHEST_MID":10}}` |
 | `/api/program/selected` | `{"selected_exercises":["bench","squat"]}`。伸ばしたい種目を外す選択は 400（先に `declared` を狭める） |
 | `/api/program/declared` | `{"declared_exercises":["bench","squat"]}` |
+| `/api/program/declared/{id}/reps` | `{"heavy":8,"light":12}`。範囲外・宣言していない種目は 400 |
 | `/api/program/focus` | `{"focus_exercise":"bench"}`（`null` で指定なし） |
 | `/api/program/split` | `{"splits":[{"name":"上半身","regions":["CHEST_MID","LAT"]},{"name":"下半身","regions":["QUAD","GLUTE","HAMSTRING"]}]}`（`[]` で分割なし）。伸ばしたい種目が出られる日の無い周期は 400 |
 

@@ -113,6 +113,7 @@ func dependencies(
 		RecordSets:       usecase.NewRecordSets(logs, exercises),
 		RecordConditions: usecase.NewRecordConditions(conditions),
 		SetFocus:         usecase.NewSetFocusExercise(programs, programs),
+		SetDeclaredReps:  usecase.NewSetDeclaredRepTargets(programs, programs),
 		SetDeclared:      usecase.NewSetDeclaredExercises(exercises, programs, programs),
 		SetFrequency:     usecase.NewSetFrequency(programs, programs),
 		SetVolume:        usecase.NewSetSessionVolume(programs, programs),
@@ -456,6 +457,100 @@ func TestPutProgramFocus_Rejects(t *testing.T) {
 	}
 }
 
+// 宣言ごとのレップ数を差し替え、GET で読めること。設定していない宣言も
+// 既定（3・6）で埋めて返す（既定値をクライアントに二重に持たせない）。
+func TestPutProgramDeclaredReps_SavesAndReadsBack(t *testing.T) {
+	mux := newServer(t, true)
+
+	if rec := do(t, mux, http.MethodPut, "/api/program/declared/squat/reps",
+		`{"heavy":6,"light":10}`); rec.Code != http.StatusNoContent {
+		t.Fatalf("保存に失敗: %d body=%s", rec.Code, rec.Body.String())
+	}
+
+	rec := do(t, mux, http.MethodGet, "/api/program", "")
+	var got struct {
+		Declared []string `json:"declared_exercises"`
+		Reps     map[string]struct {
+			Heavy int `json:"heavy"`
+			Light int `json:"light"`
+		} `json:"declared_reps"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatalf("JSONが壊れている: %v", err)
+	}
+	if r := got.Reps["squat"]; r.Heavy != 6 || r.Light != 10 {
+		t.Errorf("squat が %+v。{6 10} のはず", r)
+	}
+	for _, id := range got.Declared {
+		if _, ok := got.Reps[id]; !ok {
+			t.Errorf("宣言 %s のレップ数が返っていない", id)
+		}
+	}
+	if r := got.Reps["bench"]; r.Heavy != 3 || r.Light != 6 {
+		t.Errorf("bench が %+v。既定 {3 6} のはず", r)
+	}
+}
+
+// レップ数の口は、レップ数だけを動かすこと（重点種目の口と同じ理由。D-127）。
+func TestPutProgramDeclaredReps_TouchesNothingElse(t *testing.T) {
+	mux := newServer(t, true)
+	putUpperLowerSplit(t, mux)
+
+	before := do(t, mux, http.MethodGet, "/api/program", "")
+	if rec := do(t, mux, http.MethodPut, "/api/program/declared/bench/reps",
+		`{"heavy":8,"light":12}`); rec.Code != http.StatusNoContent {
+		t.Fatalf("保存に失敗: %d body=%s", rec.Code, rec.Body.String())
+	}
+	after := do(t, mux, http.MethodGet, "/api/program", "")
+
+	var b, a map[string]json.RawMessage
+	if err := json.Unmarshal(before.Body.Bytes(), &b); err != nil {
+		t.Fatalf("JSONが壊れている: %v", err)
+	}
+	if err := json.Unmarshal(after.Body.Bytes(), &a); err != nil {
+		t.Fatalf("JSONが壊れている: %v", err)
+	}
+	for k, want := range b {
+		if k == "declared_reps" {
+			continue
+		}
+		if string(a[k]) != string(want) {
+			t.Errorf("%s が変わった: %s → %s", k, want, a[k])
+		}
+	}
+	if string(a["declared_reps"]) == string(b["declared_reps"]) {
+		t.Error("declared_reps が動いていない")
+	}
+}
+
+func TestPutProgramDeclaredReps_Rejects(t *testing.T) {
+	cases := []struct {
+		name, path, body string
+		want             int
+	}{
+		{"範囲外", "/api/program/declared/bench/reps", `{"heavy":16,"light":6}`, http.StatusBadRequest},
+		{"0", "/api/program/declared/bench/reps", `{"heavy":3,"light":0}`, http.StatusBadRequest},
+		{"宣言していない", "/api/program/declared/pull_up/reps", `{"heavy":8,"light":12}`, http.StatusBadRequest},
+		{"知らないフィールド", "/api/program/declared/bench/reps", `{"heavy":8,"light":12,"x":1}`, http.StatusBadRequest},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			mux := newServer(t, true)
+			if rec := do(t, mux, http.MethodPut, c.path, c.body); rec.Code != c.want {
+				t.Errorf("%d が返った。%d のはず: %s", rec.Code, c.want, rec.Body.String())
+			}
+		})
+	}
+
+	t.Run("未設定", func(t *testing.T) {
+		mux := newServer(t, false)
+		if rec := do(t, mux, http.MethodPut, "/api/program/declared/bench/reps",
+			`{"heavy":8,"light":12}`); rec.Code != http.StatusConflict {
+			t.Errorf("%d が返った。409 のはず", rec.Code)
+		}
+	})
+}
+
 // 伸ばしたい種目だけの口も、それだけを動かすこと。
 func TestPutProgramDeclared_TouchesNothingElse(t *testing.T) {
 	cases := []struct {
@@ -519,7 +614,9 @@ func TestPutProgramDeclared_TouchesNothingElse(t *testing.T) {
 				t.Errorf("フィールドの数が変わった: %d → %d", len(b), len(a))
 			}
 			for k, want := range b {
-				if k == "declared_exercises" {
+				// declared_reps は宣言の全件を既定で埋めて返す派生の値で、
+				// 宣言が変われば鍵が変わる。動いてよいのは鍵だけ（下で見る）。
+				if k == "declared_exercises" || k == "declared_reps" {
 					continue
 				}
 				if string(a[k]) != string(want) {
@@ -528,6 +625,24 @@ func TestPutProgramDeclared_TouchesNothingElse(t *testing.T) {
 			}
 			if string(a["declared_exercises"]) != c.want {
 				t.Errorf("伸ばしたい種目が %s。%s のはず", a["declared_exercises"], c.want)
+			}
+
+			// 宣言のレップ数が、新しい宣言と過不足なく対応していること。
+			var declared []string
+			if err := json.Unmarshal(a["declared_exercises"], &declared); err != nil {
+				t.Fatalf("JSONが壊れている: %v", err)
+			}
+			var reps map[string]json.RawMessage
+			if err := json.Unmarshal(a["declared_reps"], &reps); err != nil {
+				t.Fatalf("JSONが壊れている: %v", err)
+			}
+			if len(reps) != len(declared) {
+				t.Errorf("declared_reps が %d 件。宣言 %v と同じ件数のはず", len(reps), declared)
+			}
+			for _, id := range declared {
+				if _, ok := reps[id]; !ok {
+					t.Errorf("宣言 %s のレップ数が返っていない", id)
+				}
 			}
 		})
 	}
@@ -1436,6 +1551,7 @@ func TestProgram_RoundTrips(t *testing.T) {
 		{"/api/program/volume", `{"exercises_per_session":5,"sets_per_exercise":4}`},
 		{"/api/program/selected", `{"selected_exercises":["bench","squat","deadlift","incline_db_press"]}`},
 		{"/api/program/focus", `{"focus_exercise":"bench"}`},
+		{"/api/program/declared/bench/reps", `{"heavy":8,"light":12}`},
 	} {
 		if rec := do(t, mux, http.MethodPut, step.path, step.body); rec.Code != http.StatusNoContent {
 			t.Fatalf("%s の設定に失敗: %d body=%s", step.path, rec.Code, rec.Body.String())
@@ -1544,6 +1660,7 @@ func TestRoutes_RejectWrongMethod(t *testing.T) {
 		{http.MethodPut, "/api/program"},
 		{http.MethodPost, "/api/program/focus"},
 		{http.MethodPost, "/api/program/declared"},
+		{http.MethodPost, "/api/program/declared/bench/reps"},
 		{http.MethodPost, "/api/program/frequency"},
 		{http.MethodPost, "/api/program/volume"},
 		{http.MethodPost, "/api/program/selected"},
@@ -1892,14 +2009,15 @@ func TestGetSession_TimeoutIs504(t *testing.T) {
 // 書き込みも切断済みなら実行しないこと。
 func TestWrites_StopOnClientDisconnect(t *testing.T) {
 	for name, c := range map[string]struct{ method, path, body string }{
-		"set-logs":   {http.MethodPost, "/api/set-logs", `{"logs":[{"id":"d","date":"2026-08-17","exercise_id":"bench","weight_kg":85,"reps":8,"rir":2}]}`},
-		"conditions": {http.MethodPost, "/api/conditions", `{"conditions":[{"date":"2026-08-17","body_weight_kg":75}]}`},
-		"focus":      {http.MethodPut, "/api/program/focus", `{"focus_exercise":"bench"}`},
-		"declared":   {http.MethodPut, "/api/program/declared", `{"declared_exercises":["bench"]}`},
-		"frequency":  {http.MethodPut, "/api/program/frequency", `{"per_week":4}`},
-		"volume":     {http.MethodPut, "/api/program/volume", `{"exercises_per_session":5,"sets_per_exercise":4}`},
-		"selected":   {http.MethodPut, "/api/program/selected", `{"selected_exercises":["bench","squat","deadlift"]}`},
-		"split":      {http.MethodPut, "/api/program/split", `{"splits":[{"name":"全身","regions":[]}]}`},
+		"set-logs":      {http.MethodPost, "/api/set-logs", `{"logs":[{"id":"d","date":"2026-08-17","exercise_id":"bench","weight_kg":85,"reps":8,"rir":2}]}`},
+		"conditions":    {http.MethodPost, "/api/conditions", `{"conditions":[{"date":"2026-08-17","body_weight_kg":75}]}`},
+		"focus":         {http.MethodPut, "/api/program/focus", `{"focus_exercise":"bench"}`},
+		"declared":      {http.MethodPut, "/api/program/declared", `{"declared_exercises":["bench"]}`},
+		"declared-reps": {http.MethodPut, "/api/program/declared/bench/reps", `{"heavy":8,"light":12}`},
+		"frequency":     {http.MethodPut, "/api/program/frequency", `{"per_week":4}`},
+		"volume":        {http.MethodPut, "/api/program/volume", `{"exercises_per_session":5,"sets_per_exercise":4}`},
+		"selected":      {http.MethodPut, "/api/program/selected", `{"selected_exercises":["bench","squat","deadlift"]}`},
+		"split":         {http.MethodPut, "/api/program/split", `{"splits":[{"name":"全身","regions":[]}]}`},
 	} {
 		t.Run(name, func(t *testing.T) {
 			ctx, cancel := context.WithCancel(context.Background())
@@ -1975,7 +2093,7 @@ func TestAPI_RequiresAuth(t *testing.T) {
 	h, reached := guarded(t)
 	for _, path := range []string{
 		"/api/sessions?date=2026-08-17", "/api/sessions/forecast?date=2026-08-17", "/api/program", "/api/program/focus",
-		"/api/program/declared", "/api/program/frequency", "/api/program/selected",
+		"/api/program/declared", "/api/program/declared/bench/reps", "/api/program/frequency", "/api/program/selected",
 		"/api/set-logs",
 	} {
 		rec := request(t, h, path, "")
