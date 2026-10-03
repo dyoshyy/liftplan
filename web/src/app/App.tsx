@@ -116,6 +116,7 @@ export function App() {
               <History
                 logs={monthLogs}
                 editor={editor}
+                loadOffsets={data.loadOffsets}
                 stats={stats.stats}
                 statsError={stats.error}
                 onReloadStats={() => void stats.reload()}
