@@ -7,6 +7,7 @@ import {
   declaredCandidates,
   formatPct,
   formatPerformed,
+  formatTargetReps,
   formatWeight,
   setOneRepMax,
   toggle,
@@ -243,6 +244,20 @@ function Settings({
           />
         </label>
       </div>
+
+      <label htmlFor="reps" className="grid gap-1.5">
+        <span className="text-[12px] font-bold text-muted">
+          レップ数（id:重い:軽い を , 区切り。空なら全部 3:6）
+        </span>
+        <input
+          id="reps"
+          type="text"
+          value={form.reps}
+          placeholder="pull_up:8:12,squat:6:6"
+          onChange={(ev) => setForm({ ...form, reps: ev.target.value })}
+          className={`font-mono text-[12px] ${FIELD}`}
+        />
+      </label>
 
       <div className="flex items-center gap-3">
         <button
@@ -484,7 +499,7 @@ function Lane({ name, sets }: { name: string; sets: DevSet[] }) {
           <div key={s.exercise_id} className="flex flex-wrap items-baseline gap-x-2 text-[13px]">
             <span>{s.name}</span>
             <span className="num text-muted">
-              処方 {formatWeight(s)} ×{s.sets}セット RIR{s.target_rir}
+              処方 {formatWeight(s)} ×{s.sets}セット {formatTargetReps(s)} RIR{s.target_rir}
             </span>
             <span className="num">→ 記録 {formatPerformed(s)}</span>
             {formatPct(s) && <span className="num text-[11px] text-amber">推定比 {formatPct(s)}</span>}

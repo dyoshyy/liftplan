@@ -29,7 +29,7 @@ func samplePrograms(t *testing.T) *program.Program {
 
 // プログラムが往復すること。
 //
-// jsonb の列が2つ（選択・宣言）と分割で3つある。形を変えたときに
+// jsonb の列が2つ（選択・宣言）と分割・レップ数で4つある。形を変えたときに
 // 読み出し側だけ直し忘れると、保存はできるのに起動後に読めなくなる。
 // 週目標はもう保存しない（#176）。
 func TestProgramRepository_RoundTrips(t *testing.T) {
@@ -61,6 +61,10 @@ func TestProgramRepository_RoundTrips(t *testing.T) {
 	// 分割を設定していないので空。既存の行は NULL で読めること。
 	if c := got.Cycle(); len(c) != 0 {
 		t.Errorf("分割が %v。空のはず", c)
+	}
+	// レップ数を設定していないので、どの宣言も既定。
+	if got := got.RepTargetsFor("bench"); got != program.DefaultRepTargets() {
+		t.Errorf("bench のレップ数が (%d, %d)。既定のはず", got.Heavy(), got.Light())
 	}
 }
 
@@ -124,6 +128,89 @@ func TestProgramRepository_RoundTripsTheSplitCycle(t *testing.T) {
 	}
 	if c := again.Cycle(); len(c) != 0 {
 		t.Errorf("分割が残っている: %v", c)
+	}
+}
+
+// 宣言ごとのレップ数が往復すること。設定していない宣言は既定のまま。
+func TestProgramRepository_RoundTripsTheRepTargets(t *testing.T) {
+	pool := migratedDB(t)
+	ctx := context.Background()
+	repo := postgres.NewProgramRepository(pool)
+
+	reps, err := program.NewRepTargets(8, 12)
+	if err != nil {
+		t.Fatalf("NewRepTargets: %v", err)
+	}
+	with, err := samplePrograms(t).WithRepTargets("squat", reps)
+	if err != nil {
+		t.Fatalf("WithRepTargets: %v", err)
+	}
+	if err := repo.Save(ctx, userA(t), with); err != nil {
+		t.Fatalf("保存に失敗: %v", err)
+	}
+
+	got, err := postgres.NewProgramRepository(pool).Get(ctx, userA(t))
+	if err != nil {
+		t.Fatalf("取得に失敗: %v", err)
+	}
+	if r := got.RepTargetsFor("squat"); r.Heavy() != 8 || r.Light() != 12 {
+		t.Errorf("squat が (%d, %d)。(8, 12) のはず", r.Heavy(), r.Light())
+	}
+	if r := got.RepTargetsFor("bench"); r != program.DefaultRepTargets() {
+		t.Errorf("bench が (%d, %d)。既定のはず", r.Heavy(), r.Light())
+	}
+
+	// 既存の行への保存でも反映されること（ON CONFLICT 側）。設定は初回の
+	// INSERT より、あとから変える方が多い。
+	again, err := program.NewRepTargets(5, 10)
+	if err != nil {
+		t.Fatalf("NewRepTargets: %v", err)
+	}
+	changed, err := got.WithRepTargets("squat", again)
+	if err != nil {
+		t.Fatalf("WithRepTargets: %v", err)
+	}
+	if err := repo.Save(ctx, userA(t), changed); err != nil {
+		t.Fatalf("上書きの保存に失敗: %v", err)
+	}
+	got, err = postgres.NewProgramRepository(pool).Get(ctx, userA(t))
+	if err != nil {
+		t.Fatalf("取得に失敗: %v", err)
+	}
+	if r := got.RepTargetsFor("squat"); r.Heavy() != 5 || r.Light() != 10 {
+		t.Errorf("上書き後の squat が (%d, %d)。(5, 10) のはず", r.Heavy(), r.Light())
+	}
+
+	// 設定の無いプログラムを保存すれば、列は NULL に戻り既定で読めること。
+	if err := repo.Save(ctx, userA(t), samplePrograms(t)); err != nil {
+		t.Fatalf("解除の保存に失敗: %v", err)
+	}
+	got, err = postgres.NewProgramRepository(pool).Get(ctx, userA(t))
+	if err != nil {
+		t.Fatalf("取得に失敗: %v", err)
+	}
+	if r := got.RepTargetsFor("squat"); r != program.DefaultRepTargets() {
+		t.Errorf("解除後の squat が (%d, %d)。既定のはず", r.Heavy(), r.Light())
+	}
+}
+
+// 保存された値が範囲外なら、読み出しで弾く。jsonb は形を検査しないので、
+// 読み出しが唯一の防波堤になる。
+func TestProgramRepository_RejectsStoredRepTargetsOutOfRange(t *testing.T) {
+	pool := migratedDB(t)
+	ctx := context.Background()
+	repo := postgres.NewProgramRepository(pool)
+
+	if err := repo.Save(ctx, userA(t), samplePrograms(t)); err != nil {
+		t.Fatalf("保存に失敗: %v", err)
+	}
+	if _, err := pool.Exec(ctx,
+		`UPDATE program SET declared_reps = '{"bench": {"heavy": 99, "light": 6}}'::jsonb WHERE user_id = $1`,
+		userA(t).String()); err != nil {
+		t.Fatalf("書き換えに失敗: %v", err)
+	}
+	if _, err := repo.Get(ctx, userA(t)); err == nil {
+		t.Error("範囲外の 99 が読めた")
 	}
 }
 

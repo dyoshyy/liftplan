@@ -26,6 +26,7 @@ type Handler struct {
 	recordSets       *usecase.RecordSets
 	recordConditions *usecase.RecordConditions
 	setFocus         *usecase.SetFocusExercise
+	setDeclaredReps  *usecase.SetDeclaredRepTargets
 	setDeclared      *usecase.SetDeclaredExercises
 	setFrequency     *usecase.SetFrequency
 	setVolume        *usecase.SetSessionVolume
@@ -51,6 +52,7 @@ type Dependencies struct {
 	RecordSets       *usecase.RecordSets
 	RecordConditions *usecase.RecordConditions
 	SetFocus         *usecase.SetFocusExercise
+	SetDeclaredReps  *usecase.SetDeclaredRepTargets
 	SetDeclared      *usecase.SetDeclaredExercises
 	SetFrequency     *usecase.SetFrequency
 	SetVolume        *usecase.SetSessionVolume
@@ -87,6 +89,8 @@ func NewHandler(d Dependencies) (*Handler, error) {
 		return nil, errMissingDependency("RecordConditions")
 	case d.SetFocus == nil:
 		return nil, errMissingDependency("SetFocus")
+	case d.SetDeclaredReps == nil:
+		return nil, errMissingDependency("SetDeclaredReps")
 	case d.SetDeclared == nil:
 		return nil, errMissingDependency("SetDeclared")
 	case d.SetFrequency == nil:
@@ -121,6 +125,7 @@ func NewHandler(d Dependencies) (*Handler, error) {
 		recordSets:       d.RecordSets,
 		recordConditions: d.RecordConditions,
 		setFocus:         d.SetFocus,
+		setDeclaredReps:  d.SetDeclaredReps,
 		setDeclared:      d.SetDeclared,
 		setFrequency:     d.SetFrequency,
 		setVolume:        d.SetVolume,
@@ -456,6 +461,28 @@ func (h *Handler) handlePutProgramFocus(w http.ResponseWriter, r *http.Request) 
 	}
 
 	if err := h.setFocus.Execute(r.Context(), user, focus); err != nil {
+		respondError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// handlePutProgramDeclaredReps は1つの宣言のレップ数だけを差し替える。
+//
+// 宣言していない種目・範囲外は 400。重点種目の口と同じく、他のフィールドを
+// 触らない（D-127）。未設定は 409。
+func (h *Handler) handlePutProgramDeclaredReps(w http.ResponseWriter, r *http.Request) {
+	user, ok := requireUser(w, r)
+	if !ok {
+		return
+	}
+	var req repTargetsDTO
+	if err := decodeJSON(r, &req); err != nil {
+		respondError(w, err)
+		return
+	}
+	id := exercise.ExerciseID(r.PathValue("id"))
+	if err := h.setDeclaredReps.Execute(r.Context(), user, id, req.Heavy, req.Light); err != nil {
 		respondError(w, err)
 		return
 	}

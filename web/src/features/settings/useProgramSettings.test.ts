@@ -28,6 +28,7 @@ const program = (focus: string | null): Program => ({
   declared_exercises: ['bench', 'squat'],
   focus_exercise: focus,
   splits: [],
+  declared_reps: {},
 });
 
 const nameOf = (id: string) => ({ bench: 'ベンチプレス', squat: 'スクワット' })[id] ?? id;

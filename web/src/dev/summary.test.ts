@@ -99,6 +99,7 @@ describe('settingsLine', () => {
     weeks: 12,
     start: '2026-08-03',
     weekdays: [0, 2, 4, 6],
+    reps: {},
     exercises_per_session: 4,
     sets_per_exercise: 3,
     athlete: {
@@ -147,6 +148,18 @@ describe('settingsLine', () => {
     );
     expect(got).toContain('自分の種目: アイソラテラル・ロー（僧帽筋中部 1.0・広背筋 0.5・上腕二頭筋 0.5）');
     expect(settingsLine({ ...settings, custom: [] }, names, '')).not.toContain('自分の種目');
+  });
+
+  // レップ数を変えた結果は、既定の結果と重さが違う。前提の1行に出さないと、
+  // どちらの条件の数字かを要約だけで読み分けられない。既定のままなら書かない。
+  it('レップ数を設定していれば、種目名と 重い日/軽い日 を書く', () => {
+    const got = settingsLine(
+      { ...settings, reps: { squat: { heavy: 5, light: 8 }, bench: { heavy: 8, light: 12 } } },
+      names,
+      '上下2分割',
+    );
+    expect(got).toContain('重点 ベンチプレス・レップ スクワット 5/8, ベンチプレス 8/12。模擬ユーザー');
+    expect(settingsLine(settings, names, '上下2分割')).not.toContain('レップ');
   });
 
   it('分割と重点が無ければ「なし」', () => {

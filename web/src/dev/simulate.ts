@@ -51,6 +51,8 @@ export type DevSet = {
   weight_kg: number | null;
   sets: number;
   target_rir: number;
+  /** 目標レップ数。軸は宣言ごとのレップ数から決まる。 */
+  target_reps: number;
   pct_of_1rm: number | null;
   /** その日の模擬ユーザーの実力（加重の1RM）。 */
   athlete_1rm_kg: number;
@@ -87,6 +89,8 @@ export type DevSettings = {
   sets_per_exercise: number;
   /** 足した自分の種目。ID は orm= の上書きで指すのに使う。 */
   custom?: DevCustom[];
+  /** 宣言ごとの軸のレップ数。指定した宣言だけが入る。 */
+  reps: Record<string, { heavy: number; light: number }>;
 };
 
 /** DevCustom は自分の種目の1件。dev_simulation.go の devCustomDTO と対。 */
@@ -129,6 +133,9 @@ export type Form = {
   /** 自分の種目。サーバーと同じ「名前|区分:寄与,区分:寄与|刻み」を ; で並べた
    *  1行のまま持つ。空なら足さない。 */
   custom: string;
+  /** 宣言ごとのレップ数。サーバーと同じ「id:重い:軽い」を , で並べた1行のまま持つ。
+   *  空なら既定。 */
+  reps: string;
 };
 
 export const defaultForm: Form = {
@@ -146,6 +153,7 @@ export const defaultForm: Form = {
   days: null,
   start: null,
   custom: '',
+  reps: '',
 };
 
 /** buildQuery は設定を問い合わせ文字列にする。空の項目は送らない。
@@ -174,6 +182,7 @@ export function buildQuery(form: Form): string {
     .map((id) => `${id}:${form.orm[id]}`);
   if (orm.length > 0) q.set('orm', orm.join(','));
   if (form.custom.trim() !== '') q.set('custom', form.custom.trim());
+  if (form.reps.trim() !== '') q.set('reps', form.reps.trim());
   return q.toString();
 }
 
@@ -215,6 +224,7 @@ export function parseForm(search: string, fallback: Form): Form {
     days: q.has('days') ? days(q.get('days') ?? '') : fallback.days,
     start: q.get('start') || fallback.start,
     custom: q.has('custom') ? (q.get('custom') ?? '') : fallback.custom,
+    reps: q.has('reps') ? (q.get('reps') ?? '') : fallback.reps,
   };
 }
 
@@ -303,6 +313,11 @@ export function formatPerformed(set: DevSet): string {
   const p = set.performed;
   const kg = p.weight_kg === 0 ? '自重' : `${p.weight_kg}kg`;
   return `${kg}×${p.reps} RIR${p.rir}`;
+}
+
+/** formatTargetReps は目標レップ数。数字を文字で読めるように出す。 */
+export function formatTargetReps(set: DevSet): string {
+  return `目標 ${set.target_reps} 回`;
 }
 
 /** formatPct は推定1RMに対する比。軸の一巡はこれを見て追う。 */

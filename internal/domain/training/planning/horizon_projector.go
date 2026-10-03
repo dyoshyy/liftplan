@@ -37,7 +37,7 @@ func (s ProjectedSession) Split() (program.Split, bool) { return s.split, s.hasS
 
 // Axis はその回の軸と、その処方のセット数。軸が無い日は3番目の戻り値が false。
 //
-// laneRole（heavyRole・focusVolumeRole）は公開しない。役割が外へ与える
+// laneRole（heavyRole・focusVolumeRole・focusVariationRole）は公開しない。役割が外へ与える
 // 効果はレーン（Axis から返るか Variation から返るか）とセット数だけで、
 // 両方ともここで既に表現している。役割そのものが要る日が来たら、そのとき
 // 公開する（必要になるまで作らない）。
@@ -46,7 +46,7 @@ func (s ProjectedSession) Axis() (*exercise.Exercise, training.SetCount, bool) {
 }
 
 // axisLaneRole はその回の軸が担う役割（重い日・重点種目の一巡の
-// ボリュームの日）。パッケージの外には出さない。Forecast がその回を
+// ボリュームの日・派生の軽い日）。パッケージの外には出さない。Forecast がその回を
 // prescribe するときに、軸を heavyRole 固定ではなく実際の役割で処方する
 // ために要る（設計書「役割（重い日・ボリュームの日・派生）も使う」）。
 // 役割が外へ与える効果は Axis() が既に表現しているので、公開はしない
@@ -130,13 +130,14 @@ func (p SessionPlanner) ProjectHorizon(
 		if heavy != nil {
 			session.axis = heavy
 			session.axisRole = axisRole
-			session.axisSets = p.prescriptionFor(axisRole, sets).setCount()
+			// ここで使うのはセット数だけで、セット数はレップ数に依らない。
+			session.axisSets = p.prescriptionFor(axisRole, sets, program.DefaultRepTargets()).setCount()
 			session.stimulus = session.stimulus.Plus(heavy.Stimulus(), session.axisSets)
 			logs = append(logs, projectedLog(k, "axis", d, heavy.ID()))
 		}
 		if variation != nil {
 			session.variation = variation
-			session.variationSets = p.prescriptionFor(variationRole, sets).setCount()
+			session.variationSets = p.prescriptionFor(variationRole, sets, program.DefaultRepTargets()).setCount()
 			session.stimulus = session.stimulus.Plus(variation.Stimulus(), session.variationSets)
 			logs = append(logs, projectedLog(k, "variation", d, variation.ID()))
 		}

@@ -183,16 +183,20 @@ func (p SessionPlanner) Forecast(req PlanRequest) ([]PlannedSession, error) {
 	for k, sess := range sessions {
 		var lineup []lineupEntry
 		if heavy, _, ok := sess.Axis(); ok {
-			lineup = append(lineup, lineupEntry{exercise: heavy, role: sess.axisLaneRole()})
+			role := sess.axisLaneRole()
+			lineup = append(lineup, lineupEntry{
+				exercise: heavy, role: role,
+				reps: axisRepTargets(req.Program, heavy, role),
+			})
 		}
 		if v, _, ok := sess.Variation(); ok {
-			lineup = append(lineup, lineupEntry{exercise: v, role: variationRole})
+			lineup = append(lineup, lineupEntry{exercise: v, role: variationRole, reps: program.DefaultRepTargets()})
 		}
 		for _, id := range allocations[k] {
 			// Allocate が返すのは Pool（= pool から exclude を引いたもの）
 			// の中の種目に限るので、findExercise が nil を返す経路は無い。
 			if e := findExercise(pool, id); e != nil {
-				lineup = append(lineup, lineupEntry{exercise: e, role: accessoryRole})
+				lineup = append(lineup, lineupEntry{exercise: e, role: accessoryRole, reps: program.DefaultRepTargets()})
 			}
 		}
 
@@ -225,9 +229,25 @@ func (p SessionPlanner) Plan(req PlanRequest) (PlannedSession, error) {
 
 // lineupEntry はセッション1回ぶんの種目1つと、その役割。重量はまだ
 // 付いていない。
+//
+// reps は軸の役割で狙うレップ数。軸以外の役割では使わない（既定を入れておく）。
 type lineupEntry struct {
 	exercise *exercise.Exercise
 	role     laneRole
+	reps     program.RepTargets
+}
+
+// axisRepTargets は軸に立った種目のレップ数を宣言から引く。
+//
+// 派生が軸に立つ日（focusVariationRole）は、派生自身ではなく重点種目の
+// 値を使う。派生を宣言していなくても、重点種目の軽い番で出すため。
+func axisRepTargets(prog *program.Program, axis *exercise.Exercise, role laneRole) program.RepTargets {
+	if role == focusVariationRole {
+		if focus, ok := prog.FocusExercise(); ok {
+			return prog.RepTargetsFor(focus)
+		}
+	}
+	return prog.RepTargetsFor(axis.ID())
 }
 
 // usablePool はプログラムで選択された種目を ID 昇順で返す。

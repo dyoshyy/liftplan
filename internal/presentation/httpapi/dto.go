@@ -145,13 +145,25 @@ type errorResponse struct {
 // プログラムの持ち物ではなく（D-139）、利用者が編集する項目でもないため、
 // 応答に含める理由が無い（#176）。
 type programDTO struct {
-	PerWeek             int        `json:"per_week"`
-	ExercisesPerSession int        `json:"exercises_per_session"`
-	SetsPerExercise     int        `json:"sets_per_exercise"`
-	Selected            []string   `json:"selected_exercises"`
-	Declared            []string   `json:"declared_exercises"`
-	Focus               *string    `json:"focus_exercise"`
-	Splits              []splitDTO `json:"splits"`
+	PerWeek             int      `json:"per_week"`
+	ExercisesPerSession int      `json:"exercises_per_session"`
+	SetsPerExercise     int      `json:"sets_per_exercise"`
+	Selected            []string `json:"selected_exercises"`
+	Declared            []string `json:"declared_exercises"`
+	Focus               *string  `json:"focus_exercise"`
+	// DeclaredReps は宣言ごとのレップ数。設定していない宣言も既定で埋める。
+	// 既定値（3・6）をクライアントに二重に持たせないため。
+	DeclaredReps map[string]repTargetsDTO `json:"declared_reps"`
+	Splits       []splitDTO               `json:"splits"`
+}
+
+// repTargetsDTO は宣言1件ぶんのレップ数。書き込み（PUT …/reps）と
+// 読み出し（programDTO.DeclaredReps）で同じ形。
+//
+// 0 は NewRepTargets が弾くので、欠落と「0回」を区別する必要が無い。
+type repTargetsDTO struct {
+	Heavy int `json:"heavy"`
+	Light int `json:"light"`
 }
 
 // sessionVolumeDTO は1回の量だけの書き込み。
@@ -236,8 +248,11 @@ func toProgramDTO(p *program.Program) programDTO {
 	}
 
 	declared := make([]string, 0)
+	reps := make(map[string]repTargetsDTO)
 	for _, id := range p.DeclaredExercises() {
 		declared = append(declared, string(id))
+		r := p.RepTargetsFor(id)
+		reps[string(id)] = repTargetsDTO{Heavy: r.Heavy(), Light: r.Light()}
 	}
 
 	// ポインタなのは weight_kg と同じ理由。非ポインタだと「指定なし」と
@@ -255,6 +270,7 @@ func toProgramDTO(p *program.Program) programDTO {
 		Selected:            selected,
 		Declared:            declared,
 		Focus:               focus,
+		DeclaredReps:        reps,
 		Splits:              toSplitDTOs(p.Cycle()),
 	}
 }

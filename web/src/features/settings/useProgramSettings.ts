@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react';
 import { getJSON, send } from '../../api/client';
-import type { Program, SplitPreset, SplitPresetsResponse } from '../../api/types';
+import type { Program, RepTargets, SplitPreset, SplitPresetsResponse } from '../../api/types';
 import { focusBody, NO_FOCUS } from '../today/focus';
 import { lockedDeclared, toggleDeclared } from '../today/declared';
+import { repsPath } from './reps';
 import { matchingPresetKey, splitBody, splitUnselectableReason } from './split';
 
 // 設定の判断。副作用は持たない。
@@ -31,7 +32,7 @@ export const exercisesSummary = (program: Program, nameOf: (id: string) => strin
 
 // 設定の手順を束ねる。
 //
-// **判断はこのファイル先頭と split.ts・../today/focus.ts・
+// **判断はこのファイル先頭と split.ts・reps.ts・../today/focus.ts・
 // ../today/declared.ts に置き、ここは順に実行するだけ。**
 //
 // 待ち行列を通さずその場で送る。待ち行列は記録を守るための仕組みで、
@@ -122,6 +123,27 @@ export function useProgramSettings(onChanged: () => Promise<void>) {
     const next = toggleDeclared(program.declared_exercises, id);
     if (!(await put('/api/program/declared', { declared_exercises: next }))) return;
     setProgram({ ...program, declared_exercises: next });
+    // 宣言ごとのレップ数だけを取り直す。足した種目の既定はサーバーしか
+    // 知らず、外した種目の値はサーバーが捨てる。全体を置き換えないのは、
+    // 応答を待つ間に押された別の操作を古い応答で上書きしないため。
+    // 失敗しても宣言は保存できている（レップ数の行は repsRows が値の無い
+    // 宣言を出さない）。
+    try {
+      const fresh = await getJSON<Program>('/api/program');
+      setProgram((p) => (p ? { ...p, declared_reps: fresh.declared_reps } : p));
+    } catch {
+      // 取り直せなくても、次に画面を開いたときに揃う。
+    }
+    await onChanged();
+  };
+
+  // レップ数は選んだその場で送る。送るのはその宣言の2つだけ。
+  const saveReps = async (id: string, reps: RepTargets) => {
+    if (!program || busy) return;
+    if (!(await put(repsPath(id), reps))) return;
+    // 手元の program ではなく最新から書く。toggleDeclaredExercise の取り直しが
+    // この await の間に declared_reps を差し替えていたら、古い写しで上書きしてしまう。
+    setProgram((p) => (p ? { ...p, declared_reps: { ...p.declared_reps, [id]: reps } } : p));
     await onChanged();
   };
 
@@ -170,6 +192,7 @@ export function useProgramSettings(onChanged: () => Promise<void>) {
     toggleDeclaredExercise,
     saveFrequency,
     saveVolume,
+    saveReps,
     splitOptions,
     splitKey,
     chooseSplit,

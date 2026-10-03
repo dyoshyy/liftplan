@@ -1,6 +1,7 @@
 import { focusOptions, NO_FOCUS } from '../today/focus';
 import { aliveExercises } from '../exercises/exerciseDraft';
 import { ExercisePicker } from './ExercisePicker';
+import { REP_OPTIONS, repsRows } from './reps';
 import { isWholeBody, scheduleSummary } from './split';
 import { exercisesSummary, useProgramSettings } from './useProgramSettings';
 import { Button } from '../../ui/Button';
@@ -49,10 +50,14 @@ export function ProgramSettings({ nameOf, exercises: all, onChanged, onOpenExerc
     toggleDeclaredExercise,
     saveFrequency,
     saveVolume,
+    saveReps,
     splitOptions,
     splitKey,
     chooseSplit,
   } = useProgramSettings(onChanged);
+  // 軽い日のレップ数は、選んでいる重点種目の分だけ出す。
+  const focusId = program?.focus_exercise ?? null;
+  const focusReps = focusId ? program?.declared_reps[focusId] : undefined;
 
   return (
     <>
@@ -187,6 +192,35 @@ export function ProgramSettings({ nameOf, exercises: all, onChanged, onOpenExerc
           />
         )}
 
+        {program && repsRows(program).length > 0 && (
+          <>
+            <p className="mt-4 text-[13px] font-bold">重い日のレップ数</p>
+            <Note className="mb-3 mt-1">
+              軸に立ったときに狙う回数です。重さはこの回数から決まります。
+              チンニングのように少ない回数でやらない種目は増やしてください。
+            </Note>
+            <div className="grid gap-2">
+              {repsRows(program).map(({ id, reps }) => (
+                <label key={id} className="grid grid-cols-[1fr_auto] items-center gap-3">
+                  <span className="text-sm">{nameOf(id)}</span>
+                  <Select
+                    aria-label={`${nameOf(id)}の重い日のレップ数`}
+                    value={reps.heavy}
+                    disabled={busy}
+                    onChange={(e) => void saveReps(id, { ...reps, heavy: Number(e.target.value) })}
+                  >
+                    {REP_OPTIONS.map((n) => (
+                      <option key={n} value={n}>
+                        {n}回
+                      </option>
+                    ))}
+                  </Select>
+                </label>
+              ))}
+            </div>
+          </>
+        )}
+
         <p className="mt-6 text-[13px] font-bold">重点種目</p>
         <Note className="mb-3 mt-1">
           上の「伸ばしたい種目」から選びます。選んだ種目の派生
@@ -211,6 +245,27 @@ export function ProgramSettings({ nameOf, exercises: all, onChanged, onOpenExerc
               );
             })}
           </div>
+        )}
+
+        {focusId && focusReps && (
+          <>
+            <p className="mt-4 text-[13px] font-bold">軽い日のレップ数</p>
+            <Note className="mb-3 mt-1">
+              重点種目は、重い日 → 軽い日 → 派生 の順に回ります。派生の日もこの回数で出ます。
+            </Note>
+            <Select
+              aria-label={`${nameOf(focusId)}の軽い日のレップ数`}
+              value={focusReps.light}
+              disabled={busy}
+              onChange={(e) => void saveReps(focusId, { ...focusReps, light: Number(e.target.value) })}
+            >
+              {REP_OPTIONS.map((n) => (
+                <option key={n} value={n}>
+                  {n}回
+                </option>
+              ))}
+            </Select>
+          </>
         )}
       </Section>
     </>
