@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { formatLast, formatSets, parseSetInput } from './sets';
+import { formatLast, formatSets, parseSetInput, usesBodyweight } from './sets';
 
 describe('formatSets', () => {
   // 1セット目の重量で代表させると、落とした重量も上げた重量も履歴から消える。
@@ -83,5 +83,59 @@ describe('parseSetInput', () => {
       ok: false,
       warning: '0 より大きい重量とレップを入れてください',
     });
+  });
+});
+
+// 自重種目は、何も付けずにやるのが普通の記録。0kg を弾くと、チンニングを自重で
+// やった日は記録できない（記録シートの「記録する」が通らない）。
+// 推定1RMが 0 に引きずられる心配は、サーバーが体重を足して読み替えるので無い。
+describe('parseSetInput（自重種目）', () => {
+  const bodyweight = { bodyweight: true };
+
+  it('重量 0 を通す（何も付けない記録）', () => {
+    expect(parseSetInput('0', '8', '2', bodyweight)).toEqual({
+      ok: true,
+      values: { weight: 0, reps: 8, rir: 2 },
+    });
+  });
+
+  it('加重も通す', () => {
+    expect(parseSetInput('10', '8', '2', bodyweight)).toEqual({
+      ok: true,
+      values: { weight: 10, reps: 8, rir: 2 },
+    });
+  });
+
+  // 重量の 0 を許すのは「何も付けない」まで。レップ 0 は何もしていない。
+  // 負の重量は存在しない（補助つきの種目は別の種目として持つ）。
+  it.each([
+    { weight: '-2.5', reps: '8', rir: '2' },
+    { weight: '0', reps: '0', rir: '2' },
+    { weight: '0', reps: '8', rir: '-1' },
+  ])('それでも止める（$weight / $reps / $rir）', ({ weight, reps, rir }) => {
+    expect(parseSetInput(weight, reps, rir, bodyweight)).toEqual({
+      ok: false,
+      warning: '重量は 0 以上、レップは 0 より大きい値を入れてください',
+    });
+  });
+
+  // 通常の種目は 0kg を通さない。ここまで緩めると、重量の入れ忘れが
+  // 0kg の記録として通る。
+  it('自重でない種目は、今までどおり 0kg を止める', () => {
+    expect(parseSetInput('0', '8', '2', { bodyweight: false }).ok).toBe(false);
+    expect(parseSetInput('0', '8', '2').ok).toBe(false);
+  });
+});
+
+// サーバーの load_offsets は自重を使う種目だけを載せる。載っていることが
+// 「自重を使う種目」の印で、係数そのものは画面に渡っていない。
+describe('usesBodyweight', () => {
+  it.each<{ name: string; offsets: Record<string, number>; id: string; want: boolean }>([
+    { name: '足す量がある種目は自重を使う', offsets: { pull_up: 66.5 }, id: 'pull_up', want: true },
+    { name: '載っていない種目は使わない', offsets: { pull_up: 66.5 }, id: 'bench', want: false },
+    { name: '0 は使わない（足す量が無い）', offsets: { pull_up: 0 }, id: 'pull_up', want: false },
+    { name: '空なら使わない', offsets: {}, id: 'pull_up', want: false },
+  ])('$name', ({ offsets, id, want }) => {
+    expect(usesBodyweight(offsets, id)).toBe(want);
   });
 });

@@ -6,6 +6,7 @@ import { PRCelebration } from './PRCelebration';
 import type { PersonalRecord } from './pr';
 import { belowPlan, withPicked } from './adhoc';
 import { ExercisePicker } from './ExercisePicker';
+import { usesBodyweight } from '../../domain/sets';
 import { RecordSheet } from './RecordSheet';
 import { useRecordOrchestrator } from './useRecordOrchestrator';
 import { BodyWeightRow } from './BodyWeightRow';
@@ -148,6 +149,7 @@ export function Today(props: Props) {
           name={nameOf(sheet.sheet.plan.exercise_id)}
           last={data.last[sheet.sheet.plan.exercise_id]}
           doneToday={doneOf(sheet.sheet.plan.exercise_id)}
+          bodyweight={usesBodyweight(data.loadOffsets, sheet.sheet.plan.exercise_id)}
           onRecord={(v) => void sheet.record(v)}
           onUndo={() => void sheet.undo()}
           onClose={sheet.close}

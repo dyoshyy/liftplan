@@ -26,12 +26,14 @@ type Props = {
   last: LastPerformance | undefined;
   /** doneToday は今日その種目で記録済みのセット。初期値を決めるのに使う。 */
   doneToday: readonly RecordedSet[];
+  /** bodyweight は自重を使う種目か。重量 0（何も付けない）を通す。 */
+  bodyweight: boolean;
   onRecord: (values: { weight: number; reps: number; rir: number }) => void;
   onUndo: () => void;
   onClose: () => void;
 };
 
-export function RecordSheet({ target, name, last, doneToday, onRecord, onUndo, onClose }: Props) {
+export function RecordSheet({ target, name, last, doneToday, bodyweight, onRecord, onUndo, onClose }: Props) {
   const { plan, index, recorded } = target;
   const ref = useRef<HTMLDialogElement>(null);
 
@@ -47,7 +49,7 @@ export function RecordSheet({ target, name, last, doneToday, onRecord, onUndo, o
   }, []);
 
   const submit = () => {
-    const parsed = parseSetInput(weight, reps, rir);
+    const parsed = parseSetInput(weight, reps, rir, { bodyweight });
     if (!parsed.ok) {
       setWarning(parsed.warning);
       return;

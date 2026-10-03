@@ -7,6 +7,8 @@ import type { EditTarget } from './useHistoryEditor';
 
 type Props = {
   target: EditTarget;
+  /** bodyweight は自重を使う種目か。重量 0（何も付けない）を通す。 */
+  bodyweight: boolean;
   onSave: (values: SetValues) => void;
   onDelete: () => void;
   onClose: () => void;
@@ -18,7 +20,7 @@ type Props = {
 // 「前回の実績」から初期値を決めるため。ここで直すのは記録済みの値そのもの
 // なので、初期値はそのセットの値で決まる。入力の検証（parseSetInput）と
 // 数値の入力部品（Stepper）は共有している。
-export function EditSetSheet({ target, onSave, onDelete, onClose }: Props) {
+export function EditSetSheet({ target, bodyweight, onSave, onDelete, onClose }: Props) {
   const ref = useRef<HTMLDialogElement>(null);
   const { set } = target;
   const [weight, setWeight] = useState(String(set.weight_kg));
@@ -31,7 +33,7 @@ export function EditSetSheet({ target, onSave, onDelete, onClose }: Props) {
   }, []);
 
   const submit = () => {
-    const parsed = parseSetInput(weight, reps, rir);
+    const parsed = parseSetInput(weight, reps, rir, { bodyweight });
     if (!parsed.ok) {
       setWarning(parsed.warning);
       return;

@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import type { Day, StatsResponse, Trend, Volume } from '../../api/types';
 import { label } from '../../domain/date';
 import { regionLabel } from '../../domain/regions';
-import { formatSets } from '../../domain/sets';
+import { formatSets, usesBodyweight } from '../../domain/sets';
 import { Button } from '../../ui/Button';
 import { Card, Note } from '../../ui/Card';
 import { cn } from '../../ui/cn';
@@ -24,6 +24,8 @@ type Props = {
   logs: MonthLogs;
   /** 記録の修正と削除。 */
   editor: HistoryEditor;
+  /** 種目ごとの、加重に足すと体重込みの負荷になる量。自重を使う種目の判別に使う。 */
+  loadOffsets: Readonly<Record<string, number>>;
   /** 週の充足と推移。まだ読めていなければ null。 */
   stats: StatsResponse | null;
   /** 推移を読めなかったときの一言。空なら出さない。 */
@@ -47,7 +49,7 @@ type Props = {
 // **記録と推移は切り替えにする。**充足は「直近4週」で固定なのに、記録は
 // 選んだ月を出す。1本のスクロールに並べると、8月を見ているのに上の数字は
 // 今週のまま、という読み違いが起きる。
-export function History({ logs, editor, stats, statsError = '', onReloadStats }: Props) {
+export function History({ logs, editor, loadOffsets, stats, statsError = '', onReloadStats }: Props) {
   const [view, setView] = useState<View>('logs');
 
   return (
@@ -68,6 +70,7 @@ export function History({ logs, editor, stats, statsError = '', onReloadStats }:
           // 別のセットを開いたら入力をそのセットの値で作り直す。
           key={editor.target.set.id}
           target={editor.target}
+          bodyweight={usesBodyweight(loadOffsets, editor.target.exerciseId)}
           onSave={(v) => void editor.save(v)}
           onDelete={() => void editor.remove()}
           onClose={editor.close}
