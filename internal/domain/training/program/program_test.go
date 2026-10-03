@@ -256,7 +256,7 @@ func TestProgram_IsImmutableAgainstInputMutation(t *testing.T) {
 	}
 }
 
-// fieldsOf は Program の6フィールドを、名前つきの文字列に写す。
+// fieldsOf は Program のフィールドを、名前つきの文字列に写す。
 //
 // 長さではなく中身を写す。分割が1日ぶんだけ残る、並びが変わる、といった
 // 壊れ方でも周期は狂う。
@@ -272,7 +272,27 @@ func fieldsOf(p *program.Program) map[string]string {
 		"declared":  fmt.Sprint(p.DeclaredExercises()),
 		"focus":     string(focus),
 		"cycle":     cycle,
+		"reps":      repsString(p),
 	}
+}
+
+// repsString は宣言ごとのレップ数を、宣言の順に "id:重い/軽い" で並べる。
+func repsString(p *program.Program) string {
+	s := ""
+	for _, id := range p.DeclaredExercises() {
+		r := p.RepTargetsFor(id)
+		s += fmt.Sprintf("%s:%d/%d ", id, r.Heavy(), r.Light())
+	}
+	return s
+}
+
+func mustRepTargets(t *testing.T, heavy, light int) program.RepTargets {
+	t.Helper()
+	r, err := program.NewRepTargets(heavy, light)
+	if err != nil {
+		t.Fatalf("NewRepTargets(%d, %d): %v", heavy, light, err)
+	}
+	return r
 }
 
 // With* は、自分が差し替えるフィールド以外を全部引き継ぐこと。
@@ -303,7 +323,8 @@ func TestProgram_WithKeepsOtherFields(t *testing.T) {
 		},
 		{
 			// 重点の bench は宣言に残す。外すと検証で弾かれる。
-			name: "WithDeclared", changed: []string{"declared"},
+			// squat が外れるので、宣言ごとの一覧（reps）も変わる。
+			name: "WithDeclared", changed: []string{"declared", "reps"},
 			apply: func(p *program.Program) (*program.Program, error) {
 				return p.WithDeclared([]exercise.ExerciseID{"bench", "deadlift"})
 			},
@@ -327,6 +348,12 @@ func TestProgram_WithKeepsOtherFields(t *testing.T) {
 				return p.WithCycle([]program.Split{mustSplit(t, "脚", training.Quad)})
 			},
 		},
+		{
+			name: "WithRepTargets", changed: []string{"reps"},
+			apply: func(p *program.Program) (*program.Program, error) {
+				return p.WithRepTargets("squat", mustRepTargets(t, 6, 10))
+			},
+		},
 	}
 
 	for _, c := range cases {
@@ -342,6 +369,11 @@ func TestProgram_WithKeepsOtherFields(t *testing.T) {
 			})
 			if err != nil {
 				t.Fatalf("WithCycle: %v", err)
+			}
+			// 既定のままだと、落ちても前後とも既定で一致して空振りする。
+			base, err = base.WithRepTargets("bench", mustRepTargets(t, 8, 12))
+			if err != nil {
+				t.Fatalf("WithRepTargets: %v", err)
 			}
 
 			next, err := c.apply(base)
@@ -373,6 +405,97 @@ func TestProgram_WithKeepsOtherFields(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// 持っていない宣言には既定を返す。宣言していない種目にも既定を返す
+// （計画の側は軸に立った種目の値を引くだけで、宣言かどうかを知らない）。
+func TestProgram_RepTargetsForFallsBackToTheDefault(t *testing.T) {
+	p, err := program.NewProgram(mustFrequency(t, 3), mustVolume(t, 4, 3),
+		big3(), []exercise.ExerciseID{"bench", "squat"}, "")
+	if err != nil {
+		t.Fatalf("NewProgram: %v", err)
+	}
+	p, err = p.WithRepTargets("bench", mustRepTargets(t, 8, 12))
+	if err != nil {
+		t.Fatalf("WithRepTargets: %v", err)
+	}
+
+	for _, c := range []struct {
+		id           exercise.ExerciseID
+		heavy, light int
+	}{
+		{"bench", 8, 12},
+		{"squat", 3, 6},
+		{"deadlift", 3, 6},
+	} {
+		got := p.RepTargetsFor(c.id)
+		if got.Heavy() != c.heavy || got.Light() != c.light {
+			t.Errorf("%s が (%d, %d)。(%d, %d) のはず", c.id, got.Heavy(), got.Light(), c.heavy, c.light)
+		}
+	}
+}
+
+// 宣言していない種目にはレップ数を立てられない。黙って受けると、宣言に
+// 入れた瞬間に昔の値が出てくる。
+func TestProgram_WithRepTargetsRejectsUndeclared(t *testing.T) {
+	p, err := program.NewProgram(mustFrequency(t, 3), mustVolume(t, 4, 3),
+		big3(), []exercise.ExerciseID{"bench"}, "")
+	if err != nil {
+		t.Fatalf("NewProgram: %v", err)
+	}
+	if _, err := p.WithRepTargets("squat", mustRepTargets(t, 8, 12)); err == nil {
+		t.Error("宣言していない squat に立てられた")
+	}
+	if _, err := p.WithRepTargets("bench", program.RepTargets{}); err == nil {
+		t.Error("ゼロ値を受け取った")
+	}
+}
+
+// 宣言から外した種目の値は捨てる。入れ直したら既定に戻る（設計書）。
+func TestProgram_WithDeclaredDropsTheRemovedTargets(t *testing.T) {
+	p, err := program.NewProgram(mustFrequency(t, 3), mustVolume(t, 4, 3),
+		big3(), []exercise.ExerciseID{"bench", "squat"}, "")
+	if err != nil {
+		t.Fatalf("NewProgram: %v", err)
+	}
+	p, err = p.WithRepTargets("squat", mustRepTargets(t, 6, 10))
+	if err != nil {
+		t.Fatalf("WithRepTargets: %v", err)
+	}
+
+	dropped, err := p.WithDeclared([]exercise.ExerciseID{"bench"})
+	if err != nil {
+		t.Fatalf("外すのに失敗: %v", err)
+	}
+	if _, ok := dropped.DeclaredRepTargets()["squat"]; ok {
+		t.Error("外した squat の値が残っている")
+	}
+
+	back, err := dropped.WithDeclared([]exercise.ExerciseID{"bench", "squat"})
+	if err != nil {
+		t.Fatalf("入れ直すのに失敗: %v", err)
+	}
+	if got := back.RepTargetsFor("squat"); got != program.DefaultRepTargets() {
+		t.Errorf("入れ直した squat が (%d, %d)。既定のはず", got.Heavy(), got.Light())
+	}
+}
+
+// 返す対応表は写し。書き換えても集約は変わらない。
+func TestProgram_DeclaredRepTargetsIsACopy(t *testing.T) {
+	p, err := program.NewProgram(mustFrequency(t, 3), mustVolume(t, 4, 3),
+		big3(), []exercise.ExerciseID{"bench"}, "")
+	if err != nil {
+		t.Fatalf("NewProgram: %v", err)
+	}
+	p, err = p.WithRepTargets("bench", mustRepTargets(t, 8, 12))
+	if err != nil {
+		t.Fatalf("WithRepTargets: %v", err)
+	}
+	m := p.DeclaredRepTargets()
+	m["bench"] = mustRepTargets(t, 1, 1)
+	if got := p.RepTargetsFor("bench"); got.Heavy() != 8 {
+		t.Errorf("外から書き換えられた: %d", got.Heavy())
 	}
 }
 

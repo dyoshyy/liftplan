@@ -69,14 +69,15 @@ func (t WeeklyVolumeTarget) IsEmpty() bool { return len(t.m) == 0 }
 //ddd:aggregate
 type Program struct {
 	frequency Frequency
-	volume    SessionVolume         // 1セッションの量。利用者の設定
-	selected  []exercise.ExerciseID // 実施可能な種目
-	declared  []exercise.ExerciseID // 重量を伸ばしたい種目
-	focus     exercise.ExerciseID   // 重点的に伸ばしたい種目。空なら指定なし
-	cycle     []Split               // 分割の周期。空なら分割なし（全身法）
+	volume    SessionVolume                      // 1セッションの量。利用者の設定
+	selected  []exercise.ExerciseID              // 実施可能な種目
+	declared  []exercise.ExerciseID              // 重量を伸ばしたい種目
+	focus     exercise.ExerciseID                // 重点的に伸ばしたい種目。空なら指定なし
+	cycle     []Split                            // 分割の周期。空なら分割なし（全身法）
+	reps      map[exercise.ExerciseID]RepTargets // 宣言ごとのレップ数。無い宣言は既定
 }
 
-// programParams は Program を組み立てる材料。Program と同じ6つを持つ。
+// programParams は Program を組み立てる材料。Program と同じ7つを持つ。
 //
 // フィールドを足すときに触るのは、Program とここ、newProgram と params。
 // ほかの With* は触らない。With* がそれぞれ全フィールドを手で並べ直して
@@ -89,6 +90,7 @@ type programParams struct {
 	declared  []exercise.ExerciseID
 	focus     exercise.ExerciseID
 	cycle     []Split
+	reps      map[exercise.ExerciseID]RepTargets
 }
 
 // NewProgram は分割なしのプログラムを組み立てる。分割は WithCycle で足す。
@@ -165,6 +167,20 @@ func newProgram(x programParams) (*Program, error) {
 		return nil, err
 	}
 
+	// 宣言ごとのレップ数は、宣言に含まれる種目だけが持てる。宣言から外す
+	// ときの掃除は WithDeclared がする。ここで黙って落とすと、宣言して
+	// いない種目に立てた呼び出し（WithRepTargets）が成功に見える。
+	reps := make(map[exercise.ExerciseID]RepTargets, len(x.reps))
+	for id, r := range x.reps {
+		if !slices.Contains(declared, id) {
+			return nil, fmt.Errorf("レップ数を持つ %q が伸ばしたい種目に含まれていない", id)
+		}
+		if r.IsZero() {
+			return nil, fmt.Errorf("%q のレップ数が設定されていない", id)
+		}
+		reps[id] = r
+	}
+
 	return &Program{
 		frequency: x.frequency,
 		volume:    x.volume,
@@ -172,12 +188,13 @@ func newProgram(x programParams) (*Program, error) {
 		declared:  declared,
 		focus:     focus,
 		cycle:     cycle,
+		reps:      reps,
 	}, nil
 }
 
 // params は全フィールドを写す。写す場所はここだけ。
 //
-// スライスの中身は写さない。newProgram が必ず新しいスライスを作るので、
+// スライスと対応表の中身は写さない。newProgram が必ず新しいスライスと対応表を作るので、
 // 元の Program と共有されたまま残ることがない。
 func (p *Program) params() programParams {
 	return programParams{
@@ -187,6 +204,7 @@ func (p *Program) params() programParams {
 		declared:  p.declared,
 		focus:     p.focus,
 		cycle:     p.cycle,
+		reps:      p.reps,
 	}
 }
 
@@ -247,8 +265,21 @@ func (p *Program) WithFocus(id exercise.ExerciseID) (*Program, error) {
 // 重点種目が新しい宣言に含まれなくなる場合はエラーになる。黙って解除は
 // しない。解除するかどうかは本人が決めることで、宣言を変えた副作用として
 // 重点が消えると、次に画面を開くまで気づけない。
+//
+// 外した種目のレップ数は捨てる。入れ直したら既定に戻る（設計書
+// 2026-10-03-declared-rep-targets）。重点と違って黙って捨ててよいのは、
+// 外した種目は計画に出ないので、値が残っていても使われないため。
 func (p *Program) WithDeclared(ids []exercise.ExerciseID) (*Program, error) {
-	return p.with(func(x *programParams) { x.declared = ids })
+	return p.with(func(x *programParams) {
+		x.declared = ids
+		kept := make(map[exercise.ExerciseID]RepTargets, len(x.reps))
+		for id, r := range x.reps {
+			if slices.Contains(ids, id) {
+				kept[id] = r
+			}
+		}
+		x.reps = kept
+	})
 }
 
 // WithFrequency は週の頻度だけを差し替えた新しいプログラムを返す。
@@ -329,4 +360,38 @@ func (p *Program) Includes(id exercise.ExerciseID) bool {
 
 func (p *Program) Declares(id exercise.ExerciseID) bool {
 	return slices.Contains(p.declared, id)
+}
+
+// WithRepTargets は1つの宣言のレップ数だけを差し替えた新しいプログラムを返す。
+// 宣言していない種目はエラー。
+func (p *Program) WithRepTargets(id exercise.ExerciseID, t RepTargets) (*Program, error) {
+	return p.with(func(x *programParams) {
+		next := make(map[exercise.ExerciseID]RepTargets, len(x.reps)+1)
+		for k, v := range x.reps {
+			next[k] = v
+		}
+		next[id] = t
+		x.reps = next
+	})
+}
+
+// RepTargetsFor はその種目を軸で出すときのレップ数。設定していなければ既定。
+//
+// 宣言していない種目にも既定を返す。計画の側は軸に立った種目の値を引くだけで、
+// 宣言かどうかを確かめさせない。
+func (p *Program) RepTargetsFor(id exercise.ExerciseID) RepTargets {
+	if r, ok := p.reps[id]; ok {
+		return r
+	}
+	return DefaultRepTargets()
+}
+
+// DeclaredRepTargets は設定されたレップ数の写し。保存に使う。設定していない
+// 宣言は含まない。
+func (p *Program) DeclaredRepTargets() map[exercise.ExerciseID]RepTargets {
+	out := make(map[exercise.ExerciseID]RepTargets, len(p.reps))
+	for k, v := range p.reps {
+		out[k] = v
+	}
+	return out
 }
