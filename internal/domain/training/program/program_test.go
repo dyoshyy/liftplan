@@ -302,9 +302,10 @@ func mustRepTargets(t *testing.T, heavy, light int) program.RepTargets {
 // なる（#132）。どちらもあとから足されたフィールドで、D-127（全置換の口が
 // declared と focus を落とす）と同じ形の事故。
 //
-// 重点と分割を両方立てたプログラムから始める。この2つは空が正当な値
-// なので、落ちても newProgram の検証では止まらない。ほかの4つは落ちれば
-// 検証がエラーにするが、focus と cycle はこのテストだけが守りになる。
+// 重点と分割とレップ数を全部立てたプログラムから始める。この3つは空が
+// 正当な値なので、落ちても newProgram の検証では止まらない。ほかの4つは
+// 落ちれば検証がエラーにするが、focus と cycle と reps はこのテストだけが
+// 守りになる。
 // シードのプログラムのように片方が空だと、前後とも空で一致して空振りする。
 //
 // 分割だけを見ていた TestProgram_WithKeepsCycle（#136）はここに含めた。
@@ -433,6 +434,40 @@ func TestProgram_RepTargetsForFallsBackToTheDefault(t *testing.T) {
 		if got.Heavy() != c.heavy || got.Light() != c.light {
 			t.Errorf("%s が (%d, %d)。(%d, %d) のはず", c.id, got.Heavy(), got.Light(), c.heavy, c.light)
 		}
+	}
+}
+
+// WithRepTargets は受け手を書き換えない。内部の map を共有したまま書くと、
+// 呼び出し元が持っている旧プログラムのレップ数が黙って変わる。
+func TestProgram_WithRepTargetsLeavesTheReceiverUnchanged(t *testing.T) {
+	p, err := program.NewProgram(mustFrequency(t, 3), mustVolume(t, 4, 3),
+		big3(), []exercise.ExerciseID{"bench", "squat"}, "")
+	if err != nil {
+		t.Fatalf("NewProgram: %v", err)
+	}
+	// map が空でない状態から始める。空のままだと、共有する map が無く
+	// 書き換えが旧側に届かない。
+	p, err = p.WithRepTargets("bench", mustRepTargets(t, 8, 12))
+	if err != nil {
+		t.Fatalf("WithRepTargets: %v", err)
+	}
+
+	next, err := p.WithRepTargets("bench", mustRepTargets(t, 5, 9))
+	if err != nil {
+		t.Fatalf("WithRepTargets: %v", err)
+	}
+	if _, err := next.WithRepTargets("squat", mustRepTargets(t, 6, 10)); err != nil {
+		t.Fatalf("WithRepTargets: %v", err)
+	}
+
+	if got := p.RepTargetsFor("bench"); got != mustRepTargets(t, 8, 12) {
+		t.Errorf("受け手の bench が (%d, %d) に変わった。(8, 12) のはず", got.Heavy(), got.Light())
+	}
+	if _, ok := p.DeclaredRepTargets()["squat"]; ok {
+		t.Error("受け手に squat の値が入った")
+	}
+	if got := next.RepTargetsFor("bench"); got != mustRepTargets(t, 5, 9) {
+		t.Errorf("新しい側の bench が (%d, %d)。(5, 9) のはず", got.Heavy(), got.Light())
 	}
 }
 

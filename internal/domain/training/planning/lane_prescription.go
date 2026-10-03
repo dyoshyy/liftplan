@@ -58,8 +58,9 @@ type lanePrescription struct {
 	sets         int
 	targetRIR    int
 	// targetReps は狙うレップ数。強度と RIR を Epley で逆に解いた値
-	// （round(30 × (1/強度 − 1) − RIR)）。値は表に持つが、式との一致は
-	// TestSessionPlanner_TargetReps が見る。
+	// （round(30 × (1/強度 − 1) − RIR)）。軸は axisPrescription が宣言の
+	// レップ数をそのまま入れ、バリエーションと補助は表の値を持つ。
+	// 式との一致は TestSessionPlanner_TargetReps が見る。
 	targetReps int
 }
 
