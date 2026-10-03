@@ -141,7 +141,9 @@ export function useProgramSettings(onChanged: () => Promise<void>) {
   const saveReps = async (id: string, reps: RepTargets) => {
     if (!program || busy) return;
     if (!(await put(repsPath(id), reps))) return;
-    setProgram({ ...program, declared_reps: { ...program.declared_reps, [id]: reps } });
+    // 手元の program ではなく最新から書く。toggleDeclaredExercise の取り直しが
+    // この await の間に declared_reps を差し替えていたら、古い写しで上書きしてしまう。
+    setProgram((p) => (p ? { ...p, declared_reps: { ...p.declared_reps, [id]: reps } } : p));
     await onChanged();
   };
 

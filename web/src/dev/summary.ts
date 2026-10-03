@@ -67,11 +67,21 @@ export function settingsLine(s: DevSettings, names: Record<string, string>, spli
   return (
     `前提: ${s.start} から${s.weeks}週・週${s.frequency}回（${days}）・` +
     `1回 ${s.exercises_per_session}種目×${s.sets_per_exercise}セット・分割 ${splitName || 'なし'}・` +
-    `重点 ${s.focus ? name(s.focus) : 'なし'}。` +
+    `重点 ${s.focus ? name(s.focus) : 'なし'}${repsLine(s, name)}。` +
     `模擬ユーザー: 伸び ${a.growth_pct_per_week}%/週・初回は実力の${a.first_session_pct}%・` +
     `体重${a.body_weight_kg}kg。初日の1RM: ${orm.join(', ')}` +
     customLine(s)
   );
+}
+
+/** repsLine は設定したレップ数を重点の直後に足す。既定のままなら空。
+ *
+ *  書式は 種目名 重い日/軽い日。レップ数で重さが動くので、書かないと
+ *  結果の数字がどの前提のものか要約だけで分からない。 */
+function repsLine(s: DevSettings, name: (id: string) => string): string {
+  const entries = Object.entries(s.reps ?? {});
+  if (entries.length === 0) return '';
+  return `・レップ ${entries.map(([id, r]) => `${name(id)} ${r.heavy}/${r.light}`).join(', ')}`;
 }
 
 /** customLine は自分の種目を前提の末尾に足す。無ければ空。

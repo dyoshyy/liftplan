@@ -251,7 +251,7 @@ export function ProgramSettings({ nameOf, exercises: all, onChanged, onOpenExerc
           <>
             <p className="mt-4 text-[13px] font-bold">軽い日のレップ数</p>
             <Note className="mb-3 mt-1">
-              重点種目は、重い日 → 軽い日 → 派生 の順に回ります。派生の日も この回数で出ます。
+              重点種目は、重い日 → 軽い日 → 派生 の順に回ります。派生の日もこの回数で出ます。
             </Note>
             <Select
               aria-label={`${nameOf(focusId)}の軽い日のレップ数`}
