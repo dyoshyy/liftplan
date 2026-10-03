@@ -97,7 +97,7 @@ func (p SessionPlanner) prescriptionFor(role laneRole, sets int) lanePrescriptio
 	case accessoryRole:
 		return lanePrescription{intensityPct: 0.71, sets: sets, targetRIR: 2, targetReps: 10}
 	}
-	// 到達しない。役割は上の4つしか無い。ゼロ値を返すと prescribeSet が
+	// 到達しない。役割は上の case で尽きる。ゼロ値を返すと prescribeSet が
 	// 値オブジェクトの検証で止まり、種目だけの set になる。
 	return lanePrescription{}
 }
@@ -254,7 +254,11 @@ const overloadSessions = 3
 // 軽い日は窓の証拠に使わない。履歴は役割を持たないので、同じ種目が
 // 軽い処方（バリエーションレーンの variationRole・0.80・RIR2、重点種目の
 // 一巡の focusVariationRole・0.81・RIR1）で出た日も、重い処方の日と同じく
-// ForExercise に並ぶ。軽い日のうち 0.81 で出た日は、宣言した派生が
+// ForExercise に並ぶ。上の「宣言種目はバリエーションレーンに出ない」と
+// 矛盾して見えるが、ここで言う variationRole の日は、今は宣言している種目が
+// 宣言する前に出た履歴か、宣言していない派生としての履歴で、今の計画が
+// 出すものではない。履歴は過去の計画を覚えている。
+// 軽い日のうち 0.81 で出た日は、宣言した派生が
 // 宣言の軸（heavyRole・0.88）と重点種目の派生の番（focusVariationRole・0.81）を
 // 行き来するときに起きる。その日の記録RIRは軸の目標RIR（1）を割っていない
 // ため素通りし、「推定が平坦」の判定もその日の始まりの推定を今日の役割の
