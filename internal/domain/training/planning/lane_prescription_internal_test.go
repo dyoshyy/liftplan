@@ -1,9 +1,11 @@
 package planning
 
 import (
+	"math"
 	"testing"
 
 	"github.com/dyoshyy/liftplan/internal/domain/training"
+	"github.com/dyoshyy/liftplan/internal/domain/training/program"
 )
 
 // 処方どおり完遂したとき、推定1RMがどう動くかを固定する。
@@ -43,7 +45,7 @@ func TestLanePrescriptions_RoundTripIsCurrentlyContractive(t *testing.T) {
 	for _, lane := range lanes {
 		t.Run(lane.name, func(t *testing.T) {
 			// セット数は強度と RIR の組に効かないので、既定の3で引く。
-			row := planner.prescriptionFor(lane.role, 3)
+			row := planner.prescriptionFor(lane.role, 3, program.DefaultRepTargets())
 			pct, err := training.NewIntensityPct(row.intensityPct)
 			if err != nil {
 				t.Fatalf("NewIntensityPct: %v", err)
@@ -80,5 +82,38 @@ func TestLanePrescriptions_RoundTripIsCurrentlyContractive(t *testing.T) {
 					baseline.Kg(), got.Kg())
 			}
 		})
+	}
+}
+
+// 軸の強度は Epley の逆算を小数2桁に丸めた値。
+//
+// 丸めた値は今の表と一致する（3 → 0.88、6 → 0.81）。一致しないと、
+// レップ数を設定していない全員の重量が動く。1〜15 のどれでも、丸めた
+// 強度から Epley で逆算したレップ数が元に戻る（TestSessionPlanner_TargetReps
+// の式の一致がそのまま通る）。
+//
+// 非公開関数の契約なので内部テストで書く。公開の入口（Plan）からは、
+// 丸めの有無は重量が刻みに丸まった後の差としてしか見えず、刻みをまたがない
+// 限り観測できない。
+func TestAxisPrescription_FollowsEpley(t *testing.T) {
+	for _, c := range []struct {
+		reps int
+		want float64
+	}{
+		{1, 0.94}, {3, 0.88}, {6, 0.81}, {8, 0.77}, {10, 0.73}, {12, 0.70}, {15, 0.65},
+	} {
+		got := axisPrescription(c.reps, 3)
+		if got.intensityPct != c.want {
+			t.Errorf("%dレップの強度が %v。%v のはず", c.reps, got.intensityPct, c.want)
+		}
+	}
+
+	for reps := 1; reps <= 15; reps++ {
+		got := axisPrescription(reps, 3)
+		back := int(math.Round(30*(1/got.intensityPct-1))) - got.targetRIR
+		if back != reps || got.targetReps != reps || got.targetRIR != 1 {
+			t.Errorf("%dレップ: 強度 %v・RIR%d・目標 %d、逆算 %d", reps,
+				got.intensityPct, got.targetRIR, got.targetReps, back)
+		}
 	}
 }

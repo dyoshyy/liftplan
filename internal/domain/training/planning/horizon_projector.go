@@ -130,13 +130,14 @@ func (p SessionPlanner) ProjectHorizon(
 		if heavy != nil {
 			session.axis = heavy
 			session.axisRole = axisRole
-			session.axisSets = p.prescriptionFor(axisRole, sets).setCount()
+			// ここで使うのはセット数だけで、セット数はレップ数に依らない。
+			session.axisSets = p.prescriptionFor(axisRole, sets, program.DefaultRepTargets()).setCount()
 			session.stimulus = session.stimulus.Plus(heavy.Stimulus(), session.axisSets)
 			logs = append(logs, projectedLog(k, "axis", d, heavy.ID()))
 		}
 		if variation != nil {
 			session.variation = variation
-			session.variationSets = p.prescriptionFor(variationRole, sets).setCount()
+			session.variationSets = p.prescriptionFor(variationRole, sets, program.DefaultRepTargets()).setCount()
 			session.stimulus = session.stimulus.Plus(variation.Stimulus(), session.variationSets)
 			logs = append(logs, projectedLog(k, "variation", d, variation.ID()))
 		}

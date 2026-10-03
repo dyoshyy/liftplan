@@ -6,7 +6,9 @@ import (
 	"testing"
 
 	"github.com/dyoshyy/liftplan/internal/domain/training/condition"
+	"github.com/dyoshyy/liftplan/internal/domain/training/exercise"
 	"github.com/dyoshyy/liftplan/internal/domain/training/planning"
+	"github.com/dyoshyy/liftplan/internal/domain/training/program"
 	"github.com/dyoshyy/liftplan/internal/domain/training/setlog"
 )
 
@@ -126,4 +128,91 @@ func variationRequest(t *testing.T) planning.PlanRequest {
 	req.Program, req.Target = focusedProgram(t, "bench")
 	req.History = setlog.NewHistory(logs)
 	return req
+}
+
+// withReps は req のプログラムで、id にレップ数を立てる。
+func withReps(t *testing.T, req planning.PlanRequest, id exercise.ExerciseID, heavy, light int) planning.PlanRequest {
+	t.Helper()
+	reps, err := program.NewRepTargets(heavy, light)
+	if err != nil {
+		t.Fatalf("NewRepTargets: %v", err)
+	}
+	req.Program, err = req.Program.WithRepTargets(id, reps)
+	if err != nil {
+		t.Fatalf("WithRepTargets: %v", err)
+	}
+	return req
+}
+
+// 宣言ごとのレップ数で軸が処方されること。強度は Epley の逆算
+// （8レップ RIR1 → 0.77、12レップ RIR1 → 0.70）。
+//
+// 重点ベンチ（N=8・M=12）の一巡は 8 → 12 → 派生（重点ベンチの M = 12）。
+// 派生の日に使うのは派生自身ではなく重点種目の値。
+func TestSessionPlanner_AxisFollowsTheDeclaredReps(t *testing.T) {
+	cases := []struct {
+		name      string
+		sessions  int
+		want      exercise.ExerciseID
+		intensity float64
+		reps      int
+	}{
+		{name: "1周目は重い番", sessions: 3, want: "bench", intensity: 0.77, reps: 8},
+		{name: "2周目は軽い番", sessions: 4, want: "bench", intensity: 0.70, reps: 12},
+		{name: "3周目の派生は重点種目の軽い番", sessions: 5, want: "tempo", intensity: 0.70, reps: 12},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			req := withReps(t, rotationRequest(t, c.sessions), "bench", 8, 12)
+			set := mustPlan(t, req).Main()[0]
+			if set.ExerciseID() != c.want {
+				t.Fatalf("前提: 軸が %s。%s のはず", set.ExerciseID(), c.want)
+			}
+			assertIntensity(t, req, set, c.intensity)
+			if got := set.TargetReps().Int(); got != c.reps {
+				t.Errorf("目標レップが %d。%d のはず", got, c.reps)
+			}
+		})
+	}
+}
+
+// ほかの宣言の値は、軸に立った種目の処方に混ざらないこと。
+//
+// ベンチに (8, 12) を立てても、スクワットが軸の日は既定（3レップ・0.88）。
+func TestSessionPlanner_OtherDeclaredKeepTheirOwnReps(t *testing.T) {
+	logs := rotationLogs(t, 4)
+	logs = append(logs,
+		mkLogOn(t, "sq", planMonday.AddDays(-40), "squat", 110, 8, 2),
+		mkLogOn(t, "dl", planMonday.AddDays(-3), "deadlift", 140, 8, 2))
+
+	req := planRequest(t)
+	req.Program, req.Target = focusedProgram(t, "bench")
+	req.History = setlog.NewHistory(logs)
+	req = withReps(t, req, "bench", 8, 12)
+
+	set := mustPlan(t, req).Main()[0]
+	if set.ExerciseID() != "squat" {
+		t.Fatalf("前提: 軸がスクワットであること: %s", set.ExerciseID())
+	}
+	assertIntensity(t, req, set, 0.88)
+	if got := set.TargetReps().Int(); got != 3 {
+		t.Errorf("目標レップが %d。3 のはず", got)
+	}
+}
+
+// 重点でない宣言も、自分の重い番で出ること（チンニングの例）。
+func TestSessionPlanner_NonFocusAxisUsesItsHeavyReps(t *testing.T) {
+	req := planRequest(t)
+	req.Program, req.Target = benchOnlyProgram(t) // 重点なし・宣言はベンチだけ
+	req.History = setlog.NewHistory(rotationLogs(t, 4))
+	req = withReps(t, req, "bench", 8, 12)
+
+	set := mustPlan(t, req).Main()[0]
+	if set.ExerciseID() != "bench" {
+		t.Fatalf("前提: 軸がベンチであること: %s", set.ExerciseID())
+	}
+	assertIntensity(t, req, set, 0.77)
+	if got := set.TargetReps().Int(); got != 8 {
+		t.Errorf("目標レップが %d。8 のはず", got)
+	}
 }
