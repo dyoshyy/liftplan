@@ -30,11 +30,12 @@
 
 ## Review Focus
 
-1. **別の設定を変えたらレップ数が消える** — `params()` への載せ忘れ。`WithFrequency` などで値が残ることを Task 2 の `TestProgram_WithKeepsOtherFields` に `reps` を足して守る
-2. **既存の DB（列が無い版・NULL の行）が読めない** — Task 3 で旧版のスキーマに行を作ってから新版を当てる手順を踏み、NULL を既定として読むテストを置く
-3. **重点を切り替えると派生の日の M が別の種目のものになる** — 派生の日は「重点種目の M」。Task 4 のテストで、派生の M が派生自身ではなく重点種目の値であることを見る
-4. **宣言を外して入れ直したら古い値が戻る** — 仕様は「既定に戻る」。Task 2 で `WithDeclared` が落とすこと、Task 6 で画面が取り直した値を出すことを見る
-5. **今日の計画が一日の途中で動く** — レップ数は `Program` から引くだけで履歴を見ないので動かないはずだが、`TestSessionPlanner_PlanIsFixedForTheWholeDay` を各 PR の検収に入れる
+1. **別の設定を変えたらレップ数が消える** — `params()` への載せ忘れ。`WithFrequency` などで値が残ることを Task 2 の `TestProgram_WithKeepsOtherFields` に `reps` を足して守る。`With*` を通らずに既存のプログラムを組み直す経路は無いことを確かめた（非テストの `program.NewProgram(` はリポジトリの `Get`・devsim・seed の初期プログラムの3か所だけで、どれも新しく組む側）
+2. **設定画面で宣言を続けて押すと、先の変更が消える** — 取り直しの応答で全体を置き換えると起きる。Task 6 Step 5 で `declared_reps` だけを合流させ、Step 7 で「宣言を足すと重い日の行が出る」を配線として見る
+3. **既存の DB（列が無い版・NULL の行）が読めない** — Task 3 で旧版のスキーマに行を作ってから新版を当てる手順を踏み、NULL を既定として読むテストを置く
+4. **重点を切り替えると派生の日の M が別の種目のものになる** — 派生の日は「重点種目の M」。Task 4 のテストで、派生の M が派生自身ではなく重点種目の値であることを見る
+5. **宣言を外して入れ直したら古い値が戻る** — 仕様は「既定に戻る」。Task 2 で `WithDeclared` が落とすこと、Task 6 で画面が取り直した値を出すことを見る
+6. **今日の計画が一日の途中で動く** — レップ数は `Program` から引くだけで履歴を見ないので動かないはずだが、`TestSessionPlanner_PlanIsFixedForTheWholeDay` を各 PR の検収に入れる
 
 ---
 
@@ -63,7 +64,7 @@
 
 ## PR 1：派生の日を軽い版にする
 
-ブランチ：`feat/derived-axis-light`（main から）
+ブランチ：`feat/derived-axis-light`（設計書と計画を置いた `docs/declared-rep-targets` の上に積む。設計書と計画はこの PR と一緒に main へ入る）
 
 ### Task 1: 派生が軸に立つ日を `focusVariationRole`（0.81・6レップ・RIR1・上乗せなし）にする
 
@@ -346,7 +347,7 @@ gofmt -l . && go vet ./... && go test ./...
 go test ./internal/domain/training/planning/ -run TestSessionPlanner_PlanIsFixedForTheWholeDay -v
 SIM=<scratchpad>/sim; mkdir -p $SIM
 go test ./internal/domain/training/seed/ -run TestSimulation -v > $SIM/after.txt 2>&1
-git worktree add $SIM/base main
+git worktree add $SIM/base docs/declared-rep-targets
 (cd $SIM/base && go test ./internal/domain/training/seed/ -run TestSimulation -v > $SIM/before.txt 2>&1)
 git worktree remove $SIM/base
 diff $SIM/before.txt $SIM/after.txt
@@ -1686,19 +1687,27 @@ Expected: PASS
   };
 ```
 
-`toggleDeclaredExercise` を直す。宣言を足すと、その種目のレップ数（既定）はサーバーしか知らない。外した種目の値はサーバーが捨てる。どちらもサーバーの値を取り直して揃える。
+`toggleDeclaredExercise` を直す。宣言を足すと、その種目のレップ数（既定）はサーバーしか知らない。外した種目の値はサーバーが捨てる。レップ数だけを取り直して合流させる。
+
+**取り直した応答でプログラム全体を置き換えない。**取り直しは `request()` の外なので、その間 `busy` は下りている。応答を待つ間に別の種目を押すと、その操作の結果を古い応答が上書きし、次の操作がそこから組んだ `next` を PUT してサーバー上の変更を消す（フックの冒頭コメントと `settings-check.mjs` 冒頭が警告している「描画時の program を掴んだ関数が古い値を見る」と同じ形）。宣言は PUT が通った時点で手元を書き換え、取り直しからは `declared_reps` だけを関数形の更新で合流させる。
 
 ```ts
   const toggleDeclaredExercise = async (id: string) => {
     if (!program || busy) return;
     const next = toggleDeclared(program.declared_exercises, id);
     if (!(await put('/api/program/declared', { declared_exercises: next }))) return;
-    // 宣言ごとのレップ数は取り直す。足した種目の既定はサーバーしか知らず、
-    // 外した種目の値はサーバーが捨てる。取り直しに失敗しても宣言は保存
-    // できているので、手元の宣言だけ進める（レップ数の行は repsRows が
-    // 値の無い宣言を出さない）。
-    const fresh = await getJSON<Program>('/api/program').catch(() => null);
-    setProgram(fresh ?? { ...program, declared_exercises: next });
+    setProgram({ ...program, declared_exercises: next });
+    // 宣言ごとのレップ数だけを取り直す。足した種目の既定はサーバーしか
+    // 知らず、外した種目の値はサーバーが捨てる。全体を置き換えないのは、
+    // 応答を待つ間に押された別の操作を古い応答で上書きしないため。
+    // 失敗しても宣言は保存できている（レップ数の行は repsRows が値の無い
+    // 宣言を出さない）。
+    try {
+      const fresh = await getJSON<Program>('/api/program');
+      setProgram((p) => (p ? { ...p, declared_reps: fresh.declared_reps } : p));
+    } catch {
+      // 取り直せなくても、次に画面を開いたときに揃う。
+    }
     await onChanged();
   };
 ```
@@ -1798,6 +1807,18 @@ for (const id of repsBefore.declared_exercises.slice(1)) {
 // 元に戻す。
 await page.locator(`select[aria-label$="の重い日のレップ数"]`).first().selectOption(String(heavyBefore));
 await page.waitForTimeout(1200);
+
+// 宣言を足すと、その種目の重い日の行が出る（取り直した declared_reps が
+// 画面に届くか）。宣言していない「使う種目」を1つ選んで押し、行を数え、
+// 押し直して元に戻す。押し方は既存の「伸ばしたい種目」の検査（growGroup）に合わせる。
+const rowsBefore = await page.locator('select[aria-label$="の重い日のレップ数"]').count();
+const addable = repsBefore.selected_exercises.find((id) => !repsBefore.declared_exercises.includes(id));
+// （addable の表示名でボタンを押す。表示名の引き方は既存の検査に合わせる）
+await page.waitForTimeout(1500);
+const rowsAfter = await page.locator('select[aria-label$="の重い日のレップ数"]').count();
+console.log('宣言を足したあとの重い日の行:', rowsBefore, '→', rowsAfter, `（期待 ${rowsBefore + 1}）`);
+if (rowsAfter !== rowsBefore + 1) errs.push('宣言を足しても重い日の行が出ない');
+// （同じボタンを押し直して元に戻す）
 ```
 
 **注意：**`errs` の扱い（最後に件数を出して `process.exit(1)` するか）は既存のスクリプトの末尾に合わせる。「種目」の節が畳まれているなら、既存の検査が開いた後に置くか、開く操作を足す。
