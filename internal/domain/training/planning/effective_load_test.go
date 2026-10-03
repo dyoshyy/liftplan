@@ -198,3 +198,52 @@ func TestSetLog_ZeroWeightIsNotEstimable(t *testing.T) {
 			orm.Kg())
 	}
 }
+
+// LoadOffset は、自重種目で記録した加重に足すと実効負荷になる量。
+//
+// 画面が「いま上げたセット」の実効負荷を出すのに使う。体重を引く規則を画面に
+// 持たせないため、足す量だけをサーバーが決めて渡す。
+func TestLoadOffset(t *testing.T) {
+	cases := []struct {
+		name       string
+		exercise   *exercise.Exercise
+		conditions condition.ConditionLog
+		want       float64
+	}{
+		{
+			name: "自重係数 × その日の体重",
+			// 0.95 × 75
+			exercise: chinning(t), conditions: bodyWeightOn(t, loadDay, 75), want: 71.25,
+		},
+		{
+			// 体重が引けないからと 0 を返すと、画面は「加重だけ」で比べ始める。
+			name: "体重を一度も記録していないなら既定体重で足す",
+			// 0.95 × 70
+			exercise: chinning(t), conditions: condition.NewConditionLog(nil), want: 0.95 * defaultBodyWeight,
+		},
+		{
+			name:     "自重を使わない種目は足さない",
+			exercise: benchPress(t), conditions: bodyWeightOn(t, loadDay, 75), want: 0,
+		},
+		{
+			// 古い体重で読む。新しい体重で過去の日を読み替えると、減量した人の
+			// 昔の実効負荷が軽く見える。
+			name: "その日より後の体重は使わない",
+			// 0.95 × 80（2026-08-10 の体重）
+			exercise: chinning(t), want: 76,
+			conditions: condition.NewConditionLog([]condition.DailyCondition{
+				condition.NewDailyCondition(training.MustDate(2026, time.August, 10)).WithBodyWeight(80),
+				condition.NewDailyCondition(training.MustDate(2026, time.August, 20)).WithBodyWeight(60),
+			}),
+		},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			got := planning.LoadOffset(c.exercise, c.conditions, loadDay)
+			if math.Abs(got-c.want) > 1e-9 {
+				t.Errorf("足す量が %vkg。%v のはず", got, c.want)
+			}
+		})
+	}
+}

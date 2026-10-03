@@ -23,6 +23,7 @@ export type PersonalRecord = {
   deltaKg: number;
 };
 
+/** SetValues は推定に渡す1セット。weight は**体重を足したあとの負荷**（実効負荷）。 */
 export type SetValues = { weight: number; reps: number; rir: number };
 
 // maxRepsToFailure は Epley 式を適用してよい「限界までの総レップ数」の上限。
@@ -41,13 +42,17 @@ const quantize = (v: number): number => Math.round(v * QUANTUM) / QUANTUM;
 
 // estimateOneRepMax は1セットから推定1RMを出す。推定できなければ null。
 //
-// 推定できないのは、0kg の自重種目と、限界までの総レップが適用範囲を
+// 渡すのは体重を足した負荷。記録した加重のまま渡すと、自重種目（0kg）は
+// 推定できず、10kg を付けた5回が自重10回より強い記録として祝われる。
+// 体重を引く規則は画面に持たない（サーバーの `EffectiveLoad` だけが持つ）。
+//
+// 推定できないのは、負荷が 0kg のセットと、限界までの総レップが適用範囲を
 // 超えたセット。後者を通すと 20kg×100レップが 86.7kg の自己ベストになる。
 export function estimateOneRepMax(v: SetValues): number | null {
   const repsToFailure = v.reps + v.rir;
   if (repsToFailure > MAX_REPS_TO_FAILURE) return null;
-  // 自重種目（0kg）からは1RMを推定できない。0を返すと、重りを付けた
-  // 最初の1セットが「0kg からの更新」になる。
+  // 負荷が 0kg のセットからは1RMを推定できない。0を返すと、次の1セットが
+  // 「0kg からの更新」になる。体重を足せない日（サーバーが 0 で返す）もここ。
   if (!(v.weight > 0)) return null;
 
   const kg = quantize(v.weight * (1 + repsToFailure / EPLEY_DIVISOR));
@@ -89,9 +94,24 @@ export function previousSets({
 type JudgeInput = {
   exerciseId: string;
   name: string;
+  /** values は今回のセット。weight は記録する加重（体重は含まない）。 */
   values: SetValues;
+  /**
+   * loadOffsetKg は加重に足すと体重込みの負荷になる量（サーバーの `load_offsets`）。
+   * 自重を使わない種目は 0。**必須にしてあるのは、渡し忘れると加重だけで比べる
+   * 判定に戻り、型が通ってしまうため。**
+   */
+  loadOffsetKg: number;
   previous: readonly RecordedSet[];
 };
+
+// effectiveLoadOf は過去のセットの体重込みの負荷。サーバーが日付時点の体重で
+// 読み替えた値があればそれを使う。いまの体重で読み替えると、減量した人の昔の
+// 記録が軽く見えて、毎回「更新」になる。
+// 無いのは今日この画面で記録したセット（同じ日なのでいま足す量で読み替える）。
+// `??` なのは 0 が「推定できない」を意味するため。`||` だと 0 を握りつぶす。
+const effectiveLoadOf = (s: RecordedSet, loadOffsetKg: number): number =>
+  s.effective_kg ?? s.weight_kg + loadOffsetKg;
 
 // judgePersonalRecord は今回のセットが自己ベストの更新かを決める。
 //
@@ -102,13 +122,14 @@ export function judgePersonalRecord({
   exerciseId,
   name,
   values,
+  loadOffsetKg,
   previous,
 }: JudgeInput): PersonalRecord | null {
-  const now = estimateOneRepMax(values);
+  const now = estimateOneRepMax({ ...values, weight: values.weight + loadOffsetKg });
   if (now === null) return null;
 
   const estimates = previous
-    .map((s) => estimateOneRepMax({ weight: s.weight_kg, reps: s.reps, rir: s.rir }))
+    .map((s) => estimateOneRepMax({ weight: effectiveLoadOf(s, loadOffsetKg), reps: s.reps, rir: s.rir }))
     .filter((kg): kg is number => kg !== null);
   if (estimates.length === 0) return null;
 

@@ -312,8 +312,11 @@ type exerciseInputDTO struct {
 type setDTO struct {
 	ID       string  `json:"id"`
 	WeightKg float64 `json:"weight_kg"`
-	Reps     int     `json:"reps"`
-	RIR      int     `json:"rir"`
+	// EffectiveKg は WeightKg に、その日の体重ぶん（自重種目だけ）を足した負荷。
+	// 画面が自己ベストを比べるのに使う。0 は推定できない。
+	EffectiveKg float64 `json:"effective_kg"`
+	Reps        int     `json:"reps"`
+	RIR         int     `json:"rir"`
 }
 
 type exerciseLogDTO struct {
@@ -343,6 +346,9 @@ type setLogsResponse struct {
 	To   string             `json:"to"`
 	Days []dayDTO           `json:"days"`
 	Last map[string]lastDTO `json:"last_performances"`
+	// LoadOffsets は種目ごとの、記録した加重に足すと体重込みの負荷になる量
+	// （to 時点の体重）。自重を使う種目だけが載る。
+	LoadOffsets map[string]float64 `json:"load_offsets"`
 }
 
 type pointDTO struct {

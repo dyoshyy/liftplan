@@ -3,6 +3,7 @@ package httpapi_test
 import (
 	"encoding/json"
 	"fmt"
+	"math"
 	"net/http"
 	"strings"
 	"testing"
@@ -376,9 +377,10 @@ type setLogsBody struct {
 			ExerciseID string `json:"exercise_id"`
 			Name       string `json:"name"`
 			Sets       []struct {
-				ID       string  `json:"id"`
-				WeightKg float64 `json:"weight_kg"`
-				Reps     int     `json:"reps"`
+				ID          string  `json:"id"`
+				WeightKg    float64 `json:"weight_kg"`
+				EffectiveKg float64 `json:"effective_kg"`
+				Reps        int     `json:"reps"`
 			} `json:"sets"`
 		} `json:"exercises"`
 	} `json:"days"`
@@ -389,6 +391,7 @@ type setLogsBody struct {
 		Reps     []int     `json:"reps"`
 		DaysAgo  int       `json:"days_ago"`
 	} `json:"last_performances"`
+	LoadOffsets map[string]float64 `json:"load_offsets"`
 }
 
 // 1日に複数の種目をやった場合を、種目ごとに分けて返すこと。
@@ -574,5 +577,51 @@ func TestGetExercises_CarriesStimulus(t *testing.T) {
 		if len(e.Stimulus) == 0 {
 			t.Errorf("%s の刺激分布が空である", e.ID)
 		}
+	}
+}
+
+// 画面の自己ベスト判定が体重込みで比べられるよう、セットごとの体重込みの負荷と、
+// いま上げるセットに足す量を、同じ応答で返す。
+//
+// 体重を引く規則を画面に持たせると、サーバーの推定と食い違う。
+// 自重の懸垂（0kg）は体重ぶんの負荷として、通常種目は記録のまま返る。
+func TestGetSetLogs_ReturnsBodyweightLoads(t *testing.T) {
+	mux := newServer(t, true)
+
+	if rec := do(t, mux, http.MethodPost, "/api/conditions",
+		`{"conditions":[{"date":"2026-08-01","body_weight_kg":80}]}`); rec.Code != http.StatusNoContent {
+		t.Fatalf("体重の記録に失敗: %d body=%s", rec.Code, rec.Body.String())
+	}
+	if rec := do(t, mux, http.MethodPost, "/api/set-logs", `{"logs":[`+
+		`{"id":"c1","date":"2026-08-17","exercise_id":"pull_up","weight_kg":0,"reps":8,"rir":1},`+
+		`{"id":"b1","date":"2026-08-17","exercise_id":"bench","weight_kg":85,"reps":5,"rir":1}]}`); rec.Code != http.StatusNoContent {
+		t.Fatalf("記録に失敗: %d body=%s", rec.Code, rec.Body.String())
+	}
+
+	rec := do(t, mux, http.MethodGet, "/api/set-logs?from=2026-08-01&to=2026-08-31", "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("取得に失敗: %d body=%s", rec.Code, rec.Body.String())
+	}
+	var got setLogsBody
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatalf("応答を解釈できない: %v", err)
+	}
+
+	eff := map[string]float64{}
+	for _, e := range got.Days[0].Exercises {
+		eff[e.ExerciseID] = e.Sets[0].EffectiveKg
+	}
+	// 0.95 × 80（自重係数は種目の持ち物）
+	if math.Abs(eff["pull_up"]-76) > 1e-9 {
+		t.Errorf("チンニングの体重込みが %v。76 のはず", eff["pull_up"])
+	}
+	if eff["bench"] != 85 {
+		t.Errorf("ベンチの体重込みが %v。記録のまま 85 のはず", eff["bench"])
+	}
+	if math.Abs(got.LoadOffsets["pull_up"]-76) > 1e-9 {
+		t.Errorf("チンニングに足す量が %v。76 のはず", got.LoadOffsets["pull_up"])
+	}
+	if _, ok := got.LoadOffsets["bench"]; ok {
+		t.Errorf("自重を使わない種目に足す量が載っている: %v", got.LoadOffsets)
 	}
 }

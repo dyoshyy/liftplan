@@ -41,6 +41,31 @@ func EffectiveLoad(log *setlog.SetLog, e *exercise.Exercise, c condition.Conditi
 	return adjusted
 }
 
+// LoadOffset は、自重種目で記録した加重に足すと実効負荷になる量。
+// 自重係数 × on 時点の体重。自重を使わない種目は 0。
+//
+// 体重を一度も記録していなければ既定体重で足す。0 を返すと、足す側が
+// 「加重だけ」で比べ始めて、自重種目の負荷が体重ぶん軽く見える。
+//
+// EffectiveLoad と違い、体重を記録した人の on より前に体重が無い場合も
+// 既定体重に倒す。こちらは「いま上げるセット」の負荷を出すための量で、
+// 値が無いことは許されない。
+func LoadOffset(e *exercise.Exercise, c condition.ConditionLog, on training.Date) float64 {
+	if e == nil {
+		return 0
+	}
+	factor := e.BodyweightFactor().Float()
+	if factor == 0 {
+		return 0
+	}
+
+	bw, ok := c.BodyWeightAsOf(on)
+	if !ok {
+		bw = condition.DefaultBodyWeightKg
+	}
+	return factor * bw
+}
+
 // AddedWeight は実効負荷の目標から、実際に付ける加重を返す。EffectiveLoad の逆。
 // 体重込みの数字を見せられても何をすればいいか分からないため。
 //
@@ -55,19 +80,9 @@ func AddedWeight(total training.Weight, e *exercise.Exercise, c condition.Condit
 		return total
 	}
 
-	factor := e.BodyweightFactor().Float()
-	if factor == 0 {
-		return total
-	}
-
-	bw, ok := c.BodyWeightAsOf(on)
-	if !ok {
-		bw = condition.DefaultBodyWeightKg
-	}
-
 	// 自重だけで目標を超えるなら、付けるものは無い。負の重量は存在しないので
 	// 0 に倒す（＝「自重」）。目標そのものを下げるのはデロードの仕事。
-	added := max(total.Kg()-factor*bw, 0)
+	added := max(total.Kg()-LoadOffset(e, c, on), 0)
 
 	w, err := training.NewWeight(added)
 	if err != nil {

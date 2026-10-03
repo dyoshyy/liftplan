@@ -26,7 +26,7 @@ func TestQueries_ClassifyUnavailable(t *testing.T) {
 		err: fmt.Errorf("種目の取得: %w", training.ErrRepositoryUnavailable),
 	}
 	exercises := query.NewExercises(unavailable)
-	history := query.NewHistory(&stubLogs{}, unavailable)
+	history := query.NewHistory(&stubLogs{}, unavailable, &stubConditions{})
 	stats := query.NewStats(&stubLogs{}, unavailable, &stubConditions{}, &stubProgram{},
 		planning.DefaultOneRepMaxEstimator())
 

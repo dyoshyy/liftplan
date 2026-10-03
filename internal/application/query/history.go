@@ -27,7 +27,9 @@ import (
 	"github.com/dyoshyy/liftplan/internal/application/apperror"
 	"github.com/dyoshyy/liftplan/internal/domain/account"
 	"github.com/dyoshyy/liftplan/internal/domain/training"
+	"github.com/dyoshyy/liftplan/internal/domain/training/condition"
 	"github.com/dyoshyy/liftplan/internal/domain/training/exercise"
+	"github.com/dyoshyy/liftplan/internal/domain/training/planning"
 	"github.com/dyoshyy/liftplan/internal/domain/training/setlog"
 )
 
@@ -37,6 +39,10 @@ type Set struct {
 	WeightKg float64
 	Reps     int
 	RIR      int
+	// EffectiveKg は WeightKg に、その日の体重ぶん（自重種目だけ）を足した負荷。
+	// 推定1RMに使う値で、0 は「体重が引けず推定できない」。
+	// WeightKg は記録そのもの（加重）なので書き換えない。
+	EffectiveKg float64
 }
 
 // ExerciseLog は1つの種目で、その日にこなしたセットの集まり。
@@ -70,15 +76,17 @@ type LastPerformance struct {
 
 // History は実績を読むための経路。
 type History struct {
-	logs      setlog.Reader
-	exercises exercise.Reader
+	logs       setlog.Reader
+	exercises  exercise.Reader
+	conditions condition.Reader
 }
 
 func NewHistory(
 	logs setlog.Reader,
 	exercises exercise.Reader,
+	conditions condition.Reader,
 ) *History {
-	return &History{logs: logs, exercises: exercises}
+	return &History{logs: logs, exercises: exercises, conditions: conditions}
 }
 
 // Days は期間内の実績を、新しい日から順に返す。
@@ -93,9 +101,21 @@ func (q *History) Days(ctx context.Context, user account.UserID, from, to traini
 		return nil, fmt.Errorf("終わりが始まりより前である")
 	}
 
-	h, names, err := q.load(ctx, user)
+	h, pool, err := q.load(ctx, user)
 	if err != nil {
 		return nil, err
+	}
+	conds, err := q.conditions.FindAll(ctx, user)
+	if err != nil {
+		return nil, fmt.Errorf("コンディションの取得に失敗: %w", err)
+	}
+	byID := make(map[exercise.ExerciseID]*exercise.Exercise, len(pool))
+	names := make(map[exercise.ExerciseID]string, len(pool))
+	for _, e := range pool {
+		if e != nil {
+			byID[e.ID()] = e
+			names[e.ID()] = e.Name()
+		}
 	}
 
 	// TrainingSession は「同じ日」でまとめたもので、1日の中に複数の種目が
@@ -121,10 +141,11 @@ func (q *History) Days(ctx context.Context, user account.UserID, from, to traini
 				index[s.Date()][id] = i
 			}
 			day.Exercises[i].Sets = append(day.Exercises[i].Sets, Set{
-				ID:       l.ID(),
-				WeightKg: l.Weight().Kg(),
-				Reps:     l.Reps().Int(),
-				RIR:      l.RIR().Int(),
+				ID:          l.ID(),
+				WeightKg:    l.Weight().Kg(),
+				Reps:        l.Reps().Int(),
+				RIR:         l.RIR().Int(),
+				EffectiveKg: planning.EffectiveLoad(l, byID[id], conds).Kg(),
 			})
 			day.TotalSets++
 		}
@@ -137,6 +158,36 @@ func (q *History) Days(ctx context.Context, user account.UserID, from, to traini
 	for _, d := range order {
 		if len(byDate[d].Exercises) > 0 {
 			out = append(out, *byDate[d])
+		}
+	}
+	return out, nil
+}
+
+// LoadOffsets は種目ごとの、記録した加重に足すと実効負荷になる量を返す。
+// 自重を使う種目だけが載る（使わない種目は 0 なので載せない）。
+//
+// 画面が「いま上げたセット」の負荷を出すのに使う。体重を引く規則を画面に
+// 持たせると、サーバーの推定と食い違う。規則はサーバーに1つだけ置き、
+// 画面には足す量だけを渡す。
+func (q *History) LoadOffsets(ctx context.Context, user account.UserID, asOf training.Date) (_ map[exercise.ExerciseID]float64, err error) {
+	defer func() { err = apperror.Classify(err) }()
+	if asOf.IsZero() {
+		return nil, fmt.Errorf("基準日が指定されていない")
+	}
+
+	_, pool, err := q.load(ctx, user)
+	if err != nil {
+		return nil, err
+	}
+	conds, err := q.conditions.FindAll(ctx, user)
+	if err != nil {
+		return nil, fmt.Errorf("コンディションの取得に失敗: %w", err)
+	}
+
+	out := map[exercise.ExerciseID]float64{}
+	for _, e := range pool {
+		if kg := planning.LoadOffset(e, conds, asOf); kg > 0 {
+			out[e.ID()] = kg
 		}
 	}
 	return out, nil
@@ -206,9 +257,9 @@ func (q *History) LastPerformances(
 	return out, nil
 }
 
-// load は履歴と種目名をまとめて取る。
+// load は履歴と種目をまとめて取る。
 func (q *History) load(ctx context.Context, user account.UserID) (
-	setlog.History, map[exercise.ExerciseID]string, error,
+	setlog.History, []*exercise.Exercise, error,
 ) {
 	if err := ctx.Err(); err != nil {
 		return setlog.History{}, nil, fmt.Errorf("読み取りが中断された: %w", err)
@@ -222,13 +273,5 @@ func (q *History) load(ctx context.Context, user account.UserID) (
 	if err != nil {
 		return setlog.History{}, nil, fmt.Errorf("種目の取得に失敗: %w", err)
 	}
-
-	names := make(map[exercise.ExerciseID]string, len(pool))
-	for _, e := range pool {
-		if e == nil {
-			continue
-		}
-		names[e.ID()] = e.Name()
-	}
-	return h, names, nil
+	return h, pool, nil
 }

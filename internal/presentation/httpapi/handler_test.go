@@ -123,7 +123,7 @@ func dependencies(
 		AddExercise:      usecase.NewAddExercise(exercises, programs, programs),
 		EditExercise:     usecase.NewEditExercise(exercises, programs),
 		Exercises:        query.NewExercises(exercises),
-		History:          query.NewHistory(logs, exercises),
+		History:          query.NewHistory(logs, exercises, conditions),
 		Stats:            query.NewStats(logs, exercises, conditions, programs, planning.DefaultOneRepMaxEstimator()),
 		Accounts:         query.NewAccounts(memory.NewAccountRepository()),
 	}

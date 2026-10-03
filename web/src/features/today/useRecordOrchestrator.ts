@@ -19,6 +19,8 @@ type Deps = {
   history: {
     days: readonly Day[];
     doneToday: ReadonlyMap<string, readonly RecordedSet[]>;
+    /** loadOffsets は種目ごとの、加重に足すと体重込みの負荷になる量（自重種目だけ）。 */
+    loadOffsets: Readonly<Record<string, number>>;
   };
   nameOf: (exerciseId: string) => string;
   /** onPersonalRecord は更新だったときだけ呼ぶ。 */
@@ -213,6 +215,7 @@ export function useRecordOrchestrator({
         exerciseId: sheet.plan.exercise_id,
         name: nameOf(sheet.plan.exercise_id),
         values,
+        loadOffsetKg: history.loadOffsets[sheet.plan.exercise_id] ?? 0,
         previous: previousSets({
           days: history.days,
           doneToday: history.doneToday,

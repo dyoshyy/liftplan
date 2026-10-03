@@ -68,11 +68,18 @@ func (h *Handler) handleGetSetLogs(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	offsets, err := h.history.LoadOffsets(r.Context(), user, to)
+	if err != nil {
+		respondError(w, err)
+		return
+	}
+
 	writeJSON(w, http.StatusOK, setLogsResponse{
-		From: from.String(),
-		To:   to.String(),
-		Days: toDayDTOs(days),
-		Last: toLastDTOs(last),
+		From:        from.String(),
+		To:          to.String(),
+		Days:        toDayDTOs(days),
+		Last:        toLastDTOs(last),
+		LoadOffsets: toLoadOffsetDTOs(offsets),
 	})
 }
 
@@ -184,12 +191,20 @@ func toDayDTOs(days []query.Day) []dayDTO {
 			}
 			for _, s := range e.Sets {
 				ex.Sets = append(ex.Sets, setDTO{
-					ID: string(s.ID), WeightKg: s.WeightKg, Reps: s.Reps, RIR: s.RIR,
+					ID: string(s.ID), WeightKg: s.WeightKg, EffectiveKg: s.EffectiveKg, Reps: s.Reps, RIR: s.RIR,
 				})
 			}
 			day.Exercises = append(day.Exercises, ex)
 		}
 		out = append(out, day)
+	}
+	return out
+}
+
+func toLoadOffsetDTOs(offsets map[exercise.ExerciseID]float64) map[string]float64 {
+	out := make(map[string]float64, len(offsets))
+	for id, kg := range offsets {
+		out[string(id)] = kg
 	}
 	return out
 }

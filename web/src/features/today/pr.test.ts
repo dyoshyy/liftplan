@@ -3,11 +3,12 @@ import type { Day, RecordedSet } from '../../api/types';
 import { formatKg, judgePersonalRecord, previousSets } from './pr';
 
 const today = '2026-09-21';
-const set = (id: string, weight_kg: number, reps: number, rir = 0): RecordedSet => ({
+const set = (id: string, weight_kg: number, reps: number, rir = 0, effective_kg?: number): RecordedSet => ({
   id,
   weight_kg,
   reps,
   rir,
+  ...(effective_kg === undefined ? {} : { effective_kg }),
 });
 
 const day = (date: string, sets: RecordedSet[]): Day => ({
@@ -64,6 +65,7 @@ describe('judgePersonalRecord', () => {
     const got = judgePersonalRecord({
       exerciseId: 'bench',
       name: 'ベンチプレス',
+      loadOffsetKg: 0,
       values: { weight: 105, reps: 5, rir: 0 },
       previous,
     });
@@ -79,6 +81,7 @@ describe('judgePersonalRecord', () => {
     const got = judgePersonalRecord({
       exerciseId: 'bench',
       name: 'ベンチプレス',
+      loadOffsetKg: 0,
       values: { weight: 100, reps: 5, rir: 0 },
       previous,
     });
@@ -90,6 +93,7 @@ describe('judgePersonalRecord', () => {
     const got = judgePersonalRecord({
       exerciseId: 'bench',
       name: 'ベンチプレス',
+      loadOffsetKg: 0,
       values: { weight: 95, reps: 5, rir: 0 },
       previous,
     });
@@ -103,6 +107,7 @@ describe('judgePersonalRecord', () => {
     const got = judgePersonalRecord({
       exerciseId: 'bench',
       name: 'ベンチプレス',
+      loadOffsetKg: 0,
       values: { weight: 100, reps: 5, rir: 0 },
       previous: [],
     });
@@ -117,6 +122,7 @@ describe('judgePersonalRecord', () => {
     const got = judgePersonalRecord({
       exerciseId: 'bench',
       name: 'ベンチプレス',
+      loadOffsetKg: 0,
       values: { weight: 100, reps: 30, rir: 0 },
       previous,
     });
@@ -131,6 +137,7 @@ describe('judgePersonalRecord', () => {
     const got = judgePersonalRecord({
       exerciseId: 'bench',
       name: 'ベンチプレス',
+      loadOffsetKg: 0,
       values: { weight: 105, reps: 5, rir: 0 },
       previous: [set('junk', 20, 100), set('a', 100, 5)],
     });
@@ -145,6 +152,7 @@ describe('judgePersonalRecord', () => {
     const got = judgePersonalRecord({
       exerciseId: 'chinup',
       name: '懸垂',
+      loadOffsetKg: 0,
       values: { weight: 5, reps: 5, rir: 0 },
       previous: [set('a', 0, 10)],
     });
@@ -158,6 +166,7 @@ describe('judgePersonalRecord', () => {
     const got = judgePersonalRecord({
       exerciseId: 'bench',
       name: 'ベンチプレス',
+      loadOffsetKg: 0,
       values: { weight: 100, reps: 5, rir: 2 },
       previous,
     });
@@ -170,11 +179,94 @@ describe('judgePersonalRecord', () => {
     const got = judgePersonalRecord({
       exerciseId: 'bench',
       name: 'ベンチプレス',
+      loadOffsetKg: 0,
       values: { weight: 0.1 + 0.2, reps: 1, rir: 0 },
       previous: [set('a', 0.3, 1)],
     });
 
     expect(got).toBeNull();
+  });
+});
+
+// 自重種目は、記録した加重だけで比べると食い違う。体重を引く規則は画面に
+// 持たせず、サーバーが渡す2つの数字だけで比べる。
+//   - 過去のセット：その日の体重で読み替えた effective_kg
+//   - いま上げるセット：記録する加重に足す量 loadOffsetKg（体重 × 自重係数）
+describe('judgePersonalRecord（自重種目）', () => {
+  const chin = { exerciseId: 'pull_up', name: 'チンニング' };
+
+  // 自重10回のあとに 5kg を付けて5回やっても、強くなってはいない。
+  // 加重だけで比べると前回は 0kg で「比べる相手なし」になり、5kg×5 が
+  // そのまま更新として祝われていた。
+  it('前回の自重10回より軽い加重5回は、祝わない', () => {
+    const got = judgePersonalRecord({
+      ...chin,
+      values: { weight: 5, reps: 5, rir: 0 },
+      loadOffsetKg: 66.5, // 0.95 × 70
+      previous: [set('a', 0, 10, 0, 66.5)],
+    });
+
+    expect(got).toBeNull();
+  });
+
+  // 0kg のままでも、回数が増えれば強くなっている。自重種目を自重で続ける
+  // 人の更新が、一度も祝われない。
+  it('自重のままでも、回数が増えたら祝う', () => {
+    const got = judgePersonalRecord({
+      ...chin,
+      values: { weight: 0, reps: 10, rir: 0 },
+      loadOffsetKg: 66.5,
+      previous: [set('a', 0, 8, 0, 66.5)],
+    });
+
+    expect(got).not.toBeNull();
+    // 66.5 × (1 + 10/30)
+    expect(got?.estimatedKg).toBeCloseTo(88.666667, 3);
+    // 66.5 × (1 + 8/30)
+    expect(got?.previousKg).toBeCloseTo(84.233333, 3);
+  });
+
+  // 過去のセットは、その日の体重で読み替えた値で比べる。いまの体重で
+  // 読み替えると、減量した人の昔の記録が軽く見えて、毎回「更新」になる。
+  it('過去のセットは、その日の体重込みの値で比べる', () => {
+    const got = judgePersonalRecord({
+      ...chin,
+      // いまは体重70kg。いまの体重で読み替えた前回（84.2）なら超えているが、
+      // 当時の体重80kgで読み替えた前回（96.3）は超えていない。
+      values: { weight: 0, reps: 9, rir: 0 },
+      loadOffsetKg: 66.5,
+      previous: [set('a', 0, 8, 0, 76)], // 当時は体重80kg
+    });
+
+    expect(got).toBeNull();
+  });
+
+  // 0 は「その日の体重が引けず推定できない」。0kg として基準に残すと、
+  // どんな記録でも更新になる。
+  it('体重が引けず推定できない過去のセットは基準に含めない', () => {
+    const got = judgePersonalRecord({
+      ...chin,
+      // 0 を握りつぶして「いま足す量」で読み替えると前回が 84.2 になり、
+      // 今回の 88.7 が更新になってしまう。
+      values: { weight: 0, reps: 10, rir: 0 },
+      loadOffsetKg: 66.5,
+      previous: [set('a', 0, 8, 0, 0)],
+    });
+
+    expect(got).toBeNull(); // 比べる相手が無い
+  });
+
+  // 今日この画面で記録したセットはサーバーの読み替えを持たない。同じ日なので、
+  // いま足す量で読み替える。
+  it('今日手元で記録したセットは、いま足す量で読み替える', () => {
+    const got = judgePersonalRecord({
+      ...chin,
+      values: { weight: 0, reps: 10, rir: 0 },
+      loadOffsetKg: 66.5,
+      previous: [set('a', 0, 8)], // effective_kg が無い
+    });
+
+    expect(got?.previousKg).toBeCloseTo(84.233333, 3);
   });
 });
 
