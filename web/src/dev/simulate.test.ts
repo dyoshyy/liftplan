@@ -9,6 +9,7 @@ import {
   setOneRepMax,
   toggleDay,
   formatPct,
+  formatTargetReps,
   formatPerformed,
   formatWeight,
   outOfRange,
@@ -233,6 +234,7 @@ describe('表示', () => {
     weight_kg: 95,
     sets: 3,
     target_rir: 1,
+    target_reps: 3,
     pct_of_1rm: 0.88,
     athlete_1rm_kg: 100,
     performed: { weight_kg: 95, reps: 3, rir: 1 },
@@ -244,6 +246,10 @@ describe('表示', () => {
     expect(formatWeight(set({}))).toBe('95kg');
     // 自重だけで強度を超える回は加重0が処方される。記録の表記と揃える。
     expect(formatWeight(set({ weight_kg: 0 }))).toBe('自重');
+  });
+
+  it('目標レップは「目標 N 回」と文字で出す', () => {
+    expect(formatTargetReps(set({ target_reps: 8 }))).toBe('目標 8 回');
   });
 
   it('記録は「重量×回 RIR」。自重だけなら自重と出す', () => {
@@ -294,5 +300,21 @@ describe('custom（自分の種目）', () => {
     const search = buildQuery({ ...defaultForm, custom });
     expect(parseForm(search, defaultForm).custom).toBe(custom);
     expect(parseForm('', defaultForm).custom).toBe('');
+  });
+});
+
+describe('reps（宣言ごとのレップ数）', () => {
+  // サーバーと同じ「id:重い:軽い」の1行のまま持つ。custom と同じ理由。
+  it('buildQuery が reps をそのまま送り、parseForm が読み戻す', () => {
+    const form = { ...defaultForm, reps: 'pull_up:8:12' };
+    const q = buildQuery(form);
+    expect(new URLSearchParams(q).get('reps')).toBe('pull_up:8:12');
+    expect(parseForm(q, defaultForm).reps).toBe('pull_up:8:12');
+  });
+
+  it('空なら送らない', () => {
+    expect(new URLSearchParams(buildQuery(defaultForm)).has('reps')).toBe(false);
+    expect(new URLSearchParams(buildQuery({ ...defaultForm, reps: '  ' })).has('reps')).toBe(false);
+    expect(parseForm('', defaultForm).reps).toBe('');
   });
 });

@@ -11,6 +11,7 @@ import (
 	"github.com/dyoshyy/liftplan/internal/application/devsim"
 	"github.com/dyoshyy/liftplan/internal/domain/training"
 	"github.com/dyoshyy/liftplan/internal/domain/training/exercise"
+	"github.com/dyoshyy/liftplan/internal/domain/training/program"
 	"github.com/dyoshyy/liftplan/internal/domain/training/seed"
 )
 
@@ -87,6 +88,8 @@ type devSetDTO struct {
 	WeightKg   *float64 `json:"weight_kg"`
 	Sets       int      `json:"sets"`
 	TargetRIR  int      `json:"target_rir"`
+	// TargetReps は目標レップ数。
+	TargetReps int `json:"target_reps"`
 	// PctOf1RM は推定1RMに対する比。推定が立たない初出の日は null。
 	PctOf1RM *float64 `json:"pct_of_1rm"`
 	// Athlete1RM はその日の模擬ユーザーの実力（加重の1RM）。
@@ -117,6 +120,8 @@ type devSettingsDTO struct {
 	Sets      int   `json:"sets_per_exercise"`
 	// Custom は足した自分の種目。ID は orm= で1RM を上書きするときに使う。
 	Custom []devCustomDTO `json:"custom"`
+	// Reps は宣言ごとの軸のレップ数。指定した宣言だけを返す。
+	Reps map[string]repTargetsDTO `json:"reps"`
 }
 
 type devCustomDTO struct {
@@ -236,7 +241,7 @@ var devQueryKeys = map[string]bool{
 	"frequency": true, "weeks": true, "days": true, "start": true,
 	"exercises": true, "sets": true,
 	"growth": true, "first_pct": true, "body_weight": true, "orm": true,
-	"custom": true,
+	"custom": true, "reps": true,
 }
 
 func parseDevRequest(r *http.Request) (devsim.Request, error) {
@@ -358,6 +363,12 @@ func parseDevRequest(r *http.Request) (devsim.Request, error) {
 		return devsim.Request{}, err
 	}
 	out.Custom = custom
+
+	reps, err := parseDevReps(q.Get("reps"))
+	if err != nil {
+		return devsim.Request{}, err
+	}
+	out.Reps = reps
 	return out, nil
 }
 
@@ -422,6 +433,32 @@ func parseDevStimulus(v string) (map[training.MuscleRegion]float64, error) {
 		raw[region] = n
 	}
 	return exerciseStimulusFrom(raw), nil
+}
+
+// parseDevReps は "bench:8:12,pull_up:6:10" を宣言ごとのレップ数にする。
+// 範囲は program.NewRepTargets が見る。宣言に含まれるかは devsim が見る。
+func parseDevReps(v string) (map[exercise.ExerciseID]program.RepTargets, error) {
+	out := map[exercise.ExerciseID]program.RepTargets{}
+	for _, item := range strings.Split(v, ",") {
+		if item = strings.TrimSpace(item); item == "" {
+			continue
+		}
+		fields := strings.Split(item, ":")
+		if len(fields) != 3 {
+			return nil, errDevQuery("reps", item)
+		}
+		heavy, err1 := strconv.Atoi(strings.TrimSpace(fields[1]))
+		light, err2 := strconv.Atoi(strings.TrimSpace(fields[2]))
+		if err1 != nil || err2 != nil {
+			return nil, errDevQuery("reps", item)
+		}
+		r, err := program.NewRepTargets(heavy, light)
+		if err != nil {
+			return nil, fmt.Errorf("クエリ reps の %s が不正: %w", item, err)
+		}
+		out[exercise.ExerciseID(strings.TrimSpace(fields[0]))] = r
+	}
+	return out, nil
 }
 
 // parseDevOneRepMax は "bench:100,squat:140" を種目ごとの1RMにする。
@@ -508,6 +545,10 @@ func toDevSettingsDTO(req devsim.Request, pool []*exercise.Exercise) devSettings
 	for i := range req.Custom {
 		customIDs[devsim.CustomExerciseID(i)] = true
 	}
+	out.Reps = make(map[string]repTargetsDTO, len(req.Reps))
+	for id, r := range req.Reps {
+		out.Reps[string(id)] = repTargetsDTO{Heavy: r.Heavy(), Light: r.Light()}
+	}
 	out.Custom = []devCustomDTO{}
 	for _, e := range pool {
 		out.Athlete.OneRepMaxKg[string(e.ID())] = req.Athlete.OneRepMax(e.ID())
@@ -536,6 +577,7 @@ func toDevSetDTOs(in []devsim.Set) []devSetDTO {
 			Name:       s.Name,
 			Sets:       s.Sets,
 			TargetRIR:  s.TargetRIR,
+			TargetReps: s.TargetReps,
 			Athlete1RM: s.AthleteOneRepMaxKg,
 			Performed: devPerformedDTO{
 				WeightKg: s.Performed.WeightKg, Reps: s.Performed.Reps, RIR: s.Performed.RIR,

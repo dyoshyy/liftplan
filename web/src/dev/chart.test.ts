@@ -8,6 +8,7 @@ const set = (over: Partial<DevSet>): DevSet => ({
   weight_kg: 80,
   sets: 3,
   target_rir: 1,
+  target_reps: 3,
   pct_of_1rm: 0.88,
   athlete_1rm_kg: 100,
   performed: { weight_kg: 80, reps: 3, rir: 1 },
@@ -37,6 +38,7 @@ const settings: DevResult['settings'] = {
   start: '2026-01-05',
   athlete: { growth_pct_per_week: 0, first_session_pct: 70, body_weight_kg: 75 },
   weekdays: [0, 2, 4, 6],
+  reps: {},
   exercises_per_session: 4,
   sets_per_exercise: 3,
 };

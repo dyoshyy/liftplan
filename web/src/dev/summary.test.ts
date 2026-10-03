@@ -99,6 +99,7 @@ describe('settingsLine', () => {
     weeks: 12,
     start: '2026-08-03',
     weekdays: [0, 2, 4, 6],
+    reps: {},
     exercises_per_session: 4,
     sets_per_exercise: 3,
     athlete: {

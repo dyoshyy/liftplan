@@ -10,6 +10,7 @@ package devsim
 
 import (
 	"fmt"
+	"maps"
 	"slices"
 
 	"github.com/dyoshyy/liftplan/internal/domain/training"
@@ -40,6 +41,9 @@ type Request struct {
 	// Custom は利用者が足した種目。共通の一覧に加えて全部「使う種目」に入る。
 	// ID は並び順で CustomExerciseID が振る。
 	Custom []CustomExercise
+
+	// Reps は宣言ごとの軸のレップ数。無い宣言は既定（3・6）。
+	Reps map[exercise.ExerciseID]program.RepTargets
 }
 
 // Set は計画された1種目。
@@ -50,6 +54,8 @@ type Set struct {
 	HasWeight  bool
 	Sets       int
 	TargetRIR  int
+	// TargetReps は目標レップ数。軸は宣言ごとのレップ数から決まる。
+	TargetReps int
 	// PctOfOneRM は推定1RMに対する比。一巡が回っているかはこれで見る。
 	// 推定が立たない初出の日は 0。
 	PctOfOneRM float64
@@ -358,6 +364,13 @@ func (s *Simulator) buildProgram(req Request, pool []*exercise.Exercise) (*progr
 	if err != nil {
 		return nil, fmt.Errorf("プログラムが不正: %w", err)
 	}
+	// キーの順で当てる。どれが不正かの診断が毎回同じ種目を指すように。
+	for _, id := range slices.Sorted(maps.Keys(req.Reps)) {
+		prog, err = prog.WithRepTargets(id, req.Reps[id])
+		if err != nil {
+			return nil, fmt.Errorf("%s のレップ数が不正: %w", id, err)
+		}
+	}
 	if req.SplitKey == "" {
 		return prog, nil
 	}
@@ -399,6 +412,7 @@ func (s *Simulator) describe(
 		Name:       e.Name(),
 		Sets:       set.Sets().Int(),
 		TargetRIR:  set.TargetRIR().Int(),
+		TargetReps: set.TargetReps().Int(),
 	}
 	w, ok := set.Weight()
 	if !ok {
