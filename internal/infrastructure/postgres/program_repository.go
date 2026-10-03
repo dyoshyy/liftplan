@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
+	"slices"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -47,13 +49,15 @@ func (r *ProgramRepository) Get(
 		rawFocus *string
 		// 分割なしが正当な既定値なので NULL を許す。
 		rawCycle []byte
+		// レップ数は設定した宣言だけを持つ。設定なしが正当な既定値なので NULL を許す。
+		rawReps []byte
 	)
 	err := r.pool.QueryRow(ctx, `
 		SELECT per_week, exercises_per_session, sets_per_exercise,
-		       selected, declared, focus, split_cycle
+		       selected, declared, focus, split_cycle, declared_reps
 		FROM program WHERE user_id = $1`, userID.String()).
 		Scan(&perWeek, &exercisesPerSession, &setsPerExercise,
-			&rawSelected, &rawDeclared, &rawFocus, &rawCycle)
+			&rawSelected, &rawDeclared, &rawFocus, &rawCycle, &rawReps)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, program.ErrProgramNotConfigured
 	}
@@ -111,6 +115,25 @@ func (r *ProgramRepository) Get(
 			return nil, fmt.Errorf("保存された分割が不正: %w", err)
 		}
 	}
+
+	if len(rawReps) > 0 {
+		var rows map[string]repTargetsRow
+		if err := json.Unmarshal(rawReps, &rows); err != nil {
+			return nil, fmt.Errorf("宣言ごとのレップ数を解釈できない: %w", err)
+		}
+		// キーの順で当てる。どれが不正かの診断が毎回同じ種目を指すように。
+		for _, id := range slices.Sorted(maps.Keys(rows)) {
+			row := rows[id]
+			reps, err := program.NewRepTargets(row.Heavy, row.Light)
+			if err != nil {
+				return nil, fmt.Errorf("保存された %s のレップ数が不正: %w", id, err)
+			}
+			prog, err = prog.WithRepTargets(exercise.ExerciseID(id), reps)
+			if err != nil {
+				return nil, fmt.Errorf("保存された %s のレップ数が不正: %w", id, err)
+			}
+		}
+	}
 	return prog, nil
 }
 
@@ -159,10 +182,23 @@ func (r *ProgramRepository) Save(
 		}
 	}
 
+	// 設定が無ければ NULL。既存の行と形を揃える。
+	var rawReps []byte
+	if reps := p.DeclaredRepTargets(); len(reps) > 0 {
+		rows := make(map[string]repTargetsRow, len(reps))
+		for id, t := range reps {
+			rows[string(id)] = repTargetsRow{Heavy: t.Heavy(), Light: t.Light()}
+		}
+		rawReps, err = json.Marshal(rows)
+		if err != nil {
+			return fmt.Errorf("宣言ごとのレップ数を書き出せない: %w", err)
+		}
+	}
+
 	if _, err := r.pool.Exec(ctx, `
 		INSERT INTO program (user_id, per_week, exercises_per_session, sets_per_exercise,
-		                     selected, declared, focus, split_cycle)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+		                     selected, declared, focus, split_cycle, declared_reps)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 		ON CONFLICT (user_id) DO UPDATE SET
 			per_week              = EXCLUDED.per_week,
 			exercises_per_session = EXCLUDED.exercises_per_session,
@@ -170,10 +206,11 @@ func (r *ProgramRepository) Save(
 			selected              = EXCLUDED.selected,
 			declared              = EXCLUDED.declared,
 			focus                 = EXCLUDED.focus,
-			split_cycle           = EXCLUDED.split_cycle`,
+			split_cycle           = EXCLUDED.split_cycle,
+			declared_reps         = EXCLUDED.declared_reps`,
 		userID.String(), p.Frequency().PerWeek(),
 		p.SessionVolume().Exercises(), p.SessionVolume().Sets(),
-		rawSelected, rawDeclared, rawFocus, rawCycle); err != nil {
+		rawSelected, rawDeclared, rawFocus, rawCycle, rawReps); err != nil {
 		return fmt.Errorf("プログラムを書き込めない: %w", err)
 	}
 	return nil
@@ -188,4 +225,10 @@ var (
 type splitRow struct {
 	Name    string                  `json:"name"`
 	Regions []training.MuscleRegion `json:"regions"`
+}
+
+// repTargetsRow は宣言1件ぶんのレップ数の保存形。
+type repTargetsRow struct {
+	Heavy int `json:"heavy"`
+	Light int `json:"light"`
 }
