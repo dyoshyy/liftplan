@@ -29,6 +29,7 @@ const program = (splits: Program['splits']): Program => ({
   declared_exercises: [],
   focus_exercise: null,
   splits,
+  declared_reps: {},
 });
 
 describe('matchingPresetKey', () => {

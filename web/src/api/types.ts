@@ -61,6 +61,14 @@ export type Login = { provider: string; email: string | null };
 
 export type AccountResponse = { accounts: Login[] };
 
+/** RepTargets は宣言1件ぶんの、軸で狙うレップ数。 */
+export type RepTargets = {
+  /** 重い番（宣言の軸、重点種目の一巡の1番目）。 */
+  heavy: number;
+  /** 軽い番（重点種目の一巡の2番目と、派生が軸に立つ3番目）。 */
+  light: number;
+};
+
 export type Program = {
   per_week: number;
   /** 1回に出る種目の数（2〜6）。利用者が時間に合わせて選ぶ。 */
@@ -73,6 +81,8 @@ export type Program = {
   focus_exercise: string | null;
   /** 分割の周期。空なら分割なし。並びに意味がある。 */
   splits: Split[];
+  /** 宣言ごとのレップ数。サーバーが既定（3・6）で埋めて返す。 */
+  declared_reps: Record<string, RepTargets>;
 };
 
 export type Exercise = {

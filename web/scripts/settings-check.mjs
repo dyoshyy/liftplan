@@ -278,6 +278,109 @@ const presetOk =
   benchLocked &&
   leftInGrow === 0 &&
   restoredSelected === before.selected_exercises.length + 1;
+// 宣言ごとのレップ数。選んだその場でサーバーに届くか、宣言を足すと行が出るか
+// （取り直した declared_reps が画面に届くか）。種目ページから戻ると節は畳まれている。
+if ((await exHeader.getAttribute('aria-expanded')) !== 'true') {
+  await exHeader.click();
+  await page.waitForTimeout(500);
+}
+const repsErrs = [];
+const HEAVY = 'select[aria-label$="の重い日のレップ数"]';
+const repsBefore = await program();
+const firstDeclared = repsBefore.declared_exercises[0];
+const heavyBefore = repsBefore.declared_reps[firstDeclared].heavy;
+const heavyWant = heavyBefore === 3 ? 8 : 3;
+await page.locator(HEAVY).first().selectOption(String(heavyWant));
+await page.waitForTimeout(1200);
+const repsAfter = await program();
+console.log(
+  '重い日のレップ数:',
+  heavyBefore,
+  '→',
+  repsAfter.declared_reps[firstDeclared].heavy,
+  `（期待 ${heavyWant}）`,
+);
+if (repsAfter.declared_reps[firstDeclared].heavy !== heavyWant)
+  repsErrs.push('重い日のレップ数が保存されていない');
+// 画面の値がサーバーの値のまま残るか（手元の書き換えが抜けると選択が戻る）。
+const shownHeavy = await page.locator(HEAVY).first().inputValue();
+console.log('画面の重い日のレップ数:', shownHeavy, `（期待 ${heavyWant}）`);
+if (shownHeavy !== String(heavyWant)) repsErrs.push('選んだ重い日のレップ数が画面に残らない');
+// 他の宣言は動かない。
+for (const id of repsBefore.declared_exercises.slice(1)) {
+  if (JSON.stringify(repsAfter.declared_reps[id]) !== JSON.stringify(repsBefore.declared_reps[id])) {
+    repsErrs.push(`${id} のレップ数が動いた`);
+  }
+}
+// 元に戻す。
+await page.locator(HEAVY).first().selectOption(String(heavyBefore));
+await page.waitForTimeout(1200);
+
+// 重点種目を選ぶと軽い日の行が出て、選んだ値が届く。重い日は動かない。
+const exNames = new Map((await exercises()).exercises.map((e) => [e.id, e.name]));
+const firstName = exNames.get(firstDeclared);
+const LIGHT = `select[aria-label="${firstName}の軽い日のレップ数"]`;
+const lightRowsBefore = await page.locator(LIGHT).count();
+await page.locator('button', { hasText: new RegExp(`^${firstName}$`) }).click();
+await page.waitForTimeout(1200);
+const lightRowsFocused = await page.locator(LIGHT).count();
+const lightWant = repsBefore.declared_reps[firstDeclared].light === 6 ? 9 : 6;
+await page.locator(LIGHT).selectOption(String(lightWant));
+await page.waitForTimeout(1200);
+const lightAfter = (await program()).declared_reps[firstDeclared];
+console.log(
+  '軽い日のレップ数: 行',
+  lightRowsBefore,
+  '→ 重点で',
+  lightRowsFocused,
+  '/ サーバー',
+  lightAfter.light,
+  `（期待 ${lightWant}）/ 重い日`,
+  lightAfter.heavy,
+  `（期待 ${heavyBefore}）`,
+);
+if (lightRowsBefore !== 0 || lightRowsFocused !== 1)
+  repsErrs.push('軽い日の行が重点種目に付いて出入りしない');
+if (lightAfter.light !== lightWant || lightAfter.heavy !== heavyBefore)
+  repsErrs.push('軽い日のレップ数が保存されていない');
+// 重点を外す。
+await page.getByRole('button', { name: '指定しない', exact: true }).click();
+await page.waitForTimeout(1200);
+if ((await page.locator(LIGHT).count()) !== 0) repsErrs.push('重点を外しても軽い日の行が残る');
+
+// 宣言を足すと、その種目の重い日の行が出る。宣言していない「使う種目」を
+// 1つ押して行を数え、押し直して元に戻す。
+const rowsBefore = await page.locator(HEAVY).count();
+const addable = repsBefore.selected_exercises.find((id) => !repsBefore.declared_exercises.includes(id));
+const addableName = exNames.get(addable);
+const addableButton = growGroup.locator('button', { hasText: new RegExp(`^✓?\\s*${addableName}$`) });
+await addableButton.click();
+await page.waitForTimeout(1500);
+const rowsAfter = await page.locator(HEAVY).count();
+const newRow = await page
+  .locator(`select[aria-label="${addableName}の重い日のレップ数"]`)
+  .inputValue()
+  .catch(() => null);
+console.log(
+  '宣言を足したあとの重い日の行:',
+  rowsBefore,
+  '→',
+  rowsAfter,
+  `（期待 ${rowsBefore + 1}）/ 既定の値 =`,
+  newRow,
+);
+if (rowsAfter !== rowsBefore + 1) repsErrs.push('宣言を足しても重い日の行が出ない');
+await addableButton.click();
+await page.waitForTimeout(1500);
+const rowsRestored = await page.locator(HEAVY).count();
+console.log('宣言を外したあとの重い日の行:', rowsRestored, `（期待 ${rowsBefore}）`);
+if (rowsRestored !== rowsBefore) repsErrs.push('宣言を外しても重い日の行が残る');
+const finalProgram = await program();
+if (JSON.stringify(finalProgram.declared_exercises) !== JSON.stringify(repsBefore.declared_exercises)) {
+  repsErrs.push('宣言が元に戻っていない');
+}
+console.log('レップ数の検査のエラー:', repsErrs.length ? repsErrs.join(' / ') : '(なし)');
+
 await exHeader.click();
 await page.waitForTimeout(300);
 
@@ -306,7 +409,8 @@ const ok =
   exercisesPageOpened &&
   rowButtonsVisible &&
   customOk &&
-  presetOk;
+  presetOk &&
+  repsErrs.length === 0;
 console.log(ok ? '\n✓ 設定の保存は壊れていない' : '\n✗ 壊れている');
 await browser.close();
 process.exit(ok ? 0 : 1);
