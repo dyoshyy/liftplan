@@ -74,11 +74,26 @@ describe('daysIn', () => {
 
 describe('summarize', () => {
   it('回数とセット数を数える', () => {
-    expect(summarize([day('2026-09-02', 13), day('2026-09-01', 10)])).toEqual({ sessions: 2, sets: 23 });
+    expect(summarize([day('2026-09-02', 13), day('2026-09-01', 10)])).toEqual({
+      sessions: 2,
+      sets: 23,
+      tonnage: 0,
+    });
+  });
+
+  it('総挙上量は全日の重量×回数を足す', () => {
+    const d = (date: string, kg: number, reps: number): Day => ({
+      date,
+      total_sets: 1,
+      exercises: [
+        { exercise_id: 'bench', name: 'ベンチ', sets: [{ id: date, weight_kg: kg, reps, rir: 2 }] },
+      ],
+    });
+    expect(summarize([d('2026-09-02', 100, 5), d('2026-09-01', 80, 10)]).tonnage).toBe(1300);
   });
 
   it('空なら 0', () => {
-    expect(summarize([])).toEqual({ sessions: 0, sets: 0 });
+    expect(summarize([])).toEqual({ sessions: 0, sets: 0, tonnage: 0 });
   });
 });
 
