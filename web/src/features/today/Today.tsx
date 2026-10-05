@@ -4,8 +4,8 @@ import type { Data } from '../../app/useLiftplan';
 import { ExerciseCard, type CardPlan } from './ExerciseCard';
 import { PRCelebration } from './PRCelebration';
 import type { PersonalRecord } from './pr';
-import { belowPlan, withPicked } from './adhoc';
-import { ExercisePicker } from './ExercisePicker';
+import { belowPlan, plannedIds, withPicked } from './adhoc';
+import { ExercisePicker } from '../exercises/ExercisePicker';
 import { usesBodyweight } from '../../domain/sets';
 import { RecordSheet } from './RecordSheet';
 import { useRecordOrchestrator } from './useRecordOrchestrator';
@@ -125,8 +125,9 @@ export function Today(props: Props) {
 
       {picking && (
         <ExercisePicker
+          title="記録する種目を選ぶ"
           exercises={data.exercises}
-          planned={lanes}
+          excluded={plannedIds(lanes)}
           selected={data.selected}
           onPick={pick}
           onClose={closePicker}

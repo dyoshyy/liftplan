@@ -1,27 +1,29 @@
 import { useEffect, useRef, useState } from 'react';
-import type { Exercise, PlannedSet } from '../../api/types';
+import type { Exercise } from '../../api/types';
 import { Button } from '../../ui/Button';
 import { groupByPart } from '../../domain/parts';
 import { Note } from '../../ui/Card';
 import { Input } from '../../ui/Field';
-import { pickableExercises } from './adhoc';
+import { pickableExercises } from './pickable';
 
 type Props = {
+  /** title はシートの見出し。何のために選ぶのかを言う。 */
+  title: string;
   exercises: readonly Exercise[];
-  /** planned は今日の予定の3レーン。出ている種目は選択肢に入れない。 */
-  planned: readonly (readonly PlannedSet[])[];
+  /** excluded は選択肢に入れない種目。 */
+  excluded: ReadonlySet<string>;
   /** selected は使う種目。null は読めていない（絞らない）。 */
   selected: readonly string[] | null;
   onPick: (exerciseId: string) => void;
   onClose: () => void;
 };
 
-// 予定に無い種目を選ぶシート。記録シートと同じく下から出す。
+// 種目を1つ選ぶシート。記録シートと同じく下から出す。
 //
-// 選んだら閉じる。記録は選んだ種目のカードから始める（ここでは記録しない）。
-// 一覧の判断（何を出すか・どう絞るか）は adhoc.ts、部位でのまとめ方は
+// 選んだら閉じる。選んだあと何をするかは呼び手が決める（ここでは記録しない）。
+// 一覧の判断（何を出すか・どう絞るか）は pickable.ts、部位でのまとめ方は
 // parts.ts（種目管理と同じ）にある。
-export function ExercisePicker({ exercises, planned, selected, onPick, onClose }: Props) {
+export function ExercisePicker({ title, exercises, excluded, selected, onPick, onClose }: Props) {
   const ref = useRef<HTMLDialogElement>(null);
   const [query, setQuery] = useState('');
 
@@ -29,7 +31,7 @@ export function ExercisePicker({ exercises, planned, selected, onPick, onClose }
     ref.current?.showModal();
   }, []);
 
-  const shown = pickableExercises(exercises, planned, query, selected);
+  const shown = pickableExercises(exercises, excluded, query, selected);
 
   return (
     <dialog ref={ref} onClose={onClose} onCancel={onClose} aria-label="種目を選ぶ">
@@ -37,7 +39,7 @@ export function ExercisePicker({ exercises, planned, selected, onPick, onClose }
         className="grid gap-3 px-4 pt-[18px]"
         style={{ paddingBottom: 'calc(20px + env(safe-area-inset-bottom))' }}
       >
-        <span className="font-bold">記録する種目を選ぶ</span>
+        <span className="font-bold">{title}</span>
 
         <Input
           type="search"

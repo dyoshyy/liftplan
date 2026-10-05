@@ -1,4 +1,4 @@
-import type { Exercise, PlannedSet, RecordedSet } from '../../api/types';
+import type { PlannedSet, RecordedSet } from '../../api/types';
 import type { CardPlan } from './ExerciseCard';
 import { leftovers } from './leftovers';
 
@@ -8,34 +8,14 @@ import { leftovers } from './leftovers';
 // を決めるのは本人）ので、処方として画面には出さない。
 export const ADHOC_RIR = 2;
 
-const plannedIds = (planned: readonly (readonly PlannedSet[])[]) =>
-  new Set(planned.flat().map((p) => p.exercise_id));
-
 /**
- * pickableExercises は「種目を選んで記録」の選択肢。
+ * plannedIds は今日の予定に出ている種目。種目を選ぶシートから除くのに使う。
  *
- * 今日の予定に出ている種目は入れない。選んでも同じカードが2枚並ぶだけで、
- * 予定のカードに記録すれば済む。使わない種目（selected に無いもの）も入れない。
- * selected が null（読めていない）なら絞らない。一覧が空になって何も選べない
- * より、使わない種目が混ざるほうがよい。予定は3レーンすべてを渡すこと（leftovers と
- * 同じ理由。1レーンでも渡し忘れると、その種目が選択肢に残る）。
- *
- * 並びはサーバーが返した順のまま。名前の一部で絞れる（前後の空白と
- * 英字の大文字小文字は無視する）。
+ * 予定は3レーンすべてを渡すこと（leftovers と同じ理由。1レーンでも渡し忘れると、
+ * その種目が選択肢に残り、選ぶと同じカードが2枚並ぶ）。
  */
-export function pickableExercises(
-  exercises: readonly Exercise[],
-  planned: readonly (readonly PlannedSet[])[],
-  query: string,
-  selected: readonly string[] | null,
-): Exercise[] {
-  const ids = plannedIds(planned);
-  const q = query.trim().toLowerCase();
-  return exercises.filter(
-    (e) =>
-      !ids.has(e.id) && (selected === null || selected.includes(e.id)) && e.name.toLowerCase().includes(q),
-  );
-}
+export const plannedIds = (planned: readonly (readonly PlannedSet[])[]): Set<string> =>
+  new Set(planned.flat().map((p) => p.exercise_id));
 
 /** withPicked は選んだ種目を足す。選び済みなら足さない（同じカードが2枚出る）。 */
 export function withPicked(picked: readonly string[], id: string): string[] {
