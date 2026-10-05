@@ -1,5 +1,6 @@
 import type { Day } from '../../api/types';
 import { patchDays, type DayChange } from '../../domain/days';
+import { dayTonnage } from './tonnage';
 
 /** Month は `YYYY-MM`。文字列のまま比べると時系列の順になる。 */
 export type Month = string;
@@ -43,11 +44,15 @@ export const canGoNext = (m: Month, today: string): boolean => m < monthOf(today
 /** daysIn はその月の日だけを返す。並び（新しい順）は変えない。 */
 export const daysIn = (days: readonly Day[], m: Month): Day[] => days.filter((d) => monthOf(d.date) === m);
 
-export type MonthSummary = { sessions: number; sets: number };
+export type MonthSummary = { sessions: number; sets: number; tonnage: number };
 
-/** summarize は月の頭に出す「何回・何セット」。 */
+/** summarize は月の頭に出す「何回・何セット・総挙上量」。 */
 export function summarize(days: readonly Day[]): MonthSummary {
-  return { sessions: days.length, sets: days.reduce((a, d) => a + d.total_sets, 0) };
+  return {
+    sessions: days.length,
+    sets: days.reduce((a, d) => a + d.total_sets, 0),
+    tonnage: days.reduce((a, d) => a + dayTonnage(d), 0),
+  };
 }
 
 export type MonthLoad = { kind: 'recent' } | { kind: 'cached' } | { kind: 'fetch'; path: string };

@@ -1,17 +1,19 @@
 import { useEffect, useRef, useState } from 'react';
 import type { Day, StatsResponse, Volume } from '../../api/types';
-import { label } from '../../domain/date';
+import { label, today } from '../../domain/date';
 import { regionLabel } from '../../domain/regions';
 import { formatSets } from '../../domain/sets';
 import { Button } from '../../ui/Button';
 import { Card, Note } from '../../ui/Card';
 import { cn } from '../../ui/cn';
 import { ChevronLeftIcon, ChevronRightIcon } from '../../ui/icons';
+import { monthGrid } from './calendar';
 import { monthLabel, monthOf, summarize } from './month';
 import { TrendRow } from './TrendChart';
 import type { MonthLogs } from './useMonthLogs';
 import { EditSetSheet } from './EditSetSheet';
 import type { EditTarget, HistoryEditor } from './useHistoryEditor';
+import { dayTonnage, formatTonnage } from './tonnage';
 import { fillPercent } from './volume';
 import { weeklyTotal } from './weekly';
 
@@ -19,8 +21,9 @@ const TOP_REGIONS = 6;
 
 type View = 'logs' | 'stats';
 
-/** 推移から開いた記録。この日のこの種目へ寄せて、開いて見せる。 */
-type Focus = { date: string; exerciseId: string };
+/** 推移やカレンダーから開いた記録。その日へ寄せる。種目があれば開いて見せる。
+ *  押すたびに新しい値になるので、同じ日をもう一度押しても寄せ直せる。 */
+type Focus = { date: string; exerciseId?: string };
 
 type Props = {
   /** 月ごとの記録。どの月を見ているかもここが持つ。 */
@@ -61,6 +64,8 @@ export function History({ logs, editor, stats, statsError = '', onReloadStats }:
     setView('logs');
   };
 
+  const pickDay = (date: string) => setFocus({ date });
+
   // 寄せた状態は、月を送るか推移へ戻ったら捨てる。残すと、前の月から
   // 戻ってきたときに、もう見終えた日へまた画面が動く。
   const leaveFocus =
@@ -81,6 +86,7 @@ export function History({ logs, editor, stats, statsError = '', onReloadStats }:
         <MonthlyLogs
           logs={{ ...logs, prev: leaveFocus(logs.prev), next: leaveFocus(logs.next) }}
           focus={focus}
+          onPickDay={pickDay}
           onEdit={editor.open}
         />
       ) : (
@@ -125,10 +131,12 @@ function ViewTab({ label, active, onClick }: { label: string; active: boolean; o
 function MonthlyLogs({
   logs,
   focus,
+  onPickDay,
   onEdit,
 }: {
   logs: MonthLogs;
   focus: Focus | null;
+  onPickDay: (date: string) => void;
   onEdit: (t: EditTarget) => void;
 }) {
   const { month, days, error } = logs;
@@ -166,6 +174,7 @@ function MonthlyLogs({
             <ChevronRightIcon />
           </Button>
         </div>
+        {days && days.length > 0 && <MonthCalendar month={month} days={days} onPick={onPickDay} />}
       </Card>
 
       {error ? (
@@ -185,12 +194,7 @@ function MonthlyLogs({
         </Card>
       ) : (
         days.map((d) => (
-          <DayCard
-            key={d.date}
-            day={d}
-            focusExerciseId={focus?.date === d.date ? focus.exerciseId : undefined}
-            onEdit={onEdit}
-          />
+          <DayCard key={d.date} day={d} focus={focus?.date === d.date ? focus : undefined} onEdit={onEdit} />
         ))
       )}
 
@@ -206,10 +210,10 @@ function MonthlyLogs({
 }
 
 function MonthSummaryLine({ days }: { days: readonly Day[] }) {
-  const { sessions, sets } = summarize(days);
+  const { sessions, sets, tonnage } = summarize(days);
   return (
     <span className="num">
-      {sessions}回 ・ {sets}セット
+      {sessions}回 ・ {sets}セット ・ {formatTonnage(tonnage)}
     </span>
   );
 }
@@ -345,30 +349,30 @@ function WeeklyVolume({ volume }: { volume: Volume[] }) {
 // だけ要る。
 function DayCard({
   day,
-  focusExerciseId,
+  focus,
   onEdit,
 }: {
   day: Day;
-  /** 推移から開かれた種目。あれば最初から開き、画面をここへ寄せる。 */
-  focusExerciseId?: string;
+  /** この日が寄せ先なら、画面をここへ寄せる。種目があれば最初から開く。 */
+  focus?: Focus;
   onEdit: (t: EditTarget) => void;
 }) {
-  const [open, setOpen] = useState<string | null>(focusExerciseId ?? null);
+  const [open, setOpen] = useState<string | null>(focus?.exerciseId ?? null);
   const ref = useRef<HTMLDivElement>(null);
 
   // 描かれたときに1回だけ寄せる。月を取りに行く間は日がまだ無いので、
   // 日が現れた時点で効く。
   useEffect(() => {
-    if (focusExerciseId) ref.current?.scrollIntoView({ block: 'center' });
-  }, [focusExerciseId]);
+    if (focus) ref.current?.scrollIntoView({ block: 'center' });
+  }, [focus]);
 
   return (
     <div ref={ref}>
-      <Card className={cn(focusExerciseId && 'border-amber/60')}>
+      <Card className={cn(focus && 'border-amber/60')}>
         <div className="mb-1 flex items-baseline gap-2.5">
           <span className="num text-[15px] tracking-[0.04em]">{label(day.date)}</span>
           <span className="ml-auto text-xs text-faint">
-            {day.exercises.length}種目 {day.total_sets}セット
+            {day.exercises.length}種目 {day.total_sets}セット ・ {formatTonnage(dayTonnage(day))}
           </span>
         </div>
         <div className="grid">
@@ -418,6 +422,65 @@ function DayCard({
           })}
         </div>
       </Card>
+    </div>
+  );
+}
+
+// MonthCalendar は月の見取り図。通った日が一目で分かり、押すとその日へ寄る。
+//
+// 記録の一覧は新しい日から縦に並ぶだけで、「先月は週に何回通ったか」は
+// 全部読まないと分からない。濃さはセット数で変える（多い日ほど濃い）。
+function MonthCalendar({
+  month,
+  days,
+  onPick,
+}: {
+  month: string;
+  days: readonly Day[];
+  onPick: (date: string) => void;
+}) {
+  const grid = monthGrid(month, days);
+  const todayIso = today();
+  const most = Math.max(1, ...days.map((d) => d.total_sets));
+
+  return (
+    <div className="mt-3 grid gap-1" role="grid" aria-label={`${monthLabel(month)}のカレンダー`}>
+      <div className="grid grid-cols-7 text-center text-[11px] text-faint">
+        {'日月火水木金土'.split('').map((w) => (
+          <span key={w}>{w}</span>
+        ))}
+      </div>
+      {grid.map((week, wi) => (
+        <div key={wi} className="grid grid-cols-7 gap-1" role="row">
+          {week.map((c, ci) =>
+            c === null ? (
+              <span key={ci} />
+            ) : (
+              <button
+                key={c.date}
+                type="button"
+                disabled={c.sets === 0}
+                aria-label={c.sets > 0 ? `${label(c.date)} ${c.sets}セット` : label(c.date)}
+                onClick={() => onPick(c.date)}
+                className={cn(
+                  'num grid h-9 place-items-center rounded-lg text-[13px]',
+                  c.sets === 0 ? 'text-faint' : 'font-semibold text-text',
+                  c.date === todayIso && 'outline outline-1 outline-line',
+                )}
+                style={
+                  c.sets > 0
+                    ? {
+                        backgroundColor: `color-mix(in srgb, var(--color-amber) ${25 + (c.sets / most) * 55}%, transparent)`,
+                      }
+                    : undefined
+                }
+              >
+                {c.day}
+              </button>
+            ),
+          )}
+        </div>
+      ))}
     </div>
   );
 }
