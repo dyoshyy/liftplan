@@ -69,8 +69,10 @@ func LoadOffset(e *exercise.Exercise, c condition.ConditionLog, on training.Date
 // AddedWeight は実効負荷の目標から、実際に付ける加重を返す。EffectiveLoad の逆。
 // 体重込みの数字を見せられても何をすればいいか分からないため。
 //
-// 引いたあとは丸めない。丸めは総負荷に既にかかっており、乗せ直すと総負荷が
-// 目標からずれる。
+// 引いたあとに種目の刻みへ丸める。付けるのはプレートなので、刻みの倍数でない
+// 加重は組めない。総負荷の丸めは体重×係数を引く前にかかっており、72.37kg の
+// 人の差分は 8.7485kg のような半端な数になる。丸めた結果の総負荷は目標から
+// 刻みの半分までずれるが、載せられる重量が刻みの倍数だけである以上避けられない。
 //
 // EffectiveLoad と違い 0kg に倒す道が無い。引き算が消えて added = total となり、
 // 自重種目に総負荷をそのまま処方してしまう。当日で引く以上、記録が一件でも
@@ -88,7 +90,11 @@ func AddedWeight(total training.Weight, e *exercise.Exercise, c condition.Condit
 	if err != nil {
 		return training.Weight{}
 	}
-	return w
+	rounded, err := w.RoundTo(e.Increment())
+	if err != nil {
+		return training.Weight{}
+	}
+	return rounded
 }
 
 // effectiveHistory は推定に渡す履歴。数える・日付を見る・記録を見せる経路には

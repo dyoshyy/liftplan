@@ -2,6 +2,7 @@ package planning_test
 
 import (
 	"fmt"
+	"math"
 	"slices"
 	"strings"
 	"testing"
@@ -1821,11 +1822,17 @@ func TestSessionPlanner_AccessoriesComeBackInAStableOrder(t *testing.T) {
 // 一度も無いものとする。
 func chinRequest(t *testing.T, addedKg, bodyweight float64) planning.PlanRequest {
 	t.Helper()
+	return chinRequestWithIncrement(t, addedKg, bodyweight, 2.5)
+}
+
+// chinRequestWithIncrement は刻みを指定できる chinRequest。
+func chinRequestWithIncrement(t *testing.T, addedKg, bodyweight, incrementKg float64) planning.PlanRequest {
+	t.Helper()
 
 	chin := mustExercise(t, exercise.ExerciseParams{
 		ID: "chin", Name: "chin",
 		Stimulus:         map[training.MuscleRegion]float64{training.Lat: 1.0},
-		IncrementKg:      2.5,
+		IncrementKg:      incrementKg,
 		BodyweightFactor: 0.95,
 	})
 
@@ -1943,26 +1950,51 @@ func TestSessionPlanner_BodyweightExerciseIsPrescribedAsAddedWeight(t *testing.T
 	}
 }
 
+// 自重種目に提示する加重は、種目の刻みの倍数になる。
+//
+// 体重が 72.37kg のように刻みに乗らないと、刻みに丸めた総負荷から
+// 体重×係数を引いた差分が 8.7485kg のような半端な数になり、プレートでは
+// 組めない重量が画面に出る。
+func TestSessionPlanner_BodyweightExercisePrescriptionIsOnTheIncrement(t *testing.T) {
+	for _, bw := range []float64{72.37, 68.13, 75.01, 0} {
+		s := mustPlan(t, chinRequest(t, 10, bw))
+
+		w, ok := accessorySet(t, s, "chin").Weight()
+		if !ok {
+			t.Fatalf("体重 %v: 自重種目の重量が決まらない", bw)
+		}
+		if steps := w.Kg() / 2.5; math.Abs(steps-math.Round(steps)) > 1e-9 {
+			t.Errorf("体重 %v: 提示が %vkg。刻み 2.5kg の倍数でない", bw, w.Kg())
+		}
+	}
+}
+
 // 既定体重が実体からずれても、処方はほとんど動かない。
 //
 // 体重を測っていない人には既定値70kgで処方する。実体が75kgでも、提示は
 // 0.25kgしか変わらない。推定1RMを出すときと処方を加重へ戻すときの両側で
 // 同じ体重を使うので、ずれの大半が打ち消し合うため。
 //
+// 刻みは 0.25kg の種目で比べる。2.5kg だと提示が丸めの境目をまたいで刻み1つ分
+// （2.5kg）動き、この打ち消しのずれと、下の変異による跳ねが区別できない。
+//
 // この打ち消しが効かないと、既定値の選び方が処方を大きく左右する。実際
 // 既定値を0にする変異では、引き算が消えて提示が3kg以上跳ねる。
 // 「体重の欠落は自分で決めるに落とす」をやめられたのは、この性質が
 // あるからで、性質そのものを検査しておかないと根拠が失われる。
 func TestSessionPlanner_DefaultBodyWeightBarelyMovesThePrescription(t *testing.T) {
-	const tolerance = 1.0
+	const (
+		tolerance       = 1.0
+		fineIncrementKg = 0.25
+	)
 
 	measured, ok := accessorySet(t,
-		mustPlan(t, chinRequest(t, 10, 75)), "chin").Weight()
+		mustPlan(t, chinRequestWithIncrement(t, 10, 75, fineIncrementKg)), "chin").Weight()
 	if !ok {
 		t.Fatal("体重を測っている場合の重量が決まらない")
 	}
 	fallback, ok := accessorySet(t,
-		mustPlan(t, chinRequest(t, 10, 0)), "chin").Weight()
+		mustPlan(t, chinRequestWithIncrement(t, 10, 0, fineIncrementKg)), "chin").Weight()
 	if !ok {
 		t.Fatal("体重を測っていない場合の重量が決まらない")
 	}

@@ -119,23 +119,32 @@ func TestAddedWeight(t *testing.T) {
 			name: "体重ぶんを引いて加重で返す",
 			// 77.5 − 0.95 × 75
 			exercise: chinning(t), totalKg: 77.5,
-			conditions: bodyWeightOn(t, loadDay, 75), want: 6.25,
+			conditions: bodyWeightOn(t, loadDay, 75), want: 7.5,
 		},
 		{
 			// ここで体重を0と見なすと引き算が消えて added = total になり、
 			// 自重種目に総負荷をそのまま処方する（チンニングに「77.5kg 付けろ」）。
 			name: "体重を一度も記録していないなら既定値で引く",
-			// 77.5 − 0.95 × 70
+			// 77.5 − 0.95 × 70 = 11.0。最寄りの刻みは 10
 			exercise: chinning(t), totalKg: 77.5,
-			conditions: condition.NewConditionLog(nil), want: 11.0,
+			conditions: condition.NewConditionLog(nil), want: 10,
 		},
 		{
-			// 丸めは総負荷に既にかかっている。ここで刻みに乗せ直すと総負荷が
-			// 目標からずれ、どちらを信じる数字か分からなくなる。
-			name: "引いたあとの数字は刻みに乗せない",
-			// 75 − 71.25。増加単位 2.5 に丸めると 2.5 か 5.0 になる
+			// 付けるのはプレートなので、刻みの倍数でなければ載せられない。
+			// 総負荷の側で丸めても、引く体重×係数が刻みの倍数でない限り
+			// 差分は半端になる（72.37kg × 0.95 = 68.7515 → 8.7485kg）。
+			name: "引いたあとの数字は刻みに乗せる",
+			// 77.5 − 68.7515 = 8.7485。増加単位 2.5 の最寄りは 7.5
+			exercise: chinning(t), totalKg: 77.5,
+			conditions: bodyWeightOn(t, loadDay, 72.37), want: 7.5,
+		},
+		{
+			// 丸めた結果が総負荷より重くなっても構わない。載せられる重量が
+			// 刻みの倍数だけである以上、どちらかにずれるしかない。
+			name: "刻みの真ん中は上へ丸める",
+			// 75 − 71.25 = 3.75。2.5 と 5.0 の中間
 			exercise: chinning(t), totalKg: 75,
-			conditions: bodyWeightOn(t, loadDay, 75), want: 3.75,
+			conditions: bodyWeightOn(t, loadDay, 75), want: 5,
 		},
 		{
 			// 目標そのものを下げるのはデロードの仕事。
@@ -153,7 +162,7 @@ func TestAddedWeight(t *testing.T) {
 			// 実測と既定値のあいだで揺れる。
 			name:     "100日前の実測でも既定値より優先する",
 			exercise: chinning(t), totalKg: 77.5,
-			conditions: bodyWeightOn(t, loadDay.AddDays(-100), 75), want: 6.25,
+			conditions: bodyWeightOn(t, loadDay.AddDays(-100), 75), want: 7.5,
 		},
 	}
 
@@ -180,8 +189,8 @@ func TestAddedWeight_UsesLatestBodyWeightOnOrBeforeTheDate(t *testing.T) {
 	got := planning.AddedWeight(mustWeight(t, 77.5), chinning(t), log, loadDay)
 
 	// 3日前の75kgを使う。翌日の90kgも30日前の70kgも使わない。
-	if math.Abs(got.Kg()-6.25) > 1e-9 {
-		t.Errorf("加重が %vkg。3日前の体重75kgから 6.25 のはず", got.Kg())
+	if math.Abs(got.Kg()-7.5) > 1e-9 {
+		t.Errorf("加重が %vkg。3日前の体重75kgから 7.5 のはず", got.Kg())
 	}
 }
 
