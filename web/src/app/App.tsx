@@ -116,6 +116,8 @@ export function App() {
               <History
                 logs={monthLogs}
                 editor={editor}
+                exercises={data.exercises}
+                selected={data.selected}
                 loadOffsets={data.loadOffsets}
                 stats={stats.stats}
                 statsError={stats.error}
