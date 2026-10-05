@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react';
-import type { Day, StatsResponse, Trend, Volume } from '../../api/types';
+import { useEffect, useRef, useState } from 'react';
+import type { Day, StatsResponse, Volume } from '../../api/types';
 import { label } from '../../domain/date';
 import { regionLabel } from '../../domain/regions';
 import { formatSets } from '../../domain/sets';
@@ -7,8 +7,8 @@ import { Button } from '../../ui/Button';
 import { Card, Note } from '../../ui/Card';
 import { cn } from '../../ui/cn';
 import { ChevronLeftIcon, ChevronRightIcon } from '../../ui/icons';
-import { monthLabel, summarize } from './month';
-import { Sparkline } from './Sparkline';
+import { monthLabel, monthOf, summarize } from './month';
+import { TrendRow } from './TrendChart';
 import type { MonthLogs } from './useMonthLogs';
 import { EditSetSheet } from './EditSetSheet';
 import type { EditTarget, HistoryEditor } from './useHistoryEditor';
@@ -18,6 +18,9 @@ import { weeklyTotal } from './weekly';
 const TOP_REGIONS = 6;
 
 type View = 'logs' | 'stats';
+
+/** 推移から開いた記録。この日のこの種目へ寄せて、開いて見せる。 */
+type Focus = { date: string; exerciseId: string };
 
 type Props = {
   /** 月ごとの記録。どの月を見ているかもここが持つ。 */
@@ -49,18 +52,39 @@ type Props = {
 // 今週のまま、という読み違いが起きる。
 export function History({ logs, editor, stats, statsError = '', onReloadStats }: Props) {
   const [view, setView] = useState<View>('logs');
+  const [focus, setFocus] = useState<Focus | null>(null);
+
+  // 推移の点から、その日の記録へ。月を合わせてから記録の側へ切り替える。
+  const openLog = (date: string, exerciseId: string) => {
+    setFocus({ date, exerciseId });
+    logs.show(monthOf(date));
+    setView('logs');
+  };
+
+  // 寄せた状態は、月を送るか推移へ戻ったら捨てる。残すと、前の月から
+  // 戻ってきたときに、もう見終えた日へまた画面が動く。
+  const leaveFocus =
+    <A extends unknown[]>(f: (...a: A) => void) =>
+    (...a: A) => {
+      setFocus(null);
+      f(...a);
+    };
 
   return (
     <>
       <div className="grid grid-cols-2 gap-1 rounded-xl border border-line bg-surface p-1">
-        <ViewTab label="記録" active={view === 'logs'} onClick={() => setView('logs')} />
-        <ViewTab label="推移" active={view === 'stats'} onClick={() => setView('stats')} />
+        <ViewTab label="記録" active={view === 'logs'} onClick={leaveFocus(() => setView('logs'))} />
+        <ViewTab label="推移" active={view === 'stats'} onClick={leaveFocus(() => setView('stats'))} />
       </div>
 
       {view === 'logs' ? (
-        <MonthlyLogs logs={logs} onEdit={editor.open} />
+        <MonthlyLogs
+          logs={{ ...logs, prev: leaveFocus(logs.prev), next: leaveFocus(logs.next) }}
+          focus={focus}
+          onEdit={editor.open}
+        />
       ) : (
-        <Stats stats={stats} error={statsError} onReload={onReloadStats} />
+        <Stats stats={stats} error={statsError} onReload={onReloadStats} onOpenLog={openLog} />
       )}
 
       {editor.target && (
@@ -98,14 +122,26 @@ function ViewTab({ label, active, onClick }: { label: string; active: boolean; o
 // 以前は推移（/api/stats）が読めるまで記録の一覧も出さなかった。記録は
 // 起動時にもう手元にあるのに、圏外のジムで開くと「読めませんでした」だけに
 // なっていた。
-function MonthlyLogs({ logs, onEdit }: { logs: MonthLogs; onEdit: (t: EditTarget) => void }) {
+function MonthlyLogs({
+  logs,
+  focus,
+  onEdit,
+}: {
+  logs: MonthLogs;
+  focus: Focus | null;
+  onEdit: (t: EditTarget) => void;
+}) {
   const { month, days, error } = logs;
 
   // 月を送ったら頭に戻す。一覧の末尾から前の月へ進むと、前の月の末尾
   // （＝一番古い日）から見ることになる。
+  //
+  // 推移から来たときは頭へ戻さない。寄せる先は DayCard が自分で決める
+  // （子の効果が先に走るので、ここで戻すと寄せた位置を上書きする）。
   useEffect(() => {
+    if (focus && monthOf(focus.date) === month) return;
     window.scrollTo({ top: 0 });
-  }, [month]);
+  }, [month, focus]);
 
   return (
     <>
@@ -148,7 +184,14 @@ function MonthlyLogs({ logs, onEdit }: { logs: MonthLogs; onEdit: (t: EditTarget
           <Note>この月の記録はありません</Note>
         </Card>
       ) : (
-        days.map((d) => <DayCard key={d.date} day={d} onEdit={onEdit} />)
+        days.map((d) => (
+          <DayCard
+            key={d.date}
+            day={d}
+            focusExerciseId={focus?.date === d.date ? focus.exerciseId : undefined}
+            onEdit={onEdit}
+          />
+        ))
       )}
 
       {/* 一覧の末尾まで読んだ流れで前の月へ進めるようにする。頭まで
@@ -175,10 +218,12 @@ function Stats({
   stats,
   error,
   onReload,
+  onOpenLog,
 }: {
   stats: StatsResponse | null;
   error: string;
   onReload?: () => void;
+  onOpenLog: (date: string, exerciseId: string) => void;
 }) {
   if (error) {
     return (
@@ -218,7 +263,7 @@ function Stats({
         ) : (
           <div className="grid gap-4">
             {stats.trends.map((t) => (
-              <TrendRow key={t.exercise_id} trend={t} />
+              <TrendRow key={t.exercise_id} trend={t} onOpenLog={onOpenLog} />
             ))}
           </div>
         )}
@@ -293,98 +338,86 @@ function WeeklyVolume({ volume }: { volume: Volume[] }) {
   );
 }
 
-function TrendRow({ trend }: { trend: Trend }) {
-  // 1回しか記録が無いときに「0.0」と出すと、伸びていないように読める。
-  // 比べる相手がまだ無いだけなので、増減は出さない。
-  const showDelta = trend.points.length >= 2;
-  const sign = trend.change_kg > 0 ? '+' : '';
-  const tone =
-    trend.change_kg > 0
-      ? 'text-green bg-green/15'
-      : trend.change_kg < 0
-        ? 'text-amber bg-amber/15'
-        : 'text-muted bg-surface-2';
-
-  return (
-    <div className="grid grid-cols-[1fr_auto] items-center gap-3">
-      <span className="text-sm font-medium">{trend.name}</span>
-      <span className="num text-xl">
-        {trend.current_kg.toFixed(1)}
-        <small className="text-xs text-muted">kg</small>
-        {showDelta && (
-          <span className={`num ml-1.5 rounded-full px-[7px] py-[2px] text-xs ${tone}`}>
-            {sign}
-            {trend.change_kg.toFixed(1)}
-          </span>
-        )}
-      </span>
-      <Sparkline points={trend.points} />
-    </div>
-  );
-}
-
 // DayCard は1日分。ふだんは種目ごとに1行で、押すとセットが1行ずつ開く。
 //
 // セットの行まで常に出すと、1か月で画面が倍の長さになる。見返すときに
 // 要るのは「何をどれだけやったか」で、RIR や1セットずつの値は直すときに
 // だけ要る。
-function DayCard({ day, onEdit }: { day: Day; onEdit: (t: EditTarget) => void }) {
-  const [open, setOpen] = useState<string | null>(null);
+function DayCard({
+  day,
+  focusExerciseId,
+  onEdit,
+}: {
+  day: Day;
+  /** 推移から開かれた種目。あれば最初から開き、画面をここへ寄せる。 */
+  focusExerciseId?: string;
+  onEdit: (t: EditTarget) => void;
+}) {
+  const [open, setOpen] = useState<string | null>(focusExerciseId ?? null);
+  const ref = useRef<HTMLDivElement>(null);
+
+  // 描かれたときに1回だけ寄せる。月を取りに行く間は日がまだ無いので、
+  // 日が現れた時点で効く。
+  useEffect(() => {
+    if (focusExerciseId) ref.current?.scrollIntoView({ block: 'center' });
+  }, [focusExerciseId]);
 
   return (
-    <Card>
-      <div className="mb-1 flex items-baseline gap-2.5">
-        <span className="num text-[15px] tracking-[0.04em]">{label(day.date)}</span>
-        <span className="ml-auto text-xs text-faint">
-          {day.exercises.length}種目 {day.total_sets}セット
-        </span>
-      </div>
-      <div className="grid">
-        {day.exercises.map((e) => {
-          const expanded = open === e.exercise_id;
-          const name = e.name || e.exercise_id;
-          return (
-            <div key={e.exercise_id}>
-              <button
-                type="button"
-                aria-expanded={expanded}
-                onClick={() => setOpen(expanded ? null : e.exercise_id)}
-                className="grid min-h-11 w-full grid-cols-[1fr_auto_auto] items-center gap-2.5 text-left text-sm"
-              >
-                <span>{name}</span>
-                <span className="num text-[13px] text-muted">{formatSets(e.sets)}</span>
-                {/* 押せることを見せる。行が並んでいるだけだと、直せることに気づけない。 */}
-                <ChevronRightIcon
-                  width={14}
-                  height={14}
-                  className={cn('text-faint transition-transform', expanded && 'rotate-90')}
-                />
-              </button>
-              {expanded && (
-                <div className="mb-2 grid gap-1">
-                  {e.sets.map((s, i) => (
-                    <button
-                      key={s.id}
-                      type="button"
-                      aria-label={`${name} ${i + 1}セット目を直す`}
-                      onClick={() =>
-                        onEdit({ date: day.date, exerciseId: e.exercise_id, name, index: i, set: s })
-                      }
-                      className="grid min-h-11 grid-cols-[1.75rem_1fr_auto] items-center rounded-lg bg-surface-2 px-3 text-left text-[13px]"
-                    >
-                      <span className="num text-faint">{i + 1}</span>
-                      <span className="num">
-                        {s.weight_kg}kg × {s.reps}
-                      </span>
-                      <span className="num text-muted">RIR {s.rir}</span>
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
-          );
-        })}
-      </div>
-    </Card>
+    <div ref={ref}>
+      <Card className={cn(focusExerciseId && 'border-amber/60')}>
+        <div className="mb-1 flex items-baseline gap-2.5">
+          <span className="num text-[15px] tracking-[0.04em]">{label(day.date)}</span>
+          <span className="ml-auto text-xs text-faint">
+            {day.exercises.length}種目 {day.total_sets}セット
+          </span>
+        </div>
+        <div className="grid">
+          {day.exercises.map((e) => {
+            const expanded = open === e.exercise_id;
+            const name = e.name || e.exercise_id;
+            return (
+              <div key={e.exercise_id}>
+                <button
+                  type="button"
+                  aria-expanded={expanded}
+                  onClick={() => setOpen(expanded ? null : e.exercise_id)}
+                  className="grid min-h-11 w-full grid-cols-[1fr_auto_auto] items-center gap-2.5 text-left text-sm"
+                >
+                  <span>{name}</span>
+                  <span className="num text-[13px] text-muted">{formatSets(e.sets)}</span>
+                  {/* 押せることを見せる。行が並んでいるだけだと、直せることに気づけない。 */}
+                  <ChevronRightIcon
+                    width={14}
+                    height={14}
+                    className={cn('text-faint transition-transform', expanded && 'rotate-90')}
+                  />
+                </button>
+                {expanded && (
+                  <div className="mb-2 grid gap-1">
+                    {e.sets.map((s, i) => (
+                      <button
+                        key={s.id}
+                        type="button"
+                        aria-label={`${name} ${i + 1}セット目を直す`}
+                        onClick={() =>
+                          onEdit({ date: day.date, exerciseId: e.exercise_id, name, index: i, set: s })
+                        }
+                        className="grid min-h-11 grid-cols-[1.75rem_1fr_auto] items-center rounded-lg bg-surface-2 px-3 text-left text-[13px]"
+                      >
+                        <span className="num text-faint">{i + 1}</span>
+                        <span className="num">
+                          {s.weight_kg}kg × {s.reps}
+                        </span>
+                        <span className="num text-muted">RIR {s.rir}</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      </Card>
+    </div>
   );
 }

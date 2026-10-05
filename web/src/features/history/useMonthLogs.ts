@@ -20,6 +20,8 @@ export type MonthLogs = {
   /** 読めなかったときの一言。空なら出さない。 */
   error: string;
   canNext: boolean;
+  /** show はその月へ飛ぶ。推移から記録を開くときに使う。 */
+  show: (m: Month) => void;
   prev: () => void;
   next: () => void;
   reload: () => void;
@@ -76,6 +78,7 @@ export function useMonthLogs(enabled: boolean, recent: readonly Day[]): MonthLog
     days: pickMonthDays(month, now, recent, fetched),
     error: failed === month ? 'この月の記録を読めませんでした' : '',
     canNext: canGoNext(month, now),
+    show: setMonth,
     prev: () => setMonth((m) => shiftMonth(m, -1)),
     next: () => setMonth((m) => (canGoNext(m, today()) ? shiftMonth(m, 1) : m)),
     reload: () => void load(month),
