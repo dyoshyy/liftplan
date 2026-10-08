@@ -2,11 +2,18 @@ import { useEffect, useState } from 'react';
 import { getJSON, send } from '../../api/client';
 import type { Exercise, Program } from '../../api/types';
 import { describePutFailure } from '../settings/useProgramSettings';
-import { draftBody, draftProblem, nextSelected, type ExerciseDraft } from './exerciseDraft';
+import {
+  afterDelete,
+  draftBody,
+  draftProblem,
+  nextDeleteStep,
+  nextSelected,
+  type ExerciseDraft,
+} from './exerciseDraft';
 
 // 種目を管理する画面の手順を束ねる。
 //
-// 判断（送れるか・本文・外せるか・要約）は exerciseDraft.ts に置き、ここは
+// 判断（送れるか・本文・外せるか・消せるか・要約）は exerciseDraft.ts に置き、ここは
 // 順に実行するだけ。種目マスタそのもの（一覧）はこの画面の外（useLiftplan）
 // が持っていて、送った後は onChanged で取り直してもらう。
 //
@@ -21,6 +28,10 @@ export function useExerciseManager(onChanged: () => Promise<void>) {
   const [selected, setSelected] = useState<string[] | null>(null);
   const [note, setNote] = useState('');
   const [busy, setBusy] = useState(false);
+  // pendingDeleteId は「削除」の確認待ちの種目。消した種目は画面から戻せない
+  // （undo が無い）ので、隣のボタンへの1タップで即消えないよう、同じ種目を
+  // もう一度押すまでは実際には消さない（nextDeleteStep）。
+  const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
 
   // loadProgram は使う種目と伸ばしたい種目を読む。開いたときと、種目を足したあとに
   // 呼ぶ。足した種目はサーバーが使う種目に入れるので、読み直さないと
@@ -108,6 +119,32 @@ export function useExerciseManager(onChanged: () => Promise<void>) {
     return true;
   };
 
+  // remove は DELETE /api/exercises/{id}（論理削除）。伸ばしたい種目なら409
+  // （サーバーが断る）。サーバーは使う種目からも外すので、手元の使う種目も
+  // 合わせる（afterDelete）。合わせないと、次の「使う」の入り切りで消した ID ごと
+  // 送って 400 になる。
+  const remove = async (id: string): Promise<boolean> => {
+    if (busy) return false;
+    const res = await request(`/api/exercises/${encodeURIComponent(id)}`, 'DELETE');
+    if (!res) return false;
+    setSelected((s) => afterDelete(s, id));
+    await onChanged();
+    return true;
+  };
+
+  // requestDelete は「削除」ボタンの送信口。決めるのは nextDeleteStep（判断）
+  // だけで、ここは決まった一手を実行するだけ。1タップ目は確認待ちに入るだけで
+  // 何も送らない。確認待ちの種目をもう一度押したときだけ実際に消す。
+  const requestDelete = async (id: string): Promise<boolean> => {
+    const step = nextDeleteStep(pendingDeleteId, id);
+    setPendingDeleteId(step.pendingId);
+    if (step.act !== 'confirm') return false;
+    return remove(id);
+  };
+
+  // cancelDelete は確認待ちを解く（「やめる」、もしくは足す・直すを開いたとき）。
+  const cancelDelete = () => setPendingDeleteId(null);
+
   // save は編集フォームの送信口。'new' か直す対象の種目かで add/edit に振り分ける。
   //
   // 描画（ExerciseManager.tsx）に分岐と await を持たせないための置き場所
@@ -115,5 +152,5 @@ export function useExerciseManager(onChanged: () => Promise<void>) {
   const save = (target: 'new' | Exercise, draft: ExerciseDraft): Promise<boolean> =>
     target === 'new' ? add(draft) : edit(target.id, draft);
 
-  return { declared, selected, note, busy, save, toggleUse };
+  return { declared, selected, note, busy, save, toggleUse, pendingDeleteId, requestDelete, cancelDelete };
 }

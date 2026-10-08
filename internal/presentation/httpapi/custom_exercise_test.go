@@ -72,17 +72,17 @@ func TestExercises_AddEdit(t *testing.T) {
 	}
 }
 
-// 種目は消せない。使わない種目は「使う種目」から外して非表示にする。
+// 種目は消せる（論理削除）。プリセット由来も自分で足した種目も同じ扱い。
 //
-// 消す口を戻すと、記録が ID で指している種目の行が消える。プリセット由来も
-// 自分で足した種目も同じ扱いで、DELETE は届かず、一覧にも残る。
-func TestExercises_CannotBeDeleted(t *testing.T) {
+// 2026-10-01（#238）に一度「消せない（DELETE は 405）」にしたが、本人の依頼で
+// 戻した。そのときのこのテストは、DELETE が届かず一覧にも残ることを見ていた。
+// いまは消した種目も GET に deleted: true で残る（履歴の名前のため）ことを見る。
+// 「使う・使わない」はそのまま残っている。
+func TestExercises_CanBeDeleted(t *testing.T) {
 	srv := newServer(t, true)
 
-	for _, id := range []string{"side_raise", "bench"} {
-		if rec := do(t, srv, http.MethodDelete, "/api/exercises/"+id, ""); rec.Code != http.StatusMethodNotAllowed {
-			t.Errorf("%s: DELETE が %d。405 のはず", id, rec.Code)
-		}
+	if rec := do(t, srv, http.MethodDelete, "/api/exercises/side_raise", ""); rec.Code != http.StatusNoContent {
+		t.Fatalf("DELETE が %d。204 のはず: %s", rec.Code, rec.Body.String())
 	}
 
 	rec := do(t, srv, http.MethodGet, "/api/exercises", "")
@@ -92,10 +92,14 @@ func TestExercises_CannotBeDeleted(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &list); err != nil {
 		t.Fatalf("応答を解釈できない: %v", err)
 	}
+	deleted := false
 	for _, e := range list.Exercises {
-		if e.ID == "side_raise" && e.Deleted {
-			t.Error("DELETE が通って消えている")
+		if e.ID == "side_raise" {
+			deleted = e.Deleted
 		}
+	}
+	if !deleted {
+		t.Error("消した種目が deleted: true で一覧に残っていない")
 	}
 }
 
@@ -103,7 +107,8 @@ func TestExercises_CannotBeDeleted(t *testing.T) {
 //
 // code まで見るのは、ルートが無いだけの 404（ServeMux の素の
 // "404 page not found"）と、EXERCISE_NOT_FOUND を区別するため。
-// ステータスだけだと、PUT のルート登録を消しても「無い ID」が誤って緑のままになる。
+// ステータスだけだと、DELETE・PUT のルート登録を消しても「無い ID」が誤って
+// 緑のままになる（実際にミューテーションで確認済み）。
 func TestExercises_ErrorStatuses(t *testing.T) {
 	cases := []struct {
 		name, method, path, body string
@@ -151,6 +156,23 @@ func TestExercises_ErrorStatuses(t *testing.T) {
 			body:     `{"name":"x","stimulus":{"LAT":1},"increment_kg":2.5}`,
 			want:     404,
 			wantCode: "EXERCISE_NOT_FOUND",
+		},
+		{
+			name: "存在しない種目を消す", method: http.MethodDelete, path: "/api/exercises/nonexistent",
+			want:     404,
+			wantCode: "EXERCISE_NOT_FOUND",
+		},
+		{
+			// newServer(t, true) の伸ばしたい種目は bench・squat・deadlift。
+			name: "伸ばしたい種目を消す", method: http.MethodDelete, path: "/api/exercises/bench",
+			want:     409,
+			wantCode: "STILL_DECLARED",
+		},
+		{
+			// プリセット由来かどうかで扱いを変えない。伸ばしたい種目に
+			// 入っていないプリセットは消せる。
+			name: "プリセットを消す", method: http.MethodDelete, path: "/api/exercises/side_raise",
+			want: 204,
 		},
 		{
 			// 分割を「胸のみ」に絞ったうえで、宣言種目 bench（ChestMid 主働）の

@@ -26,6 +26,13 @@ describe('pickableExercises', () => {
 
   // 今日の画面なら予定に出ている種目、履歴ならその日に記録がある種目。
   // 選んでも同じ種目が2つ並ぶだけで、既にあるほうに足せば済む。
+  // 消した種目は使う種目からも外れるが、使う種目が読めていない（null）ときは
+  // 絞らないので、それだけでは混ざる。消した種目は記録の対象にしない。
+  it('消した種目は、使う種目が読めていなくても選択肢に入れない', () => {
+    const withDeleted = [...all, { ...ex('fly', 'フライ'), deleted: true }];
+    expect(pickableExercises(withDeleted, none, '', null).map((e) => e.id)).not.toContain('fly');
+  });
+
   it('除く種目は選択肢に入れない', () => {
     const got = pickableExercises(all, new Set(['bench', 'dip']), '', null);
     expect(got.map((e) => e.id)).toEqual(['squat', 'curl']);
