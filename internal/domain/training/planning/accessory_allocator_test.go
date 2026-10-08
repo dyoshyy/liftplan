@@ -718,3 +718,47 @@ func TestAccessoryAllocator_IgnoresRegionsWithoutATarget(t *testing.T) {
 			"未実施の combo が選ばれるはず", idsOf(got[0]))
 	}
 }
+
+// TestAccessoryAllocator_CountsTheHorizonStimulus は、先の回の軸・
+// バリエーションが入れる刺激（HorizonSession.Stimulus）が積み上げに
+// 入ることを守る。
+//
+// 以前は計画の側（TestSessionPlanner_VariationCoverageFreesSlotsForOtherRegions）
+// で「重点種目の派生がある日は胸の遅れが減り、二頭筋に枠が回る」として
+// 見ていた。重点種目の系統ぶん週目標を上げる（raiseForFocus）ようにして
+// からは、派生の刺激と目標の上げ幅が相殺して胸の遅れは減らないので、
+// 計画の側ではこの性質を観測できない。割り振り器の入力で直接見る。
+//
+// 区分A（Quad）とB（Hamstring）は同じ週目標で実績ゼロ。回0の Stimulus で
+// Aを3セットぶん埋めておくと、Bのほうが遅れているのでBの候補が選ばれる。
+//
+// 【変異】Allocate の `v += s.Stimulus.Sets(r)` を外す。A・Bが同点になり、
+// 同点処理（ID昇順）で candidate_a が選ばれて落ちる。
+func TestAccessoryAllocator_CountsTheHorizonStimulus(t *testing.T) {
+	target := mustTarget(t, map[training.MuscleRegion]float64{
+		training.Quad: 10, training.Hamstring: 10,
+	})
+	candA := regionOnly(t, "candidate_a", training.Quad, 1.0)
+	candB := regionOnly(t, "candidate_b", training.Hamstring, 1.0)
+
+	session := noSplitSession(allocatorDay, 1)
+	session.Stimulus = coverage(t, regionOnly(t, "axis_quad", training.Quad, 1.0), 3)
+
+	req := planning.AllocationRequest{
+		Target:           target,
+		Sessions:         []planning.HorizonSession{session},
+		SetsPerAccessory: mustSetCount(t, 3),
+		Pool:             []*exercise.Exercise{candA, candB},
+		Master:           []*exercise.Exercise{candA, candB},
+		History:          setlog.NewHistory(nil),
+	}
+
+	got, err := planning.DefaultAccessoryAllocator().Allocate(req)
+	if err != nil {
+		t.Fatalf("Allocate: %v", err)
+	}
+	if !contains(got[0], "candidate_b") {
+		t.Errorf("回0の割り当てが %v。先の回の刺激で Quad は埋まっているので、"+
+			"遅れている Hamstring の candidate_b が選ばれるはず", idsOf(got[0]))
+	}
+}

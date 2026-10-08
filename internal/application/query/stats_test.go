@@ -57,6 +57,7 @@ func newStats(t *testing.T, logs []*setlog.SetLog, pool []*exercise.Exercise, p 
 		&stubConditions{},
 		&stubProgram{prog: p},
 		planning.DefaultOneRepMaxEstimator(),
+		planning.DefaultSessionPlanner(),
 	)
 }
 
@@ -228,6 +229,7 @@ func TestWeeklyVolume_プログラムが無ければ断る(t *testing.T) {
 		&stubConditions{},
 		&stubProgram{prog: nil},
 		planning.DefaultOneRepMaxEstimator(),
+		planning.DefaultSessionPlanner(),
 	)
 	if _, err := q.WeeklyVolume(context.Background(), testUser, date(t, "2026-08-18")); err == nil {
 		t.Fatal("プログラム未設定なのに通った")
@@ -344,6 +346,7 @@ func TestTrends_自重種目は体重込みの負荷で推定する(t *testing.T
 				&stubConditions{log: condition.NewConditionLog(daily)},
 				&stubProgram{prog: newProgram(t, []exercise.ExerciseID{"chin", "ref"})},
 				planning.DefaultOneRepMaxEstimator(),
+				planning.DefaultSessionPlanner(),
 			)
 
 			trends, err := q.Trends(context.Background(), testUser, date(t, "2026-08-01"), date(t, "2026-08-31"))
