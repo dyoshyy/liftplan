@@ -70,13 +70,16 @@ type HorizonSession struct {
 // 最小化でまとめて埋めるドメインサービス。無状態。
 type AccessoryAllocator struct {
 	recoveryDays int
+	// configured はコンストラクタを通したか。回復日数 0 は有効な設定なので、
+	// フィールドの値だけではゼロ値（未設定）と区別できない。
+	configured bool
 }
 
 func NewAccessoryAllocator(recoveryDays int) (AccessoryAllocator, error) {
 	if recoveryDays < 0 {
 		return AccessoryAllocator{}, fmt.Errorf("回復日数は0以上である必要がある: %d", recoveryDays)
 	}
-	return AccessoryAllocator{recoveryDays: recoveryDays}, nil
+	return AccessoryAllocator{recoveryDays: recoveryDays, configured: true}, nil
 }
 
 func DefaultAccessoryAllocator() AccessoryAllocator {
@@ -89,7 +92,7 @@ func DefaultAccessoryAllocator() AccessoryAllocator {
 
 func (a AccessoryAllocator) RecoveryDays() int { return a.recoveryDays }
 
-func (a AccessoryAllocator) IsZero() bool { return a == AccessoryAllocator{} }
+func (a AccessoryAllocator) IsZero() bool { return !a.configured }
 
 // AllocationRequest は Allocate への入力。
 type AllocationRequest struct {

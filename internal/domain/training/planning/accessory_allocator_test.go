@@ -718,3 +718,24 @@ func TestAccessoryAllocator_IgnoresRegionsWithoutATarget(t *testing.T) {
 			"未実施の combo が選ばれるはず", idsOf(got[0]))
 	}
 }
+
+// 回復日数 0 は「連日同じ区分の補助を出してよい」という有効な設定で、
+// 未設定（ゼロ値）とは違う。フィールドの値だけで比べると両者が一致し、
+// コンストラクタを通した値が「未設定」として計画器に弾かれる（#200）。
+func TestNewAccessoryAllocator_ZeroRecoveryDaysIsNotTheZeroValue(t *testing.T) {
+	a, err := planning.NewAccessoryAllocator(0)
+	if err != nil {
+		t.Fatalf("回復日数 0 が弾かれた: %v", err)
+	}
+	if a.IsZero() {
+		t.Error("コンストラクタを通した値が未設定（ゼロ値）と見なされた")
+	}
+	if _, err := planning.NewSessionPlanner(
+		planning.DefaultOneRepMaxEstimator(), a, planning.DefaultConditionAnalyzer(),
+	); err != nil {
+		t.Errorf("回復日数 0 の割り振り器を計画器が受け付けない: %v", err)
+	}
+	if !(planning.AccessoryAllocator{}).IsZero() {
+		t.Error("ゼロ値が未設定と見なされない")
+	}
+}
