@@ -129,6 +129,21 @@ func (r *ExerciseRepository) ensureSeeded(ctx context.Context, user account.User
 		return nil
 	}
 
+	// 入っていれば1文で抜ける。計画の導出は毎回種目一覧を読むので、ここで
+	// 毎回トランザクションを開くと BEGIN → count → ROLLBACK の3往復が足される
+	// （#227）。入っていないときだけ下のトランザクションへ進み、中でもう一度
+	// 数える。同時に来た初回の読み出しは、どちらもここで0件を見て下へ進み得るが、
+	// 二重の挿入は ON CONFLICT DO NOTHING が吸収する（下のコメント）。
+	var seeded bool
+	if err := r.pool.QueryRow(ctx,
+		"SELECT EXISTS (SELECT 1 FROM user_exercises WHERE user_id = $1)", user.String(),
+	).Scan(&seeded); err != nil {
+		return wrapUnavailable(err, "種目を読めない")
+	}
+	if seeded {
+		return nil
+	}
+
 	tx, err := r.pool.Begin(ctx)
 	if err != nil {
 		return wrapUnavailable(err, "種目を読めない")
