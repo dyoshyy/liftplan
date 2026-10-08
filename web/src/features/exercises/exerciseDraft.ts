@@ -63,6 +63,15 @@ export const cycleRegion = (draft: ExerciseDraft, region: string): ExerciseDraft
   return { ...draft, stimulus };
 };
 
+/** chipMark は区分のチップに添える印。選んでいなければ空。
+ *
+ *  寄与1.0は「主」、それ未満は「少し」。送るには寄与1.0の区分が1つ以上要る
+ *  （draftProblem）ので、どれが1.0かをチップだけで分かるようにする。 */
+export const chipMark = (contribution: number | undefined): string => {
+  if (contribution === undefined) return '';
+  return contribution === MAX_CONTRIBUTION ? '主' : '少し';
+};
+
 /** setContribution は寄与の数値欄。0.1〜1.0 に丸めず、そのまま入れる
  *  （検証は draftProblem が担う）。 */
 export const setContribution = (draft: ExerciseDraft, region: string, value: number): ExerciseDraft => ({

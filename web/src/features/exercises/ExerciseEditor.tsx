@@ -4,6 +4,7 @@ import { Button } from '../../ui/Button';
 import { Note } from '../../ui/Card';
 import { Input, LabeledInput, Select } from '../../ui/Field';
 import {
+  chipMark,
   cycleRegion,
   DEFAULT_INCREMENT_KG,
   draftProblem,
@@ -60,7 +61,8 @@ export function ExerciseEditor({ draft, onChange, onSave, onCancel, busy }: Prop
               <p className="mb-1 text-xs tracking-[0.08em] text-faint">{g.part}</p>
               <div className="flex flex-wrap gap-2">
                 {g.regions.map((r) => {
-                  const on = draft.stimulus[r] !== undefined;
+                  const mark = chipMark(draft.stimulus[r]);
+                  const on = mark !== '';
                   return (
                     <Button
                       key={r}
@@ -68,7 +70,7 @@ export function ExerciseEditor({ draft, onChange, onSave, onCancel, busy }: Prop
                       variant={on ? 'selected' : 'quiet'}
                       onClick={() => onChange(cycleRegion(draft, r))}
                     >
-                      {on ? '✓ ' : ''}
+                      {on && <span className="mr-1 text-[11px] font-bold">{mark}</span>}
                       {regionLabel(r)}
                     </Button>
                   );

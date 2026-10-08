@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { Exercise } from '../../api/types';
 import {
   aliveExercises,
+  chipMark,
   cycleRegion,
   hideBlockedReason,
   draftBody,
@@ -199,5 +200,19 @@ describe('stimulusSummary', () => {
   it('同点は区分名順', () => {
     // BICEPS < LAT なので、同じ寄与なら BICEPS が先。
     expect(stimulusSummary({ LAT: 0.5, BICEPS: 0.5 })).toBe('上腕二頭筋 0.5・広背筋 0.5');
+  });
+});
+
+// チップは寄与1.0と0.5で同じ「✓」だった。送れない理由が「寄与1.0の区分が
+// 無い」のとき、どのチップが1.0なのかがチップだけでは分からない（#228）。
+describe('chipMark', () => {
+  it.each([
+    { name: '選んでいなければ印は無い', v: undefined, want: '' },
+    { name: '寄与1.0は「主」（送るのに1つ以上要る）', v: 1, want: '主' },
+    { name: '0.5は「少し」', v: 0.5, want: '少し' },
+    // プリセットには 0.7 などもある。1.0 でなければ「主」ではない
+    { name: '1.0 未満は全部「少し」', v: 0.7, want: '少し' },
+  ])('$name', ({ v, want }) => {
+    expect(chipMark(v)).toBe(want);
   });
 });
