@@ -123,6 +123,7 @@ func dependencies(
 		DeleteSetLog:     usecase.NewDeleteSetLog(logs),
 		AddExercise:      usecase.NewAddExercise(exercises, programs, programs),
 		EditExercise:     usecase.NewEditExercise(exercises, programs),
+		DeleteExercise:   usecase.NewDeleteExercise(exercises, programs, programs),
 		Exercises:        query.NewExercises(exercises),
 		History:          query.NewHistory(logs, exercises, conditions),
 		Stats:            query.NewStats(logs, exercises, conditions, programs, planning.DefaultOneRepMaxEstimator(), planning.DefaultSessionPlanner()),

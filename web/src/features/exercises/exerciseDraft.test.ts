@@ -1,10 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import type { Exercise } from '../../api/types';
 import {
+  afterDelete,
   aliveExercises,
   chipMark,
+  deleteBlockedReason,
   cycleRegion,
   hideBlockedReason,
+  nextDeleteStep,
   draftBody,
   draftOf,
   draftProblem,
@@ -214,5 +217,47 @@ describe('chipMark', () => {
     { name: '1.0 未満は全部「少し」', v: 0.7, want: '少し' },
   ])('$name', ({ v, want }) => {
     expect(chipMark(v)).toBe(want);
+  });
+});
+
+// 種目の削除（2026-10-01 に一度やめ、本人の依頼で戻した）。
+describe('deleteBlockedReason', () => {
+  // サーバーも 409 で断る。押す前に読めたほうが、次に何をすればいいか分かる。
+  it('伸ばしたい種目に入っていれば理由を返す', () => {
+    expect(deleteBlockedReason(['u-1'], 'u-1')).toMatch(/伸ばしたい種目/);
+    expect(deleteBlockedReason(['bench'], 'u-1')).toBeNull();
+  });
+});
+
+describe('nextDeleteStep', () => {
+  // 消した種目は画面から戻せない（undo が無い）ので、編集・使うの隣の1タップで
+  // 即消えると事故になる。同じ種目をもう一度押すまでは消さない。
+  it('確認待ちが無いときの1タップは、確認待ちに入るだけでまだ消さない', () => {
+    expect(nextDeleteStep(null, 'u-1')).toEqual({ pendingId: 'u-1', act: 'arm' });
+  });
+
+  it('確認待ちの種目を続けて押すと確定する', () => {
+    expect(nextDeleteStep('u-1', 'u-1')).toEqual({ pendingId: null, act: 'confirm' });
+  });
+
+  it('確認待ち中に別の種目を押すと、そちらの確認待ちに切り替わる（前の確認は流れる）', () => {
+    expect(nextDeleteStep('u-1', 'u-2')).toEqual({ pendingId: 'u-2', act: 'arm' });
+  });
+});
+
+describe('afterDelete', () => {
+  // サーバーは消した種目を使う種目から外す。手元の「使う種目」が古いままだと、
+  // 次に別の種目の「使う」を切り替えたとき消した ID ごと送り、サーバーが
+  // 「消した種目は選べない」で 400 を返す。
+  it('消した種目を使う種目から外す', () => {
+    expect(afterDelete(['bench', 'side_raise', 'squat'], 'side_raise')).toEqual(['bench', 'squat']);
+  });
+
+  it('入っていなければそのまま', () => {
+    expect(afterDelete(['bench'], 'side_raise')).toEqual(['bench']);
+  });
+
+  it('読めていない（null）ならそのまま', () => {
+    expect(afterDelete(null, 'side_raise')).toBeNull();
   });
 });

@@ -145,3 +145,29 @@ export const stimulusSummary = (stimulus: Record<string, number>): string =>
     .sort(([a, va], [b, vb]) => vb - va || (a < b ? -1 : a > b ? 1 : 0))
     .map(([region, v]) => `${regionLabel(region)} ${v.toFixed(1)}`)
     .join('・');
+
+/** deleteBlockedReason は消せない理由を返す。消せるなら null。
+ *  サーバーも 409 で断る。押す前に読めたほうが、次に何をすればいいか分かる。 */
+export const deleteBlockedReason = (declared: readonly string[], id: string): string | null =>
+  declared.includes(id) ? '伸ばしたい種目から外すと削除できます' : null;
+
+/** DeleteStep は「削除」ボタンを押したときの次の一手。
+ *
+ *  act: 'arm' は確認待ちに入るだけで、まだ消さない。'confirm' は確認待ちの
+ *  種目をもう一度押したので、実際に消してよい。 */
+export type DeleteStep = { pendingId: string | null; act: 'arm' | 'confirm' };
+
+/** nextDeleteStep は「削除」ボタンを押したときの次の確認状態を決める。
+ *
+ *  隣のボタンへの1タップでの誤爆を防ぐため（消した種目は画面から戻せない）、
+ *  同じ id を続けて2回押したときだけ 'confirm' を返す。確認待ち中に別の id を
+ *  押したら、そちらを確認待ちにする（一覧全体で確認待ちは常に0か1個）。 */
+export const nextDeleteStep = (pendingId: string | null, id: string): DeleteStep =>
+  pendingId === id ? { pendingId: null, act: 'confirm' } : { pendingId: id, act: 'arm' };
+
+/** afterDelete は種目を消したあとの「使う種目」。
+ *
+ *  サーバーは消した種目を使う種目から外す。手元が古いままだと、次の「使う」の
+ *  入り切りで消した ID ごと送り、「消した種目は選べない」で 400 になる。 */
+export const afterDelete = (selected: readonly string[] | null, id: string): string[] | null =>
+  selected === null ? null : selected.filter((s) => s !== id);
