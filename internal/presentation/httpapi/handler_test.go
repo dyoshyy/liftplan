@@ -125,7 +125,7 @@ func dependencies(
 		EditExercise:     usecase.NewEditExercise(exercises, programs),
 		Exercises:        query.NewExercises(exercises),
 		History:          query.NewHistory(logs, exercises, conditions),
-		Stats:            query.NewStats(logs, exercises, conditions, programs, planning.DefaultOneRepMaxEstimator()),
+		Stats:            query.NewStats(logs, exercises, conditions, programs, planning.DefaultOneRepMaxEstimator(), planning.DefaultSessionPlanner()),
 		Accounts:         query.NewAccounts(memory.NewAccountRepository()),
 	}
 }
