@@ -290,3 +290,61 @@ func TestHorizonDates_SpacingByFrequency(t *testing.T) {
 		})
 	}
 }
+
+// 軸もバリエーションも無い回（five_way の肩・腕の日）でも、先の回の
+// 分割の周期は1つ進む。
+//
+// 予測は「前の回の軸・バリエーションを仮の記録として足してから次を決める」
+// ので、何も足さない回があると出席回数が進まず、同じ分割の日が2回連続で
+// 予測される。肩の日が2日続けて出ると、1日目に割り振ったサイドレイズが
+// 回復判定で2日目を締め出し、側部三角筋が永久に1枠ぶんしか埋まらない
+// （TestDefaultSelected_PlansEveryShippedSetup の five_way・週5回で実測）。
+func TestProjectHorizon_AdvancesTheCycleOnAxislessDays(t *testing.T) {
+	presets, err := seed.SplitPresets()
+	if err != nil {
+		t.Fatalf("SplitPresets: %v", err)
+	}
+	var cycle []program.Split
+	for _, p := range presets {
+		if p.Key == "five_way" {
+			cycle = p.Cycle
+		}
+	}
+	if cycle == nil {
+		t.Fatal("five_way プリセットが見つからない")
+	}
+
+	pool := []*exercise.Exercise{
+		mainExercise(t, "bench", map[training.MuscleRegion]float64{training.ChestMid: 1.0}),
+		mainExercise(t, "squat", map[training.MuscleRegion]float64{training.Quad: 1.0}),
+		mainExercise(t, "deadlift", map[training.MuscleRegion]float64{training.Hamstring: 1.0}),
+		mkAccessory(t, "side_raise", map[training.MuscleRegion]float64{training.SideDelt: 1.0}),
+		mkAccessory(t, "curl", map[training.MuscleRegion]float64{training.Biceps: 1.0}),
+	}
+	prog, err := program.NewProgram(mustFrequency(t, 5), planVolume(t),
+		[]exercise.ExerciseID{"bench", "squat", "deadlift", "side_raise", "curl"}, big3(), "")
+	if err != nil {
+		t.Fatalf("プログラムの生成に失敗: %v", err)
+	}
+	if prog, err = prog.WithCycle(cycle); err != nil {
+		t.Fatalf("WithCycle: %v", err)
+	}
+
+	// 2回出席済み。3回目（周期の3番目 = 肩）から予測が始まる。
+	history := setlog.NewHistory([]*setlog.SetLog{
+		mkLogOn(t, "l1", today().AddDays(-3), "bench", 80, 5, 2),
+		mkLogOn(t, "l2", today().AddDays(-2), "deadlift", 140, 5, 2),
+	})
+
+	sessions, err := planning.DefaultSessionPlanner().ProjectHorizon(history, prog, pool, today())
+	if err != nil {
+		t.Fatalf("ProjectHorizon: %v", err)
+	}
+	for k, s := range sessions {
+		want := cycle[(2+k)%len(cycle)]
+		got, _ := s.Split()
+		if got.Name() != want.Name() {
+			t.Errorf("回%d（%v）の分割が %q。周期どおりなら %q", k, s.Date(), got.Name(), want.Name())
+		}
+	}
+}
