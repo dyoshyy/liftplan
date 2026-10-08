@@ -5,6 +5,8 @@
 // 居ることで不変条件を守っている。PlannedSet は SessionPlanner からしか
 // 作れず、StimulusCoverage は CoverageBetween や Plus からしか出てこない。
 //
-// ファイル名は役割を表す名詞で終わる（_planner / _selector / _policy /
-// _analyzer / _estimator）。それ以外は型で、ファイル名は型に揃える。
+// サービスのファイル名は役割を表す名詞で終わる（_planner / _allocator /
+// _analyzer / _estimator / _projector）。レーン（*_lane.go・axis_rotation.go・
+// lane_prescription.go）は計画器が使う非公開の判断。それ以外は型か関数で、
+// ファイル名はそれに揃える。
 package planning
