@@ -3,29 +3,32 @@ import { label } from '../../domain/date';
 import { parseSetInput, type SetValues } from '../../domain/sets';
 import { Button } from '../../ui/Button';
 import { Stepper } from '../../ui/Stepper';
-import type { EditTarget } from './useHistoryEditor';
+import type { SheetTarget } from './useHistoryEditor';
 
 type Props = {
-  target: EditTarget;
+  target: SheetTarget;
   /** bodyweight は自重を使う種目か。重量 0（何も付けない）を通す。 */
   bodyweight: boolean;
-  onSave: (values: SetValues) => void;
+  onSubmit: (values: SetValues) => void;
+  /** onDelete は直すときだけ出す。足すときは消す相手がまだ無い。 */
   onDelete: () => void;
   onClose: () => void;
 };
 
-// EditSetSheet は履歴の1セットを直すシート。
+// EditSetSheet は履歴の1セットを直す・足すシート。
 //
 // 今日の RecordSheet を使い回さないのは、あちらが「今日の計画」と
 // 「前回の実績」から初期値を決めるため。ここで直すのは記録済みの値そのもの
-// なので、初期値はそのセットの値で決まる。入力の検証（parseSetInput）と
+// なので、初期値はそのセットの値で決まる。足すときは呼び手が決めた値
+// （その種目の最後のセット、新しい種目なら空）。入力の検証（parseSetInput）と
 // 数値の入力部品（Stepper）は共有している。
-export function EditSetSheet({ target, bodyweight, onSave, onDelete, onClose }: Props) {
+export function EditSetSheet({ target, bodyweight, onSubmit, onDelete, onClose }: Props) {
   const ref = useRef<HTMLDialogElement>(null);
-  const { set } = target;
-  const [weight, setWeight] = useState(String(set.weight_kg));
-  const [reps, setReps] = useState(String(set.reps));
-  const [rir, setRir] = useState(String(set.rir));
+  const adding = target.kind === 'add';
+  const initial = adding ? target.initial : target.set;
+  const [weight, setWeight] = useState(initial ? String(initial.weight_kg) : '');
+  const [reps, setReps] = useState(initial ? String(initial.reps) : '');
+  const [rir, setRir] = useState(initial ? String(initial.rir) : '');
   const [warning, setWarning] = useState('');
 
   useEffect(() => {
@@ -38,7 +41,7 @@ export function EditSetSheet({ target, bodyweight, onSave, onDelete, onClose }: 
       setWarning(parsed.warning);
       return;
     }
-    onSave(parsed.values);
+    onSubmit(parsed.values);
   };
 
   return (
@@ -49,7 +52,7 @@ export function EditSetSheet({ target, bodyweight, onSave, onDelete, onClose }: 
       >
         <div className="flex items-baseline gap-2.5">
           <span className="font-bold">
-            {target.name} {target.index + 1}セット目
+            {target.name} {target.index + 1}セット目{adding && 'を足す'}
           </span>
           <span className="num ml-auto text-xs text-faint">{label(target.date)}</span>
         </div>
@@ -60,10 +63,12 @@ export function EditSetSheet({ target, bodyweight, onSave, onDelete, onClose }: 
 
         {warning && <p className="m-0 text-[13px] text-red">{warning}</p>}
 
-        <Button onClick={submit}>直す</Button>
-        <Button variant="danger" onClick={onDelete}>
-          このセットを消す
-        </Button>
+        <Button onClick={submit}>{adding ? '足す' : '直す'}</Button>
+        {!adding && (
+          <Button variant="danger" onClick={onDelete}>
+            このセットを消す
+          </Button>
+        )}
         <Button variant="quiet" onClick={() => ref.current?.close()}>
           閉じる
         </Button>

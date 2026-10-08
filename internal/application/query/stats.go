@@ -49,6 +49,9 @@ type Stats struct {
 	conditions condition.Reader
 	programs   program.Reader
 	estimator  planning.OneRepMaxEstimator
+	// planner は週目標を計画と同じ形に直すのに使う（重点種目の系統ぶんの
+	// 引き上げ）。推定器と同じく、計画と同じものを渡す。
+	planner planning.SessionPlanner
 }
 
 func NewStats(
@@ -57,8 +60,12 @@ func NewStats(
 	conditions condition.Reader,
 	programs program.Reader,
 	estimator planning.OneRepMaxEstimator,
+	planner planning.SessionPlanner,
 ) *Stats {
-	return &Stats{logs: logs, exercises: exercises, conditions: conditions, programs: programs, estimator: estimator}
+	return &Stats{
+		logs: logs, exercises: exercises, conditions: conditions, programs: programs,
+		estimator: estimator, planner: planner,
+	}
 }
 
 // Trends は主要な種目の推定1RMの推移を返す。
@@ -142,7 +149,13 @@ func (q *Stats) WeeklyVolume(ctx context.Context, user account.UserID, asOf trai
 	// 週目標は保存された持ち物ではなく、設定（頻度と1回の量）から組み直す
 	// （D-139、#176）。計画と同じ導き方で比べないと、計画が狙う区分と
 	// 画面が「足りていない」と言う区分が食い違う。
-	target, err := seed.DefaultWeeklyTarget(prog.Frequency(), prog.SessionVolume())
+	base, err := seed.DefaultWeeklyTarget(prog.Frequency(), prog.SessionVolume())
+	if err != nil {
+		return nil, fmt.Errorf("週目標が組めない: %w", err)
+	}
+	// 重点種目の系統ぶんの引き上げも計画と同じ。ここだけ設定の値のままだと、
+	// 画面は「胸は超えている」と言い、計画は胸を足りていると扱う。
+	target, err := q.planner.WeeklyTarget(base, h, prog, pool, asOf)
 	if err != nil {
 		return nil, fmt.Errorf("週目標が組めない: %w", err)
 	}

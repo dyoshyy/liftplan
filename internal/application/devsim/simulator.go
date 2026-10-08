@@ -273,10 +273,21 @@ func (s *Simulator) Run(req Request) (Result, error) {
 		week := Week{Index: w + 1}
 		done := map[training.MuscleRegion]float64{}
 
-		for _, off := range offsets {
+		// 週の目標は、その週の最初の回の時点で計画が使うもの（重点種目の
+		// 系統ぶんの引き上げを含む）。設定の値のままだと、重点の区分が
+		// 毎週「超過」に見える。
+		weekTarget := target
+		for i, off := range offsets {
 			date := req.Start.AddDays(w*7 + off)
 			history := setlog.NewHistory(logs)
 			estimable := setlog.NewHistory(effective)
+
+			if i == 0 {
+				weekTarget, err = s.planner.WeeklyTarget(target, history, prog, pool, date)
+				if err != nil {
+					return Result{}, fmt.Errorf("%v の週目標の導出に失敗: %w", date, err)
+				}
+			}
 
 			planned, err := s.planner.Plan(planning.PlanRequest{
 				Program:    prog,
@@ -333,9 +344,9 @@ func (s *Simulator) Run(req Request) (Result, error) {
 			out.Days = append(out.Days, day)
 		}
 
-		for _, r := range target.Regions() {
+		for _, r := range weekTarget.Regions() {
 			week.Regions = append(week.Regions, RegionVolume{
-				Region: r, Target: target.Sets(r), Done: done[r],
+				Region: r, Target: weekTarget.Sets(r), Done: done[r],
 			})
 		}
 		out.Weeks = append(out.Weeks, week)

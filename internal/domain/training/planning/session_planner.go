@@ -169,8 +169,12 @@ func (p SessionPlanner) Forecast(req PlanRequest) ([]PlannedSession, error) {
 		return nil, fmt.Errorf("補助のセット数が不正: %w", err)
 	}
 
+	// 重点種目の系統が余分に入れる刺激のぶん、その区分の目標を上げる
+	// （raiseForFocus）。画面の充足も同じ目標を見る（WeeklyTarget）。
+	target := raiseForFocus(req.Target, sessions)
+
 	allocations, err := p.accessory.Allocate(AllocationRequest{
-		Target: req.Target, Baseline: baseline, Sessions: horizon,
+		Target: target, Baseline: baseline, Sessions: horizon,
 		Cycle: req.Program.Cycle(), SetsPerAccessory: setsPerAccessory,
 		Pool: candidateAccessories(req.Pool, exclude), Master: req.Pool,
 		History: history,

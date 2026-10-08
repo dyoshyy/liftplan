@@ -261,7 +261,7 @@ func buildHandler(ctx context.Context) (http.Handler, func(), error) {
 		EditExercise:     usecase.NewEditExercise(exercises, programs),
 		Exercises:        query.NewExercises(exercises),
 		History:          query.NewHistory(logs, exercises, conditions),
-		Stats:            query.NewStats(logs, exercises, conditions, programs, planning.DefaultOneRepMaxEstimator()),
+		Stats:            query.NewStats(logs, exercises, conditions, programs, planning.DefaultOneRepMaxEstimator(), planner),
 		Accounts:         query.NewAccounts(repos.accounts),
 	})
 	if err != nil {
