@@ -118,11 +118,17 @@ func (p SessionPlanner) ProjectHorizon(
 	dates := horizonDates(date, prog.Frequency().PerWeek())
 	logs := history.Logs()
 
+	// 周期の位置は「出席回数」で進む。先の回は1回ずつ出席する前提なので、
+	// 実際の出席回数に k を足す。仮の記録から数え直すと、軸もバリエーションも
+	// 無い回（five_way の肩・腕の日）で記録が増えず、以降の回が全部同じ
+	// 分割の日になる（TestProjectHorizon_AdvancesTheCycleOnAxislessDays）。
+	attended := history.SessionCount()
+
 	out := make([]ProjectedSession, 0, len(dates))
 	for k, d := range dates {
 		h := setlog.NewHistory(logs)
 
-		today, hasSplit := prog.SplitOn(h.SessionCount())
+		today, hasSplit := prog.SplitOn(attended + k)
 		heavy, axisRole := axis(h, prog, usable, declared, today, hasSplit, d)
 		variation := variationLift(h, prog, usable, heavy, d, today, hasSplit)
 
@@ -192,7 +198,7 @@ func toHorizonSessions(sessions []ProjectedSession, exercisesPerSession int) []H
 // TestHorizonDates_SpacingByFrequency が守る。
 func horizonDates(today training.Date, f int) []training.Date {
 	out := make([]training.Date, 0, f)
-	for k := 0; k < f; k++ {
+	for k := range f {
 		offset := int(math.Round(float64(k) * 7 / float64(f)))
 		out = append(out, today.AddDays(offset))
 	}
