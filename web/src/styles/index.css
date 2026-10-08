@@ -28,6 +28,23 @@
   --font-sans: 'Zen Kaku Gothic New', system-ui, sans-serif;
 
   --radius-card: 14px;
+
+  /* 画面の動き。keyframes はファイルの末尾にある。
+     入りだけを動かし、出は動かさない。閉じるのを待たせると、セットの合間に
+     一瞬見る器具として邪魔になる。どれも fill は backwards にしてある
+     （forwards だと終わったあとも transform が残り、.set:active の押し込みを
+     上書きし、position: fixed の子の基準も変わる）。 */
+  --animate-rise-in: rise-in 0.22s cubic-bezier(0.2, 0.8, 0.2, 1) backwards;
+  --animate-unfold: rise-in 0.18s cubic-bezier(0.2, 0.8, 0.2, 1) backwards;
+  --animate-drop-in: drop-in 0.22s cubic-bezier(0.2, 0.8, 0.2, 1) backwards;
+  --animate-fade-in: fade-in 0.18s ease-out backwards;
+  --animate-sheet-up: sheet-up 0.24s cubic-bezier(0.2, 0.9, 0.25, 1) backwards;
+  --animate-bar-up: bar-up 0.22s cubic-bezier(0.2, 0.9, 0.25, 1) backwards;
+  --animate-grow-x: grow-x 0.25s cubic-bezier(0.2, 0.8, 0.2, 1) backwards;
+  --animate-tab-pick: tab-pick 0.18s cubic-bezier(0.2, 0.8, 0.2, 1);
+  --animate-set-pop: set-pop 0.28s cubic-bezier(0.3, 1.6, 0.5, 1);
+  --animate-set-glow: set-glow 0.5s ease-out;
+  --animate-alert: alert 0.6s cubic-bezier(0.3, 1.4, 0.5, 1);
 }
 
 /* 素の指定はレイヤーに入れる。
@@ -92,10 +109,43 @@
     margin: 0;
   }
 
+  /* 疑似要素と ::backdrop は * に含まれないので並べる。自己ベストの演出は
+     data-reduced で結果だけを出す形に切り替わるので、ここで止めても欠けない。 */
   @media (prefers-reduced-motion: reduce) {
-    * {
+    *,
+    *::before,
+    *::after,
+    ::backdrop {
+      animation: none !important;
       transition: none !important;
     }
+  }
+}
+
+/* カードの入りを上から順に少しずつ遅らせる。遅れは8枚目で頭打ちにする。
+   長い一覧の末尾まで遅らせると、下のほうを見たい人を待たせる。
+   utilities に置くのは、animate-rise-in の shorthand が遅れを 0 に戻すため。 */
+@layer utilities {
+  .animate-rise-in:nth-child(2 of .animate-rise-in) {
+    animation-delay: 30ms;
+  }
+  .animate-rise-in:nth-child(3 of .animate-rise-in) {
+    animation-delay: 60ms;
+  }
+  .animate-rise-in:nth-child(4 of .animate-rise-in) {
+    animation-delay: 90ms;
+  }
+  .animate-rise-in:nth-child(5 of .animate-rise-in) {
+    animation-delay: 120ms;
+  }
+  .animate-rise-in:nth-child(6 of .animate-rise-in) {
+    animation-delay: 150ms;
+  }
+  .animate-rise-in:nth-child(7 of .animate-rise-in) {
+    animation-delay: 180ms;
+  }
+  .animate-rise-in:nth-child(n + 8 of .animate-rise-in) {
+    animation-delay: 210ms;
   }
 }
 
@@ -132,6 +182,7 @@
     place-content: center;
     gap: 3px;
     text-align: center;
+    position: relative;
     transition: transform 0.06s ease;
   }
 
@@ -142,6 +193,23 @@
   .set-done {
     background: color-mix(in srgb, var(--color-green) 16%, transparent);
     border-color: color-mix(in srgb, var(--color-green) 45%, transparent);
+  }
+
+  /* 記録したてのセット。弾ませて、縁の緑を一瞬だけ灯す。
+     灯りは影そのものを動かさず、影を持った疑似要素の opacity で出す。 */
+  .set-pop {
+    animation: var(--animate-set-pop);
+  }
+  .set-pop::after {
+    content: '';
+    position: absolute;
+    inset: -1px;
+    border-radius: inherit;
+    border: 2px solid var(--color-green);
+    box-shadow: 0 0 18px color-mix(in srgb, var(--color-green) 55%, transparent);
+    opacity: 0;
+    pointer-events: none;
+    animation: var(--animate-set-glow);
   }
 
   /* 記録シートは下から出す。片手で親指が届く位置に置く。 */
@@ -161,6 +229,17 @@
 
   dialog::backdrop {
     background: rgb(0 0 0 / 0.66);
+  }
+
+  /* 開いたときだけ動く。シートはどれも開くたびに作り直しているので、
+     [open] が付く瞬間が開く瞬間になる。滑る距離は短くしてある。
+     画面の外から出すと、出始めの数コマは押したい場所にボタンが無い。 */
+  dialog[open] {
+    animation: var(--animate-sheet-up);
+  }
+
+  dialog[open]::backdrop {
+    animation: var(--animate-fade-in);
   }
 }
 
@@ -446,5 +525,91 @@
   }
   100% {
     filter: hue-rotate(360deg);
+  }
+}
+
+/* ── 画面の動き ──────────────────────────────────────────────────
+   @theme の --animate-* から使う。ここも transform と opacity だけで書く。 */
+@keyframes rise-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+}
+
+@keyframes drop-in {
+  from {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+}
+
+@keyframes sheet-up {
+  from {
+    opacity: 0;
+    transform: translateY(36px);
+  }
+}
+
+@keyframes bar-up {
+  from {
+    opacity: 0;
+    transform: translateY(100%);
+  }
+}
+
+@keyframes grow-x {
+  from {
+    transform: scaleX(0);
+  }
+}
+
+@keyframes tab-pick {
+  from {
+    opacity: 0.6;
+    transform: scale(0.9);
+  }
+}
+
+@keyframes set-pop {
+  0% {
+    transform: scale(0.9);
+  }
+  45% {
+    transform: scale(1.06);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+@keyframes set-glow {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+
+@keyframes alert {
+  0%,
+  100% {
+    transform: scale(1);
+  }
+  25% {
+    transform: scale(1.25);
+  }
+  50% {
+    transform: scale(0.94);
+  }
+  75% {
+    transform: scale(1.06);
   }
 }

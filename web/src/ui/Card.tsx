@@ -1,18 +1,20 @@
-import type { HTMLAttributes, ReactNode } from 'react';
+import type { ComponentProps, HTMLAttributes, ReactNode } from 'react';
 import { cn } from './cn';
 
-type CardProps = HTMLAttributes<HTMLDivElement> & {
+type CardProps = ComponentProps<'div'> & {
   /** title は小さい見出し。大文字・字間広め・くすんだ色で、中身と competing しない。 */
   title?: ReactNode;
   /** tone は注意を引きたいカード（デロードの提案・更新の通知）に使う。 */
   tone?: 'default' | 'amber';
 };
 
+// 描かれたときに下から入る。並んだカードは index.css で上から順に遅れて出る。
+// 入り方を変えたいときは className に別の animate-* を渡す（cn が後を勝たせる）。
 export function Card({ title, tone = 'default', className, children, ...props }: CardProps) {
   return (
     <div
       className={cn(
-        'rounded-[14px] border p-4',
+        'animate-rise-in rounded-[14px] border p-4',
         tone === 'amber' ? 'border-amber/40 bg-amber/15' : 'border-line bg-surface',
         className,
       )}

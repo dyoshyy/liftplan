@@ -19,16 +19,19 @@ export function RestTimerBar({ timer }: { timer: RestTimer }) {
   return (
     <div
       className={cn(
-        'fixed inset-x-0 z-40 border-t backdrop-blur-[10px]',
+        // ナビの裏から滑り出す（ナビのほうが上に重なっている）。
+        'fixed inset-x-0 z-40 animate-bar-up border-t backdrop-blur-[10px]',
         'bottom-[calc(49px+env(safe-area-inset-bottom))]',
         finished ? 'border-green/45 bg-green/20' : 'border-line-soft bg-surface/95',
       )}
     >
       <div className="mx-auto flex max-w-[620px] items-center gap-3 px-4 py-2.5">
+        {/* 終わった瞬間に一度だけ跳ねる。finished が立ったときに animate-alert が
+            付くので、描き直しでは跳ね直さない。 */}
         <span
           className={cn(
-            'num text-[26px] font-semibold leading-none tabular-nums',
-            finished ? 'text-green' : 'text-amber',
+            'num inline-block text-[26px] font-semibold leading-none tabular-nums',
+            finished ? 'animate-alert text-green' : 'text-amber',
           )}
         >
           {formatRemaining(timer.remainingMs)}

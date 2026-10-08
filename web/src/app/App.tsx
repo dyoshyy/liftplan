@@ -97,53 +97,61 @@ export function App() {
               onClearFailed={outbox.clearFailed}
             />
 
-            {route === 'today' && (
-              <Today
-                data={data}
-                enqueue={outbox.enqueue}
-                enqueueAll={outbox.enqueueAll}
-                onSaveFailed={outbox.reportFailure}
-                onRecordLocally={session.recordLocally}
-                onForgetLocally={session.forgetLocally}
-                onRecorded={timer.start}
-                canStartRest={timer.state.kind === 'idle'}
-                onReload={reload}
-                onOpenForecast={() => go('forecast')}
-              />
-            )}
+            {/* 画面を替えたときだけふわっと出す。key が route なので、同じ画面の
+                描き直しでは入り直さない。 */}
+            <div key={route} className="grid animate-fade-in gap-3.5">
+              {route === 'today' && (
+                <Today
+                  data={data}
+                  enqueue={outbox.enqueue}
+                  enqueueAll={outbox.enqueueAll}
+                  onSaveFailed={outbox.reportFailure}
+                  onRecordLocally={session.recordLocally}
+                  onForgetLocally={session.forgetLocally}
+                  onRecorded={timer.start}
+                  canStartRest={timer.state.kind === 'idle'}
+                  onReload={reload}
+                  onOpenForecast={() => go('forecast')}
+                />
+              )}
 
-            {route === 'history' && (
-              <History
-                logs={monthLogs}
-                editor={editor}
-                exercises={data.exercises}
-                selected={data.selected}
-                loadOffsets={data.loadOffsets}
-                stats={stats.stats}
-                statsError={stats.error}
-                onReloadStats={() => void stats.reload()}
-              />
-            )}
+              {route === 'history' && (
+                <History
+                  logs={monthLogs}
+                  editor={editor}
+                  exercises={data.exercises}
+                  selected={data.selected}
+                  loadOffsets={data.loadOffsets}
+                  stats={stats.stats}
+                  statsError={stats.error}
+                  onReloadStats={() => void stats.reload()}
+                />
+              )}
 
-            {route === 'settings' && (
-              <SettingsScreen
-                nameOf={nameOf}
-                exercises={data.exercises}
-                onChanged={reload}
-                timer={timer}
-                onForget={() => {
-                  session.signOut();
-                  go('today');
-                }}
-                onOpenExercises={() => go('exercises')}
-              />
-            )}
+              {route === 'settings' && (
+                <SettingsScreen
+                  nameOf={nameOf}
+                  exercises={data.exercises}
+                  onChanged={reload}
+                  timer={timer}
+                  onForget={() => {
+                    session.signOut();
+                    go('today');
+                  }}
+                  onOpenExercises={() => go('exercises')}
+                />
+              )}
 
-            {route === 'forecast' && <Forecast nameOf={nameOf} onBack={() => go('today')} />}
+              {route === 'forecast' && <Forecast nameOf={nameOf} onBack={() => go('today')} />}
 
-            {route === 'exercises' && (
-              <ExerciseManager exercises={data.exercises} onChanged={reload} onBack={() => go('settings')} />
-            )}
+              {route === 'exercises' && (
+                <ExerciseManager
+                  exercises={data.exercises}
+                  onChanged={reload}
+                  onBack={() => go('settings')}
+                />
+              )}
+            </div>
           </>
         )}
       </main>
