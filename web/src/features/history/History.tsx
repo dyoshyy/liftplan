@@ -1,18 +1,20 @@
 import { useEffect, useRef, useState } from 'react';
-import type { Day, StatsResponse, Volume } from '../../api/types';
+import type { Day, Exercise, StatsResponse, Volume } from '../../api/types';
 import { label, today } from '../../domain/date';
 import { regionLabel } from '../../domain/regions';
 import { formatSets, usesBodyweight } from '../../domain/sets';
 import { Button } from '../../ui/Button';
 import { Card, Note } from '../../ui/Card';
+import { Input } from '../../ui/Field';
 import { cn } from '../../ui/cn';
 import { ChevronLeftIcon, ChevronRightIcon } from '../../ui/icons';
+import { ExercisePicker } from '../exercises/ExercisePicker';
 import { monthGrid } from './calendar';
-import { monthLabel, monthOf, summarize } from './month';
+import { addableRange, exercisesOn, monthLabel, monthOf, summarize, type Month } from './month';
 import { TrendRow } from './TrendChart';
 import type { MonthLogs } from './useMonthLogs';
 import { EditSetSheet } from './EditSetSheet';
-import type { EditTarget, HistoryEditor } from './useHistoryEditor';
+import { addSetTarget, type AddTarget, type EditTarget, type HistoryEditor } from './useHistoryEditor';
 import { dayTonnage, formatTonnage } from './tonnage';
 import { fillPercent } from './volume';
 import { weeklyTotal } from './weekly';
@@ -28,8 +30,12 @@ type Focus = { date: string; exerciseId?: string };
 type Props = {
   /** 月ごとの記録。どの月を見ているかもここが持つ。 */
   logs: MonthLogs;
-  /** 記録の修正と削除。 */
+  /** 記録の修正・追加・削除。 */
   editor: HistoryEditor;
+  /** 種目を足すときの選択肢。 */
+  exercises: readonly Exercise[];
+  /** selected は使う種目。null は読めていない（絞らない）。 */
+  selected: readonly string[] | null;
   /** 種目ごとの、加重に足すと体重込みの負荷になる量。自重を使う種目の判別に使う。 */
   loadOffsets: Readonly<Record<string, number>>;
   /** 週の充足と推移。まだ読めていなければ null。 */
@@ -55,9 +61,22 @@ type Props = {
 // **記録と推移は切り替えにする。**充足は「直近4週」で固定なのに、記録は
 // 選んだ月を出す。1本のスクロールに並べると、8月を見ているのに上の数字は
 // 今週のまま、という読み違いが起きる。
-export function History({ logs, editor, loadOffsets, stats, statsError = '', onReloadStats }: Props) {
+export function History({
+  logs,
+  editor,
+  exercises,
+  selected,
+  loadOffsets,
+  stats,
+  statsError = '',
+  onReloadStats,
+}: Props) {
   const [view, setView] = useState<View>('logs');
   const [focus, setFocus] = useState<Focus | null>(null);
+  // 種目を選んでいる日。選んだら、その日にその種目の1セット目を足すシートを開く。
+  const [pickingFor, setPickingFor] = useState<string | null>(null);
+  const { target } = editor;
+  const nameOf = (id: string) => exercises.find((e) => e.id === id)?.name ?? id;
 
   // 推移の点から、その日の記録へ。月を合わせてから記録の側へ切り替える。
   const openLog = (date: string, exerciseId: string) => {
@@ -90,18 +109,44 @@ export function History({ logs, editor, loadOffsets, stats, statsError = '', onR
           focus={focus}
           onPickDay={pickDay}
           onEdit={editor.open}
+          onAddSet={editor.openAdd}
+          onAddExercise={setPickingFor}
         />
       ) : (
         <Stats stats={stats} error={statsError} onReload={onReloadStats} onOpenLog={openLog} />
       )}
 
-      {editor.target && (
+      {pickingFor && (
+        <ExercisePicker
+          title={`${label(pickingFor)}に足す種目を選ぶ`}
+          exercises={exercises}
+          // その日に記録がある種目は、その行の「セットを足す」から足す。
+          excluded={exercisesOn(logs.days ?? [], pickingFor)}
+          selected={selected}
+          onPick={(id) =>
+            editor.openAdd({
+              kind: 'add',
+              date: pickingFor,
+              exerciseId: id,
+              name: nameOf(id),
+              index: 0,
+              initial: null,
+            })
+          }
+          onClose={() => setPickingFor(null)}
+        />
+      )}
+
+      {target && (
         <EditSetSheet
-          // 別のセットを開いたら入力をそのセットの値で作り直す。
-          key={editor.target.set.id}
-          target={editor.target}
-          bodyweight={usesBodyweight(loadOffsets, editor.target.exerciseId)}
-          onSave={(v) => void editor.save(v)}
+          // 別のセットを開いたら入力をそのセットの値で作り直す。足すセットには
+          // まだ ID が無いので、日付・種目・番号で区別する。
+          key={
+            target.kind === 'edit' ? target.set.id : `add-${target.date}-${target.exerciseId}-${target.index}`
+          }
+          target={target}
+          bodyweight={usesBodyweight(loadOffsets, target.exerciseId)}
+          onSubmit={(v) => void (target.kind === 'add' ? editor.add(v) : editor.save(v))}
           onDelete={() => void editor.remove()}
           onClose={editor.close}
         />
@@ -109,6 +154,13 @@ export function History({ logs, editor, loadOffsets, stats, statsError = '', onR
     </>
   );
 }
+
+type DayActions = {
+  onEdit: (t: EditTarget) => void;
+  onAddSet: (t: AddTarget) => void;
+  /** onAddExercise はその日に足す種目を選ばせる。 */
+  onAddExercise: (date: string) => void;
+};
 
 function ViewTab({ label, active, onClick }: { label: string; active: boolean; onClick: () => void }) {
   return (
@@ -135,13 +187,12 @@ function MonthlyLogs({
   logs,
   focus,
   onPickDay,
-  onEdit,
+  ...actions
 }: {
   logs: MonthLogs;
   focus: Focus | null;
   onPickDay: (date: string) => void;
-  onEdit: (t: EditTarget) => void;
-}) {
+} & DayActions) {
   const { month, days, error } = logs;
 
   // 月を送ったら頭に戻す。一覧の末尾から前の月へ進むと、前の月の末尾
@@ -178,6 +229,10 @@ function MonthlyLogs({
           </Button>
         </div>
         {days && days.length > 0 && <MonthCalendar month={month} days={days} onPick={onPickDay} />}
+        {/* 読めていない月に出すと、記録がある日を除けずに種目を選ばせることになる。 */}
+        {days !== null && !error && (
+          <AddRecordRow key={month} month={month} onChoose={actions.onAddExercise} />
+        )}
       </Card>
 
       {error ? (
@@ -197,7 +252,7 @@ function MonthlyLogs({
         </Card>
       ) : (
         days.map((d) => (
-          <DayCard key={d.date} day={d} focus={focus?.date === d.date ? focus : undefined} onEdit={onEdit} />
+          <DayCard key={d.date} day={d} focus={focus?.date === d.date ? focus : undefined} {...actions} />
         ))
       )}
 
@@ -209,6 +264,37 @@ function MonthlyLogs({
         </Button>
       )}
     </>
+  );
+}
+
+// AddRecordRow は記録の無い日に足す入口。記録のある日は DayCard からも足せるが、
+// 記録しそびれた日にはカードが無い。
+function AddRecordRow({ month, onChoose }: { month: Month; onChoose: (date: string) => void }) {
+  const { min, max } = addableRange(month, today());
+  const [date, setDate] = useState(max);
+  const inRange = date >= min && date <= max;
+
+  return (
+    <div className="mt-3 flex items-center gap-2 border-t border-line-soft pt-3">
+      <Input
+        type="date"
+        aria-label="記録を足す日"
+        min={min}
+        max={max}
+        value={date}
+        onChange={(e) => setDate(e.target.value)}
+        className="min-w-0 flex-1"
+      />
+      <Button
+        variant="quiet"
+        size="md"
+        className="shrink-0"
+        disabled={!inRange}
+        onClick={() => onChoose(date)}
+      >
+        記録を足す
+      </Button>
+    </div>
   );
 }
 
@@ -354,12 +440,13 @@ function DayCard({
   day,
   focus,
   onEdit,
+  onAddSet,
+  onAddExercise,
 }: {
   day: Day;
   /** この日が寄せ先なら、画面をここへ寄せる。種目があれば最初から開く。 */
   focus?: Focus;
-  onEdit: (t: EditTarget) => void;
-}) {
+} & Pick<DayActions, 'onEdit' | 'onAddSet' | 'onAddExercise'>) {
   const [open, setOpen] = useState<string | null>(focus?.exerciseId ?? null);
   const ref = useRef<HTMLDivElement>(null);
 
@@ -407,7 +494,14 @@ function DayCard({
                         type="button"
                         aria-label={`${name} ${i + 1}セット目を直す`}
                         onClick={() =>
-                          onEdit({ date: day.date, exerciseId: e.exercise_id, name, index: i, set: s })
+                          onEdit({
+                            kind: 'edit',
+                            date: day.date,
+                            exerciseId: e.exercise_id,
+                            name,
+                            index: i,
+                            set: s,
+                          })
                         }
                         className="grid min-h-11 grid-cols-[1.75rem_1fr_auto] items-center rounded-lg bg-surface-2 px-3 text-left text-[13px]"
                       >
@@ -418,12 +512,30 @@ function DayCard({
                         <span className="num text-muted">RIR {s.rir}</span>
                       </button>
                     ))}
+                    <Button
+                      variant="quiet"
+                      size="chip"
+                      className="justify-self-start"
+                      aria-label={`${name}にセットを足す`}
+                      onClick={() => onAddSet(addSetTarget(day.date, e))}
+                    >
+                      セットを足す
+                    </Button>
                   </div>
                 )}
               </div>
             );
           })}
         </div>
+        <Button
+          variant="quiet"
+          size="chip"
+          className="mt-1"
+          aria-label={`${label(day.date)}に種目を足す`}
+          onClick={() => onAddExercise(day.date)}
+        >
+          種目を足す
+        </Button>
       </Card>
     </div>
   );

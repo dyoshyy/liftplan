@@ -25,6 +25,21 @@ export function monthRange(m: Month): { from: string; to: string } {
   return { from: `${m}-01`, to: `${m}-${String(last).padStart(2, '0')}` };
 }
 
+/** addableRange は履歴から記録を足せる日の範囲。表示中の月の初日から、
+ *  月末と今日の早いほうまで。
+ *
+ *  月の外に足すと、手元に取ってある月のどれにも当たらず（patchFetched）、
+ *  足したのに画面に出ない。 */
+export function addableRange(m: Month, today: string): { min: string; max: string } {
+  const { from, to } = monthRange(m);
+  return { min: from, max: today < to ? today : to };
+}
+
+/** exercisesOn はその日に記録がある種目。履歴で種目を足すとき、選択肢から除く。 */
+export function exercisesOn(days: readonly Day[], date: string): Set<string> {
+  return new Set(days.find((d) => d.date === date)?.exercises.map((e) => e.exercise_id));
+}
+
 /** shiftMonth は月を前後に動かす。 */
 export function shiftMonth(m: Month, delta: number): Month {
   const { y, mo } = parts(m);

@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import type { Day } from '../../api/types';
 import {
+  addableRange,
   canGoNext,
   daysIn,
+  exercisesOn,
   monthLabel,
   monthOf,
   monthRange,
@@ -182,5 +184,59 @@ describe('patchFetched', () => {
     });
     expect(got.has('2026-07')).toBe(false);
     expect(got).toBe(fetched);
+  });
+});
+
+describe('addableRange', () => {
+  // 未来の日に足すと、まだやっていないセットが推定1RMと週の充足に入る。
+  // 表示中の月の外に足すと、手元のどの月にも当たらず画面に出ない。
+  it.each([
+    {
+      name: '過去の月は月末まで',
+      month: '2026-08',
+      today: '2026-10-05',
+      min: '2026-08-01',
+      max: '2026-08-31',
+    },
+    { name: '今月は今日まで', month: '2026-10', today: '2026-10-05', min: '2026-10-01', max: '2026-10-05' },
+    {
+      name: '今日が月初なら1日だけ',
+      month: '2026-10',
+      today: '2026-10-01',
+      min: '2026-10-01',
+      max: '2026-10-01',
+    },
+    { name: '前月を月初に見る', month: '2026-09', today: '2026-10-01', min: '2026-09-01', max: '2026-09-30' },
+    {
+      name: '年を跨いで前の12月',
+      month: '2025-12',
+      today: '2026-01-03',
+      min: '2025-12-01',
+      max: '2025-12-31',
+    },
+    { name: '閏年の2月', month: '2028-02', today: '2028-03-10', min: '2028-02-01', max: '2028-02-29' },
+  ])('$name', ({ month, today, min, max }) => {
+    expect(addableRange(month, today)).toEqual({ min, max });
+  });
+});
+
+describe('exercisesOn', () => {
+  const log = (id: string) => ({
+    exercise_id: id,
+    name: id,
+    sets: [{ id: `${id}-1`, weight_kg: 60, reps: 8, rir: 2 }],
+  });
+  const days: Day[] = [
+    { date: '2026-08-14', exercises: [log('bench')], total_sets: 1 },
+    { date: '2026-08-12', exercises: [log('squat'), log('dip')], total_sets: 2 },
+  ];
+
+  // 記録がある種目を選ばせると、同じ種目が1日に2行並ぶ。そちらの「セットを足す」で済む。
+  it('その日に記録がある種目だけを返す', () => {
+    expect([...exercisesOn(days, '2026-08-12')].sort()).toEqual(['dip', 'squat']);
+  });
+
+  it('記録が無い日は空', () => {
+    expect(exercisesOn(days, '2026-08-13').size).toBe(0);
   });
 });
