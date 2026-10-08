@@ -24,14 +24,6 @@ export function forecastRows(session: ForecastSession): PlannedSet[] {
 }
 
 /**
- * isInitiallyOpen はページを開いたときに、その回を開いた状態で見せるか。
- * 今日（回0）だけ開き、先の回はたたんで並べる（設計書の画面モック）。
- */
-export function isInitiallyOpen(index: number): boolean {
-  return index === 0;
-}
-
-/**
  * forecastErrorMessage は取得に失敗したときに出す一言を選ぶ。
  *
  * 「オフラインでは見られません」は**本当に応答が返らなかった**ときだけ
