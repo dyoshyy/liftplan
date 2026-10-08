@@ -3,7 +3,8 @@
 // 単体テストでは踏めないところを見る。選択シートの開閉（<dialog>）、選んだ種目の
 // カードが出ること、記録のたびに次の空き枠が出ること、記録したあとに
 // 「今日やったもの」へ二重に出ないこと。判断（何を選択肢に出すか）は
-// features/today/adhoc.ts の単体テストが守っているので、ここは配線を見る。
+// features/exercises/pickable.ts と features/today/adhoc.ts（plannedIds）の
+// 単体テストが守っているので、ここは配線を見る。
 //
 // 使い方は scripts/ui-check.mjs と同じ。ポートは APP= と API= で渡す。
 const { chromium } = await import(process.env.PLAYWRIGHT ?? 'playwright-core');
