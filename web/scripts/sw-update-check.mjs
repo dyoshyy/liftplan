@@ -14,10 +14,14 @@ import { execSync } from 'node:child_process';
 //    経ずに有効化され、押しても何も起きないように見える。一度読み直して
 //    制御下に入れてから試す（現実の再訪問と同じ状態にする）
 //
-// 使い方は scripts/ui-check.mjs と同じ。preview のポートは APP= で渡す。
+// 使い方は scripts/ui-check.mjs と同じ。preview のポートは APP=、API の向き先は API= で渡す。
 const { chromium } = await import(process.env.PLAYWRIGHT ?? 'playwright-core');
 const WEB = process.env.WEB ?? new URL('..', import.meta.url).pathname;
-const BUILD = 'VITE_API_BASE=https://liftplan-server-vjeuvyzwlq-as.a.run.app pnpm build';
+// 向き先はほかの検査と同じ手元の API にする。本番に向けてビルドすると、
+// dist/ が本番向けのまま残り、このあとに回した検査が本番を叩く（#199）。
+// 更新の検知はビルドの中身（title）が変わるかだけを見るので、向き先は関係ない。
+const API = process.env.API ?? 'http://127.0.0.1:8080';
+const BUILD = `ALLOW_LOCAL_API=1 VITE_API_BASE=${API} pnpm build`;
 
 const states = (page) =>
   page.evaluate(async () => {
