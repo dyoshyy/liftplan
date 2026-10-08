@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -34,6 +35,13 @@ func NewExerciseRepository(pool *pgxpool.Pool, seed []*exercise.Exercise) *Exerc
 
 // FindAll はその利用者の一覧を ID 昇順（COLLATE "C"）で返す。行が1件も
 // 無ければ、シードを1つのトランザクションでコピーしてから読む。
+//
+// 読めない行（コンストラクタを通らない・効き方を解釈できない）は一覧から
+// 外してログに残し、全体は失敗させない。筋区分の改名や上限の変更で1行でも
+// 通らなくなったとき、一覧を丸ごと失敗させると、その利用者だけ計画・記録・
+// 履歴・設定が全滅してジムで記録がつけられなくなる（#217）。外すのは一覧から
+// だけで、行は消さない（Save は1行ずつの upsert で、外した行に触れない）。
+// 外した種目の記録は、名前が空の履歴として残る（シードから消した種目と同じ）。
 func (r *ExerciseRepository) FindAll(ctx context.Context, user account.UserID) ([]*exercise.Exercise, error) {
 	if err := r.ensureSeeded(ctx, user); err != nil {
 		return nil, err
@@ -63,7 +71,8 @@ func (r *ExerciseRepository) FindAll(ctx context.Context, user account.UserID) (
 		}
 		var rawMap map[training.MuscleRegion]float64
 		if err := json.Unmarshal(rawStimulus, &rawMap); err != nil {
-			return nil, fmt.Errorf("種目 %s の効き方を解釈できない: %w", id, err)
+			skipUnreadable(ctx, user, id, fmt.Errorf("効き方を解釈できない: %w", err))
+			continue
 		}
 		params := exercise.ExerciseParams{
 			ID: id, Name: name, Stimulus: rawMap,
@@ -75,7 +84,8 @@ func (r *ExerciseRepository) FindAll(ctx context.Context, user account.UserID) (
 		// 保存済みの値も必ずコンストラクタを通す（ProgramRepository.Get と同じ理由）。
 		e, err := exercise.NewExercise(params)
 		if err != nil {
-			return nil, fmt.Errorf("保存済みの種目が不正: %w", err)
+			skipUnreadable(ctx, user, id, err)
+			continue
 		}
 		if deleted {
 			e = e.Delete()
@@ -86,6 +96,13 @@ func (r *ExerciseRepository) FindAll(ctx context.Context, user account.UserID) (
 		return nil, wrapUnavailable(err, "種目を読めない")
 	}
 	return out, nil
+}
+
+// skipUnreadable は読めない行を外したことをログに残す。黙って外すと、
+// 種目が消えた理由を誰も追えない。
+func skipUnreadable(ctx context.Context, user account.UserID, id string, err error) {
+	slog.WarnContext(ctx, "保存済みの種目を読めないので一覧から外した",
+		"user", user.String(), "exercise", id, "error", err)
 }
 
 // ensureSeeded は、その利用者の行が1件も無ければシードを全部コピーし、
