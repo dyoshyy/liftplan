@@ -91,6 +91,10 @@ export type DevSettings = {
   custom?: DevCustom[];
   /** 宣言ごとの軸のレップ数。指定した宣言だけが入る。 */
   reps: Record<string, { heavy: number; light: number }>;
+  /** 上書きしたプリセット（ID ごと）。上書きしたものだけが入る。 */
+  edits?: Record<string, { stimulus: Record<string, number>; increment_kg: number }>;
+  /** 使わない種目の ID（ID の順）。 */
+  unused?: string[];
 };
 
 /** DevCustom は自分の種目の1件。dev_simulation.go の devCustomDTO と対。 */
@@ -136,6 +140,11 @@ export type Form = {
   /** 宣言ごとのレップ数。サーバーと同じ「id:重い:軽い」を , で並べた1行のまま持つ。
    *  空なら既定。 */
   reps: string;
+  /** プリセットの上書き。サーバーと同じ「ID|区分:寄与,区分:寄与|刻み」を ; で並べた
+   *  1行のまま持つ。空なら上書きしない。 */
+  edit: string;
+  /** 使わない種目の ID を , で並べた1行。空なら全部使う。 */
+  unused: string;
 };
 
 export const defaultForm: Form = {
@@ -154,6 +163,8 @@ export const defaultForm: Form = {
   start: null,
   custom: '',
   reps: '',
+  edit: '',
+  unused: '',
 };
 
 /** buildQuery は設定を問い合わせ文字列にする。空の項目は送らない。
@@ -183,6 +194,8 @@ export function buildQuery(form: Form): string {
   if (orm.length > 0) q.set('orm', orm.join(','));
   if (form.custom.trim() !== '') q.set('custom', form.custom.trim());
   if (form.reps.trim() !== '') q.set('reps', form.reps.trim());
+  if (form.edit.trim() !== '') q.set('edit', form.edit.trim());
+  if (form.unused.trim() !== '') q.set('unused', form.unused.trim());
   return q.toString();
 }
 
@@ -225,6 +238,8 @@ export function parseForm(search: string, fallback: Form): Form {
     start: q.get('start') || fallback.start,
     custom: q.has('custom') ? (q.get('custom') ?? '') : fallback.custom,
     reps: q.has('reps') ? (q.get('reps') ?? '') : fallback.reps,
+    edit: q.has('edit') ? (q.get('edit') ?? '') : fallback.edit,
+    unused: q.has('unused') ? (q.get('unused') ?? '') : fallback.unused,
   };
 }
 

@@ -122,6 +122,15 @@ type devSettingsDTO struct {
 	Custom []devCustomDTO `json:"custom"`
 	// Reps は宣言ごとの軸のレップ数。指定した宣言だけを返す。
 	Reps map[string]repTargetsDTO `json:"reps"`
+	// Edits は上書きしたプリセット（ID ごと）。上書きしたものだけを返す。
+	Edits map[string]devEditDTO `json:"edits"`
+	// Unused は使わない種目の ID（ID の順）。
+	Unused []string `json:"unused"`
+}
+
+type devEditDTO struct {
+	Stimulus    map[string]float64 `json:"stimulus"`
+	IncrementKg float64            `json:"increment_kg"`
 }
 
 type devCustomDTO struct {
@@ -241,7 +250,7 @@ var devQueryKeys = map[string]bool{
 	"frequency": true, "weeks": true, "days": true, "start": true,
 	"exercises": true, "sets": true,
 	"growth": true, "first_pct": true, "body_weight": true, "orm": true,
-	"custom": true, "reps": true,
+	"custom": true, "reps": true, "edit": true, "unused": true,
 }
 
 func parseDevRequest(r *http.Request) (devsim.Request, error) {
@@ -364,6 +373,17 @@ func parseDevRequest(r *http.Request) (devsim.Request, error) {
 	}
 	out.Custom = custom
 
+	edits, err := parseDevEdits(q.Get("edit"))
+	if err != nil {
+		return devsim.Request{}, err
+	}
+	out.Edits = edits
+	for _, id := range strings.Split(q.Get("unused"), ",") {
+		if id = strings.TrimSpace(id); id != "" {
+			out.Unused = append(out.Unused, exercise.ExerciseID(id))
+		}
+	}
+
 	reps, err := parseDevReps(q.Get("reps"))
 	if err != nil {
 		return devsim.Request{}, err
@@ -402,6 +422,39 @@ func parseDevCustom(v string) ([]devsim.CustomExercise, error) {
 			Stimulus:    stimulus,
 			IncrementKg: inc,
 		})
+	}
+	return out, nil
+}
+
+// parseDevEdits は "ID|区分:寄与,区分:寄与|刻み;..." をプリセットの上書きにする。
+//
+// custom= と同じ書式で、先頭が名前ではなくプリセットの ID（名前は変えない。
+// 本番で種目を直すときも名前はそのまま）。ID がプリセットにあるか・効き方の
+// 範囲は devsim（exercise.NewExercise）が見る。同じ ID の2回指定は弾く
+// （後ろが黙って勝つと、どちらの条件の結果か分からない）。
+func parseDevEdits(v string) (map[exercise.ExerciseID]devsim.EditedExercise, error) {
+	out := map[exercise.ExerciseID]devsim.EditedExercise{}
+	for _, item := range strings.Split(v, ";") {
+		if strings.TrimSpace(item) == "" {
+			continue
+		}
+		fields := strings.Split(item, "|")
+		if len(fields) != 3 {
+			return nil, errDevQuery("edit", item)
+		}
+		id := exercise.ExerciseID(strings.TrimSpace(fields[0]))
+		if _, dup := out[id]; dup {
+			return nil, errDevQuery("edit", fmt.Sprintf("%s（同じ種目の2回指定）", item))
+		}
+		stimulus, err := parseDevStimulus(fields[1])
+		if err != nil {
+			return nil, errDevQuery("edit", fmt.Sprintf("%s（%s）", item, err))
+		}
+		inc, err := strconv.ParseFloat(strings.TrimSpace(fields[2]), 64)
+		if err != nil {
+			return nil, errDevQuery("edit", item)
+		}
+		out[id] = devsim.EditedExercise{Stimulus: stimulus, IncrementKg: inc}
 	}
 	return out, nil
 }
@@ -549,6 +602,19 @@ func toDevSettingsDTO(req devsim.Request, pool []*exercise.Exercise) devSettings
 	for id, r := range req.Reps {
 		out.Reps[string(id)] = repTargetsDTO{Heavy: r.Heavy(), Light: r.Light()}
 	}
+	out.Edits = make(map[string]devEditDTO, len(req.Edits))
+	for id, ed := range req.Edits {
+		stim := make(map[string]float64, len(ed.Stimulus))
+		for r, v := range ed.Stimulus {
+			stim[string(r)] = v
+		}
+		out.Edits[string(id)] = devEditDTO{Stimulus: stim, IncrementKg: ed.IncrementKg}
+	}
+	out.Unused = make([]string, 0, len(req.Unused))
+	for _, id := range req.Unused {
+		out.Unused = append(out.Unused, string(id))
+	}
+	slices.Sort(out.Unused)
 	out.Custom = []devCustomDTO{}
 	for _, e := range pool {
 		out.Athlete.OneRepMaxKg[string(e.ID())] = req.Athlete.OneRepMax(e.ID())

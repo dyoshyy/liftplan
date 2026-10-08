@@ -66,6 +66,29 @@ describe('buildQuery', () => {
   });
 });
 
+// プリセットの上書き（edit）と使わない種目（unused）も URL に載る（#229）。
+// サーバーと同じ1行の書式のまま持ち、空なら送らない（送るとサーバーが既定と
+// 区別できないわけではないが、URL が長くなるだけ）。
+describe('buildQuery（種目の上書き・使わない）', () => {
+  it('空なら送らない', () => {
+    const q = new URLSearchParams(buildQuery(defaultForm));
+    expect(q.has('edit')).toBe(false);
+    expect(q.has('unused')).toBe(false);
+  });
+
+  it('書いたものをそのまま送る', () => {
+    const q = new URLSearchParams(
+      buildQuery({
+        ...defaultForm,
+        edit: ' pull_up|LAT:1,BICEPS:1|1.25 ',
+        unused: 'seated_row,lat_pulldown',
+      }),
+    );
+    expect(q.get('edit')).toBe('pull_up|LAT:1,BICEPS:1|1.25');
+    expect(q.get('unused')).toBe('seated_row,lat_pulldown');
+  });
+});
+
 describe('buildQuery（予定）', () => {
   // 曜日を指定したら頻度はその数。食い違って送るとサーバーが 400 を返す。
   it('曜日を送るときは、頻度を曜日の数に揃える', () => {
@@ -124,6 +147,8 @@ describe('parseForm', () => {
       sets: 2,
       days: [1, 5, 6],
       start: '2026-09-07',
+      edit: 'pull_up|LAT:1,BICEPS:1|1.25',
+      unused: 'seated_row',
     };
     form.frequency = 3;
     expect(parseForm(buildQuery(form), defaultForm)).toEqual(form);
