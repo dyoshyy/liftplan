@@ -559,3 +559,64 @@ func TestExerciseRepository_Postgres_ImportsLegacyCustomExercises(t *testing.T) 
 		t.Errorf("二度目の件数が %d（期待 %d）", len(again), len(got))
 	}
 }
+
+// 保存済みの行が1つ読めなくても、その人の種目一覧は読める（#217）。
+//
+// 行は読み出しのたびにコンストラクタを通す。筋区分の改名や上限の変更で
+// 1行でも通らなくなったとき、一覧を丸ごと失敗させると、今日の計画・記録・
+// 履歴・設定がその利用者だけ全滅し、ジムで記録がつけられなくなる。
+// 読めない行は一覧から外す。行そのものは消さない（直せば戻る）。
+func TestExerciseRepository_Postgres_SkipsUnreadableRows(t *testing.T) {
+	cases := []struct {
+		name     string
+		stimulus string
+	}{
+		// 筋区分を改名・削除したあとの行
+		{name: "検証を通らない行", stimulus: `{"no_such_region": 1.0}`},
+		// 効き方の列が壊れている行
+		{name: "効き方を解釈できない行", stimulus: `[1, 2]`},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			ctx := context.Background()
+			seedAll, err := seed.Exercises()
+			if err != nil {
+				t.Fatalf("シードが不正: %v", err)
+			}
+			pool := migratedDB(t)
+			repo := postgres.NewExerciseRepository(pool, seedAll)
+			a := newUser(t)
+
+			if _, err := repo.FindAll(ctx, a); err != nil {
+				t.Fatalf("初回の取得に失敗: %v", err)
+			}
+			if _, err := pool.Exec(ctx, `
+				INSERT INTO user_exercises (user_id, id, name, stimulus, increment_kg)
+				VALUES ($1, 'u-broken', '壊れた種目', $2::jsonb, 2.5)`, a.String(), c.stimulus); err != nil {
+				t.Fatalf("壊れた行を入れられない: %v", err)
+			}
+
+			got, err := repo.FindAll(ctx, a)
+			if err != nil {
+				t.Fatalf("1行が読めないだけで一覧が丸ごと読めない: %v", err)
+			}
+			if len(got) != len(seedAll) {
+				t.Errorf("件数が %d。読めない行だけを外したシードの %d 件のはず", len(got), len(seedAll))
+			}
+			if findByID(got, "u-broken") != nil {
+				t.Error("読めない行が一覧に入っている")
+			}
+
+			var left int
+			if err := pool.QueryRow(ctx,
+				`SELECT count(*) FROM user_exercises WHERE user_id = $1 AND id = 'u-broken'`, a.String(),
+			).Scan(&left); err != nil {
+				t.Fatal(err)
+			}
+			if left != 1 {
+				t.Error("読めない行が消えている。外すのは一覧からだけで、行は残す")
+			}
+		})
+	}
+}
