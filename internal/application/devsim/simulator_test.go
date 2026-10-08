@@ -603,3 +603,103 @@ func TestSimulator_RejectsBadCustomExercise(t *testing.T) {
 		}
 	})
 }
+
+// 本番では利用者がプリセットの効き方を直せる。直した結果で割り振りがどう動くかを
+// 開発用シミュレーションでも確かめられるよう、プリセットを上書きできる（#229）。
+// 名前・自重係数・派生元はプリセットのまま。直すのは効き方と刻みだけ（本番と同じ）。
+func TestSimulator_EditsAPreset(t *testing.T) {
+	req := baseRequest()
+	req.Edits = map[exercise.ExerciseID]devsim.EditedExercise{
+		"pull_up": {Stimulus: map[training.MuscleRegion]float64{training.Lat: 1, training.Biceps: 1}, IncrementKg: 1.25},
+	}
+	pool, err := newSimulator(t).PoolFor(req)
+	if err != nil {
+		t.Fatalf("PoolFor: %v", err)
+	}
+	var got *exercise.Exercise
+	for _, e := range pool {
+		if e.ID() == "pull_up" {
+			got = e
+		}
+	}
+	if got == nil {
+		t.Fatal("上書きした種目が一覧から消えた")
+	}
+	if c, _ := got.Stimulus().Contribution(training.Biceps); c.Float() != 1 {
+		t.Errorf("上腕二頭筋への寄与が %v。上書きした 1 のはず", c.Float())
+	}
+	if got.Increment().Kg() != 1.25 {
+		t.Errorf("刻みが %v。上書きした 1.25 のはず", got.Increment().Kg())
+	}
+	if got.Name() != "チンニング" || got.BodyweightFactor().Float() != 0.95 {
+		t.Errorf("名前か自重係数が変わった: %s %v", got.Name(), got.BodyweightFactor().Float())
+	}
+	if _, err := newSimulator(t).Run(req); err != nil {
+		t.Errorf("上書きした一覧で走らない: %v", err)
+	}
+}
+
+// 本番では種目を消さず「使わない」にする（#238）。使わない種目は、何週走らせても
+// どのレーンにも出ない（#229）。
+func TestSimulator_UnusedExercisesAreNeverPlanned(t *testing.T) {
+	// 既定の設定で一度は補助に出る種目を選ぶ。出ない種目で試すと、外しても
+	// 外さなくても出ないので何も確かめられない。
+	baseline := mustRun(t, baseRequest())
+	var target exercise.ExerciseID
+	for _, d := range baseline.Days {
+		if len(d.Accessories) > 0 {
+			target = d.Accessories[0].ExerciseID
+			break
+		}
+	}
+	if target == "" {
+		t.Fatal("前提: 既定の設定で補助が1つも出ない")
+	}
+
+	req := baseRequest()
+	req.Unused = []exercise.ExerciseID{target}
+	got := mustRun(t, req)
+	for _, d := range got.Days {
+		for _, lane := range [][]devsim.Set{d.Main, d.Variation, d.Accessories} {
+			for _, s := range lane {
+				if s.ExerciseID == target {
+					t.Fatalf("使わない種目 %s が %s に出た", target, d.Date)
+				}
+			}
+		}
+	}
+}
+
+func TestSimulator_RejectsBadEditsAndUnused(t *testing.T) {
+	cases := []struct {
+		name   string
+		modify func(*devsim.Request)
+	}{
+		{"知らない種目を上書きする", func(r *devsim.Request) {
+			r.Edits = map[exercise.ExerciseID]devsim.EditedExercise{
+				"no_such": {Stimulus: map[training.MuscleRegion]float64{training.Lat: 1}, IncrementKg: 2.5},
+			}
+		}},
+		{"上書きした効き方が不正（寄与1.0の区分が無い）", func(r *devsim.Request) {
+			r.Edits = map[exercise.ExerciseID]devsim.EditedExercise{
+				"seated_row": {Stimulus: map[training.MuscleRegion]float64{training.Lat: 0.5}, IncrementKg: 2.5},
+			}
+		}},
+		{"知らない種目を使わないにする", func(r *devsim.Request) {
+			r.Unused = []exercise.ExerciseID{"no_such"}
+		}},
+		// 宣言は使う種目の中から選ぶ（本番の NewProgram と同じ）
+		{"宣言した種目を使わないにする", func(r *devsim.Request) {
+			r.Unused = []exercise.ExerciseID{"bench"}
+		}},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			req := baseRequest()
+			c.modify(&req)
+			if _, err := newSimulator(t).Run(req); err == nil {
+				t.Error("通ってしまった")
+			}
+		})
+	}
+}

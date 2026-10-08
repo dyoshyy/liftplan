@@ -42,6 +42,12 @@ type Request struct {
 	// ID は並び順で CustomExerciseID が振る。
 	Custom []CustomExercise
 
+	// Edits はプリセットの効き方と刻みの上書き（本番で利用者が種目を直すのと同じ）。
+	// 名前・自重係数・派生元はプリセットのまま。
+	Edits map[exercise.ExerciseID]EditedExercise
+	// Unused は「使わない」種目（本番で使う種目から外すのと同じ）。宣言には使えない。
+	Unused []exercise.ExerciseID
+
 	// Reps は宣言ごとの軸のレップ数。無い宣言は既定（3・6）。
 	Reps map[exercise.ExerciseID]program.RepTargets
 }
@@ -178,6 +184,13 @@ type CustomExercise struct {
 	IncrementKg float64
 }
 
+// EditedExercise はプリセットの上書き。本番で種目を直すときと同じく、
+// 効き方（区分ごとの寄与）と刻みだけを持つ。
+type EditedExercise struct {
+	Stimulus    map[training.MuscleRegion]float64
+	IncrementKg float64
+}
+
 // CustomExerciseID は i 番目（0始まり）の自分の種目の ID。
 //
 // 本番は乱数で振るが、ここでは同じ設定から同じ結果を出したいので並び順で振る。
@@ -191,11 +204,15 @@ func CustomExerciseID(i int) exercise.ExerciseID {
 // 名前の重複は本番と同じく弾く（共通の種目と、自分の種目どうし）。
 // 週目標はどの一覧からも出ない（seed.DefaultWeeklyTarget は頻度と1回の量だけで決まる）。
 func (s *Simulator) poolFor(req Request) ([]*exercise.Exercise, error) {
-	if len(req.Custom) == 0 {
+	if len(req.Custom) == 0 && len(req.Edits) == 0 {
 		return s.pool, nil
 	}
 	out := make([]*exercise.Exercise, 0, len(s.pool)+len(req.Custom))
-	out = append(out, s.pool...)
+	edited, err := s.applyEdits(req.Edits)
+	if err != nil {
+		return nil, err
+	}
+	out = append(out, edited...)
 	names := make(map[string]bool, cap(out))
 	for _, e := range s.pool {
 		names[e.Name()] = true
@@ -213,6 +230,43 @@ func (s *Simulator) poolFor(req Request) ([]*exercise.Exercise, error) {
 		}
 		names[e.Name()] = true
 		out = append(out, e)
+	}
+	return out, nil
+}
+
+// applyEdits はプリセットに上書きを当てた一覧を返す。並びは変えない。
+//
+// 知らない ID は弾く。黙って読み飛ばすと、書き間違えた ID の上書きが効かない
+// まま 200 で走り、直したつもりの条件の結果を読むことになる。
+func (s *Simulator) applyEdits(edits map[exercise.ExerciseID]EditedExercise) ([]*exercise.Exercise, error) {
+	out := make([]*exercise.Exercise, 0, len(s.pool))
+	seen := make(map[exercise.ExerciseID]bool, len(edits))
+	for _, e := range s.pool {
+		ed, ok := edits[e.ID()]
+		if !ok {
+			out = append(out, e)
+			continue
+		}
+		seen[e.ID()] = true
+		params := exercise.ExerciseParams{
+			ID: string(e.ID()), Name: e.Name(),
+			Stimulus: ed.Stimulus, IncrementKg: ed.IncrementKg,
+			BodyweightFactor: e.BodyweightFactor().Float(),
+		}
+		if from, ok := e.DerivedFrom(); ok {
+			params.DerivedFrom = string(from)
+		}
+		next, err := exercise.NewExercise(params)
+		if err != nil {
+			return nil, fmt.Errorf("%s の上書きが不正: %w", e.ID(), err)
+		}
+		out = append(out, next)
+	}
+	// キーの順で見る。どれが不正かの診断が毎回同じ種目を指すように。
+	for _, id := range slices.Sorted(maps.Keys(edits)) {
+		if !seen[id] {
+			return nil, fmt.Errorf("上書きする種目 %s がプリセットに無い", id)
+		}
 	}
 	return out, nil
 }
@@ -365,10 +419,23 @@ func (s *Simulator) buildProgram(req Request, pool []*exercise.Exercise) (*progr
 		return nil, fmt.Errorf("1回の量が不正: %w", err)
 	}
 
-	// 使う種目は全件。外したときの挙動を見たいときは宣言と重点種目で足りる。
+	// 使う種目は、使わないと言われたもの以外の全件。
+	unused := make(map[exercise.ExerciseID]bool, len(req.Unused))
+	for _, id := range req.Unused {
+		unused[id] = true
+	}
 	selected := make([]exercise.ExerciseID, 0, len(pool))
 	for _, e := range pool {
+		if unused[e.ID()] {
+			delete(unused, e.ID())
+			continue
+		}
 		selected = append(selected, e.ID())
+	}
+	// 残ったのは一覧に無い ID。黙って読み飛ばすと、書き間違えた ID を外した
+	// つもりの結果を読むことになる。
+	if len(unused) > 0 {
+		return nil, fmt.Errorf("使わない種目 %s が一覧に無い", slices.Sorted(maps.Keys(unused))[0])
 	}
 
 	prog, err := program.NewProgram(freq, volume, selected, req.Declared, req.Focus)

@@ -603,3 +603,62 @@ func TestDevSimulation_NamesTheReasonForBadCustomStimulus(t *testing.T) {
 		})
 	}
 }
+
+// プリセットの上書き（edit=）と「使わない」（unused=）を渡せること（#229）。
+// 設定の echo に返り、応答だけでどの仮定から出た数字かが分かること。
+//
+// edit= は custom= と同じ「区分:寄与」の書式で、先頭が名前ではなくプリセットの ID。
+func TestDevSimulation_TakesEditsAndUnusedAndEchoesThem(t *testing.T) {
+	edit := "pull_up|LAT:1,BICEPS:1|1.25"
+	rec := devGet(t, "/api/dev/simulate?declared=bench&weeks=2&edit="+url.QueryEscape(edit)+
+		"&unused="+url.QueryEscape("seated_row,lat_pulldown"))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("%d が返った。200 のはず: %s", rec.Code, rec.Body.String())
+	}
+
+	var got struct {
+		Settings struct {
+			Edits map[string]struct {
+				Stimulus    map[string]float64 `json:"stimulus"`
+				IncrementKg float64            `json:"increment_kg"`
+			} `json:"edits"`
+			Unused []string `json:"unused"`
+		} `json:"settings"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatalf("応答が JSON でない: %v", err)
+	}
+	e, ok := got.Settings.Edits["pull_up"]
+	if !ok || e.Stimulus["LAT"] != 1 || e.Stimulus["BICEPS"] != 1 || len(e.Stimulus) != 2 || e.IncrementKg != 1.25 {
+		t.Errorf("上書きが返っていない: %+v", got.Settings.Edits)
+	}
+	if fmt.Sprint(got.Settings.Unused) != "[lat_pulldown seated_row]" {
+		t.Errorf("使わない種目が %v。ID の順で返るはず", got.Settings.Unused)
+	}
+}
+
+// 形が壊れている・知らない ID は 400。
+//
+// 黙って読み飛ばすと、書き間違えた ID を直した（外した）つもりの結果を
+// 200 で読むことになる。
+func TestDevSimulation_RejectsBadEditsAndUnused(t *testing.T) {
+	for _, q := range []string{
+		"edit=" + url.QueryEscape("pull_up|LAT:1"),                      // 刻みが無い
+		"edit=" + url.QueryEscape("pull_up|LAT:heavy|1"),                // 寄与が数値でない
+		"edit=" + url.QueryEscape("no_such|LAT:1|1"),                    // プリセットに無い
+		"edit=" + url.QueryEscape("pull_up|LAT:0.5|1"),                  // 寄与1.0の区分が無い
+		"edit=" + url.QueryEscape("pull_up|LAT:1|1;pull_up|BICEPS:1|1"), // 同じ種目の2回指定
+		"unused=no_such", // 一覧に無い
+		"unused=bench",   // 宣言した種目
+	} {
+		t.Run(q, func(t *testing.T) {
+			rec := devGet(t, "/api/dev/simulate?declared=bench&"+q)
+			if rec.Code != http.StatusBadRequest {
+				t.Errorf("%d が返った。400 のはず: %s", rec.Code, rec.Body.String())
+			}
+			if strings.Contains(rec.Body.String(), "知らないキー") {
+				t.Errorf("形ではなくキーで弾いている: %s", rec.Body.String())
+			}
+		})
+	}
+}

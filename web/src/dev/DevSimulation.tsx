@@ -245,6 +245,36 @@ function Settings({
         </label>
       </div>
 
+      {/* プリセットの上書きと「使わない」。本番で利用者が種目を直す・使う種目から
+          外すのと同じ条件を作る（#229）。custom と同じ1行の書式のまま URL に載る。 */}
+      <label htmlFor="edit" className="grid gap-1.5">
+        <span className="text-[12px] font-bold text-muted">
+          プリセットの上書き（ID|区分:寄与,区分:寄与|刻み を ; で並べる。名前は変えない）
+        </span>
+        <textarea
+          id="edit"
+          rows={2}
+          value={form.edit}
+          placeholder="seated_row|TRAP_MID:1,LAT:1,BICEPS:0.5|2.5"
+          onChange={(ev) => setForm({ ...form, edit: ev.target.value })}
+          className={`font-mono text-[12px] ${FIELD}`}
+        />
+      </label>
+
+      <label htmlFor="unused" className="grid gap-1.5">
+        <span className="text-[12px] font-bold text-muted">
+          使わない種目（ID を , 区切り。宣言した種目は外せない）
+        </span>
+        <input
+          id="unused"
+          type="text"
+          value={form.unused}
+          placeholder="seated_row,lat_pulldown"
+          onChange={(ev) => setForm({ ...form, unused: ev.target.value })}
+          className={`font-mono text-[12px] ${FIELD}`}
+        />
+      </label>
+
       <label htmlFor="reps" className="grid gap-1.5">
         <span className="text-[12px] font-bold text-muted">
           レップ数（id:重い:軽い を , 区切り。空なら全部 3:6）
