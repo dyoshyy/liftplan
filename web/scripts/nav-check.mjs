@@ -88,6 +88,50 @@ check(
   (await body()).replace(/\s+/g, ' ').slice(0, 60),
 );
 
+// 種目ページは設定の子。戻るで設定に帰る（#228。以前は今日に帰っていた）。
+const today = async () => (await body()).includes('体重');
+const isSettings = async () => (await body()).includes('週に通う回数');
+const isExercises = async () => (await body()).includes('種目を追加');
+const openExercises = async () => {
+  await page.click('header button[aria-label="設定"]');
+  await page.waitForTimeout(1500);
+  await page.getByText(/使う\d+・伸ばす/).click();
+  await page.waitForTimeout(500);
+  await page.getByRole('button', { name: '種目を管理する' }).click();
+  await page.waitForTimeout(1000);
+};
+await openExercises();
+check('設定から種目ページが開く', await isExercises());
+await page.goBack();
+await page.waitForTimeout(800);
+check('種目ページから戻るで設定に帰る', await isSettings(), (await body()).replace(/\s+/g, ' ').slice(0, 60));
+await page.goBack();
+await page.waitForTimeout(800);
+check('設定からもう一度戻ると今日', await today());
+
+// 「← 設定」も戻るジェスチャーと同じ段へ帰る。積み直すと、戻るで種目ページに戻ってしまう。
+await openExercises();
+await page.getByRole('button', { name: '← 設定' }).click();
+await page.waitForTimeout(800);
+check('「← 設定」で設定に帰る', await isSettings());
+await page.goBack();
+await page.waitForTimeout(800);
+check('「← 設定」のあとの戻るは今日', await today(), (await body()).replace(/\s+/g, ' ').slice(0, 60));
+
+// 種目ページから下のナビで他の画面へ移ったあとも、戻るは今日へ帰る（設定に出ない）。
+await openExercises();
+await page.click('nav >> text=履歴');
+await page.waitForTimeout(1500);
+check('種目ページから履歴が開く', /\d{4}年\d{1,2}月/.test(await body()));
+await page.goBack();
+await page.waitForTimeout(800);
+check('そこから戻ると今日', await today(), (await body()).replace(/\s+/g, ' ').slice(0, 60));
+
+await openExercises();
+await page.click('nav >> text=今日');
+await page.waitForTimeout(1200);
+check('種目ページから今日へ', await today());
+
 // 記録 → タイマーが出る
 const sets = await page.locator('button.set').count();
 if (sets > 0) {
