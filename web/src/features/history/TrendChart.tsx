@@ -7,6 +7,8 @@ import { layoutTrend, nearestIndex, stepIndex } from './trend';
 
 type Props = {
   trend: Trend;
+  /** changeLabel は増減がいつからの差か（「8週間で」）。 */
+  changeLabel: string;
   /** 選んだ点の日の記録を開く。 */
   onOpenLog: (date: string, exerciseId: string) => void;
 };
@@ -15,7 +17,7 @@ type Props = {
 //
 // 以前は線を描くだけで、「この日の値はなぜ高い／低いのか」を確かめる手段が
 // 無かった。答えは記録（重量×回数）にあるので、点から記録へ飛べるようにする。
-export function TrendRow({ trend, onOpenLog }: Props) {
+export function TrendRow({ trend, changeLabel, onOpenLog }: Props) {
   const { points } = trend;
   const [picked, setPicked] = useState<number | null>(null);
   // 既定は最新の点。読み直しで点が減っても範囲に収める。
@@ -51,8 +53,9 @@ export function TrendRow({ trend, onOpenLog }: Props) {
         <span className="num text-xl">
           {trend.current_kg.toFixed(1)}
           <small className="text-xs text-muted">kg</small>
+          {showDelta && <small className="ml-1.5 text-xs text-faint">{changeLabel}</small>}
           {showDelta && (
-            <span className={`num ml-1.5 rounded-full px-[7px] py-[2px] text-xs ${tone}`}>
+            <span className={`num ml-1 rounded-full px-[7px] py-[2px] text-xs ${tone}`}>
               {sign}
               {trend.change_kg.toFixed(1)}
             </span>
