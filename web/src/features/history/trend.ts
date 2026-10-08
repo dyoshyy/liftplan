@@ -52,3 +52,20 @@ export function nearestIndex(xs: readonly number[], ratio: number): number {
 /** stepIndex は選んだ点を前後に動かす。端で止まる。 */
 export const stepIndex = (i: number, delta: number, n: number): number =>
   Math.min(n - 1, Math.max(0, i + delta));
+
+const utcDay = (iso: string): number => {
+  const [y, m, d] = iso.split('-').map(Number);
+  return Date.UTC(y ?? 0, (m ?? 1) - 1, d ?? 1) / 86_400_000;
+};
+
+/**
+ * changeWindowLabel は増減のバッジに添える期間（「8週間で」）。
+ *
+ * バッジは期間の最初の点から最後の点までの差で、期間を言わないと前回比にも
+ * 読める（#188）。期間は応答の from・to から作り、取りに行く側の定数と文言が
+ * ずれないようにする。日数は UTC で数える（端末の夏時間で1日ずれない）。
+ */
+export function changeWindowLabel(from: string, to: string): string {
+  const days = Math.round(utcDay(to) - utcDay(from));
+  return days % 7 === 0 ? `${days / 7}週間で` : `${days}日で`;
+}

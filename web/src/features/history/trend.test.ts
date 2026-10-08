@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { layoutTrend, nearestIndex, stepIndex } from './trend';
+import { changeWindowLabel, layoutTrend, nearestIndex, stepIndex } from './trend';
 
 const p = (date: string, kg: number) => ({ date, kg });
 
@@ -59,5 +59,21 @@ describe('stepIndex', () => {
     expect(stepIndex(0, -1, 3)).toBe(0);
     expect(stepIndex(2, 1, 3)).toBe(2);
     expect(stepIndex(1, 1, 3)).toBe(2);
+  });
+});
+
+// 増減のバッジ（+9.0）は「期間の最初の点から最後の点まで」の差。期間を
+// 添えないと、前回比・先月比・始めてからのどれにも読める（#188）。
+// 期間は画面の定数ではなく応答の from・to から作る。定数と文言が別々だと、
+// 片方だけ変えたときに文言が嘘になる。
+describe('changeWindowLabel', () => {
+  it.each([
+    { name: '8週間（今の既定）', from: '2026-08-12', to: '2026-10-07', want: '8週間で' },
+    { name: '週で割り切れる', from: '2026-09-23', to: '2026-10-07', want: '2週間で' },
+    { name: '週で割り切れなければ日で言う', from: '2026-09-27', to: '2026-10-07', want: '10日で' },
+    // 夏時間のある地域でも日数がずれない（端末のタイムゾーンで日をまたぐ）
+    { name: '月をまたぐ', from: '2026-02-26', to: '2026-03-05', want: '1週間で' },
+  ])('$name', ({ from, to, want }) => {
+    expect(changeWindowLabel(from, to)).toBe(want);
   });
 });

@@ -12,6 +12,7 @@ import { ExercisePicker } from '../exercises/ExercisePicker';
 import { monthGrid } from './calendar';
 import { addableRange, exercisesOn, monthLabel, monthOf, summarize, type Month } from './month';
 import { TrendRow } from './TrendChart';
+import { changeWindowLabel } from './trend';
 import type { MonthLogs } from './useMonthLogs';
 import { EditSetSheet } from './EditSetSheet';
 import { addSetTarget, type AddTarget, type EditTarget, type HistoryEditor } from './useHistoryEditor';
@@ -356,7 +357,12 @@ function Stats({
         ) : (
           <div className="grid gap-4">
             {stats.trends.map((t) => (
-              <TrendRow key={t.exercise_id} trend={t} onOpenLog={onOpenLog} />
+              <TrendRow
+                key={t.exercise_id}
+                trend={t}
+                changeLabel={changeWindowLabel(stats.from, stats.to)}
+                onOpenLog={onOpenLog}
+              />
             ))}
           </div>
         )}
