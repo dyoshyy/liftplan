@@ -63,8 +63,10 @@ const forecastBody = await body();
 // 「この先の予定を見る」の一言だけでも「この先の予定」を含むので、
 // クリックが何もしなくても通ってしまう。予定のページにしか無い
 // 「← 今日」（戻るボタン）で見る。
-check('予定のページが開く', forecastBody.includes('← 今日') && forecastBody.includes('この先の予定'));
-check('今日は開いている', /▼\s*今日/.test(forecastBody));
+check('予定のページが開く', forecastBody.includes('今日') && forecastBody.includes('この先の予定'));
+// 回は全部開いて並ぶ。たたむ操作は無い。
+check('次の回まで開いている', forecastBody.includes('次の回'));
+check('たたむボタンが無い', (await page.locator('button[aria-expanded]').count()) === 0);
 
 // キャッシュ対象外の確認（実機）：この先の予定のデータを読み終えた
 // あとに、どのキャッシュにも forecast の URL が入っていないこと。
@@ -88,14 +90,6 @@ check(
   forecastHits.length === 0,
   forecastHits.join(', '),
 );
-
-// 折りたたみを開く
-const collapsed = page.locator('button[aria-expanded="false"]').first();
-if (await collapsed.count()) {
-  await collapsed.click();
-  await page.waitForTimeout(400);
-  check('たたんだ回を開ける', (await collapsed.getAttribute('aria-expanded')) === 'true');
-}
 
 // 戻るジェスチャーで今日に帰る
 await page.goBack();

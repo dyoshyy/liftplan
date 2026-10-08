@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { Unauthorized } from '../../api/client';
 import type { ForecastSession, PlannedSet } from '../../api/types';
-import { forecastErrorMessage, forecastRows, isInitiallyOpen, sessionHeading } from './forecast';
+import { forecastErrorMessage, forecastRows, sessionHeading } from './forecast';
 
 const set = (exercise_id: string): PlannedSet => ({
   exercise_id,
@@ -59,14 +59,6 @@ describe('forecastRows', () => {
     };
 
     expect(forecastRows(session).map((s) => s.exercise_id)).toEqual(['main-1']);
-  });
-});
-
-describe('isInitiallyOpen', () => {
-  it('今日（回0）だけ開いて始める', () => {
-    expect(isInitiallyOpen(0)).toBe(true);
-    expect(isInitiallyOpen(1)).toBe(false);
-    expect(isInitiallyOpen(2)).toBe(false);
   });
 });
 

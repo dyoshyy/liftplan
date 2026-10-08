@@ -2,6 +2,7 @@ import { useState } from 'react';
 import type { Exercise } from '../../api/types';
 import { groupByPart } from '../../domain/parts';
 import { Button } from '../../ui/Button';
+import { BackButton } from '../../ui/BackButton';
 import { Note } from '../../ui/Card';
 import { ExerciseEditor } from './ExerciseEditor';
 import {
@@ -49,9 +50,7 @@ export function ExerciseManager({ exercises, onChanged, onBack }: Props) {
 
   return (
     <div className="grid gap-3.5">
-      <button type="button" onClick={onBack} className="w-fit text-sm text-muted">
-        ← 設定
-      </button>
+      <BackButton label="設定" onClick={onBack} />
 
       <div>
         <h1 className="text-[19px] font-semibold">種目</h1>

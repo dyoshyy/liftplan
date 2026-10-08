@@ -12,6 +12,7 @@ import { BodyWeightRow } from './BodyWeightRow';
 import type { Enqueue, QueueItem } from '../../outbox/db';
 import { Button } from '../../ui/Button';
 import { SectionTitle } from '../../ui/Card';
+import { ChevronRightIcon } from '../../ui/icons';
 
 type Props = {
   data: Data;
@@ -133,13 +134,10 @@ export function Today(props: Props) {
       )}
 
       <div className="mt-1 border-t border-line-soft pt-3.5">
-        <button
-          type="button"
-          className="text-[13px] text-muted underline underline-offset-2"
-          onClick={props.onOpenForecast}
-        >
-          この先の予定を見る →
-        </button>
+        <Button variant="quiet" size="md" className="w-full justify-between" onClick={props.onOpenForecast}>
+          この先の予定を見る
+          <ChevronRightIcon width={18} height={18} className="text-faint" />
+        </Button>
       </div>
 
       {sheet.sheet && (
