@@ -516,9 +516,8 @@ func (h *Handler) handlePutProgramDeclared(w http.ResponseWriter, r *http.Reques
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// handlePutProgramFrequency は週の頻度を差し替える。週目標も道連れに
-// 置き直る。他の口と違って2フィールド動くので、名前を frequency のままに
-// せず応答でも隠さない（GET で両方見える）。
+// handlePutProgramFrequency は週の頻度を差し替える。週目標は保存せず、
+// 計画のたびに頻度と1回の量から導く（D-139）。
 func (h *Handler) handlePutProgramFrequency(w http.ResponseWriter, r *http.Request) {
 	user, ok := requireUser(w, r)
 	if !ok {
@@ -536,8 +535,8 @@ func (h *Handler) handlePutProgramFrequency(w http.ResponseWriter, r *http.Reque
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// handlePutProgramVolume は1回の量を差し替える。週目標も道連れに置き直る
-// （頻度の口と同じ）。
+// handlePutProgramVolume は1回の量を差し替える。週目標は保存せず、
+// 計画のたびに頻度と1回の量から導く（D-139）。
 func (h *Handler) handlePutProgramVolume(w http.ResponseWriter, r *http.Request) {
 	user, ok := requireUser(w, r)
 	if !ok {
