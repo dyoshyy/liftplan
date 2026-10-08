@@ -58,7 +58,7 @@ function Tab({ label, active, onClick }: { label: string; active: boolean; onCli
         'flex-1 py-3 text-center text-sm',
         // 選択中は文字を起こすだけにする。背景を敷くと、下端に色の帯が
         // 2本（ナビと選択タブ）できて、画面の重心が下がる。
-        active ? 'font-bold text-text' : 'font-medium text-muted',
+        active ? 'animate-tab-pick font-bold text-text' : 'font-medium text-muted',
       )}
     >
       {label}

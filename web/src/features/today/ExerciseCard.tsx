@@ -1,6 +1,9 @@
+import { useState } from 'react';
 import type { PlannedSet, RecordedSet } from '../../api/types';
 import { formatLast, type LastPerformance } from '../../domain/sets';
 import { Card, Note } from '../../ui/Card';
+import { cn } from '../../ui/cn';
+import { justRecorded } from './justRecorded';
 import { slotCount } from './slots';
 
 export type CardPlan = PlannedSet & {
@@ -20,6 +23,7 @@ type Props = {
 
 export function ExerciseCard({ plan, name, last, recorded, onOpen }: Props) {
   const slots = slotCount(plan, recorded.length);
+  const [seenAtMount] = useState(() => new Set(recorded.map((r) => r.id)));
 
   return (
     <Card className="grid gap-3">
@@ -53,7 +57,7 @@ export function ExerciseCard({ plan, name, last, recorded, onOpen }: Props) {
             <button
               key={i}
               type="button"
-              className={`set ${rec ? 'set-done' : ''}`}
+              className={cn('set', rec && 'set-done', justRecorded(seenAtMount, rec) && 'set-pop')}
               onClick={() => onOpen(i, rec)}
             >
               <span className="text-[11px] text-faint">

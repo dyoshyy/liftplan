@@ -17,7 +17,7 @@ export function UpdateBanner() {
   if (!needRefresh) return null;
 
   return (
-    <Card tone="amber">
+    <Card tone="amber" className="animate-drop-in">
       {/* Card の title は薄い灰色で、注意を引くカードには弱い。
           本文の1行目として普通の明るさで出す。 */}
       <p className="mb-1 font-bold">新しいバージョンがあります</p>

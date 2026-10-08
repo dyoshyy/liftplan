@@ -22,7 +22,7 @@ export function Section({ title, summary, defaultOpen = false, children }: Props
   const id = useId();
 
   return (
-    <div className="rounded-[14px] border border-line bg-surface">
+    <div className="animate-rise-in rounded-[14px] border border-line bg-surface">
       <button
         type="button"
         aria-expanded={open}
@@ -47,7 +47,7 @@ export function Section({ title, summary, defaultOpen = false, children }: Props
       </button>
 
       {open && (
-        <div id={id} className="border-t border-line-soft p-4">
+        <div id={id} className="animate-unfold border-t border-line-soft p-4">
           {children}
         </div>
       )}

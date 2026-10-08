@@ -171,7 +171,7 @@ function ViewTab({ label, active, onClick }: { label: string; active: boolean; o
       onClick={onClick}
       className={cn(
         'min-h-11 rounded-lg text-sm',
-        active ? 'bg-surface-2 font-semibold text-text' : 'text-muted',
+        active ? 'animate-tab-pick bg-surface-2 font-semibold text-text' : 'text-muted',
       )}
     >
       {label}
@@ -389,7 +389,7 @@ function WeeklySummary({ volume }: { volume: Volume[] }) {
       </div>
       <div className="mt-2 h-2 overflow-hidden rounded-full bg-surface-2">
         <div
-          className={total.pct >= 100 ? 'h-full bg-green' : 'h-full bg-amber'}
+          className={cn('h-full origin-left animate-grow-x', total.pct >= 100 ? 'bg-green' : 'bg-amber')}
           style={{ width: `${total.pct}%` }}
         />
       </div>
@@ -416,7 +416,7 @@ function WeeklyVolume({ volume }: { volume: Volume[] }) {
             </span>
             <div className="col-span-full h-1.5 overflow-hidden rounded-[3px] bg-surface-2">
               <div
-                className={`h-full ${pct >= 100 ? 'bg-green' : 'bg-amber'}`}
+                className={cn('h-full origin-left animate-grow-x', pct >= 100 ? 'bg-green' : 'bg-amber')}
                 style={{ width: `${pct}%` }}
               />
             </div>
@@ -463,87 +463,85 @@ function DayCard({
   }, [focus]);
 
   return (
-    <div ref={ref}>
-      <Card className={cn(focus && 'border-amber/60')}>
-        <div className="mb-1 flex items-baseline gap-2.5">
-          <span className="num text-[15px] tracking-[0.04em]">{label(day.date)}</span>
-          <span className="ml-auto text-xs text-faint">
-            {day.exercises.length}種目 {day.total_sets}セット ・ {formatTonnage(dayTonnage(day))}
-          </span>
-        </div>
-        <div className="grid">
-          {day.exercises.map((e) => {
-            const expanded = open === e.exercise_id;
-            const name = e.name || e.exercise_id;
-            return (
-              <div key={e.exercise_id}>
-                <button
-                  type="button"
-                  aria-expanded={expanded}
-                  onClick={() => setOpen(expanded ? null : e.exercise_id)}
-                  className="grid min-h-11 w-full grid-cols-[1fr_auto_auto] items-center gap-2.5 text-left text-sm"
-                >
-                  <span>{name}</span>
-                  <span className="num text-[13px] text-muted">{formatSets(e.sets)}</span>
-                  {/* 押せることを見せる。行が並んでいるだけだと、直せることに気づけない。 */}
-                  <ChevronRightIcon
-                    width={14}
-                    height={14}
-                    className={cn('text-faint transition-transform', expanded && 'rotate-90')}
-                  />
-                </button>
-                {expanded && (
-                  <div className="mb-2 grid gap-1">
-                    {e.sets.map((s, i) => (
-                      <button
-                        key={s.id}
-                        type="button"
-                        aria-label={`${name} ${i + 1}セット目を直す`}
-                        onClick={() =>
-                          onEdit({
-                            kind: 'edit',
-                            date: day.date,
-                            exerciseId: e.exercise_id,
-                            name,
-                            index: i,
-                            set: s,
-                          })
-                        }
-                        className="grid min-h-11 grid-cols-[1.75rem_1fr_auto] items-center rounded-lg bg-surface-2 px-3 text-left text-[13px]"
-                      >
-                        <span className="num text-faint">{i + 1}</span>
-                        <span className="num">
-                          {s.weight_kg}kg × {s.reps}
-                        </span>
-                        <span className="num text-muted">RIR {s.rir}</span>
-                      </button>
-                    ))}
-                    <Button
-                      variant="quiet"
-                      size="chip"
-                      className="justify-self-start"
-                      aria-label={`${name}にセットを足す`}
-                      onClick={() => onAddSet(addSetTarget(day.date, e))}
+    <Card ref={ref} className={cn(focus && 'border-amber/60')}>
+      <div className="mb-1 flex items-baseline gap-2.5">
+        <span className="num text-[15px] tracking-[0.04em]">{label(day.date)}</span>
+        <span className="ml-auto text-xs text-faint">
+          {day.exercises.length}種目 {day.total_sets}セット ・ {formatTonnage(dayTonnage(day))}
+        </span>
+      </div>
+      <div className="grid">
+        {day.exercises.map((e) => {
+          const expanded = open === e.exercise_id;
+          const name = e.name || e.exercise_id;
+          return (
+            <div key={e.exercise_id}>
+              <button
+                type="button"
+                aria-expanded={expanded}
+                onClick={() => setOpen(expanded ? null : e.exercise_id)}
+                className="grid min-h-11 w-full grid-cols-[1fr_auto_auto] items-center gap-2.5 text-left text-sm"
+              >
+                <span>{name}</span>
+                <span className="num text-[13px] text-muted">{formatSets(e.sets)}</span>
+                {/* 押せることを見せる。行が並んでいるだけだと、直せることに気づけない。 */}
+                <ChevronRightIcon
+                  width={14}
+                  height={14}
+                  className={cn('text-faint transition-transform', expanded && 'rotate-90')}
+                />
+              </button>
+              {expanded && (
+                <div className="mb-2 grid animate-unfold gap-1">
+                  {e.sets.map((s, i) => (
+                    <button
+                      key={s.id}
+                      type="button"
+                      aria-label={`${name} ${i + 1}セット目を直す`}
+                      onClick={() =>
+                        onEdit({
+                          kind: 'edit',
+                          date: day.date,
+                          exerciseId: e.exercise_id,
+                          name,
+                          index: i,
+                          set: s,
+                        })
+                      }
+                      className="grid min-h-11 grid-cols-[1.75rem_1fr_auto] items-center rounded-lg bg-surface-2 px-3 text-left text-[13px]"
                     >
-                      セットを足す
-                    </Button>
-                  </div>
-                )}
-              </div>
-            );
-          })}
-        </div>
-        <Button
-          variant="quiet"
-          size="chip"
-          className="mt-1"
-          aria-label={`${label(day.date)}に種目を足す`}
-          onClick={() => onAddExercise(day.date)}
-        >
-          種目を足す
-        </Button>
-      </Card>
-    </div>
+                      <span className="num text-faint">{i + 1}</span>
+                      <span className="num">
+                        {s.weight_kg}kg × {s.reps}
+                      </span>
+                      <span className="num text-muted">RIR {s.rir}</span>
+                    </button>
+                  ))}
+                  <Button
+                    variant="quiet"
+                    size="chip"
+                    className="justify-self-start"
+                    aria-label={`${name}にセットを足す`}
+                    onClick={() => onAddSet(addSetTarget(day.date, e))}
+                  >
+                    セットを足す
+                  </Button>
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+      <Button
+        variant="quiet"
+        size="chip"
+        className="mt-1"
+        aria-label={`${label(day.date)}に種目を足す`}
+        onClick={() => onAddExercise(day.date)}
+      >
+        種目を足す
+      </Button>
+    </Card>
   );
 }
 
