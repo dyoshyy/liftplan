@@ -403,3 +403,23 @@ func TestOneRepMax_BoundaryConstant(t *testing.T) {
 		t.Errorf("有効な入力から上限を超える1RMが生まれる: %v", got.Kg())
 	}
 }
+
+// IntensityForRepsToFailure は EstimateOneRepMax の逆。処方（強度から重量）と
+// 推定（記録から1RM）が同じ式で動くことを、この往復で固定する。
+//
+// 処方の側が別の式（定数の写し）を持つと、推定の式を変えたときに処方だけ
+// 取り残され、宣言のレップ数を変えている人の重量が毎回じわじわずれる（#255）。
+// 既定の3・6レップだけでなく、宣言できる範囲の全レップで往復させる。
+func TestIntensityForRepsToFailure_InvertsTheEstimate(t *testing.T) {
+	const oneRepMax = 100.0
+	for n := 1; n <= 20; n++ {
+		t.Run(strconv.Itoa(n), func(t *testing.T) {
+			kg := oneRepMax * training.IntensityForRepsToFailure(n)
+			got := estimate(t, kg, n, 0).Kg()
+			if math.Abs(got-oneRepMax) > 1e-6 {
+				t.Errorf("強度 %.4f で %d 回やった記録の推定1RMが %v。元の %v に戻るはず",
+					training.IntensityForRepsToFailure(n), n, got, oneRepMax)
+			}
+		})
+	}
+}

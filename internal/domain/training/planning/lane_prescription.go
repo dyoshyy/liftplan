@@ -68,14 +68,13 @@ type lanePrescription struct {
 const axisRIR = 1
 
 // epleyIntensity は「reps 回で RIR rir を残す」強度を、推定と同じ Epley を
-// 逆に解いて出す。小数2桁に丸める（3レップ RIR1 → 0.88、6レップ → 0.81 と
-// 今の表に一致する）。
+// 逆に解いて出す（training.IntensityForRepsToFailure）。小数2桁に丸める
+// （3レップ RIR1 → 0.88、6レップ → 0.81 と今の表に一致する）。
 //
 // 根拠は Epley が正確だからではなく、行き（処方）と帰り（推定）が同じ式
-// だから。処方どおりにこなした記録から出る推定1RMは元と変わらず、Epley
-// 自体の誤差は打ち消し合う。
+// だから。式そのものは training に1つだけ置き、ここは丸めだけを持つ。
 func epleyIntensity(reps, rir int) float64 {
-	return math.Round(100/(1+float64(reps+rir)/30)) / 100
+	return math.Round(100*training.IntensityForRepsToFailure(reps+rir)) / 100
 }
 
 // axisPrescription は軸のレップ数から処方を組む。

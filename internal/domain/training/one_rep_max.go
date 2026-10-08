@@ -54,12 +54,24 @@ func EstimateOneRepMax(w Weight, r Reps, rir RIR) (OneRepMax, bool) {
 		return OneRepMax{}, false
 	}
 
-	orm, err := NewOneRepMax(w.Kg() * (1 + float64(repsToFailure)/epleyDivisor))
+	orm, err := NewOneRepMax(w.Kg() * epleyFactor(repsToFailure))
 	if err != nil {
 		return OneRepMax{}, false
 	}
 	return orm, true
 }
+
+// epleyFactor は限界まで n 回できる重量に対して、1RM が何倍か（Epley 式）。
+// 推定（EstimateOneRepMax）と処方（IntensityForRepsToFailure）の両方がこれを通る。
+func epleyFactor(n int) float64 { return 1 + float64(n)/epleyDivisor }
+
+// IntensityForRepsToFailure は、限界まで n 回できる重量が1RMの何割か。
+// EstimateOneRepMax の逆。
+//
+// 処方はこれで強度を出す。行き（処方）と帰り（推定）が同じ式なので、処方どおりに
+// こなした記録から出る推定1RMは元と変わらず、Epley 自体の誤差は打ち消し合う。
+// 式を写して2か所に持つと、推定の側を変えたときに処方だけ取り残される（#255）。
+func IntensityForRepsToFailure(n int) float64 { return 1 / epleyFactor(n) }
 
 func (o OneRepMax) Kg() float64 { return o.kg }
 
