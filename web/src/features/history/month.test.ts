@@ -129,14 +129,22 @@ describe('pickMonthDays', () => {
   // 履歴から消える。
   it('今月は手元の記録から切り出す', () => {
     const fetched = new Map([['2026-09', [day('2026-09-01', 1)]]]);
-    expect(pickMonthDays('2026-09', today, recent, fetched)?.map((d) => d.date)).toEqual(['2026-09-25']);
+    expect(pickMonthDays('2026-09', today, recent, fetched, true)?.map((d) => d.date)).toEqual([
+      '2026-09-25',
+    ]);
+  });
+
+  // 手元の記録を読み終える前に今月を切り出すと、空の配列になり
+  // 「この月の記録はありません」と出る。まだ分からないだけで、無いのではない。
+  it('今月は手元の記録を読み終えるまで null', () => {
+    expect(pickMonthDays('2026-09', today, [], new Map(), false)).toBeNull();
   });
 
   // 手元の直近56日に先月の一部が入っていても、それで描かない。月の頭の
   // ほうが欠けたまま「この月は3回」と出る。
   it('過去の月は取ってきた結果を使う', () => {
     const fetched = new Map([['2026-08', [day('2026-08-31', 12), day('2026-08-03', 13)]]]);
-    expect(pickMonthDays('2026-08', today, recent, fetched)?.map((d) => d.date)).toEqual([
+    expect(pickMonthDays('2026-08', today, recent, fetched, true)?.map((d) => d.date)).toEqual([
       '2026-08-31',
       '2026-08-03',
     ]);
@@ -144,7 +152,7 @@ describe('pickMonthDays', () => {
 
   // 読み込み中を空として出すと、記録がある月に「記録はありません」が一瞬出る。
   it('まだ取ってきていなければ null', () => {
-    expect(pickMonthDays('2026-08', today, recent, new Map())).toBeNull();
+    expect(pickMonthDays('2026-08', today, recent, new Map(), true)).toBeNull();
   });
 });
 

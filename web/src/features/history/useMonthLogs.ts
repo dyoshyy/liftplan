@@ -42,7 +42,7 @@ export type MonthLogs = {
  * `enabled` は `useStats` と同じくトークンのため。無いまま叩くと 401 で
  * トークンが消える。履歴を開き直したら今月に戻すのにも使う。
  */
-export function useMonthLogs(enabled: boolean, recent: readonly Day[]): MonthLogs {
+export function useMonthLogs(enabled: boolean, recent: readonly Day[], recentReady: boolean): MonthLogs {
   const [month, setMonth] = useState<Month>(() => monthOf(today()));
   const [fetched, setFetched] = useState<ReadonlyMap<Month, Day[]>>(new Map());
   const [failed, setFailed] = useState<Month | null>(null);
@@ -75,7 +75,7 @@ export function useMonthLogs(enabled: boolean, recent: readonly Day[]): MonthLog
   const now = today();
   return {
     month,
-    days: pickMonthDays(month, now, recent, fetched),
+    days: pickMonthDays(month, now, recent, fetched, recentReady),
     error: failed === month ? 'この月の記録を読めませんでした' : '',
     canNext: canGoNext(month, now),
     show: setMonth,

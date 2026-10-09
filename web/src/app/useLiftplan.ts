@@ -98,8 +98,10 @@ export function useLiftplan() {
       const t = history.days.find((d) => d.date === date);
       for (const e of t?.exercises ?? []) doneToday.set(e.exercise_id, e.sets);
 
-      setData({
-        session: null,
+      // 今日のメニューは手元のものを残す。null に戻すと、読み直すたびに
+      // loadToday が返るまで今日の画面が空（読み込み中の見た目）になる。
+      setData((d) => ({
+        session: d.session,
         names: new Map(exercises.exercises.map((e: Exercise) => [e.id, e.name])),
         exercises: exercises.exercises,
         selected: program?.selected_exercises ?? null,
@@ -108,7 +110,7 @@ export function useLiftplan() {
         // サーバーが新しい日から順に返す（query.History.Days）。並べ替えない。
         days: history.days,
         loadOffsets: history.load_offsets,
-      });
+      }));
 
       await loadToday();
       return { ok: true } as const;
