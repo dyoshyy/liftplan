@@ -19,7 +19,7 @@ func TestMigrate_CreatesEverySchemaObject(t *testing.T) {
 
 	for _, table := range []string{
 		"set_logs", "daily_conditions", "program",
-		"accounts", "sessions", "custom_exercises", "user_exercises", "schema_migrations",
+		"accounts", "sessions", "user_exercises", "schema_migrations",
 	} {
 		var exists bool
 		if err := pool.QueryRow(ctx,
@@ -29,6 +29,16 @@ func TestMigrate_CreatesEverySchemaObject(t *testing.T) {
 		if !exists {
 			t.Errorf("%s が作られていない", table)
 		}
+	}
+
+	// 0019 で消した旧版の種目の表（0013 の custom_exercises）が残っていないこと。
+	// 以前はここで「作られている」を見ていた。
+	var legacy bool
+	if err := pool.QueryRow(ctx, "SELECT to_regclass('custom_exercises') IS NOT NULL").Scan(&legacy); err != nil {
+		t.Fatalf("custom_exercises の存在を確認できない: %v", err)
+	}
+	if legacy {
+		t.Error("custom_exercises が残っている（0019 で消すはず）")
 	}
 
 	// 0002 で落とした索引が残っていないこと。

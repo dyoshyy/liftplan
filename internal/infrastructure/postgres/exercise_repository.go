@@ -105,10 +105,12 @@ func skipUnreadable(ctx context.Context, user account.UserID, id string, err err
 		"user", user.String(), "exercise", id, "error", err)
 }
 
-// ensureSeeded は、その利用者の行が1件も無ければシードを全部コピーし、
-// 旧版（0013 の custom_exercises）でその人が足した種目も取り込む。
+// ensureSeeded は、その利用者の行が1件も無ければシードを全部コピーする。
 //
-// シードが空（テストでしか起きない）なら何もしない。旧版の取り込みもしない。
+// 以前は旧版（0013 の custom_exercises）でその人が足した種目もここで取り込んで
+// いたが、全員の取り込みが済んだので表ごと消した（0019）。
+//
+// シードが空（テストでしか起きない）なら何もしない。
 //
 // 同時に2回呼ばれても安全なのは ON CONFLICT DO NOTHING が二重挿入を吸収
 // するからで、トランザクションが守っているのはそこではない。トランザクション
@@ -188,46 +190,6 @@ func (r *ExerciseRepository) ensureSeeded(ctx context.Context, user account.User
 	}
 	if err := br.Close(); err != nil {
 		return wrapUnavailable(err, "種目を初期化できない")
-	}
-
-	// 旧版（0013 の custom_exercises）で足した種目も、同じトランザクションで
-	// 取り込む。旧版は「主に効く」「少し効く」の区分の配列を持っていたので、
-	// 主を1.0、少しを0.5の寄与に直す（旧版の exercise.NewCustomExercise と
-	// 同じ対応）。消した行は消したまま、足した時刻も引き継ぐ。
-	//
-	// ここで取り込むのは、プリセットのコピーと同じ「その人の行が0件のとき」
-	// だけ。1件でも行があれば上で抜けるので、後から取り込むには利用者ごとの
-	// 「取り込み済み」の印が要るが、それは持っていない。0014 より前に
-	// user_exercises の行を持つ人はいないので、全員がこの経路を一度だけ通る。
-	//
-	// 取り込みに失敗すると、プリセットのコピーごと巻き戻る（その人は0件のまま、
-	// 次の読み出しでまた失敗する）。黙って行を読み飛ばさない。旧版の行は旧版の
-	// NewCustomExercise を通っていて、今の NewExercise の規則（名前40文字・
-	// 1.0 の区分・0.1 以上・8区分まで）をすべて満たすので、失敗は起きない前提。
-	//
-	// 同じ区分が主と少しの両方に入った行は無い（旧版の NewCustomExercise が
-	// 弾き、Save も1つの寄与の表から書き戻していた）ので、jsonb_object_agg の
-	// 重複キーは守らない。ON CONFLICT DO NOTHING が旧版の行を落とすこともない：
-	// ID は u- で始まりシードと重ならず、消していない名前は旧版がシードと
-	// 同じ名前を弾いていた（シードの名前が今のままである限り）。無指定にして
-	// いるのは、同時に2回の初回読み出しがぶつかったときに吸収するため（上と同じ）。
-	//
-	// custom_exercises を消せるのは、user_exercises に同じ (user_id, id) が
-	// 無い custom_exercises の行が1件も無くなってから（そのときにこの文も消す）。
-	if _, err := tx.Exec(ctx, `
-		INSERT INTO user_exercises
-			(user_id, id, name, stimulus, increment_kg, created_at, deleted_at)
-		SELECT c.user_id, c.id, c.name,
-			(SELECT jsonb_object_agg(r.region, r.contribution) FROM (
-				SELECT jsonb_array_elements_text(c.primary_regions) AS region, 1.0 AS contribution
-				UNION ALL
-				SELECT jsonb_array_elements_text(c.secondary_regions), 0.5
-			) r),
-			c.increment_kg, c.created_at, c.deleted_at
-		FROM custom_exercises c
-		WHERE c.user_id = $1
-		ON CONFLICT DO NOTHING`, user.String()); err != nil {
-		return wrapUnavailable(err, "旧版の種目を取り込めない")
 	}
 
 	if err := tx.Commit(ctx); err != nil {
