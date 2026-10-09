@@ -47,9 +47,11 @@ func TestHammerStrengthPresets_AreOnlyTheMachinesAtTheGym(t *testing.T) {
 			continue
 		}
 		got[id] = true
-		// 一覧で、汎用の種目（レッグプレスなど）と見分けがつくこと。
-		if !strings.HasPrefix(name, "HS ") || !strings.HasSuffix(name, "（プレート）") {
-			t.Errorf("%s の名前が「HS ＋ 機種名 ＋（プレート）」でない: %s", id, name)
+		// 一覧で、汎用の種目（レッグプレスなど）と見分けがつくこと。見分けるのは
+		// 頭の「HS 」で足りる。末尾の「（プレート）」は長いだけなので付けない
+		// （本人の依頼で外した。2026-10-09）。
+		if !strings.HasPrefix(name, "HS ") || strings.Contains(name, "プレート）") {
+			t.Errorf("%s の名前が「HS ＋ 機種名」でない: %s", id, name)
 		}
 		if n := utf8.RuneCountInString(name); n > 40 {
 			t.Errorf("%s の名前が長すぎる（%d字）: %s", id, n, name)
