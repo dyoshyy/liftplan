@@ -5,6 +5,7 @@ import { REP_OPTIONS, repsRows } from './reps';
 import { isWholeBody, scheduleSummary } from './split';
 import { exercisesSummary, useProgramSettings } from './useProgramSettings';
 import { Button } from '../../ui/Button';
+import { Skeleton } from '../../ui/Skeleton';
 import { Note } from '../../ui/Card';
 import { Section } from '../../ui/Section';
 import { Select } from '../../ui/Field';
@@ -55,6 +56,8 @@ export function ProgramSettings({ nameOf, exercises: all, onChanged, onOpenExerc
     splitKey,
     chooseSplit,
   } = useProgramSettings(onChanged);
+  // 読めなかったときは note が出るので、形を出し続けない。
+  const waiting = !program && !note;
   // 軽い日のレップ数は、選んでいる重点種目の分だけ出す。
   const focusId = program?.focus_exercise ?? null;
   const focusReps = focusId ? program?.declared_reps[focusId] : undefined;
@@ -78,6 +81,7 @@ export function ProgramSettings({ nameOf, exercises: all, onChanged, onOpenExerc
         <p className="text-[13px] font-bold">週に通う回数</p>
         <Note className="mb-3 mt-1">1週間に通う回数です。補助種目の量はこの回数に合わせて決まります。</Note>
 
+        {waiting && <Skeleton className="h-11 w-full rounded-[10px]" />}
         {program && (
           <Select
             aria-label="週に通う回数"
@@ -99,6 +103,12 @@ export function ProgramSettings({ nameOf, exercises: all, onChanged, onOpenExerc
           合わせてください。どの部位をどれだけやるかは、この量と通う回数から 決まります。
         </Note>
 
+        {waiting && (
+          <div className="grid grid-cols-2 gap-2">
+            <Skeleton className="h-11 rounded-[10px]" />
+            <Skeleton className="h-11 rounded-[10px]" />
+          </div>
+        )}
         {program && (
           <div className="grid grid-cols-2 gap-2">
             <Select
@@ -134,7 +144,14 @@ export function ProgramSettings({ nameOf, exercises: all, onChanged, onOpenExerc
           休んでも飛びません。全身法では毎回すべての部位から選ばれます。
         </Note>
 
-        <div className="grid gap-2">
+        {waiting && (
+          <div className="grid gap-2">
+            {[0, 1, 2, 3].map((i) => (
+              <Skeleton key={i} className="h-[54px] rounded-xl" />
+            ))}
+          </div>
+        )}
+        <div className={waiting ? 'hidden' : 'grid gap-2'}>
           <Button
             variant={program && isWholeBody(program) ? 'primary' : 'quiet'}
             disabled={busy}
@@ -181,6 +198,7 @@ export function ProgramSettings({ nameOf, exercises: all, onChanged, onOpenExerc
           候補は「使う種目」にした種目です。
         </Note>
 
+        {waiting && <Skeleton className="h-24 w-full rounded-xl" />}
         {program && (
           <ExercisePicker
             label="伸ばしたい種目"
@@ -228,6 +246,13 @@ export function ProgramSettings({ nameOf, exercises: all, onChanged, onOpenExerc
           出ます。指定しなければバリエーションは出ません。
         </Note>
 
+        {waiting && (
+          <div className="flex flex-wrap gap-2">
+            {[0, 1, 2].map((i) => (
+              <Skeleton key={i} className="h-11 w-24 rounded-full" />
+            ))}
+          </div>
+        )}
         {program && (
           <div className="flex flex-wrap gap-2">
             {focusOptions(program.declared_exercises).map((id) => {

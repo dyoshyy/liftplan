@@ -5,6 +5,7 @@ import { regionLabel } from '../../domain/regions';
 import { formatSets, usesBodyweight } from '../../domain/sets';
 import { Button } from '../../ui/Button';
 import { Card, Note } from '../../ui/Card';
+import { Loading, Skeleton, SkeletonCard } from '../../ui/Skeleton';
 import { Input } from '../../ui/Field';
 import { cn } from '../../ui/cn';
 import { ChevronLeftIcon, ChevronRightIcon } from '../../ui/icons';
@@ -244,9 +245,11 @@ function MonthlyLogs({
           </Button>
         </Card>
       ) : days === null ? (
-        <Card>
-          <Note>読み込んでいます</Note>
-        </Card>
+        <Loading>
+          <SkeletonCard rows={3} />
+          <SkeletonCard rows={2} />
+          <SkeletonCard rows={3} />
+        </Loading>
       ) : days.length === 0 ? (
         <Card>
           <Note>この月の記録はありません</Note>
@@ -334,9 +337,24 @@ function Stats({
 
   if (!stats) {
     return (
-      <Card title="推移">
-        <Note>読み込んでいます</Note>
-      </Card>
+      <Loading>
+        <Card title="充足（直近4週の週あたり）">
+          <Skeleton className="mb-2 h-7 w-32" />
+          <Skeleton className="mb-4 h-2 w-full rounded-full" />
+          <div className="grid gap-3">
+            {[0, 1, 2, 3, 4, 5].map((i) => (
+              <div key={i} className="grid gap-1.5">
+                <Skeleton className="h-3.5 w-24" />
+                <Skeleton className="h-1.5 w-full" />
+              </div>
+            ))}
+          </div>
+        </Card>
+        <Card title="推定1RM の推移">
+          <Skeleton className="mb-3 h-5 w-full" />
+          <Skeleton className="h-28 w-full rounded-lg" />
+        </Card>
+      </Loading>
     );
   }
 

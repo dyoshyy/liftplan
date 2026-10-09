@@ -88,6 +88,9 @@ export function planMonthLoad(m: Month, today: string, cached: ReadonlySet<Month
 
 /** pickMonthDays はその月に描く日を返す。まだ取ってきていなければ null。
  *
+ *  今月は `recentReady`（手元の記録を読み終えたか）が偽なら null。読む前の
+ *  手元は空なので、切り出すと「記録が無い月」に見える。
+ *
  *  今月は手元の記録から切り出す。記録すると手元の記録が先に進むので、
  *  取ってきた結果で描くと、起動後に記録した分が履歴から消える。
  *
@@ -98,8 +101,9 @@ export function pickMonthDays(
   today: string,
   recent: readonly Day[],
   fetched: ReadonlyMap<Month, Day[]>,
+  recentReady: boolean,
 ): Day[] | null {
-  if (m === monthOf(today)) return daysIn(recent, m);
+  if (m === monthOf(today)) return recentReady ? daysIn(recent, m) : null;
   return fetched.get(m) ?? null;
 }
 

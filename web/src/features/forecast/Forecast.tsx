@@ -1,6 +1,7 @@
 import type { ForecastSession, PlannedSet } from '../../api/types';
 import { BackButton } from '../../ui/BackButton';
 import { Card, Note } from '../../ui/Card';
+import { Loading, SkeletonCard } from '../../ui/Skeleton';
 import { forecastRows, sessionHeading } from './forecast';
 import { useForecast } from './useForecast';
 
@@ -30,6 +31,14 @@ export function Forecast({ nameOf, onBack }: Props) {
       </div>
 
       {error && <Note>{error}</Note>}
+
+      {!sessions && !error && (
+        <Loading>
+          {[0, 1, 2].map((i) => (
+            <SkeletonCard key={i} rows={4} />
+          ))}
+        </Loading>
+      )}
 
       {sessions?.map((session) => (
         <SessionCard key={session.index} session={session} nameOf={nameOf} />

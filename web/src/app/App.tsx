@@ -7,6 +7,8 @@ import { Setup } from '../features/setup/Setup';
 import { GearIcon } from '../ui/icons';
 import { Today } from '../features/today/Today';
 import { History } from '../features/history/History';
+import { TodaySkeleton } from '../features/today/TodaySkeleton';
+import { awaitingFirstLoad } from './firstLoad';
 import { useHistoryEditor } from '../features/history/useHistoryEditor';
 import { useMonthLogs } from '../features/history/useMonthLogs';
 import { useStats } from '../features/history/useStats';
@@ -36,7 +38,8 @@ export function App() {
   // 履歴は開いたときだけ読む。毎回の読み込みに混ぜると、ジムで開くたびに
   // 見ないものを取りに行くことになる。
   const stats = useStats(hasToken && route === 'history');
-  const monthLogs = useMonthLogs(hasToken && route === 'history', data.days);
+  const firstLoad = awaitingFirstLoad(load, data.session);
+  const monthLogs = useMonthLogs(hasToken && route === 'history', data.days, !firstLoad);
   // 履歴での修正は、直近の記録（今月と今日の画面）と、取ってある過去の月の
   // 両方に当てる。片方だけだと、月を行き来したときに直す前の値に戻って見える。
   const { applyLocally } = session;
@@ -100,7 +103,9 @@ export function App() {
             {/* 画面を替えたときだけふわっと出す。key が route なので、同じ画面の
                 描き直しでは入り直さない。 */}
             <div key={route} className="grid animate-fade-in gap-3.5">
-              {route === 'today' && (
+              {route === 'today' && firstLoad && <TodaySkeleton />}
+
+              {route === 'today' && !firstLoad && (
                 <Today
                   data={data}
                   enqueue={outbox.enqueue}
