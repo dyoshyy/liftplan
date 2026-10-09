@@ -60,10 +60,10 @@ check('タブには出ない', (await page.locator('nav').first().innerText()).i
 await page.click('text=この先の予定を見る');
 await page.waitForTimeout(1500);
 const forecastBody = await body();
-// 「この先の予定を見る」の一言だけでも「この先の予定」を含むので、
-// クリックが何もしなくても通ってしまう。予定のページにしか無い
-// 「← 今日」（戻るボタン）で見る。
-check('予定のページが開く', forecastBody.includes('今日') && forecastBody.includes('この先の予定'));
+// 「この先の予定を見る」の一言だけでも「この先の予定」を含み、「今日」は
+// 下のナビにもあるので、本文の文字ではクリックが何もしなくても通ってしまう。
+// 予定のページにしか無い見出しで見る。
+check('予定のページが開く', (await page.getByRole('heading', { name: 'この先の予定' }).count()) === 1);
 // 回は全部開いて並ぶ。たたむ操作は無い。
 check('次の回まで開いている', forecastBody.includes('次の回'));
 check('たたむボタンが無い', (await page.locator('button[aria-expanded]').count()) === 0);

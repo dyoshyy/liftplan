@@ -109,14 +109,14 @@ await page.goBack();
 await page.waitForTimeout(800);
 check('設定からもう一度戻ると今日', await today());
 
-// 「← 設定」も戻るジェスチャーと同じ段へ帰る。積み直すと、戻るで種目ページに戻ってしまう。
+// 戻るボタン（設定）も戻るジェスチャーと同じ段へ帰る。積み直すと、戻るで種目ページに戻ってしまう。
 await openExercises();
-await page.getByRole('button', { name: '← 設定' }).click();
+await page.locator('main').getByRole('button', { name: '設定', exact: true }).click();
 await page.waitForTimeout(800);
-check('「← 設定」で設定に帰る', await isSettings());
+check('戻るボタンで設定に帰る', await isSettings());
 await page.goBack();
 await page.waitForTimeout(800);
-check('「← 設定」のあとの戻るは今日', await today(), (await body()).replace(/\s+/g, ' ').slice(0, 60));
+check('戻るボタンのあとの戻るは今日', await today(), (await body()).replace(/\s+/g, ' ').slice(0, 60));
 
 // 種目ページから下のナビで他の画面へ移ったあとも、戻るは今日へ帰る（設定に出ない）。
 await openExercises();

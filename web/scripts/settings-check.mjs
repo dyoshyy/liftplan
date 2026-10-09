@@ -240,7 +240,7 @@ const benchLocked = await toggleOf(BENCH).isDisabled();
 console.log('伸ばしたい種目（ベンチプレス）は外せない（disabled）:', benchLocked, '（期待 true）');
 
 // 設定へ戻ると、外した種目は「伸ばしたい種目」の候補から消えている。
-await page.getByRole('button', { name: '← 設定' }).click();
+await page.locator('main').getByRole('button', { name: '設定', exact: true }).click();
 await page.waitForTimeout(1800);
 await exHeader.click();
 await page.waitForTimeout(800);
@@ -255,7 +255,7 @@ await page.waitForTimeout(1200);
 await toggleOf(PRESET).click();
 await page.waitForTimeout(1500);
 const restoredSelected = (await program()).selected_exercises.length;
-await page.getByRole('button', { name: '← 設定' }).click();
+await page.locator('main').getByRole('button', { name: '設定', exact: true }).click();
 await page.waitForTimeout(1500);
 
 const customOk =
