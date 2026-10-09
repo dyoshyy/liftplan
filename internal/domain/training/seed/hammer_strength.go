@@ -28,8 +28,9 @@ import (
 // ニープラス）も入れていない。
 //
 // **1台1種目。**同じ動作でも、マシンが違えば重量の刻みも感触も違い、
-// 推定1RMは種目ごとに持つ。名前は「HS ＋ 機種名 ＋（プレート）」で、汎用の種目
-// （レッグプレスなど）と見分けがつくようにする。
+// 推定1RMは種目ごとに持つ。名前は「HS ＋ 機種名」で、頭の「HS 」で汎用の種目
+// （レッグプレスなど）と見分けがつくようにする。以前は末尾に「（プレート）」も
+// 付けていたが、長いだけなので外した（0018 で既存の利用者の行も直した）。
 //
 // **寄与（効き方）と刻みは仮置き。**アイソラテラル系の9種目は、種目の管理の設計書
 // （docs/specs/2026-09-26-custom-exercises-design.md 付録）の初期案どおり。残りは
@@ -45,24 +46,24 @@ import (
 func hammerStrengthSpecs() []exercise.ExerciseParams {
 	return []exercise.ExerciseParams{
 		// --- プレート式・アイソラテラル ---
-		spec("hs_pl_iso_incline_press", "HS アイソラテラル・インクライン・プレス（プレート）", 2.5, stimulus{training.ChestUpper: 1.0, training.FrontDelt: 0.5, training.TricepsLateral: 0.5}),
-		spec("hs_pl_iso_decline_chest_press", "HS アイソラテラル・デクライン・チェスト・プレス（プレート）", 2.5, stimulus{training.ChestLower: 1.0, training.TricepsLateral: 0.5}),
-		spec("hs_pl_iso_shoulder_press", "HS アイソラテラル・ショルダー・プレス（プレート）", 2.5, stimulus{training.FrontDelt: 1.0, training.SideDelt: 0.3, training.TricepsLateral: 0.5, training.TrapUpper: 0.3}),
-		spec("hs_pl_iso_row", "HS アイソラテラル・ロー（プレート）", 2.5, stimulus{training.TrapMid: 1.0, training.Lat: 0.5, training.Biceps: 0.3, training.RearDelt: 0.5, training.TrapUpper: 0.3}),
-		spec("hs_pl_iso_high_row", "HS アイソラテラル・ハイ・ロー（プレート）", 2.5, stimulus{training.Lat: 1.0, training.TrapMid: 0.5, training.RearDelt: 0.5, training.Biceps: 0.3, training.TrapUpper: 0.3}),
-		spec("hs_pl_iso_low_row", "HS アイソラテラル・ロー・ロー（プレート）", 2.5, stimulus{training.Lat: 1.0, training.TrapMid: 0.5, training.Biceps: 0.3, training.TrapUpper: 0.3}),
-		spec("hs_pl_iso_dy_row", "HS アイソラテラル・DY・ロー（プレート）", 2.5, stimulus{training.Lat: 1.0, training.TrapMid: 0.5, training.Biceps: 0.3, training.TrapUpper: 0.3}),
-		spec("hs_pl_iso_wide_pulldown", "HS アイソラテラル・ワイド・プルダウン（プレート）", 2.5, stimulus{training.Lat: 1.0, training.TrapMid: 0.5, training.Biceps: 0.3}),
-		spec("hs_pl_iso_front_pulldown", "HS アイソラテラル・フロント・プルダウン（プレート）", 2.5, stimulus{training.Lat: 1.0, training.Biceps: 0.3}),
+		spec("hs_pl_iso_incline_press", "HS アイソラテラル・インクライン・プレス", 2.5, stimulus{training.ChestUpper: 1.0, training.FrontDelt: 0.5, training.TricepsLateral: 0.5}),
+		spec("hs_pl_iso_decline_chest_press", "HS アイソラテラル・デクライン・チェスト・プレス", 2.5, stimulus{training.ChestLower: 1.0, training.TricepsLateral: 0.5}),
+		spec("hs_pl_iso_shoulder_press", "HS アイソラテラル・ショルダー・プレス", 2.5, stimulus{training.FrontDelt: 1.0, training.SideDelt: 0.3, training.TricepsLateral: 0.5, training.TrapUpper: 0.3}),
+		spec("hs_pl_iso_row", "HS アイソラテラル・ロー", 2.5, stimulus{training.TrapMid: 1.0, training.Lat: 0.5, training.Biceps: 0.3, training.RearDelt: 0.5, training.TrapUpper: 0.3}),
+		spec("hs_pl_iso_high_row", "HS アイソラテラル・ハイ・ロー", 2.5, stimulus{training.Lat: 1.0, training.TrapMid: 0.5, training.RearDelt: 0.5, training.Biceps: 0.3, training.TrapUpper: 0.3}),
+		spec("hs_pl_iso_low_row", "HS アイソラテラル・ロー・ロー", 2.5, stimulus{training.Lat: 1.0, training.TrapMid: 0.5, training.Biceps: 0.3, training.TrapUpper: 0.3}),
+		spec("hs_pl_iso_dy_row", "HS アイソラテラル・DY・ロー", 2.5, stimulus{training.Lat: 1.0, training.TrapMid: 0.5, training.Biceps: 0.3, training.TrapUpper: 0.3}),
+		spec("hs_pl_iso_wide_pulldown", "HS アイソラテラル・ワイド・プルダウン", 2.5, stimulus{training.Lat: 1.0, training.TrapMid: 0.5, training.Biceps: 0.3}),
+		spec("hs_pl_iso_front_pulldown", "HS アイソラテラル・フロント・プルダウン", 2.5, stimulus{training.Lat: 1.0, training.Biceps: 0.3}),
 
 		// --- プレート式 ---
-		spec("hs_pl_t_bar_row", "HS Tバー・ロー（プレート）", 2.5, stimulus{training.TrapMid: 1.0, training.Lat: 0.8, training.RearDelt: 0.4, training.Biceps: 0.3, training.Erector: 0.3, training.TrapUpper: 0.3}),
-		spec("hs_pl_lateral_raise", "HS ラテラルレイズ（プレート）", 2.5, stimulus{training.SideDelt: 1.0, training.TrapUpper: 0.3}),
-		spec("hs_pl_seated_biceps", "HS シーテッド・バイセップス（プレート）", 2.5, stimulus{training.Biceps: 1.0, training.Forearm: 0.3}),
-		spec("hs_pl_reverse_v_squat", "HS リバースVスクワット（プレート）", 5.0, stimulus{training.Quad: 1.0, training.Glute: 0.7, training.Adductor: 0.3, training.Erector: 0.3}),
-		spec("hs_pl_hack_squat", "HS ハックスクワット（プレート）", 5.0, stimulus{training.Quad: 1.0, training.Glute: 0.5, training.Adductor: 0.2}),
-		spec("hs_pl_linear_leg_press", "HS リニア・レッグプレス（プレート）", 5.0, stimulus{training.Quad: 1.0, training.Glute: 0.5, training.Adductor: 0.3}),
-		spec("hs_pl_glute_drive", "HS グルート・ドライブ（プレート）", 5.0, stimulus{training.Glute: 1.0, training.Hamstring: 0.4}),
+		spec("hs_pl_t_bar_row", "HS Tバー・ロー", 2.5, stimulus{training.TrapMid: 1.0, training.Lat: 0.8, training.RearDelt: 0.4, training.Biceps: 0.3, training.Erector: 0.3, training.TrapUpper: 0.3}),
+		spec("hs_pl_lateral_raise", "HS ラテラルレイズ", 2.5, stimulus{training.SideDelt: 1.0, training.TrapUpper: 0.3}),
+		spec("hs_pl_seated_biceps", "HS シーテッド・バイセップス", 2.5, stimulus{training.Biceps: 1.0, training.Forearm: 0.3}),
+		spec("hs_pl_reverse_v_squat", "HS リバースVスクワット", 5.0, stimulus{training.Quad: 1.0, training.Glute: 0.7, training.Adductor: 0.3, training.Erector: 0.3}),
+		spec("hs_pl_hack_squat", "HS ハックスクワット", 5.0, stimulus{training.Quad: 1.0, training.Glute: 0.5, training.Adductor: 0.2}),
+		spec("hs_pl_linear_leg_press", "HS リニア・レッグプレス", 5.0, stimulus{training.Quad: 1.0, training.Glute: 0.5, training.Adductor: 0.3}),
+		spec("hs_pl_glute_drive", "HS グルート・ドライブ", 5.0, stimulus{training.Glute: 1.0, training.Hamstring: 0.4}),
 
 		// --- セレクト ---
 	}
