@@ -10,12 +10,21 @@ import (
 	"github.com/dyoshyy/liftplan/internal/domain/training/seed"
 )
 
-// calibrationTolerance は、実測の1セットあたり供給が k からずれてよい割合。
+// calibrationTolerance は、実測の1セットあたり供給が k からずれてよい割合（構成ごと）。
 //
-// 24構成の実測は 1.905〜1.987 に収まる（k=1.95 で -2.3〜+1.9%）。構成のばらつきに
-// 余裕を持たせて5%とし、これを超えたら較正し直す合図にする。広げると、
-// 目標と実態がずれていることに気づけなくなる。
-const calibrationTolerance = 0.05
+// 24構成の実測は 2.115〜2.388（k=2.28 で -7.2〜+4.7%）。五分割の肩・腕の日は
+// 単関節の種目しか候補に無く、1セットの供給が構造的に小さい（先の回の周期が
+// 軸の無い日で止まっていた不具合を直すまでは、肩の日が2回続けて予測されて
+// プレスで埋まり、この差が見えていなかった）。上下2分割の週7回は +4.7%。
+// 広がりに合わせて 8% とし、これを超えたら較正し直す合図にする。
+// k そのもののずれは平均で見る（meanTolerance）。構成ごとの目標が供給に
+// 届くかは、達成率の帯の検査（TestDefaultSelected_PlansEveryShippedSetup）が
+// 直接見る。
+const calibrationTolerance = 0.08
+
+// meanTolerance は、24構成の平均が k からずれてよい割合。較正の手順どおり
+// （平均が k の1%以内に収まるまで繰り返す）。
+const meanTolerance = 0.01
 
 // 週目標の大きさ（k）が、処方どおりにこなしたときの実態と合っていること。
 //
@@ -92,5 +101,10 @@ func TestSimulation_StimulusPerSetMatchesTheTargetScale(t *testing.T) {
 			t.Logf("1セットあたり供給 %.3f（k=%.3f、%+.1f%%）", perSet, k, (perSet/k-1)*100)
 		})
 	}
-	t.Logf("平均 %.4f（k=%.4f）", sum/float64(len(configs)), k)
+	mean := sum / float64(len(configs))
+	if dev := mean/k - 1; math.Abs(dev) > meanTolerance {
+		t.Errorf("平均 %.4f が k=%.4f から %+.1f%% ずれている（許容 ±%.0f%%）。k を較正し直すこと",
+			mean, k, dev*100, meanTolerance*100)
+	}
+	t.Logf("平均 %.4f（k=%.4f）", mean, k)
 }
