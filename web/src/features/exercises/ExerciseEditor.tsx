@@ -12,12 +12,23 @@ import {
   type ExerciseDraft,
 } from './exerciseDraft';
 
+/** Deletion はフォームの一番下に置く削除の状態。直すときだけ渡す（足すときは無い）。 */
+export type Deletion = {
+  /** blocked は消せない理由。消せるなら null。 */
+  blocked: string | null;
+  /** confirming は「本当に削除」の確認待ちか。 */
+  confirming: boolean;
+  onRequest: () => void;
+  onCancel: () => void;
+};
+
 type Props = {
   draft: ExerciseDraft;
   onChange: (next: ExerciseDraft) => void;
   onSave: () => void;
   onCancel: () => void;
   busy: boolean;
+  deletion?: Deletion;
 };
 
 // 刻みの選択肢。プレート式（2.5kg・5kg）とケーブルスタック（1〜5kg）、
@@ -35,7 +46,7 @@ const INCREMENTS = [0.5, 1, 1.25, 2, 2.5, 5] as const;
  * 区分は21あるが、まとめずに並べると選ぶのに目が滑るので domain/parts.ts の
  * 粗い部位で見出しを分ける（ExercisePicker が種目を部位でまとめるのと同じ理由）。
  */
-export function ExerciseEditor({ draft, onChange, onSave, onCancel, busy }: Props) {
+export function ExerciseEditor({ draft, onChange, onSave, onCancel, busy, deletion }: Props) {
   const problem = draftProblem(draft);
   // 選んだ区分は名前順で並べる。開くたびに順序が変わると、寄与を直すときに
   // 前回どこを触ったか探し直すことになる。
@@ -127,6 +138,42 @@ export function ExerciseEditor({ draft, onChange, onSave, onCancel, busy }: Prop
           保存
         </Button>
       </div>
+
+      {deletion && <DeleteFooter deletion={deletion} busy={busy} />}
+    </div>
+  );
+}
+
+// 削除は一覧に置かず、直すフォームの一番下に置く。めったに使わない操作を
+// 一覧の全行に並べると、行が縦に伸び、隣の「使う」を押すつもりの指が当たる。
+// 確認は2段（もう一度押すまで消さない。nextDeleteStep）。
+function DeleteFooter({ deletion, busy }: { deletion: Deletion; busy: boolean }) {
+  return (
+    <div className="mt-2 grid gap-2 border-t border-line pt-3">
+      {deletion.blocked ? (
+        <Note>{deletion.blocked}</Note>
+      ) : deletion.confirming ? (
+        <>
+          <p className="m-0 text-[13px] text-red">本当に削除しますか？記録と履歴は残ります</p>
+          <div className="grid grid-cols-2 gap-2">
+            <Button variant="quiet" disabled={busy} onClick={deletion.onCancel}>
+              やめる
+            </Button>
+            <Button variant="danger" disabled={busy} onClick={deletion.onRequest}>
+              本当に削除
+            </Button>
+          </div>
+        </>
+      ) : (
+        <Button
+          variant="ghost"
+          className="text-red hover:text-red"
+          disabled={busy}
+          onClick={deletion.onRequest}
+        >
+          この種目を削除
+        </Button>
+      )}
     </div>
   );
 }

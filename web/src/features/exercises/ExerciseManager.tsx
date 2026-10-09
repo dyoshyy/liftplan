@@ -28,7 +28,8 @@ type Props = {
  * 種目を使うかどうか決め、効き方を直し、足し、消す画面。設定の「種目」の節から入る。
  *
  * 使わない種目は「使う」を外して非表示にする（計画にも「種目を選んで記録」にも
- * 出ない）。要らない種目は消せる（論理削除。記録と履歴は残る）。伸ばしたい
+ * 出ない）。要らない種目は直すフォームの一番下から消せる（論理削除。記録と
+ * 履歴は残る）。伸ばしたい
  * 種目・重点種目の選択は設定に残る。3層：判断は exerciseDraft.ts、手順は
  * useExerciseManager、描画はここ。
  */
@@ -40,14 +41,14 @@ export function ExerciseManager({ exercises, onChanged, onBack }: Props) {
   const [draft, setDraft] = useState<ExerciseDraft>(emptyDraft);
 
   const openAdd = () => {
-    // 消す前に足すを開いたら、確認待ちのままフォームへ移らせない。
+    // 前に開いたフォームの確認待ちを持ち越さない。
     cancelDelete();
     setDraft(emptyDraft());
     setTarget('new');
   };
 
   const openEdit = (e: Exercise) => {
-    // openAdd と同じ理由。別行の確認待ちを持ち越さない。
+    // openAdd と同じ理由。
     cancelDelete();
     setDraft(draftOf(e));
     setTarget(e);
@@ -63,7 +64,7 @@ export function ExerciseManager({ exercises, onChanged, onBack }: Props) {
         <h1 className="text-[19px] font-semibold">種目</h1>
         <Note className="mt-1">
           使う種目を選びます。使わない種目は計画にも「種目を選んで記録」にも出ません。
-          効き方の調整、一覧に無い器具の追加、削除もここでできます（削除しても記録と履歴は残ります）。
+          効き方の調整と、一覧に無い器具の追加もここでできます。削除は「編集」の一番下からできます（記録と履歴は残ります）。
         </Note>
       </div>
 
@@ -81,8 +82,24 @@ export function ExerciseManager({ exercises, onChanged, onBack }: Props) {
               if (ok) setTarget(null);
             })
           }
-          onCancel={() => setTarget(null)}
+          onCancel={() => {
+            cancelDelete();
+            setTarget(null);
+          }}
           busy={busy}
+          deletion={
+            target === 'new'
+              ? undefined
+              : {
+                  blocked: deleteBlockedReason(declared, target.id),
+                  confirming: pendingDeleteId === target.id,
+                  onRequest: () =>
+                    void requestDelete(target.id).then((ok) => {
+                      if (ok) setTarget(null);
+                    }),
+                  onCancel: cancelDelete,
+                }
+          }
         />
       ) : (
         <>
@@ -97,8 +114,6 @@ export function ExerciseManager({ exercises, onChanged, onBack }: Props) {
                 {group.items.map((e) => {
                   const on = selected?.includes(e.id) ?? false;
                   const why = on ? hideBlockedReason(declared, e.id) : null;
-                  const whyNotDelete = deleteBlockedReason(declared, e.id);
-                  const confirmingDelete = pendingDeleteId === e.id;
                   return (
                     <li
                       key={e.id}
@@ -147,48 +162,6 @@ export function ExerciseManager({ exercises, onChanged, onBack }: Props) {
                           スマホでも読める場所にも同じ理由を出す
                           （ProgramSettings の分割プリセットと同じ扱い）。 */}
                       {why && <Note>{why}</Note>}
-                      {/* 削除は行の下に置く。編集・使うと同じ並びに置くと、狭い
-                          画面で名前が押し出されるのと、隣のボタンを押すつもりの
-                          指が削除に当たる。確認は2段（nextDeleteStep）。 */}
-                      <div className="flex items-center justify-end gap-2">
-                        {confirmingDelete ? (
-                          <>
-                            <span className="mr-auto text-xs text-red">
-                              本当に削除しますか？記録と履歴は残ります
-                            </span>
-                            <Button
-                              size="md"
-                              variant="quiet"
-                              disabled={busy}
-                              aria-label={`${e.name}の削除をやめる`}
-                              onClick={cancelDelete}
-                            >
-                              やめる
-                            </Button>
-                            <Button
-                              size="md"
-                              variant="danger"
-                              disabled={busy}
-                              aria-label={`${e.name}を本当に削除`}
-                              onClick={() => void requestDelete(e.id)}
-                            >
-                              本当に削除
-                            </Button>
-                          </>
-                        ) : (
-                          <Button
-                            size="md"
-                            variant="quiet"
-                            disabled={busy || whyNotDelete !== null}
-                            title={whyNotDelete ?? undefined}
-                            aria-label={`${e.name}を削除`}
-                            onClick={() => void requestDelete(e.id)}
-                          >
-                            削除
-                          </Button>
-                        )}
-                      </div>
-                      {whyNotDelete && !why && <Note>{whyNotDelete}</Note>}
                     </li>
                   );
                 })}
