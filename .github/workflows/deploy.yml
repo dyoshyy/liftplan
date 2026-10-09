@@ -39,10 +39,39 @@ env:
   REPOSITORY: liftplan
 
 jobs:
+  # 出すコミットを1回だけ決める。**イベントのコミットではなく、走った時点の
+  # main の先頭を出す。**
+  #
+  # マージが続くと push のイベントが前後して届くことがある。イベントのコミット
+  # （GITHUB_SHA）を出していると、遅れて届いた古いコミットの Deploy が最後に
+  # 走り、本番が古い版に戻る（2026-10-08 に #262 のマージの Deploy が #272 の
+  # あとに走って起きた）。concurrency は順番に並べるだけで、新旧は見ない。
+  # 待っている run は新しい run が来ると取り消されるので、古いイベントの run
+  # だけが残ることもある。先頭を出していれば、最後に走った run が必ず最新を出す。
+  #
+  # 下のジョブがそれぞれ main を取り出すと、途中で main が進んだときに
+  # テストしたものと出すものがずれる。ここで決めた1つを全ジョブが使う。
+  resolve:
+    runs-on: ubuntu-latest
+    outputs:
+      sha: ${{ steps.head.outputs.sha }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - id: head
+        run: |
+          sha=$(git rev-parse HEAD)
+          echo "sha=${sha}" >> "$GITHUB_OUTPUT"
+          if [ "${sha}" != "${GITHUB_SHA}" ]; then
+            echo "イベントのコミット ${GITHUB_SHA} より新しい main の先頭 ${sha} を出す"
+          fi
+
   # テストは CI と同じものを走らせる。デプロイの前提にするために
   # ここでも回す。CI の成功を当てにすると、CI が動いていない経路
   # （workflow_dispatch）で無検証のまま出てしまう。
   test:
+    needs: resolve
     runs-on: ubuntu-latest
     services:
       postgres:
@@ -60,6 +89,8 @@ jobs:
           --health-retries 15
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.resolve.outputs.sha }}
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
@@ -70,8 +101,11 @@ jobs:
         run: go test -race ./...
 
   deploy:
-    needs: test
+    needs: [resolve, test]
     runs-on: ubuntu-latest
+    env:
+      # 出すコミット。イメージのタグ・リビジョン名・ラベルに使う（resolve の理由）。
+      DEPLOY_SHA: ${{ needs.resolve.outputs.sha }}
 
     # Workload Identity 連携に必要。サービスアカウントキーを
     # GitHub に置かないので、漏洩する鍵がそもそも存在しない。
@@ -81,6 +115,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.resolve.outputs.sha }}
 
       # main 以外から出させない。
       #
@@ -139,8 +175,8 @@ jobs:
       - name: ビルドして push
         run: |
           IMAGE="${REGION}-docker.pkg.dev/${PROJECT_ID}/${REPOSITORY}/${SERVICE}"
-          docker build -t "${IMAGE}:${GITHUB_SHA}" -t "${IMAGE}:latest" .
-          docker push "${IMAGE}:${GITHUB_SHA}"
+          docker build -t "${IMAGE}:${DEPLOY_SHA}" -t "${IMAGE}:latest" .
+          docker push "${IMAGE}:${DEPLOY_SHA}"
           docker push "${IMAGE}:latest"
 
       - name: Cloud Run へデプロイ
@@ -152,12 +188,12 @@ jobs:
           #
           # 実行番号を足すのは、同じコミットを出し直したときに名前が
           # 衝突してデプロイが失敗するため（再実行やロールバックで起きる）。
-          SUFFIX="${GITHUB_SHA:0:7}-${GITHUB_RUN_NUMBER}"
+          SUFFIX="${DEPLOY_SHA:0:7}-${GITHUB_RUN_NUMBER}"
 
           gcloud run deploy "${SERVICE}" \
-            --image "${IMAGE}:${GITHUB_SHA}" \
+            --image "${IMAGE}:${DEPLOY_SHA}" \
             --revision-suffix "${SUFFIX}" \
-            --labels "commit=${GITHUB_SHA},run-id=${GITHUB_RUN_ID}" \
+            --labels "commit=${DEPLOY_SHA},run-id=${GITHUB_RUN_ID}" \
             --project "${PROJECT_ID}" \
             --region "${REGION}" \
             --min-instances=0 \
@@ -208,7 +244,7 @@ jobs:
   # 記録が消える。同居させていた頃は成果物が1つで自動的に守られていた
   # 性質なので、分離した以上ここに明示する。
   web:
-    needs: deploy
+    needs: [resolve, deploy]
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -216,6 +252,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.resolve.outputs.sha }}
 
       # pnpm の版は web/package.json の packageManager が唯一の出どころ。
       # 指定しないとリポジトリのルートを見に行くが、そこは Go のリポジトリで
