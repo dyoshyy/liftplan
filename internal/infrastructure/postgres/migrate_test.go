@@ -128,7 +128,8 @@ func TestMigrate_IsSafeForConcurrentStartup(t *testing.T) {
 	if _, err := pool.Exec(ctx, `
 		DROP TABLE IF EXISTS
 			set_logs, daily_conditions, program,
-			accounts, sessions, custom_exercises, user_exercises, schema_migrations CASCADE`); err != nil {
+			accounts, sessions, custom_exercises, user_exercises,
+			groups, group_members, schema_migrations CASCADE`); err != nil {
 		t.Fatalf("掃除できない: %v", err)
 	}
 

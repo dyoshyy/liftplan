@@ -60,13 +60,7 @@ export function ExerciseManager({ exercises, onChanged, onBack }: Props) {
     <div className="grid gap-3.5">
       <BackButton label="設定" onClick={onBack} />
 
-      <div>
-        <h1 className="text-[19px] font-semibold">種目</h1>
-        <Note className="mt-1">
-          使う種目を選びます。使わない種目は計画にも「種目を選んで記録」にも出ません。
-          効き方の調整と、一覧に無い器具の追加もここでできます。削除は「編集」の一番下からできます（記録と履歴は残ります）。
-        </Note>
-      </div>
+      <h1 className="text-[19px] font-semibold">種目</h1>
 
       {note && <Note className="text-red">{note}</Note>}
 

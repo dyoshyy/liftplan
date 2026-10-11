@@ -58,16 +58,16 @@ describe('belowPlan', () => {
     new Map(Object.entries(m).map(([id, n]) => [id, Array.from({ length: n }, (_, i) => rec(`${id}-${i}`))]));
 
   // 選んだ種目を記録すると doneToday に入る。予定に無いので leftovers が
-  // 「今日やったもの」にも出し、同じ種目が2枚並ぶ。選んだ種目は予定として
+  // 「予定外の記録」にも出し、同じ種目が2枚並ぶ。選んだ種目は予定として
   // 数えて、あちらから外す。
-  it('選んだ種目は「今日やったもの」に二重に出ない', () => {
+  it('選んだ種目は「予定外の記録」に二重に出ない', () => {
     const got = belowPlan([[plan('bench')], [], []], ['dip'], done({ dip: 2 }));
     expect(got.adhoc.map((p) => p.exercise_id)).toEqual(['dip']);
     expect(got.done).toEqual([]);
   });
 
   // 画面を開き直すと、選んだ状態は消える。やった事実は消えない。
-  it('選んでいないがやったものは「今日やったもの」に出る', () => {
+  it('選んでいないがやったものは「予定外の記録」に出る', () => {
     const got = belowPlan([[plan('bench')], [], []], [], done({ dip: 2 }));
     expect(got.adhoc).toEqual([]);
     expect(got.done.map((p) => p.exercise_id)).toEqual(['dip']);

@@ -22,13 +22,7 @@ export function Forecast({ nameOf, onBack }: Props) {
     <div className="grid gap-3.5">
       <BackButton label="今日" onClick={onBack} />
 
-      <div>
-        <h1 className="text-[19px] font-semibold">この先の予定</h1>
-        <Note className="mt-1">
-          今日の時点の見込みです。休んだり、別の種目をやったりすると変わります。
-          重量は今日の実力での見込みで、当日の記録に合わせて付け直されます。
-        </Note>
-      </div>
+      <h1 className="text-[19px] font-semibold">この先の予定</h1>
 
       {error && <Note>{error}</Note>}
 
