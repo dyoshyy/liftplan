@@ -23,6 +23,7 @@ func (h *Handler) Routes() *http.ServeMux {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/sessions", h.handleGetSession)
 	mux.HandleFunc("GET /api/sessions/forecast", h.handleGetForecast)
+	mux.HandleFunc("GET /api/sessions/substitute", h.handleGetSubstitute)
 	mux.HandleFunc("POST /api/set-logs", h.handlePostSetLogs)
 	mux.HandleFunc("POST /api/conditions", h.handlePostConditions)
 	mux.HandleFunc("GET /api/program", h.handleGetProgram)

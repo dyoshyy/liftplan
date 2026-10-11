@@ -23,6 +23,7 @@ import (
 type Handler struct {
 	getSession         *usecase.GetSession
 	getForecast        *usecase.GetForecast
+	getSubstitute      *usecase.GetSubstitute
 	recordSets         *usecase.RecordSets
 	recordConditions   *usecase.RecordConditions
 	setFocus           *usecase.SetFocusExercise
@@ -57,6 +58,7 @@ type Handler struct {
 type Dependencies struct {
 	GetSession         *usecase.GetSession
 	GetForecast        *usecase.GetForecast
+	GetSubstitute      *usecase.GetSubstitute
 	RecordSets         *usecase.RecordSets
 	RecordConditions   *usecase.RecordConditions
 	SetFocus           *usecase.SetFocusExercise
@@ -99,6 +101,8 @@ func NewHandler(d Dependencies) (*Handler, error) {
 		return nil, errMissingDependency("GetSession")
 	case d.GetForecast == nil:
 		return nil, errMissingDependency("GetForecast")
+	case d.GetSubstitute == nil:
+		return nil, errMissingDependency("GetSubstitute")
 	case d.RecordSets == nil:
 		return nil, errMissingDependency("RecordSets")
 	case d.RecordConditions == nil:
@@ -154,6 +158,7 @@ func NewHandler(d Dependencies) (*Handler, error) {
 	return &Handler{
 		getSession:         d.GetSession,
 		getForecast:        d.GetForecast,
+		getSubstitute:      d.GetSubstitute,
 		recordSets:         d.RecordSets,
 		recordConditions:   d.RecordConditions,
 		setFocus:           d.SetFocus,
@@ -303,6 +308,55 @@ func (h *Handler) handleGetForecast(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, toForecastResponse(sessions))
+}
+
+// handleGetSubstitute は今日の補助の代わりを1つ返す。代わりが無ければ
+// substitute は null（200）。補助でない種目は 400。
+func (h *Handler) handleGetSubstitute(w http.ResponseWriter, r *http.Request) {
+	user, ok := requireUser(w, r)
+	if !ok {
+		return
+	}
+	q := r.URL.Query()
+	raw := q.Get("date")
+	if raw == "" {
+		respondError(w, invalidInput("date クエリパラメータが必要である"))
+		return
+	}
+	date, err := training.ParseDate(raw)
+	if err != nil {
+		respondError(w, invalidInput(err.Error()))
+		return
+	}
+	replace := q.Get("replace")
+	if replace == "" {
+		respondError(w, invalidInput("replace クエリパラメータが必要である"))
+		return
+	}
+	// rejected は繰り返しで受ける。カンマで割らないのは、種目 ID の文字種に
+	// 依存しないため。
+	var rejected []exercise.ExerciseID
+	for _, id := range q["rejected"] {
+		if id == "" {
+			respondError(w, invalidInput("rejected が空である"))
+			return
+		}
+		rejected = append(rejected, exercise.ExerciseID(id))
+	}
+
+	sub, found, err := h.getSubstitute.Execute(r.Context(), user, usecase.GetSubstituteInput{
+		Date: date, Replace: exercise.ExerciseID(replace), Rejected: rejected,
+	})
+	if err != nil {
+		respondError(w, err)
+		return
+	}
+	res := substituteResponse{}
+	if found {
+		dto := toPlannedSetDTO(sub)
+		res.Substitute = &dto
+	}
+	writeJSON(w, http.StatusOK, res)
 }
 
 func (h *Handler) handlePostSetLogs(w http.ResponseWriter, r *http.Request) {

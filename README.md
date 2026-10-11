@@ -84,6 +84,7 @@ curl -H 'Authorization: Bearer <セッショントークン>' 'http://localhost:
 |---|---|---|
 | GET | `/health` | ヘルスチェック。保存先への疎通を含む（到達できなければ 503） |
 | GET | `/api/sessions?date=YYYY-MM-DD` | その日のセッションを導出する |
+| GET | `/api/sessions/substitute?date=&replace=&rejected=` | 今日の補助 `replace` の代わりを1つ導出する。`rejected` は前に出した代わり（繰り返しで渡す）。無ければ `{"substitute": null}`。補助でない種目は 400 |
 | POST | `/api/set-logs` | 実績ログを保存する（冪等） |
 | POST | `/api/conditions` | 日次コンディションを保存する（冪等） |
 | GET | `/api/program` | プログラム（頻度・週目標・選択種目・伸ばしたい種目・重点種目・分割）を取得する。未設定なら 404 |

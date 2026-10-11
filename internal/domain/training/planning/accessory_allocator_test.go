@@ -783,3 +783,175 @@ func TestAccessoryAllocator_CountsTheHorizonStimulus(t *testing.T) {
 			"遅れている Hamstring の candidate_b が選ばれるはず", idsOf(got[0]))
 	}
 }
+
+// TestAccessoryAllocator_PinnedStayAndOnlyFreeSlotsAreFilled は
+// 「置いてある補助はそのまま、空き枠だけが埋まる」を守る。
+//
+// 回0に curl、回1に ham_a を置き、回0にだけ空きを1つ残す。Ham が最も
+// 遅れているので回0の空きには Ham の種目が入る。ham_a と ham_b は同じ
+// 減り幅だが、ham_a は回1に置いた（最終実施日が進んだ）ので、一度も
+// やっていない ham_b が多様性の同点処理で勝つ。
+//
+// 【変異1】Pinned を置く手続きで lastPerformed／hasLast を進めない
+// → ham_a と ham_b がどちらも未実施に見え、ID 順で ham_a が回0に入り赤。
+// 【変異2】Pinned を out の先頭に入れない → out[0] が [ham_b] になり赤。
+// 【変異3】Pinned で slots を減らさない → 回1にも空きが1つ残り、回1に
+// 2つ目が入って赤。
+func TestAccessoryAllocator_PinnedStayAndOnlyFreeSlotsAreFilled(t *testing.T) {
+	target := mustTarget(t, map[training.MuscleRegion]float64{
+		training.Hamstring: 12, training.Biceps: 6,
+	})
+	hamA := regionOnly(t, "ham_a", training.Hamstring, 1.0)
+	hamB := regionOnly(t, "ham_b", training.Hamstring, 1.0)
+	curl := regionOnly(t, "curl", training.Biceps, 1.0)
+	all := []*exercise.Exercise{hamA, hamB, curl}
+
+	req := planning.AllocationRequest{
+		Target: target,
+		Sessions: []planning.HorizonSession{
+			noSplitSession(allocatorDay, 2),
+			noSplitSession(allocatorDay.AddDays(3), 1),
+		},
+		Pinned:           [][]exercise.ExerciseID{{"curl"}, {"ham_a"}},
+		SetsPerAccessory: mustSetCount(t, 3),
+		Pool:             all,
+		Master:           all,
+		History:          setlog.NewHistory(nil),
+	}
+
+	got, err := planning.DefaultAccessoryAllocator().Allocate(req)
+	if err != nil {
+		t.Fatalf("Allocate: %v", err)
+	}
+	if want := []string{"curl", "ham_b"}; !slices.Equal(idsOf(got[0]), want) {
+		t.Errorf("回0 = %v, want %v", idsOf(got[0]), want)
+	}
+	if want := []string{"ham_a"}; !slices.Equal(idsOf(got[1]), want) {
+		t.Errorf("回1 = %v, want %v（空きが無いので置いたものだけ）", idsOf(got[1]), want)
+	}
+}
+
+// TestAccessoryAllocator_PinnedIsNotChosenAgainInTheSameSession は
+// 置いてある種目が同じ回に2回入らないことを守る。
+//
+// 【変異】Pinned を置く手続きで chosenSet に入れない → 回0が
+// [ham_a ham_a] になり赤。
+func TestAccessoryAllocator_PinnedIsNotChosenAgainInTheSameSession(t *testing.T) {
+	target := mustTarget(t, map[training.MuscleRegion]float64{training.Hamstring: 30})
+	hamA := regionOnly(t, "ham_a", training.Hamstring, 1.0)
+
+	req := planning.AllocationRequest{
+		Target:           target,
+		Sessions:         []planning.HorizonSession{noSplitSession(allocatorDay, 2)},
+		Pinned:           [][]exercise.ExerciseID{{"ham_a"}},
+		SetsPerAccessory: mustSetCount(t, 3),
+		Pool:             []*exercise.Exercise{hamA},
+		Master:           []*exercise.Exercise{hamA},
+		History:          setlog.NewHistory(nil),
+	}
+
+	got, err := planning.DefaultAccessoryAllocator().Allocate(req)
+	if err != nil {
+		t.Fatalf("Allocate: %v", err)
+	}
+	if want := []string{"ham_a"}; !slices.Equal(idsOf(got[0]), want) {
+		t.Errorf("回0 = %v, want %v", idsOf(got[0]), want)
+	}
+}
+
+// TestAccessoryAllocator_PinnedCountsTowardCoverage は置いてある種目の刺激が
+// 残差に数えられることを守る。
+//
+// 目標 Quad 1.5・Ham 1（4週窓で Quad 6・Ham 4）。quad_a を3セット置くと
+// Quad はほぼ埋まり、空きには ham_a が入る（ΔL: Quad −0.19、Ham −0.98）。
+//
+// 【変異】Pinned を置く手続きで current を進めない → Quad が0のまま見え、
+// quad_b の ΔL（−1.31）が最良になって赤。
+func TestAccessoryAllocator_PinnedCountsTowardCoverage(t *testing.T) {
+	target := mustTarget(t, map[training.MuscleRegion]float64{
+		training.Quad: 1.5, training.Hamstring: 1,
+	})
+	quadA := regionOnly(t, "quad_a", training.Quad, 1.0)
+	quadB := regionOnly(t, "quad_b", training.Quad, 1.0)
+	hamA := regionOnly(t, "ham_a", training.Hamstring, 1.0)
+	all := []*exercise.Exercise{quadA, quadB, hamA}
+
+	req := planning.AllocationRequest{
+		Target:           target,
+		Sessions:         []planning.HorizonSession{noSplitSession(allocatorDay, 2)},
+		Pinned:           [][]exercise.ExerciseID{{"quad_a"}},
+		SetsPerAccessory: mustSetCount(t, 3),
+		Pool:             all,
+		Master:           all,
+		History:          setlog.NewHistory(nil),
+	}
+
+	got, err := planning.DefaultAccessoryAllocator().Allocate(req)
+	if err != nil {
+		t.Fatalf("Allocate: %v", err)
+	}
+	if want := []string{"quad_a", "ham_a"}; !slices.Equal(idsOf(got[0]), want) {
+		t.Errorf("回0 = %v, want %v", idsOf(got[0]), want)
+	}
+}
+
+// TestAccessoryAllocator_PinnedBlocksRecovery は先の回に置いた種目が
+// 回復の判定に効くことを守る。
+//
+// 翌日（回1）に ham_a を置く。回復日数2なので今日（回0）は Ham を主働筋に
+// する種目を避け、空きには curl が入る。Biceps は基準で既に6セット
+// 入っているので、回復の判定が無ければ遅れている Ham の ham_b が選ばれる。
+//
+// 【変異】Pinned を置く手続きで allocated に入れない → 回0に ham_b が入り赤。
+func TestAccessoryAllocator_PinnedBlocksRecovery(t *testing.T) {
+	target := mustTarget(t, map[training.MuscleRegion]float64{
+		training.Hamstring: 12, training.Biceps: 6,
+	})
+	hamA := regionOnly(t, "ham_a", training.Hamstring, 1.0)
+	hamB := regionOnly(t, "ham_b", training.Hamstring, 1.0)
+	curl := regionOnly(t, "curl", training.Biceps, 1.0)
+	all := []*exercise.Exercise{hamA, hamB, curl}
+
+	req := planning.AllocationRequest{
+		Target:   target,
+		Baseline: coverage(t, regionOnly(t, "past_curl", training.Biceps, 1.0), 6),
+		Sessions: []planning.HorizonSession{
+			noSplitSession(allocatorDay, 1),
+			noSplitSession(allocatorDay.AddDays(1), 1),
+		},
+		Pinned:           [][]exercise.ExerciseID{nil, {"ham_a"}},
+		SetsPerAccessory: mustSetCount(t, 3),
+		Pool:             all,
+		Master:           all,
+		History:          setlog.NewHistory(nil),
+	}
+
+	got, err := planning.DefaultAccessoryAllocator().Allocate(req)
+	if err != nil {
+		t.Fatalf("Allocate: %v", err)
+	}
+	if want := []string{"curl"}; !slices.Equal(idsOf(got[0]), want) {
+		t.Errorf("回0 = %v, want %v（翌日に Ham を置いたので Ham は回復中）", idsOf(got[0]), want)
+	}
+}
+
+// TestAccessoryAllocator_PinnedUnknownExerciseIsAnError は種目一覧に無い
+// Pinned を黙って飛ばさないことを守る（飛ばすと刺激の数え漏れになる）。
+func TestAccessoryAllocator_PinnedUnknownExerciseIsAnError(t *testing.T) {
+	target := mustTarget(t, map[training.MuscleRegion]float64{training.Hamstring: 12})
+	hamA := regionOnly(t, "ham_a", training.Hamstring, 1.0)
+
+	req := planning.AllocationRequest{
+		Target:           target,
+		Sessions:         []planning.HorizonSession{noSplitSession(allocatorDay, 2)},
+		Pinned:           [][]exercise.ExerciseID{{"ghost"}},
+		SetsPerAccessory: mustSetCount(t, 3),
+		Pool:             []*exercise.Exercise{hamA},
+		Master:           []*exercise.Exercise{hamA},
+		History:          setlog.NewHistory(nil),
+	}
+
+	if _, err := planning.DefaultAccessoryAllocator().Allocate(req); err == nil {
+		t.Error("種目一覧に無い Pinned でエラーにならない")
+	}
+}
