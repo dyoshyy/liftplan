@@ -55,3 +55,9 @@ export const groupKeys = {
   pendingInvite: 'liftplan.groups.invite',
   selected: 'liftplan.groups.selected',
 } as const;
+
+// --- 補助の差し替え ---
+//
+// どの補助を何に差し替えたか。計画の日付つきで置き、別の日付のものは読まない
+// （features/today/substitute.ts の swapsFor）。失っても記録は消えない。
+export const KEY_SUBSTITUTES = 'liftplan.substitutes';

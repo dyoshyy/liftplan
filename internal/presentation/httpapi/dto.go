@@ -66,13 +66,13 @@ func toSessionDTO(s planning.PlannedSession) sessionDTO {
 	}
 }
 
-// forecastSessionDTO は見込みの1回ぶん。sessionDTO と違い日付を持たない
-// （設計書「日付は返さない」）。index が 0=今日、1=次の回、…
 // substituteResponse は差し替えの応答。代わりが無ければ substitute は null。
 type substituteResponse struct {
 	Substitute *plannedSetDTO `json:"substitute"`
 }
 
+// forecastSessionDTO は見込みの1回ぶん。sessionDTO と違い日付を持たない
+// （設計書「日付は返さない」）。index が 0=今日、1=次の回、…
 type forecastSessionDTO struct {
 	Index       int             `json:"index"`
 	Split       *string         `json:"split"`

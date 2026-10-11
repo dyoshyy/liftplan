@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import type { PlannedSet, RecordedSet } from '../../api/types';
 import { formatLast, type LastPerformance } from '../../domain/sets';
+import { Button } from '../../ui/Button';
 import { Card, Note } from '../../ui/Card';
 import { cn } from '../../ui/cn';
 import { justRecorded } from './justRecorded';
@@ -11,6 +12,10 @@ export type CardPlan = PlannedSet & {
   finished_only?: boolean;
   /** adhoc は本人が「種目を選んで記録」で選んだもの。目標は無い。 */
   adhoc?: boolean;
+  /** substitute_for は埋まっていた元の補助の ID。代わりのカードにだけ付く。 */
+  substitute_for?: string;
+  /** no_substitute は代わりを探したが無かった元の補助。 */
+  no_substitute?: boolean;
 };
 
 type Props = {
@@ -19,16 +24,48 @@ type Props = {
   last: LastPerformance | undefined;
   recorded: RecordedSet[];
   onOpen: (index: number, recorded: RecordedSet | undefined) => void;
+  /** replacingName は元の補助の名前。代わりのカードにだけ渡す。 */
+  replacingName?: string;
+  /** onBlocked を渡したカードにだけ「埋まっている」を出す。 */
+  onBlocked?: () => void;
+  /** blockedBusy は代わりを取得中。 */
+  blockedBusy?: boolean;
+  /** note はカードの下に出す一言（代わりなし・取得の失敗）。 */
+  note?: string;
 };
 
-export function ExerciseCard({ plan, name, last, recorded, onOpen }: Props) {
+export function ExerciseCard({
+  plan,
+  name,
+  last,
+  recorded,
+  onOpen,
+  replacingName,
+  onBlocked,
+  blockedBusy,
+  note,
+}: Props) {
   const slots = slotCount(plan, recorded.length);
   const [seenAtMount] = useState(() => new Set(recorded.map((r) => r.id)));
 
   return (
     <Card className="grid gap-3">
       <div className="flex items-center gap-2.5">
-        <span className="text-[17px] font-bold">{name}</span>
+        <div className="grid">
+          <span className="text-[17px] font-bold">{name}</span>
+          {replacingName && <span className="text-xs text-faint">{replacingName} の代わり</span>}
+        </div>
+        {onBlocked && (
+          <Button
+            variant="quiet"
+            size="chip"
+            className="ml-auto shrink-0"
+            disabled={blockedBusy}
+            onClick={onBlocked}
+          >
+            {blockedBusy ? '探しています' : '埋まっている'}
+          </Button>
+        )}
       </div>
 
       <Target plan={plan} />
@@ -72,6 +109,8 @@ export function ExerciseCard({ plan, name, last, recorded, onOpen }: Props) {
           );
         })}
       </div>
+
+      {note && <Note>{note}</Note>}
     </Card>
   );
 }
