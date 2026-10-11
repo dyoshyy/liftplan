@@ -21,26 +21,28 @@ import (
 )
 
 type Handler struct {
-	getSession       *usecase.GetSession
-	getForecast      *usecase.GetForecast
-	recordSets       *usecase.RecordSets
-	recordConditions *usecase.RecordConditions
-	setFocus         *usecase.SetFocusExercise
-	setDeclaredReps  *usecase.SetDeclaredRepTargets
-	setDeclared      *usecase.SetDeclaredExercises
-	setFrequency     *usecase.SetFrequency
-	setVolume        *usecase.SetSessionVolume
-	setSelected      *usecase.SetSelectedExercises
-	setSplit         *usecase.SetSplitCycle
-	getProgram       *usecase.GetProgram
-	deleteSetLog     *usecase.DeleteSetLog
-	addExercise      *usecase.AddExercise
-	editExercise     *usecase.EditExercise
-	deleteExercise   *usecase.DeleteExercise
-	exercises        *query.Exercises
-	history          *query.History
-	stats            *query.Stats
-	accounts         *query.Accounts
+	getSession         *usecase.GetSession
+	getForecast        *usecase.GetForecast
+	recordSets         *usecase.RecordSets
+	recordConditions   *usecase.RecordConditions
+	setFocus           *usecase.SetFocusExercise
+	setDeclaredReps    *usecase.SetDeclaredRepTargets
+	setDeclared        *usecase.SetDeclaredExercises
+	setFrequency       *usecase.SetFrequency
+	setVolume          *usecase.SetSessionVolume
+	setSelected        *usecase.SetSelectedExercises
+	setSplit           *usecase.SetSplitCycle
+	getProgram         *usecase.GetProgram
+	deleteSetLog       *usecase.DeleteSetLog
+	addExercise        *usecase.AddExercise
+	editExercise       *usecase.EditExercise
+	deleteExercise     *usecase.DeleteExercise
+	exercises          *query.Exercises
+	history            *query.History
+	stats              *query.Stats
+	accounts           *query.Accounts
+	onboarding         *query.Onboarding
+	completeOnboarding *usecase.CompleteOnboarding
 }
 
 // Dependencies は Handler を組むための材料。
@@ -48,26 +50,28 @@ type Handler struct {
 // 位置引数で受けていたときは、口を足す・消すたびに呼び出し5箇所の
 // 並びを書き直していた。名前で渡せば、触るのは足した1行だけで済む。
 type Dependencies struct {
-	GetSession       *usecase.GetSession
-	GetForecast      *usecase.GetForecast
-	RecordSets       *usecase.RecordSets
-	RecordConditions *usecase.RecordConditions
-	SetFocus         *usecase.SetFocusExercise
-	SetDeclaredReps  *usecase.SetDeclaredRepTargets
-	SetDeclared      *usecase.SetDeclaredExercises
-	SetFrequency     *usecase.SetFrequency
-	SetVolume        *usecase.SetSessionVolume
-	SetSelected      *usecase.SetSelectedExercises
-	SetSplit         *usecase.SetSplitCycle
-	GetProgram       *usecase.GetProgram
-	DeleteSetLog     *usecase.DeleteSetLog
-	AddExercise      *usecase.AddExercise
-	EditExercise     *usecase.EditExercise
-	DeleteExercise   *usecase.DeleteExercise
-	Exercises        *query.Exercises
-	History          *query.History
-	Stats            *query.Stats
-	Accounts         *query.Accounts
+	GetSession         *usecase.GetSession
+	GetForecast        *usecase.GetForecast
+	RecordSets         *usecase.RecordSets
+	RecordConditions   *usecase.RecordConditions
+	SetFocus           *usecase.SetFocusExercise
+	SetDeclaredReps    *usecase.SetDeclaredRepTargets
+	SetDeclared        *usecase.SetDeclaredExercises
+	SetFrequency       *usecase.SetFrequency
+	SetVolume          *usecase.SetSessionVolume
+	SetSelected        *usecase.SetSelectedExercises
+	SetSplit           *usecase.SetSplitCycle
+	GetProgram         *usecase.GetProgram
+	DeleteSetLog       *usecase.DeleteSetLog
+	AddExercise        *usecase.AddExercise
+	EditExercise       *usecase.EditExercise
+	DeleteExercise     *usecase.DeleteExercise
+	Exercises          *query.Exercises
+	History            *query.History
+	Stats              *query.Stats
+	Accounts           *query.Accounts
+	Onboarding         *query.Onboarding
+	CompleteOnboarding *usecase.CompleteOnboarding
 }
 
 // NewHandler は依存を受け取って Handler を組む。
@@ -121,29 +125,35 @@ func NewHandler(d Dependencies) (*Handler, error) {
 		return nil, errMissingDependency("Stats")
 	case d.Accounts == nil:
 		return nil, errMissingDependency("Accounts")
+	case d.Onboarding == nil:
+		return nil, errMissingDependency("Onboarding")
+	case d.CompleteOnboarding == nil:
+		return nil, errMissingDependency("CompleteOnboarding")
 	}
 
 	return &Handler{
-		getSession:       d.GetSession,
-		getForecast:      d.GetForecast,
-		recordSets:       d.RecordSets,
-		recordConditions: d.RecordConditions,
-		setFocus:         d.SetFocus,
-		setDeclaredReps:  d.SetDeclaredReps,
-		setDeclared:      d.SetDeclared,
-		setFrequency:     d.SetFrequency,
-		setVolume:        d.SetVolume,
-		setSelected:      d.SetSelected,
-		setSplit:         d.SetSplit,
-		getProgram:       d.GetProgram,
-		deleteSetLog:     d.DeleteSetLog,
-		addExercise:      d.AddExercise,
-		editExercise:     d.EditExercise,
-		deleteExercise:   d.DeleteExercise,
-		exercises:        d.Exercises,
-		history:          d.History,
-		stats:            d.Stats,
-		accounts:         d.Accounts,
+		getSession:         d.GetSession,
+		getForecast:        d.GetForecast,
+		recordSets:         d.RecordSets,
+		recordConditions:   d.RecordConditions,
+		setFocus:           d.SetFocus,
+		setDeclaredReps:    d.SetDeclaredReps,
+		setDeclared:        d.SetDeclared,
+		setFrequency:       d.SetFrequency,
+		setVolume:          d.SetVolume,
+		setSelected:        d.SetSelected,
+		setSplit:           d.SetSplit,
+		getProgram:         d.GetProgram,
+		deleteSetLog:       d.DeleteSetLog,
+		addExercise:        d.AddExercise,
+		editExercise:       d.EditExercise,
+		deleteExercise:     d.DeleteExercise,
+		exercises:          d.Exercises,
+		history:            d.History,
+		stats:              d.Stats,
+		accounts:           d.Accounts,
+		onboarding:         d.Onboarding,
+		completeOnboarding: d.CompleteOnboarding,
 	}, nil
 }
 
@@ -721,4 +731,32 @@ func writeJSON(w http.ResponseWriter, status int, body any) {
 
 func writeError(w http.ResponseWriter, status int, message string) {
 	writeJSON(w, status, errorResponse{Error: message})
+}
+
+// handleGetOnboarding は初回の案内を済ませたかを返す。
+func (h *Handler) handleGetOnboarding(w http.ResponseWriter, r *http.Request) {
+	user, ok := requireUser(w, r)
+	if !ok {
+		return
+	}
+	done, err := h.onboarding.Completed(r.Context(), user)
+	if err != nil {
+		respondError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, onboardingDTO{Completed: done})
+}
+
+// handlePutOnboardingCompleted は初回の案内を済ませたことを記録する。
+// 何度呼んでも 204。
+func (h *Handler) handlePutOnboardingCompleted(w http.ResponseWriter, r *http.Request) {
+	user, ok := requireUser(w, r)
+	if !ok {
+		return
+	}
+	if err := h.completeOnboarding.Execute(r.Context(), user); err != nil {
+		respondError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }

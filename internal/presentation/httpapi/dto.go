@@ -199,6 +199,11 @@ type frequencyDTO struct {
 	PerWeek int `json:"per_week"`
 }
 
+// onboardingDTO は初回の案内を済ませたか。
+type onboardingDTO struct {
+	Completed bool `json:"completed"`
+}
+
 // selectedDTO は使う種目だけの書き込み。
 type selectedDTO struct {
 	Selected []string `json:"selected_exercises"`

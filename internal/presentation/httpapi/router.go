@@ -42,5 +42,7 @@ func (h *Handler) Routes() *http.ServeMux {
 	mux.HandleFunc("DELETE /api/set-logs/{id}", h.handleDeleteSetLog)
 	mux.HandleFunc("GET /api/stats", h.handleGetStats)
 	mux.HandleFunc("GET /api/account", h.handleGetAccount)
+	mux.HandleFunc("GET /api/onboarding", h.handleGetOnboarding)
+	mux.HandleFunc("PUT /api/onboarding/completed", h.handlePutOnboardingCompleted)
 	return mux
 }

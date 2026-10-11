@@ -200,6 +200,11 @@ type sessionStore interface {
 	account.SessionWriter
 }
 
+type onboardingStore interface {
+	account.OnboardingReader
+	account.OnboardingWriter
+}
+
 // repositories は差し替えの対象になる口の集まり。
 //
 // この構造体があるのは、インメモリと Postgres の選択を1箇所に閉じるため。
@@ -212,6 +217,7 @@ type repositories struct {
 	programs   programStore
 	accounts   accountStore
 	sessions   sessionStore
+	onboarding onboardingStore
 	// devUser はインメモリ構成でだけ使う利用者。
 	//
 	// ログインを通さずに画面を動かす経路（開発と、画面の検査スクリプト）の
@@ -244,26 +250,28 @@ func buildHandler(ctx context.Context) (http.Handler, func(), error) {
 	planner := planning.DefaultSessionPlanner()
 
 	handler, err := httpapi.NewHandler(httpapi.Dependencies{
-		GetSession:       usecase.NewGetSession(exercises, logs, conditions, programs, planner),
-		GetForecast:      usecase.NewGetForecast(exercises, logs, conditions, programs, planner),
-		RecordSets:       usecase.NewRecordSets(logs, exercises),
-		RecordConditions: usecase.NewRecordConditions(conditions),
-		SetFocus:         usecase.NewSetFocusExercise(programs, programs),
-		SetDeclaredReps:  usecase.NewSetDeclaredRepTargets(programs, programs),
-		SetDeclared:      usecase.NewSetDeclaredExercises(exercises, programs, programs),
-		SetFrequency:     usecase.NewSetFrequency(programs, programs),
-		SetVolume:        usecase.NewSetSessionVolume(programs, programs),
-		SetSelected:      usecase.NewSetSelectedExercises(exercises, programs, programs),
-		SetSplit:         usecase.NewSetSplitCycle(exercises, programs, programs),
-		GetProgram:       usecase.NewGetProgram(programs),
-		DeleteSetLog:     usecase.NewDeleteSetLog(logs),
-		AddExercise:      usecase.NewAddExercise(exercises, programs, programs),
-		EditExercise:     usecase.NewEditExercise(exercises, programs),
-		DeleteExercise:   usecase.NewDeleteExercise(exercises, programs, programs),
-		Exercises:        query.NewExercises(exercises),
-		History:          query.NewHistory(logs, exercises, conditions),
-		Stats:            query.NewStats(logs, exercises, conditions, programs, planning.DefaultOneRepMaxEstimator(), planner),
-		Accounts:         query.NewAccounts(repos.accounts),
+		GetSession:         usecase.NewGetSession(exercises, logs, conditions, programs, planner),
+		GetForecast:        usecase.NewGetForecast(exercises, logs, conditions, programs, planner),
+		RecordSets:         usecase.NewRecordSets(logs, exercises),
+		RecordConditions:   usecase.NewRecordConditions(conditions),
+		SetFocus:           usecase.NewSetFocusExercise(programs, programs),
+		SetDeclaredReps:    usecase.NewSetDeclaredRepTargets(programs, programs),
+		SetDeclared:        usecase.NewSetDeclaredExercises(exercises, programs, programs),
+		SetFrequency:       usecase.NewSetFrequency(programs, programs),
+		SetVolume:          usecase.NewSetSessionVolume(programs, programs),
+		SetSelected:        usecase.NewSetSelectedExercises(exercises, programs, programs),
+		SetSplit:           usecase.NewSetSplitCycle(exercises, programs, programs),
+		GetProgram:         usecase.NewGetProgram(programs),
+		DeleteSetLog:       usecase.NewDeleteSetLog(logs),
+		AddExercise:        usecase.NewAddExercise(exercises, programs, programs),
+		EditExercise:       usecase.NewEditExercise(exercises, programs),
+		DeleteExercise:     usecase.NewDeleteExercise(exercises, programs, programs),
+		Exercises:          query.NewExercises(exercises),
+		History:            query.NewHistory(logs, exercises, conditions),
+		Stats:              query.NewStats(logs, exercises, conditions, programs, planning.DefaultOneRepMaxEstimator(), planner),
+		Accounts:           query.NewAccounts(repos.accounts),
+		Onboarding:         query.NewOnboarding(repos.onboarding),
+		CompleteOnboarding: usecase.NewCompleteOnboarding(repos.onboarding, time.Now),
 	})
 	if err != nil {
 		repos.close()
@@ -517,6 +525,16 @@ func openRepositories(ctx context.Context, pool []*exercise.Exercise) (repositor
 		if err := seedProgramIfMissing(ctx, programs, pool, devUser); err != nil {
 			return repositories{}, err
 		}
+		onboarding := memory.NewOnboardingRepository()
+		// 開発用の利用者は初回の案内を済ませた状態で始める。画面の検査
+		// スクリプトが設定画面に阻まれないように。案内そのものを検査する
+		// ときだけ未完了で始める。DEV_SESSION_TOKEN と同じく、効くのは
+		// インメモリ構成だけ（Postgres 構成には開発用の利用者がいない）。
+		if os.Getenv("DEV_ONBOARDING_PENDING") != "1" {
+			if err := onboarding.CompleteOnboarding(ctx, devUser, time.Now()); err != nil {
+				return repositories{}, fmt.Errorf("開発用の利用者の案内を済ませられない: %w", err)
+			}
+		}
 		return repositories{
 			exercises:  memory.NewExerciseRepository(pool),
 			logs:       memory.NewSetLogRepository(),
@@ -524,6 +542,7 @@ func openRepositories(ctx context.Context, pool []*exercise.Exercise) (repositor
 			programs:   programs,
 			accounts:   memory.NewAccountRepository(),
 			sessions:   memory.NewSessionRepository(),
+			onboarding: onboarding,
 			devUser:    devUser,
 			ping:       func(context.Context) error { return nil },
 			close:      func() {},
@@ -549,6 +568,7 @@ func openRepositories(ctx context.Context, pool []*exercise.Exercise) (repositor
 		programs:   postgres.NewProgramRepository(db),
 		accounts:   postgres.NewAccountRepository(db),
 		sessions:   postgres.NewSessionRepository(db),
+		onboarding: postgres.NewOnboardingRepository(db),
 		ping:       db.Ping,
 		close:      db.Close,
 	}, nil

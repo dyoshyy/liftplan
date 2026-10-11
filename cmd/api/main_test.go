@@ -797,3 +797,44 @@ func TestBuildHandler_GuardsTheSimulation(t *testing.T) {
 		}
 	}
 }
+
+// 開発用の利用者は、初回の案内を済ませた状態で始まる。
+//
+// 画面の検査スクリプトは開発用の利用者で「今日」を開く。済んでいないと
+// 全部が設定画面に阻まれる。案内そのものを検査するときだけ
+// DEV_ONBOARDING_PENDING=1 で未完了から始める。
+func TestBuildHandler_DevUserOnboarding(t *testing.T) {
+	for _, c := range []struct {
+		name    string
+		pending string
+		want    bool
+	}{
+		{"既定は済み", "", true},
+		{"DEV_ONBOARDING_PENDING=1 でまだ", "1", false},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			setAuthEnv(t)
+			t.Setenv("DEV_ONBOARDING_PENDING", c.pending)
+			handler, closeRepos, err := buildHandler(context.Background())
+			if err != nil {
+				t.Fatalf("組み立てに失敗: %v", err)
+			}
+			t.Cleanup(closeRepos)
+
+			rec := httptest.NewRecorder()
+			handler.ServeHTTP(rec, authed(http.MethodGet, "/api/onboarding", nil))
+			if rec.Code != http.StatusOK {
+				t.Fatalf("ステータスが誤り: %d body=%s", rec.Code, rec.Body.String())
+			}
+			var got struct {
+				Completed bool `json:"completed"`
+			}
+			if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+				t.Fatalf("応答を解釈できない: %v", err)
+			}
+			if got.Completed != c.want {
+				t.Errorf("completed = %v（期待 %v）", got.Completed, c.want)
+			}
+		})
+	}
+}

@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/dyoshyy/liftplan/internal/application/query"
 	"github.com/dyoshyy/liftplan/internal/application/usecase"
@@ -93,26 +94,28 @@ func routesForUserTest(t *testing.T) (http.Handler, *memory.ProgramRepository) {
 	programs := memory.NewProgramRepository()
 
 	h, err := NewHandler(Dependencies{
-		GetSession:       usecase.NewGetSession(exercises, logs, conditions, programs, planning.DefaultSessionPlanner()),
-		GetForecast:      usecase.NewGetForecast(exercises, logs, conditions, programs, planning.DefaultSessionPlanner()),
-		RecordSets:       usecase.NewRecordSets(logs, exercises),
-		RecordConditions: usecase.NewRecordConditions(conditions),
-		SetFocus:         usecase.NewSetFocusExercise(programs, programs),
-		SetDeclaredReps:  usecase.NewSetDeclaredRepTargets(programs, programs),
-		SetDeclared:      usecase.NewSetDeclaredExercises(exercises, programs, programs),
-		SetFrequency:     usecase.NewSetFrequency(programs, programs),
-		SetVolume:        usecase.NewSetSessionVolume(programs, programs),
-		SetSelected:      usecase.NewSetSelectedExercises(exercises, programs, programs),
-		SetSplit:         usecase.NewSetSplitCycle(exercises, programs, programs),
-		GetProgram:       usecase.NewGetProgram(programs),
-		DeleteSetLog:     usecase.NewDeleteSetLog(logs),
-		AddExercise:      usecase.NewAddExercise(exercises, programs, programs),
-		EditExercise:     usecase.NewEditExercise(exercises, programs),
-		DeleteExercise:   usecase.NewDeleteExercise(exercises, programs, programs),
-		Exercises:        query.NewExercises(exercises),
-		History:          query.NewHistory(logs, exercises, conditions),
-		Stats:            query.NewStats(logs, exercises, conditions, programs, planning.DefaultOneRepMaxEstimator(), planning.DefaultSessionPlanner()),
-		Accounts:         query.NewAccounts(memory.NewAccountRepository()),
+		GetSession:         usecase.NewGetSession(exercises, logs, conditions, programs, planning.DefaultSessionPlanner()),
+		GetForecast:        usecase.NewGetForecast(exercises, logs, conditions, programs, planning.DefaultSessionPlanner()),
+		RecordSets:         usecase.NewRecordSets(logs, exercises),
+		RecordConditions:   usecase.NewRecordConditions(conditions),
+		SetFocus:           usecase.NewSetFocusExercise(programs, programs),
+		SetDeclaredReps:    usecase.NewSetDeclaredRepTargets(programs, programs),
+		SetDeclared:        usecase.NewSetDeclaredExercises(exercises, programs, programs),
+		SetFrequency:       usecase.NewSetFrequency(programs, programs),
+		SetVolume:          usecase.NewSetSessionVolume(programs, programs),
+		SetSelected:        usecase.NewSetSelectedExercises(exercises, programs, programs),
+		SetSplit:           usecase.NewSetSplitCycle(exercises, programs, programs),
+		GetProgram:         usecase.NewGetProgram(programs),
+		DeleteSetLog:       usecase.NewDeleteSetLog(logs),
+		AddExercise:        usecase.NewAddExercise(exercises, programs, programs),
+		EditExercise:       usecase.NewEditExercise(exercises, programs),
+		DeleteExercise:     usecase.NewDeleteExercise(exercises, programs, programs),
+		Exercises:          query.NewExercises(exercises),
+		History:            query.NewHistory(logs, exercises, conditions),
+		Stats:              query.NewStats(logs, exercises, conditions, programs, planning.DefaultOneRepMaxEstimator(), planning.DefaultSessionPlanner()),
+		Accounts:           query.NewAccounts(memory.NewAccountRepository()),
+		Onboarding:         query.NewOnboarding(memory.NewOnboardingRepository()),
+		CompleteOnboarding: usecase.NewCompleteOnboarding(memory.NewOnboardingRepository(), time.Now),
 	})
 	if err != nil {
 		t.Fatalf("ハンドラが組めない: %v", err)
