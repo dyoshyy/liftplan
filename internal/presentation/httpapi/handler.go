@@ -41,6 +41,11 @@ type Handler struct {
 	history          *query.History
 	stats            *query.Stats
 	accounts         *query.Accounts
+	createGroup      *usecase.CreateGroup
+	joinGroup        *usecase.JoinGroup
+	leaveGroup       *usecase.LeaveGroup
+	rotateInvite     *usecase.RotateInvite
+	groups           *query.Groups
 }
 
 // Dependencies は Handler を組むための材料。
@@ -68,6 +73,11 @@ type Dependencies struct {
 	History          *query.History
 	Stats            *query.Stats
 	Accounts         *query.Accounts
+	CreateGroup      *usecase.CreateGroup
+	JoinGroup        *usecase.JoinGroup
+	LeaveGroup       *usecase.LeaveGroup
+	RotateInvite     *usecase.RotateInvite
+	Groups           *query.Groups
 }
 
 // NewHandler は依存を受け取って Handler を組む。
@@ -121,6 +131,16 @@ func NewHandler(d Dependencies) (*Handler, error) {
 		return nil, errMissingDependency("Stats")
 	case d.Accounts == nil:
 		return nil, errMissingDependency("Accounts")
+	case d.CreateGroup == nil:
+		return nil, errMissingDependency("CreateGroup")
+	case d.JoinGroup == nil:
+		return nil, errMissingDependency("JoinGroup")
+	case d.LeaveGroup == nil:
+		return nil, errMissingDependency("LeaveGroup")
+	case d.RotateInvite == nil:
+		return nil, errMissingDependency("RotateInvite")
+	case d.Groups == nil:
+		return nil, errMissingDependency("Groups")
 	}
 
 	return &Handler{
@@ -144,6 +164,11 @@ func NewHandler(d Dependencies) (*Handler, error) {
 		history:          d.History,
 		stats:            d.Stats,
 		accounts:         d.Accounts,
+		createGroup:      d.CreateGroup,
+		joinGroup:        d.JoinGroup,
+		leaveGroup:       d.LeaveGroup,
+		rotateInvite:     d.RotateInvite,
+		groups:           d.Groups,
 	}, nil
 }
 
