@@ -84,9 +84,11 @@ export function CoachMarks({ onDone }: { onDone: () => void }) {
     <>
       {/* 暗い部分を押しても進まない。誤って押して読み飛ばさないように。 */}
       <div className="fixed inset-0 z-[60]" aria-hidden="true" />
+      {/* 枠は outline で描く。ring は box-shadow で描かれ、暗くするための
+          box-shadow（style）に上書きされて消える。 */}
       <div
         aria-hidden="true"
-        className="pointer-events-none fixed z-[61] rounded-xl ring-2 ring-amber"
+        className="pointer-events-none fixed z-[61] rounded-xl outline outline-2 outline-amber"
         style={{
           top: rect.top - PAD,
           left: rect.left - PAD,
