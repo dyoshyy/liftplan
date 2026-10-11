@@ -11,6 +11,10 @@ export type CardPlan = PlannedSet & {
   finished_only?: boolean;
   /** adhoc は本人が「種目を選んで記録」で選んだもの。目標は無い。 */
   adhoc?: boolean;
+  /** substitute_for は埋まっていた元の補助の ID。代わりのカードにだけ付く。 */
+  substitute_for?: string;
+  /** no_substitute は代わりを探したが無かった元の補助。 */
+  no_substitute?: boolean;
 };
 
 type Props = {

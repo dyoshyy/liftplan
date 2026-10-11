@@ -38,6 +38,9 @@ export type ForecastSession = {
 
 export type ForecastResponse = { sessions: ForecastSession[] };
 
+/** 補助の代わり。dto.go の substituteResponse と対。null は「代わりなし」。 */
+export type SubstituteResponse = { substitute: PlannedSet | null };
+
 /** プログラム。dto.go の programDTO と対。 */
 /** 分割1件。区分が空なら全区分（全身法の日）。 */
 export type Split = {

@@ -1293,7 +1293,7 @@ describe('encodeSwaps / decodeSwaps', () => {
 
   it('壊れた値・形の違う値は空から始める', () => {
     for (const raw of [null, 'x', 42, {}, { date: 1, swaps: [] }, { date: 'd', swaps: [{ replace: 1 }] },
-      { date: 'd', swaps: [{ replace: 'a', shown: ['b'], current: { exercise_id: 'b' } }] }]) {
+      { date: 'd', swaps: [{ replace: 'a', shown: ['b'], current: { exercise_id: 'b', weight_kg: null, target_rir: 2, target_reps: 10 } }] }]) {
       const s = decodeSwaps(raw);
       expect(s.swaps.size).toBe(0);
     }
