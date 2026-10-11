@@ -205,3 +205,13 @@ export type GroupWeek = {
 };
 
 export type InviteTokenResponse = { invite_token: string };
+
+/** 招待リンクを開いたときの中身。メンバーの表示名は来ない（参加前には見せない）。 */
+export type InvitePreview = {
+  group_id: string;
+  name: string;
+  member_count: number;
+  already_member: boolean;
+};
+
+export type JoinedGroup = { group_id: string };
