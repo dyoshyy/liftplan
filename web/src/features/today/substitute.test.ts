@@ -61,8 +61,8 @@ describe('accessoryCards', () => {
     const s = withResult(empty('d'), 'd', 'leg_curl', set('nordic'));
     const cards = accessoryCards([set('curl'), set('leg_curl'), set('incline')], s.swaps);
     expect(cards.map((c) => c.exercise_id)).toEqual(['curl', 'nordic', 'incline']);
-    expect(cards[1].substitute_for).toBe('leg_curl');
-    expect(cards[0].substitute_for).toBeUndefined();
+    expect(cards[1]?.substitute_for).toBe('leg_curl');
+    expect(cards[0]?.substitute_for).toBeUndefined();
   });
 
   it('代わりなしなら元のカードに no_substitute が付く', () => {
