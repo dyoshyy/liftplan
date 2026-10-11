@@ -39,7 +39,7 @@ CLAUDE.md の表に照らす。
 ### 保存
 
 ```sql
--- 0019_onboarding.sql
+-- 0020_onboarding.sql
 CREATE TABLE onboarding (
   user_id      uuid PRIMARY KEY,
   completed_at timestamptz NOT NULL
@@ -140,6 +140,8 @@ type OnboardingWriter interface {
 下限 m1 ≤ 新しい回数 f1 < m0 となり矛盾する。新規の利用者は全身法（下限なし）から
 始まるので普段は気にならないが、途中で失敗して選び直したときに効く。
 
+**分割と伸ばしたい種目。**こちらも両方向で検査される（`verifyDeclaredHaveADay`）が、プリセットはどれも全区分を日に持つので、選べる組み合わせで落ちることはない。順序は分割→種目で固定する。
+
 **変わっていない項目も送る。**差分だけ送る判断を足しても、失敗時の再送で
 「どれが済んだか」を持つ必要が出るだけで得がない。どれも冪等。
 
@@ -202,7 +204,7 @@ web/scripts/onboarding-check.mjs
   - 2回呼んでもエラーにならず、最初の時刻が残る
   - 別の利用者には影響しない
 - HTTP：GET が `completed` を返す。PUT のあと GET が `true`。未認証は 401
-- マイグレーション：0018 までで `program` に行を入れてから 0019 を当て、その利用者が
+- マイグレーション：0019 までで `program` に行を入れてから 0020 を当て、その利用者が
   `true` になること。行の無い利用者は `false`
 - `seedDevSession`：既定で済み、`DEV_ONBOARDING_PENDING=1` で未完了
 

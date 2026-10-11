@@ -12,7 +12,7 @@
 
 ## Global Constraints
 
-- 既存の利用者には出さない（0019 が `program` の全行を完了として入れる）
+- 既存の利用者には出さない（0020 が `program` の全行を完了として入れる）
 - 行が無い＝まだ。初回ログインで行を作らない
 - `GET /api/onboarding` → `{"completed": bool}`、`PUT /api/onboarding/completed` → 204、冪等
 - 取得に失敗したら済んだものとして扱う（アプリを止めない）
@@ -32,6 +32,14 @@
 4. **カードが無い日（全部済み・予定が空）** — コーチマークが無い要素を飛ばし、全部無ければ出ないこと（Task 6 のテスト）
 5. **2つ目のプロバイダでログイン（同じ利用者に紐づく）** — 既存利用者なので出ないこと。行は利用者単位なので構造的に満たす（Task 1 の「別の利用者に影響しない」と Task 2 のマイグレーションテストで守る）
 
+## レビューで足したこと（各タスクより優先）
+
+- **PR は2本に割って積む。**下が Task 1〜3（サーバー＋spec＋この計画）、上が Task 4〜7（画面）。どちらを先に出しても壊れない：画面が先なら `GET /api/onboarding` が 404 → null → 済んだ扱いで何も出ない。サーバーが先なら口が使われないだけ。2本の間に登録した人だけは行が無く、画面が出たあとに1回出る（間を短くする）
+- **Task 2：** `migrate_test.go` の `TestMigrate_CreatesEverySchemaObject` の表の一覧に `onboarding` を足す。`saveDefaultProgram` が `ProgramRepository.Save` で組めなければ、0018 の検査と同じく `INSERT INTO program` を生で書く
+- **Task 5：** `<main>` の中身を丸ごと差し替えない。`UpdateBanner`（古いバンドルからの脱出口）と `SyncBanner` は残し、`key={route}` の `div` の中身だけを `<Onboarding>` にする
+- **Task 6：** `CoachMarks` の最初の段階は**描画中に決めない**。`useState<number | null>(null)`（測定中）で始め、`useLayoutEffect` で `nextCoachIndex` を呼ぶ。`reload()` と `setCoaching(true)` が同じ描画にまとまると、描画中の `querySelector` は前の DOM を見て全部「無い」と判断し、黙って終わる。`onboarding-check.mjs` は吹き出しが**出たこと**を確かめる
+- 分割と伸ばしたい種目も両方向で検査される（`verifyDeclaredHaveADay` を `SetSplitCycle` と `SetDeclaredExercises` が呼ぶ）。プリセットはどれも全区分を持つので、伸ばしたい種目がどの日にも出られない組み合わせは作れない。順序は分割→種目のままでよい
+
 ---
 
 ## File Structure
@@ -44,9 +52,9 @@
 | `internal/domain/account/accounttest/contract.go` | `Repos.Onboarding` と `RunOnboardingContract` |
 | `internal/domain/account/repository_test.go` | 形と読み書き分離の固定に2つの口を足す |
 | `internal/infrastructure/memory/account_repositories.go` | `OnboardingRepository` |
-| `internal/infrastructure/postgres/migrations/0019_onboarding.sql`（新規） | 表と既存利用者の埋め |
+| `internal/infrastructure/postgres/migrations/0020_onboarding.sql`（新規） | 表と既存利用者の埋め |
 | `internal/infrastructure/postgres/onboarding_repository.go`（新規） | Postgres 実装 |
-| `internal/infrastructure/postgres/onboarding_migration_test.go`（新規） | 0019 の埋めの検査 |
+| `internal/infrastructure/postgres/onboarding_migration_test.go`（新規） | 0020 の埋めの検査 |
 | `internal/application/query/onboarding.go`（新規） | `query.Onboarding.Completed` |
 | `internal/application/usecase/complete_onboarding.go`（新規） | `usecase.CompleteOnboarding.Execute` |
 | `internal/presentation/httpapi/{handler.go,router.go,dto.go}` | 口2つ |
@@ -211,7 +219,7 @@ func (r *OnboardingRepository) CompleteOnboarding(_ context.Context, user accoun
 ### Task 2: Postgres の表と実装
 
 **Files:**
-- Create: `internal/infrastructure/postgres/migrations/0019_onboarding.sql`, `internal/infrastructure/postgres/onboarding_repository.go`, `internal/infrastructure/postgres/onboarding_migration_test.go`
+- Create: `internal/infrastructure/postgres/migrations/0020_onboarding.sql`, `internal/infrastructure/postgres/onboarding_repository.go`, `internal/infrastructure/postgres/onboarding_migration_test.go`
 - Modify: `internal/infrastructure/postgres/account_repository_test.go`
 
 **Interfaces:**
@@ -221,16 +229,16 @@ func (r *OnboardingRepository) CompleteOnboarding(_ context.Context, user accoun
 - [ ] **Step 1: テストを書く。**`account_repository_test.go` の `newAccountRepos` に `Onboarding: postgres.NewOnboardingRepository(pool)`、`TestOnboardingRepository_Contract` を足す。`onboarding_migration_test.go`：
 
 ```go
-// 既存の利用者を済んだものとして扱う（0019）。
+// 既存の利用者を済んだものとして扱う（0020）。
 //
-// 全部当てたあとで program に行を入れ、0019 をもう一度流す（IF NOT EXISTS と
+// 全部当てたあとで program に行を入れ、0020 をもう一度流す（IF NOT EXISTS と
 // ON CONFLICT で何度流しても同じ）。0018 の検査と同じ形。
-func TestMigration0019_MarksExistingUsersOnboarded(t *testing.T) {
+func TestMigration0020_MarksExistingUsersOnboarded(t *testing.T) {
 	pool := migratedDB(t)
 	ctx := context.Background()
-	sql, err := os.ReadFile("migrations/0019_onboarding.sql")
+	sql, err := os.ReadFile("migrations/0020_onboarding.sql")
 	if err != nil {
-		t.Fatalf("0019 を読めない: %v", err)
+		t.Fatalf("0020 を読めない: %v", err)
 	}
 
 	existing := mustUser(t, "11111111-1111-4111-8111-111111111111")
@@ -238,7 +246,7 @@ func TestMigration0019_MarksExistingUsersOnboarded(t *testing.T) {
 	saveDefaultProgram(t, pool, existing)
 
 	if _, err := pool.Exec(ctx, string(sql)); err != nil {
-		t.Fatalf("0019 が失敗: %v", err)
+		t.Fatalf("0020 が失敗: %v", err)
 	}
 
 	repo := postgres.NewOnboardingRepository(pool)
@@ -257,11 +265,11 @@ func TestMigration0019_MarksExistingUsersOnboarded(t *testing.T) {
 
 `saveDefaultProgram` は `seed.DefaultProgram(seed.Exercises())` を `postgres.NewProgramRepository(pool).Save` するヘルパー（同ファイルに置く。既存に同等があれば使う）。
 
-- [ ] **Step 2: 赤を確かめる**（埋め込み Postgres を立てて `TEST_DATABASE_URL` を渡す）。`go test ./internal/infrastructure/postgres/ -run 'Onboarding|0019'` → コンパイルエラー
+- [ ] **Step 2: 赤を確かめる**（埋め込み Postgres を立てて `TEST_DATABASE_URL` を渡す）。`go test ./internal/infrastructure/postgres/ -run 'Onboarding|0020'` → コンパイルエラー
 
 - [ ] **Step 3: 実装**
 
-`0019_onboarding.sql`：
+`0020_onboarding.sql`：
 
 ```sql
 -- 初回の案内を済ませた利用者。行が無い＝まだ。
@@ -316,9 +324,9 @@ func (r *OnboardingRepository) CompleteOnboarding(ctx context.Context, user acco
 
 - [ ] **Step 4: 緑。**`TEST_DATABASE_URL=... go test ./internal/infrastructure/postgres/...` → PASS（既存のマイグレーションテストも）
 
-- [ ] **Step 5: 変異。**SQL の `SELECT user_id, now() FROM program` を消して 0019 テストが赤、戻す
+- [ ] **Step 5: 変異。**SQL の `SELECT user_id, now() FROM program` を消して 0020 テストが赤、戻す
 
-- [ ] **Step 6: Commit** `feat(postgres): 初回の案内を済ませた利用者の表（0019）`
+- [ ] **Step 6: Commit** `feat(postgres): 初回の案内を済ませた利用者の表（0020）`
 
 ---
 
