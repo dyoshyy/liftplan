@@ -12,8 +12,9 @@ import (
 func newRepos(t *testing.T) accounttest.Repos {
 	t.Helper()
 	return accounttest.Repos{
-		Accounts: memory.NewAccountRepository(),
-		Sessions: memory.NewSessionRepository(),
+		Accounts:   memory.NewAccountRepository(),
+		Sessions:   memory.NewSessionRepository(),
+		Onboarding: memory.NewOnboardingRepository(),
 	}
 }
 
@@ -23,4 +24,8 @@ func TestAccountRepository_Contract(t *testing.T) {
 
 func TestSessionRepository_Contract(t *testing.T) {
 	accounttest.RunSessionContract(t, newRepos)
+}
+
+func TestOnboardingRepository_Contract(t *testing.T) {
+	accounttest.RunOnboardingContract(t, newRepos)
 }

@@ -117,12 +117,18 @@ func (h *Handler) handleGetStats(w http.ResponseWriter, r *http.Request) {
 		respondError(w, err)
 		return
 	}
+	weights, err := h.stats.BodyWeights(r.Context(), user, from, to)
+	if err != nil {
+		respondError(w, err)
+		return
+	}
 
 	writeJSON(w, http.StatusOK, statsResponse{
 		From:         from.String(),
 		To:           to.String(),
 		Trends:       toTrendDTOs(trends),
 		WeeklyVolume: toVolumeDTOs(volume),
+		BodyWeight:   toPointDTOs(weights),
 	})
 }
 
@@ -231,12 +237,18 @@ func toTrendDTOs(trends []query.Trend) []trendDTO {
 			Name:       t.Name,
 			CurrentKg:  t.CurrentKg,
 			ChangeKg:   t.ChangeKg,
-			Points:     make([]pointDTO, 0, len(t.Points)),
 		}
-		for _, p := range t.Points {
-			item.Points = append(item.Points, pointDTO{Date: p.Date.String(), Kg: p.Kg})
-		}
+		item.Points = toPointDTOs(t.Points)
 		out = append(out, item)
+	}
+	return out
+}
+
+// toPointDTOs は点の並びを応答の形にする。空でも null ではなく空配列。
+func toPointDTOs(points []query.Point) []pointDTO {
+	out := make([]pointDTO, 0, len(points))
+	for _, p := range points {
+		out = append(out, pointDTO{Date: p.Date.String(), Kg: p.Kg})
 	}
 	return out
 }

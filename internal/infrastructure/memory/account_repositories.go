@@ -196,9 +196,44 @@ func (r *SessionRepository) Delete(_ context.Context, hash account.TokenHash) er
 	return nil
 }
 
+// OnboardingRepository は初回の案内を済ませた時刻を利用者ごとに持つ。
+type OnboardingRepository struct {
+	mu   sync.RWMutex
+	done map[account.UserID]time.Time
+}
+
+func NewOnboardingRepository() *OnboardingRepository {
+	return &OnboardingRepository{done: map[account.UserID]time.Time{}}
+}
+
+// OnboardingCompleted は済ませた記録があるかを返す。
+func (r *OnboardingRepository) OnboardingCompleted(
+	_ context.Context, user account.UserID,
+) (bool, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	_, ok := r.done[user]
+	return ok, nil
+}
+
+// CompleteOnboarding は済ませた時刻を記録する。既にあれば最初の時刻を残す。
+func (r *OnboardingRepository) CompleteOnboarding(
+	_ context.Context, user account.UserID, at time.Time,
+) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if _, ok := r.done[user]; !ok {
+		r.done[user] = at
+	}
+	return nil
+}
+
 var (
 	_ account.AccountReader = (*AccountRepository)(nil)
 	_ account.AccountWriter = (*AccountRepository)(nil)
 	_ account.SessionReader = (*SessionRepository)(nil)
 	_ account.SessionWriter = (*SessionRepository)(nil)
+
+	_ account.OnboardingReader = (*OnboardingRepository)(nil)
+	_ account.OnboardingWriter = (*OnboardingRepository)(nil)
 )

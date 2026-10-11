@@ -61,6 +61,9 @@ export type Login = { provider: string; email: string | null };
 
 export type AccountResponse = { accounts: Login[] };
 
+/** 初回の案内を済ませたか。dto.go の onboardingDTO と対。 */
+export type OnboardingResponse = { completed: boolean };
+
 /** RepTargets は宣言1件ぶんの、軸で狙うレップ数。 */
 export type RepTargets = {
   /** 重い番（宣言の軸、重点種目の一巡の1番目）。 */
@@ -172,6 +175,8 @@ export type StatsResponse = {
   to: string;
   trends: Trend[];
   weekly_volume: Volume[];
+  /** 期間内に記録した体重。古い順。記録が無ければ空配列。 */
+  body_weight: TrendPoint[];
 };
 
 // --- グループ（internal/presentation/httpapi/groups.go と対） ---

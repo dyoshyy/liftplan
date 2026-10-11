@@ -6,12 +6,14 @@ import type {
   ExercisesResponse,
   HistoryResponse,
   LastPerformance,
+  OnboardingResponse,
   Program,
   RecordedSet,
   Session,
 } from '../api/types';
 import { addDays, today } from '../domain/date';
 import { applyDayChange, type DayChange } from '../domain/days';
+import { onboardedFrom } from './onboarded';
 
 /** LoadResult は読み込みの結果。状態にはしない（呼び手が決める）。 */
 export type LoadResult = { ok: true } | { ok: false; reason: 'offline' | 'unauthorized' };
@@ -46,6 +48,11 @@ export type Data = {
    * 開いたあとに体重を入れ直しても、次に開くまで変わらない。
    */
   loadOffsets: Record<string, number>;
+  /**
+   * onboarded は初回の案内を済ませたか。false のあいだは「今日」の代わりに
+   * 通い方を決める画面を出す。読めていないときは true（onboardedFrom）。
+   */
+  onboarded: boolean;
 };
 
 const empty: Data = {
@@ -57,6 +64,7 @@ const empty: Data = {
   doneToday: new Map(),
   days: [],
   loadOffsets: {},
+  onboarded: true,
 };
 
 // ここで読むのは2つだけ（と、使う種目の1本）。
@@ -68,6 +76,9 @@ const empty: Data = {
 // 例外が使う種目の1本。「種目を選んで記録」が使わない種目を除くのに要り、
 // 今日の画面から開くので、開くたびに取るより先に持っておく。並べて取るので
 // 待ちは増えない。失敗しても今日の画面は出す（null のまま、絞らない）。
+//
+// もう1つが初回の案内を済ませたか。「今日」を出すか通い方を決める画面を
+// 出すかがこれで決まるので、今日の画面より先に要る。
 export function useLiftplan() {
   const [data, setData] = useState<Data>(empty);
 
@@ -83,10 +94,16 @@ export function useLiftplan() {
   const loadAll = useCallback(async (): Promise<LoadResult> => {
     const date = today();
     try {
-      const [exercises, history, program] = await Promise.all([
+      const [exercises, history, program, onboarding] = await Promise.all([
         getJSON<ExercisesResponse>('/api/exercises'),
         getJSON<HistoryResponse>(`/api/set-logs?from=${addDays(date, -56)}&to=${date}`),
         getJSON<Program>('/api/program').catch((e: unknown) => {
+          if (e instanceof Unauthorized) throw e;
+          return null;
+        }),
+        // 初回の案内を出すかどうか。並べて取るので待ちは増えない。失敗したら
+        // 出さない（onboardedFrom）。
+        getJSON<OnboardingResponse>('/api/onboarding').catch((e: unknown) => {
           if (e instanceof Unauthorized) throw e;
           return null;
         }),
@@ -110,6 +127,7 @@ export function useLiftplan() {
         // サーバーが新しい日から順に返す（query.History.Days）。並べ替えない。
         days: history.days,
         loadOffsets: history.load_offsets,
+        onboarded: onboardedFrom(onboarding),
       }));
 
       await loadToday();

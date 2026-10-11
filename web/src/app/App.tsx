@@ -7,6 +7,8 @@ import { Groups } from '../features/groups/Groups';
 import { JoinInvite } from '../features/groups/JoinInvite';
 import { usePendingInvite } from '../features/groups/usePendingInvite';
 import { Note } from '../ui/Card';
+import { CoachMarks } from '../features/onboarding/CoachMarks';
+import { Onboarding } from '../features/onboarding/Onboarding';
 import { Setup } from '../features/setup/Setup';
 import { GearIcon } from '../ui/icons';
 import { Today } from '../features/today/Today';
@@ -43,6 +45,21 @@ export function App() {
   // 見ないものを取りに行くことになる。
   const stats = useStats(hasToken && route === 'history');
   const firstLoad = awaitingFirstLoad(load, data.session);
+  // 初回の案内を済ませていなければ、どの画面よりも先に通い方を決めてもらう。
+  // 歯車と下のナビを出さないのは、決める前に抜けると既定の通い方のまま
+  // 「今日」に着地し、案内も次に開くまで出ないため。
+  const onboarding = hasToken && !firstLoad && !data.onboarded;
+  // 通い方を決めた直後にだけ、「今日」の使い方を指して見せる。メモリだけに
+  // 持つので、再読み込みすれば出ない（済んだことは保存で記録済み）。
+  const [coaching, setCoaching] = useState(false);
+  // 「今日」へ戻してから流す。招待から入った人は、設定の途中で参加すると
+  // 仲間の画面へ移っていて、そのままだとコーチマークの出番が来ない。
+  const finishOnboarding = useCallback(async () => {
+    await reload();
+    go('today');
+    setCoaching(true);
+  }, [reload, go]);
+  const stopCoaching = useCallback(() => setCoaching(false), []);
   const monthLogs = useMonthLogs(hasToken && route === 'history', data.days, !firstLoad);
   // 履歴での修正は、直近の記録（今月と今日の画面）と、取ってある過去の月の
   // 両方に当てる。片方だけだと、月を行き来したときに直す前の値に戻って見える。
@@ -73,9 +90,10 @@ export function App() {
             lift<span className="text-amber">plan</span>
           </div>
           <div className="ml-auto text-[13px] text-muted">{label(today())}</div>
-          {hasToken && (
+          {hasToken && !onboarding && (
             <button
               type="button"
+              data-coach="settings"
               aria-label={route === 'settings' ? '設定を閉じる' : '設定'}
               aria-pressed={route === 'settings'}
               onClick={() => go(route === 'settings' ? 'today' : 'settings')}
@@ -119,70 +137,76 @@ export function App() {
 
             {/* 画面を替えたときだけふわっと出す。key が route なので、同じ画面の
                 描き直しでは入り直さない。 */}
-            <div key={route} className="grid animate-fade-in gap-3.5">
-              {route === 'today' && firstLoad && <TodaySkeleton />}
+            {onboarding ? (
+              <Onboarding exercises={data.exercises} onDone={finishOnboarding} />
+            ) : (
+              <div key={route} className="grid animate-fade-in gap-3.5">
+                {route === 'today' && firstLoad && <TodaySkeleton />}
 
-              {route === 'today' && !firstLoad && (
-                <Today
-                  data={data}
-                  enqueue={outbox.enqueue}
-                  enqueueAll={outbox.enqueueAll}
-                  onSaveFailed={outbox.reportFailure}
-                  onRecordLocally={session.recordLocally}
-                  onForgetLocally={session.forgetLocally}
-                  onRecorded={timer.start}
-                  canStartRest={timer.state.kind === 'idle'}
-                  onReload={reload}
-                  onOpenForecast={() => go('forecast')}
-                />
-              )}
+                {route === 'today' && !firstLoad && (
+                  <Today
+                    data={data}
+                    enqueue={outbox.enqueue}
+                    enqueueAll={outbox.enqueueAll}
+                    onSaveFailed={outbox.reportFailure}
+                    onRecordLocally={session.recordLocally}
+                    onForgetLocally={session.forgetLocally}
+                    onRecorded={timer.start}
+                    canStartRest={timer.state.kind === 'idle'}
+                    onReload={reload}
+                    onOpenForecast={() => go('forecast')}
+                  />
+                )}
 
-              {route === 'history' && (
-                <History
-                  logs={monthLogs}
-                  editor={editor}
-                  exercises={data.exercises}
-                  selected={data.selected}
-                  loadOffsets={data.loadOffsets}
-                  stats={stats.stats}
-                  statsError={stats.error}
-                  onReloadStats={() => void stats.reload()}
-                />
-              )}
+                {route === 'history' && (
+                  <History
+                    logs={monthLogs}
+                    editor={editor}
+                    exercises={data.exercises}
+                    selected={data.selected}
+                    loadOffsets={data.loadOffsets}
+                    stats={stats.stats}
+                    statsError={stats.error}
+                    onReloadStats={() => void stats.reload()}
+                  />
+                )}
 
-              {route === 'settings' && (
-                <SettingsScreen
-                  nameOf={nameOf}
-                  exercises={data.exercises}
-                  onChanged={reload}
-                  timer={timer}
-                  onForget={() => {
-                    session.signOut();
-                    go('today');
-                  }}
-                  onOpenExercises={() => go('exercises')}
-                />
-              )}
+                {route === 'settings' && (
+                  <SettingsScreen
+                    nameOf={nameOf}
+                    exercises={data.exercises}
+                    onChanged={reload}
+                    timer={timer}
+                    onForget={() => {
+                      session.signOut();
+                      go('today');
+                    }}
+                    onOpenExercises={() => go('exercises')}
+                  />
+                )}
 
-              {route === 'forecast' && <Forecast nameOf={nameOf} onBack={() => go('today')} />}
+                {route === 'forecast' && <Forecast nameOf={nameOf} onBack={() => go('today')} />}
 
-              {route === 'groups' && <Groups key={groupsKey} />}
+                {route === 'groups' && <Groups key={groupsKey} />}
 
-              {route === 'exercises' && (
-                <ExerciseManager
-                  exercises={data.exercises}
-                  onChanged={reload}
-                  onBack={() => go('settings')}
-                />
-              )}
-            </div>
+                {route === 'exercises' && (
+                  <ExerciseManager
+                    exercises={data.exercises}
+                    onChanged={reload}
+                    onBack={() => go('settings')}
+                  />
+                )}
+              </div>
+            )}
           </>
         )}
       </main>
 
-      {hasToken && <RestTimerBar timer={timer} />}
+      {coaching && route === 'today' && !firstLoad && <CoachMarks onDone={stopCoaching} />}
 
-      {hasToken && (
+      {hasToken && !onboarding && <RestTimerBar timer={timer} />}
+
+      {hasToken && !onboarding && (
         <BottomNav
           route={route}
           onGo={go}

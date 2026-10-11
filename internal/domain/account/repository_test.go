@@ -37,6 +37,15 @@ func (stubSessionRepo) Find(
 func (stubSessionRepo) Create(context.Context, *account.Session) error  { return nil }
 func (stubSessionRepo) Delete(context.Context, account.TokenHash) error { return nil }
 
+type stubOnboardingRepo struct{}
+
+func (stubOnboardingRepo) OnboardingCompleted(context.Context, account.UserID) (bool, error) {
+	return false, nil
+}
+func (stubOnboardingRepo) CompleteOnboarding(context.Context, account.UserID, time.Time) error {
+	return nil
+}
+
 // 口の形を両方向から固定する。
 //
 // 代入だけだと「スタブが満たす」ことしか言えず、引数や戻り値の形が
@@ -47,10 +56,12 @@ func (stubSessionRepo) Delete(context.Context, account.TokenHash) error { return
 // time.Now() を中で呼ぶ形に戻すと、期限切れのテストが書けなくなる。
 func TestRepository_KeepsItsShape(t *testing.T) {
 	var (
-		ar account.AccountReader = stubRepo{}
-		aw account.AccountWriter = stubRepo{}
-		sr account.SessionReader = stubSessionRepo{}
-		sw account.SessionWriter = stubSessionRepo{}
+		ar account.AccountReader    = stubRepo{}
+		aw account.AccountWriter    = stubRepo{}
+		sr account.SessionReader    = stubSessionRepo{}
+		sw account.SessionWriter    = stubSessionRepo{}
+		or account.OnboardingReader = stubOnboardingRepo{}
+		ow account.OnboardingWriter = stubOnboardingRepo{}
 	)
 
 	var (
@@ -62,6 +73,8 @@ func TestRepository_KeepsItsShape(t *testing.T) {
 		_ func(context.Context, account.TokenHash, time.Time) (*account.Session, error) = sr.Find
 		_ func(context.Context, *account.Session) error                                 = sw.Create
 		_ func(context.Context, account.TokenHash) error                                = sw.Delete
+		_ func(context.Context, account.UserID) (bool, error)                           = or.OnboardingCompleted
+		_ func(context.Context, account.UserID, time.Time) error                        = ow.CompleteOnboarding
 	)
 }
 
@@ -96,6 +109,16 @@ func TestRepository_ReadAndWriteStaySeparate(t *testing.T) {
 			"SessionWriter",
 			reflect.TypeOf((*account.SessionWriter)(nil)).Elem(),
 			[]string{"Create", "Delete"},
+		},
+		{
+			"OnboardingReader",
+			reflect.TypeOf((*account.OnboardingReader)(nil)).Elem(),
+			[]string{"OnboardingCompleted"},
+		},
+		{
+			"OnboardingWriter",
+			reflect.TypeOf((*account.OnboardingWriter)(nil)).Elem(),
+			[]string{"CompleteOnboarding"},
 		},
 	}
 
