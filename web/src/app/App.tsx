@@ -3,6 +3,7 @@ import type { DayChange } from '../domain/days';
 import { label, today } from '../domain/date';
 import { ExerciseManager } from '../features/exercises/ExerciseManager';
 import { Forecast } from '../features/forecast/Forecast';
+import { Groups } from '../features/groups/Groups';
 import { Setup } from '../features/setup/Setup';
 import { GearIcon } from '../ui/icons';
 import { Today } from '../features/today/Today';
@@ -148,6 +149,8 @@ export function App() {
               )}
 
               {route === 'forecast' && <Forecast nameOf={nameOf} onBack={() => go('today')} />}
+
+              {route === 'groups' && <Groups />}
 
               {route === 'exercises' && (
                 <ExerciseManager
