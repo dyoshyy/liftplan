@@ -5,6 +5,8 @@ import { ExerciseCard, type CardPlan } from './ExerciseCard';
 import { PRCelebration } from './PRCelebration';
 import type { PersonalRecord } from './pr';
 import { belowPlan, plannedIds, withPicked } from './adhoc';
+import { accessoryCards, canMarkBlocked } from './substitute';
+import { useSubstitute } from './useSubstitute';
 import { ExercisePicker } from '../exercises/ExercisePicker';
 import { usesBodyweight } from '../../domain/sets';
 import { RecordSheet } from './RecordSheet';
@@ -72,7 +74,10 @@ export function Today(props: Props) {
 
   const main = data.session?.main ?? [];
   const variation = data.session?.variation ?? [];
-  const accessories = data.session?.accessories ?? [];
+  // 補助は差し替えを反映した並びを予定として扱う（leftovers・plannedIds に
+  // この並びを渡す。accessoryCards のコメント）。
+  const substitute = useSubstitute(data.session?.date);
+  const accessories = accessoryCards(data.session?.accessories ?? [], substitute.swaps);
 
   const lanes = [main, variation, accessories];
   const { adhoc, done } = belowPlan(lanes, picked, data.doneToday);
@@ -87,6 +92,28 @@ export function Today(props: Props) {
       onOpen={(index, recorded) => sheet.open({ plan, index, recorded })}
     />
   );
+
+  const accessoryCard = (plan: CardPlan) => {
+    // 差し替えの鍵は常に元の補助（サーバーへ送る replace）。
+    const replace = plan.substitute_for ?? plan.exercise_id;
+    const recorded = doneOf(plan.exercise_id);
+    return (
+      <ExerciseCard
+        key={`${plan.exercise_id}-plan`}
+        plan={plan}
+        name={nameOf(plan.exercise_id)}
+        last={data.last[plan.exercise_id]}
+        recorded={recorded}
+        onOpen={(index, rec) => sheet.open({ plan, index, recorded: rec })}
+        replacingName={plan.substitute_for ? nameOf(plan.substitute_for) : undefined}
+        onBlocked={
+          canMarkBlocked(plan, recorded.length) ? () => void substitute.markBlocked(replace) : undefined
+        }
+        blockedBusy={substitute.pending === replace}
+        note={substitute.errors.get(replace) ?? (plan.no_substitute ? '代わりなし。飛ばしてよい' : undefined)}
+      />
+    );
+  };
 
   return (
     <div className="grid gap-3.5">
@@ -110,7 +137,7 @@ export function Today(props: Props) {
       {variation.map(card)}
 
       {accessories.length > 0 && <SectionTitle>補助種目</SectionTitle>}
-      {accessories.map(card)}
+      {accessories.map(accessoryCard)}
 
       {adhoc.length > 0 && <SectionTitle>選んだ種目</SectionTitle>}
       {adhoc.map(card)}
