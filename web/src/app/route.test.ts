@@ -26,6 +26,10 @@ describe('fromState', () => {
     expect(fromState({ route: 'groups' })).toBe('groups');
   });
 
+  it('group も読み戻す', () => {
+    expect(fromState({ route: 'group' })).toBe('group');
+  });
+
   it('exercises も読み戻す', () => {
     expect(fromState({ route: 'exercises' })).toBe('exercises');
   });
@@ -67,6 +71,16 @@ describe('planMove', () => {
     {
       name: '種目から履歴へは1段戻ってから置き換える',
       from: 'exercises',
+      to: 'history',
+      want: { kind: 'back', steps: 1, then: 'history' },
+    },
+    // グループの詳細は一覧の子。戻るジェスチャーで一覧へ帰る。
+    { name: '一覧から詳細へは1段積む', from: 'groups', to: 'group', want: { kind: 'push' } },
+    { name: '詳細から一覧へは1段戻る', from: 'group', to: 'groups', want: { kind: 'back', steps: 1 } },
+    { name: '詳細から今日へは2段戻る', from: 'group', to: 'today', want: { kind: 'back', steps: 2 } },
+    {
+      name: '詳細から履歴へは1段戻ってから置き換える',
+      from: 'group',
       to: 'history',
       want: { kind: 'back', steps: 1, then: 'history' },
     },

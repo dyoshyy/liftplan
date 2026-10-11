@@ -1,4 +1,4 @@
-import type { GroupSummary, GroupWeek } from '../../api/types';
+import type { GroupWeek } from '../../api/types';
 import { addDays } from '../../domain/date';
 
 /** WEEKDAYS は週の見出し。サーバーの週は月曜始まり（query.weekOf）。 */
@@ -33,16 +33,30 @@ export function exerciseLabel(name: string): string {
   return name === '' ? '名前のない種目' : name;
 }
 
+/** LogEntry は1日の中の1人ぶん。 */
+export type LogEntry = { name: string; isMe: boolean; exercises: string[] };
+
+/** LogDay は今週の記録の1日ぶん。 */
+export type LogDay = { date: string; entries: LogEntry[] };
+
 /**
- * chooseGroup は開くグループを決める。前に見ていたものがまだ一覧にあれば
- * それ、無ければ一覧の先頭。一覧が空なら null。
+ * weekLog は今週の記録を日ごとにまとめる。やった日だけを新しい順に並べる。
  *
- * 抜けたグループを覚えたままにすると、そのグループを開きに行って 404 に
- * なる。一覧に無いものは覚えていないのと同じに扱う。
+ * 格子は「やったかどうか」、こちらは「何をやったか」を見る場所。押さなくても
+ * 全部読めるようにする（● を1つずつ押して1行ずつ読むのは見づらかった）。
  */
-export function chooseGroup(groups: readonly GroupSummary[], remembered: string | null): string | null {
-  if (remembered !== null && groups.some((g) => g.id === remembered)) return remembered;
-  return groups[0]?.id ?? null;
+export function weekLog(week: GroupWeek): LogDay[] {
+  return weekRows(week)
+    .flatMap((r) => r.cells.map((c) => ({ ...c, name: r.name, isMe: r.isMe })))
+    .filter((c) => c.exercises !== null)
+    .reduce<LogDay[]>((days, c) => {
+      const entry = { name: c.name, isMe: c.isMe, exercises: c.exercises ?? [] };
+      const day = days.find((d) => d.date === c.date);
+      if (day) day.entries.push(entry);
+      else days.push({ date: c.date, entries: [entry] });
+      return days;
+    }, [])
+    .sort((a, b) => b.date.localeCompare(a.date));
 }
 
 /**

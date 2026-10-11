@@ -1,85 +1,62 @@
 import { useState } from 'react';
 import { label } from '../../domain/date';
+import { BackButton } from '../../ui/BackButton';
 import { Button } from '../../ui/Button';
 import { Card, Note } from '../../ui/Card';
-import { LabeledInput, Select } from '../../ui/Field';
 import { Loading, SkeletonCard } from '../../ui/Skeleton';
-import { cn } from '../../ui/cn';
-import { exerciseLabel, inviteUrl, nameProblem, WEEKDAYS, weekRows, type Row } from './groups';
-import { useGroups } from './useGroups';
+import { exerciseLabel, inviteUrl, WEEKDAYS, weekLog, weekRows, type LogDay, type Row } from './groups';
+import { useGroupWeek } from './useGroupWeek';
 
-// Groups はグループのメンバーの今週を見る画面。
+type Props = {
+  id: string;
+  onBack: () => void;
+  /** onLeft は抜けたあと。一覧へ戻す。 */
+  onLeft: () => void;
+};
+
+// GroupDetail は1つのグループの今週。
 //
-// 見せるのは日と種目名まで（設計書「何のためか」）。目的は続ける動機で、
-// 「自分だけ空いている」に気づければよい。
-export function Groups() {
-  const g = useGroups();
-  const [creating, setCreating] = useState(false);
-
-  if (g.error) return <Note>{g.error}</Note>;
-  if (g.groups === null) {
-    return (
-      <Loading>
-        <SkeletonCard rows={4} />
-      </Loading>
-    );
-  }
-  if (g.groups.length === 0 || creating) {
-    return (
-      <CreateGroup
-        busy={g.busy}
-        note={g.note}
-        onCancel={g.groups.length > 0 ? () => setCreating(false) : undefined}
-        onCreate={async (name, displayName) => {
-          if (await g.create(name, displayName)) setCreating(false);
-        }}
-      />
-    );
-  }
+// 格子で「だれがやったか」を、その下の記録で「何をやったか」を見る。
+// 見せるのは日と種目名まで（設計書「何のためか」）。
+export function GroupDetail({ id, onBack, onLeft }: Props) {
+  const g = useGroupWeek(id);
 
   return (
     <div className="grid gap-3.5">
-      {g.groups.length > 1 ? (
-        <Select aria-label="グループ" value={g.selectedId ?? ''} onChange={(e) => g.select(e.target.value)}>
-          {g.groups.map((x) => (
-            <option key={x.id} value={x.id}>
-              {x.name}
-            </option>
-          ))}
-        </Select>
-      ) : (
-        <h1 className="text-[19px] font-semibold">{g.groups[0]?.name}</h1>
-      )}
+      <BackButton label="グループ" onClick={onBack} />
+      {g.week && <h1 className="text-[19px] font-semibold">{g.week.name}</h1>}
 
-      {g.week === null ? (
+      {g.error && <Note>{g.error}</Note>}
+      {!g.week && !g.error && (
         <Loading>
           <SkeletonCard rows={4} />
+          <SkeletonCard rows={4} />
         </Loading>
-      ) : (
-        <WeekCard rows={weekRows(g.week)} />
       )}
 
-      {g.note && <Note>{g.note}</Note>}
-
       {g.week && (
-        <GroupActions
-          inviteToken={g.week.invite_token}
-          busy={g.busy}
-          onRotate={g.rotate}
-          onLeave={g.leave}
-          onCreateAnother={() => setCreating(true)}
-        />
+        <>
+          <WeekGrid rows={weekRows(g.week)} />
+          <WeekLog days={weekLog(g.week)} />
+          {g.note && <Note>{g.note}</Note>}
+          <GroupActions
+            inviteToken={g.week.invite_token}
+            busy={g.busy}
+            onRotate={g.rotate}
+            onLeave={async () => {
+              if (await g.leave()) onLeft();
+            }}
+          />
+        </>
       )}
     </div>
   );
 }
 
-type Selected = { row: number; col: number };
+const dayAnchor = (date: string) => `group-day-${date}`;
 
-function WeekCard({ rows }: { rows: Row[] }) {
-  const [selected, setSelected] = useState<Selected | null>(null);
-  const cell = selected ? rows[selected.row]?.cells[selected.col] : undefined;
-
+// WeekGrid は「だれが、どの日にやったか」の格子。● を押すと下の記録のその日へ移る。
+function WeekGrid({ rows }: { rows: Row[] }) {
   return (
     <Card title="今週">
       <table className="w-full table-fixed border-collapse text-center">
@@ -100,7 +77,7 @@ function WeekCard({ rows }: { rows: Row[] }) {
                 {r.name}
                 {r.isMe && <span className="ml-1 text-xs font-normal text-faint">(自分)</span>}
               </th>
-              {r.cells.map((c, col) =>
+              {r.cells.map((c) =>
                 c.exercises === null ? (
                   <td key={c.date} className="text-faint" aria-label={`${r.name} ${label(c.date)} 記録なし`}>
                     ·
@@ -109,15 +86,11 @@ function WeekCard({ rows }: { rows: Row[] }) {
                   <td key={c.date}>
                     <button
                       type="button"
-                      aria-label={`${r.name} ${label(c.date)} の種目`}
-                      aria-pressed={selected?.row === row && selected.col === col}
-                      onClick={() => setSelected({ row, col })}
-                      className={cn(
-                        'mx-auto grid size-9 place-content-center rounded-full text-[15px]',
-                        selected?.row === row && selected.col === col
-                          ? 'bg-amber/25 text-amber'
-                          : 'text-amber',
-                      )}
+                      aria-label={`${r.name} ${label(c.date)} の記録へ`}
+                      onClick={() =>
+                        document.getElementById(dayAnchor(c.date))?.scrollIntoView({ behavior: 'smooth' })
+                      }
+                      className="mx-auto grid size-9 place-content-center rounded-full text-[15px] text-amber"
                     >
                       ●
                     </button>
@@ -128,72 +101,58 @@ function WeekCard({ rows }: { rows: Row[] }) {
           ))}
         </tbody>
       </table>
+    </Card>
+  );
+}
 
-      {selected && cell?.exercises && (
-        <div className="mt-3 border-t border-line-soft pt-3">
-          <p className="text-[13px] text-muted">
-            {rows[selected.row]?.name} ・ {label(cell.date)}
-          </p>
-          <p className="mt-1 text-[15px]">{cell.exercises.map(exerciseLabel).join('・')}</p>
+// WeekLog は「何をやったか」。新しい日から、日ごとに人と種目を縦に並べる。
+// 押さなくても全部読めるようにする。
+function WeekLog({ days }: { days: LogDay[] }) {
+  return (
+    <Card title="今週の記録">
+      {days.length === 0 ? (
+        <Note>今週はまだだれも記録していません。</Note>
+      ) : (
+        <div className="grid gap-5">
+          {days.map((d) => (
+            <section key={d.date} id={dayAnchor(d.date)} className="grid scroll-mt-20 gap-3">
+              <h2 className="border-b border-line-soft pb-1.5 text-[13px] text-muted">{label(d.date)}</h2>
+              {d.entries.map((e) => (
+                <div key={e.name + String(e.isMe)} className="grid gap-1">
+                  <p className="text-[15px] font-medium">
+                    {e.name}
+                    {e.isMe && <span className="ml-1 text-xs font-normal text-faint">(自分)</span>}
+                  </p>
+                  <ul className="grid gap-0.5 pl-3">
+                    {e.exercises.map((x, i) => (
+                      <li key={`${i}-${x}`} className="text-[15px] text-muted">
+                        {exerciseLabel(x)}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ))}
+            </section>
+          ))}
         </div>
       )}
     </Card>
   );
 }
 
-function CreateGroup({
-  busy,
-  note,
-  onCreate,
-  onCancel,
-}: {
-  busy: boolean;
-  note: string;
-  onCreate: (name: string, displayName: string) => Promise<void>;
-  onCancel?: () => void;
-}) {
-  const [name, setName] = useState('');
-  const [displayName, setDisplayName] = useState('');
-  const problem = nameProblem(name) || nameProblem(displayName);
-
-  return (
-    <Card title="グループを作る">
-      <div className="grid gap-3">
-        <Note>仲間がその週にやった日と種目が見えるようになります。重量は見えません。</Note>
-        <LabeledInput label="グループの名前" value={name} onChange={(e) => setName(e.target.value)} />
-        <LabeledInput
-          label="このグループでの自分の名前"
-          value={displayName}
-          onChange={(e) => setDisplayName(e.target.value)}
-        />
-        {note && <Note>{note}</Note>}
-        <Button disabled={busy || problem !== ''} onClick={() => void onCreate(name, displayName)}>
-          作る
-        </Button>
-        {onCancel && (
-          <Button variant="ghost" size="md" onClick={onCancel}>
-            やめる
-          </Button>
-        )}
-      </div>
-    </Card>
-  );
-}
-
 type Confirm = 'rotate' | 'leave' | null;
 
+// GroupActions はこのグループへの操作。グループに属さない操作（作る）は一覧に置く。
 function GroupActions({
   inviteToken,
   busy,
   onRotate,
   onLeave,
-  onCreateAnother,
 }: {
   inviteToken: string;
   busy: boolean;
   onRotate: () => Promise<void>;
   onLeave: () => Promise<void>;
-  onCreateAnother: () => void;
 }) {
   const [confirm, setConfirm] = useState<Confirm>(null);
   const [shared, setShared] = useState('');
@@ -216,7 +175,7 @@ function GroupActions({
   };
 
   return (
-    <Card title="招待とメンバー">
+    <Card title="このグループ">
       <div className="grid gap-2.5">
         <Button variant="quiet" size="md" disabled={busy} onClick={() => void share()}>
           招待リンクを共有
@@ -258,10 +217,6 @@ function GroupActions({
             グループを抜ける
           </Button>
         )}
-
-        <Button variant="ghost" size="md" disabled={busy} onClick={onCreateAnother}>
-          別のグループを作る
-        </Button>
       </div>
     </Card>
   );

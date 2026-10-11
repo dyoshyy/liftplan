@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { GroupWeek } from '../../api/types';
-import { chooseGroup, exerciseLabel, inviteUrl, nameProblem, weekRows } from './groups';
+import { exerciseLabel, inviteUrl, nameProblem, weekLog, weekRows } from './groups';
 
 const week = (members: GroupWeek['members']): GroupWeek => ({
   id: 'g',
@@ -62,24 +62,36 @@ describe('weekRows', () => {
   });
 });
 
-describe('chooseGroup', () => {
-  const groups = [
-    { id: 'a', name: 'A', member_count: 1, my_name: 'x' },
-    { id: 'b', name: 'B', member_count: 2, my_name: 'y' },
-  ];
+describe('weekLog', () => {
+  const log = weekLog(
+    week([
+      {
+        display_name: 'たろう',
+        is_me: false,
+        days: [
+          { date: '2026-10-12', exercises: ['チンニング', 'ベンチプレス'] },
+          { date: '2026-10-14', exercises: ['スクワット'] },
+        ],
+      },
+      { display_name: 'よし', is_me: true, days: [{ date: '2026-10-12', exercises: ['スクワット'] }] },
+      { display_name: 'じろう', is_me: false, days: [] },
+    ]),
+  );
 
-  it('前に見ていたグループがあればそれを開く', () => {
-    expect(chooseGroup(groups, 'b')).toBe('b');
+  // 見に来るのは「最近だれがやったか」。古い日から並べると、今日の分が下に沈む。
+  it('やった日だけを新しい順に並べる', () => {
+    expect(log.map((d) => d.date)).toEqual(['2026-10-14', '2026-10-12']);
   });
 
-  // 抜けたグループを覚えたままだと、開きに行って 404 になる。
-  it('前に見ていたグループが一覧に無ければ先頭を開く', () => {
-    expect(chooseGroup(groups, 'gone')).toBe('a');
-    expect(chooseGroup(groups, null)).toBe('a');
+  // 格子と同じ並び（自分が先頭）。日ごとに並びが変わると、自分を探すことになる。
+  it('日の中では自分を先頭に、残りは参加順に並べ、やっていない人は出さない', () => {
+    expect(log[1]!.entries.map((e) => e.name)).toEqual(['よし', 'たろう']);
+    expect(log[1]!.entries[0]!.isMe).toBe(true);
+    expect(log.flatMap((d) => d.entries.map((e) => e.name))).not.toContain('じろう');
   });
 
-  it('一覧が空なら何も開かない', () => {
-    expect(chooseGroup([], 'a')).toBeNull();
+  it('種目はサーバーの並びのまま1件ずつ持つ', () => {
+    expect(log[1]!.entries[1]!.exercises).toEqual(['チンニング', 'ベンチプレス']);
   });
 });
 
