@@ -63,9 +63,7 @@ export function ExerciseEditor({ draft, onChange, onSave, onCancel, busy, deleti
       />
 
       <div>
-        <p className="text-xs tracking-[0.04em] text-muted">
-          効く区分（押すたびに 無し → 1.0 → 0.5 → 無し。数値は下で直せます）
-        </p>
+        <p className="text-xs tracking-[0.04em] text-muted">効く区分</p>
         <div className="mt-1.5 grid gap-2">
           {regionsByPart().map((g) => (
             <div key={g.part}>

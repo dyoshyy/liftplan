@@ -366,7 +366,6 @@ function Stats({
             いないように見える。 */}
         <WeeklySummary volume={stats.weekly_volume} />
         <WeeklyVolume volume={stats.weekly_volume} />
-        <Note className="mt-3">補助種目は、足りていない区分から選ばれます。</Note>
       </Card>
 
       <Card title="推定1RM の推移">

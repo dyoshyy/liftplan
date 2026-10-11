@@ -22,10 +22,8 @@ export function SyncBanner({ offline, rejected, failed, onRetry, onClearRejected
     <>
       {offline && (
         <Card title="つながりません" className="animate-drop-in">
-          <Note>
-            今日のメニューは通信できないと出せません。古いものを出すと、前回の重量を
-            今日の重量と見間違えるおそれがあるためです。記録はこのまま続けられます。
-          </Note>
+          {/* 古いメニューは出さない。前回の重量を今日の重量と見間違える。 */}
+          <Note>今日のメニューは通信できないと出せません。記録はこのまま続けられます。</Note>
           <Button variant="quiet" className="mt-3" onClick={onRetry}>
             もう一度つなぐ
           </Button>
@@ -34,10 +32,7 @@ export function SyncBanner({ offline, rejected, failed, onRetry, onClearRejected
 
       {failed.length > 0 && (
         <Card title="保存できなかった記録" className="animate-drop-in">
-          <Note>
-            この端末に保存できませんでした（空き容量が足りないか、プライベートモードかもしれません）。
-            画面の表示は保存されている状態に戻してあります。もう一度記録してください。
-          </Note>
+          <Note>この端末に保存できませんでした。もう一度記録してください。</Note>
           <ul className="mt-2.5 list-disc pl-[1.2em] text-xs leading-[1.7] text-faint">
             {failed.map((f, i) => (
               <li key={i}>{f}</li>
@@ -51,10 +46,8 @@ export function SyncBanner({ offline, rejected, failed, onRetry, onClearRejected
 
       {rejected.length > 0 && (
         <Card title="送れなかった記録" className="animate-drop-in">
-          <Note>
-            この記録は保存できませんでした。そのままだと後の記録も止まるので、
-            送るのをやめています。必要なら入れ直してください。
-          </Note>
+          {/* 送り続けると後の記録も止まるので、送るのをやめている。 */}
+          <Note>この記録は保存できませんでした。必要なら入れ直してください。</Note>
           <ul className="mt-2.5 list-disc pl-[1.2em] text-xs leading-[1.7] text-faint">
             {rejected.map((r, i) => (
               <li key={i}>{r}</li>
