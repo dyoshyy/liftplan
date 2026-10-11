@@ -19,7 +19,7 @@
 - 損失を減らす候補が無ければ代わりなし（`{"substitute": null}`、画面は「代わりなし。飛ばしてよい」）
 - 1セットでも記録したカードには「埋まっている」を出さない
 - オフラインでは「オフラインでは出せません」。通信できたが失敗したときは「代わりを読み込めませんでした」
-- 差し替えは画面の状態だけで保存しない（開き直すと元に戻る）
+- 差し替えは localStorage（`liftplan.substitutes`）に計画の日付つきで残す。開き直しても代わりのカードが出る。別の日付・壊れた値は読まない
 - `date` は表示している計画の日付（`Session.date`）を送る。`rejected` は繰り返しのクエリパラメータ
 - エラーは `%w` で包む。doc コメントは宣言名で始める。値オブジェクトは既存のものを使う
 - 動作の変更と機械的な移動を混ぜない。PR は2本（PR 1：Task 1〜3、PR 2：Task 4〜5）
@@ -29,7 +29,7 @@
 ## Review Focus
 
 1. **日付をまたいだ押下**：23:50 に読んだ計画で 0:05 に押す → 表示中の計画の日付を送るので 400 にならない（Task 4 の `substituteQuery` のテストで固定）
-2. **今日のうちに記録が増えても代わりは同じ**：ほかの補助を何セット記録しても、同じ `replace` に同じ代わりが出る（Task 2 のテストで固定）
+2. **開き直したとき**：代わりのカードが重量つきで残り、別の日に開けば元の計画に戻る（Task 4 の `swapsFor`／`decodeSwaps` と Task 5 の配線の検査で固定）。今日のうちに記録が増えても代わりは同じ：ほかの補助を何セット記録しても、同じ `replace` に同じ代わりが出る（Task 2 のテストで固定）
 3. **代わりが今日すでに「種目を選んで記録」でやった種目**：カードは記録済みの枠つきで出て、「埋まっている」は出ない。これは受け入れる（Task 4 の `canMarkBlocked` のテストで固定）
 4. **代わりの代わり**：差し替わったカードでもう一度押すと、元の `replace` のまま、それまでに出した代わりを全部 `rejected` に積む。元の種目を `replace` から外さない（Task 4 の `withResult`／`rejectedOf` のテストで固定）
 5. **連打**：取得中にもう一度押しても2回は飛ばない（Task 5 のフックで `pending` 中は無視し、配線の検査で固定）
@@ -1148,6 +1148,9 @@ PR 1 を出す（Task 1〜3）。本文に「Closes」は付けない。auto-mer
   - `canMarkBlocked(plan: CardPlan, recordedCount: number): boolean`
   - `substituteQuery(date: string, replace: string, rejected: readonly string[]): string`
   - `substituteErrorMessage(e: unknown): string`
+  - `type StoredSwaps = { date: string; swaps: Swap[] }`
+  - `encodeSwaps(state: SwapState): StoredSwaps`
+  - `decodeSwaps(raw: unknown): SwapState`（形が合わなければ `{ date: '', swaps: new Map() }`）
 
 - [ ] **Step 1: 型を足す**
 
@@ -1177,6 +1180,8 @@ import type { PlannedSet } from '../../api/types';
 import {
   accessoryCards,
   canMarkBlocked,
+  decodeSwaps,
+  encodeSwaps,
   rejectedOf,
   substituteErrorMessage,
   substituteQuery,
@@ -1274,6 +1279,24 @@ describe('substituteQuery', () => {
   });
 });
 
+describe('encodeSwaps / decodeSwaps', () => {
+  it('残したものを読み戻すと同じ差し替えになる', () => {
+    let s = withResult(empty('2026-10-11'), '2026-10-11', 'leg_curl', set('nordic'));
+    s = withResult(s, '2026-10-11', 'curl', null);
+    const back = decodeSwaps(JSON.parse(JSON.stringify(encodeSwaps(s))));
+    expect(back.date).toBe('2026-10-11');
+    expect([...back.swaps.entries()]).toEqual([...s.swaps.entries()]);
+  });
+
+  it('壊れた値・形の違う値は空から始める', () => {
+    for (const raw of [null, 'x', 42, {}, { date: 1, swaps: [] }, { date: 'd', swaps: [{ replace: 1 }] },
+      { date: 'd', swaps: [{ replace: 'a', shown: ['b'], current: { exercise_id: 'b' } }] }]) {
+      const s = decodeSwaps(raw);
+      expect(s.swaps.size).toBe(0);
+    }
+  });
+});
+
 describe('substituteErrorMessage', () => {
   it('応答が返らなかったときだけオフラインと言う', () => {
     expect(substituteErrorMessage(new TypeError('Failed to fetch'))).toBe('オフラインでは出せません');
@@ -1340,7 +1363,7 @@ export function withResult(
  * 代わりが入り、代わりなしと分かった補助には印が付く。
  *
  * ここで作った並びを今日の予定として leftovers・plannedIds に渡すこと。
- * 渡さないと、代わりを記録した時点で「今日やったもの」にも同じ種目が出る。
+ * 渡さないと、代わりを記録した時点で「予定外の記録」にも同じ種目が出る。
  */
 export function accessoryCards(
   accessories: readonly PlannedSet[],
@@ -1374,6 +1397,55 @@ export function substituteQuery(date: string, replace: string, rejected: readonl
   return `/api/sessions/substitute?${q.toString()}`;
 }
 
+/** StoredSwaps は localStorage に置く形。Map は JSON にできないので配列にする。 */
+export type StoredSwaps = { date: string; swaps: Swap[] };
+
+/** encodeSwaps は差し替えを localStorage に置ける形にする。 */
+export function encodeSwaps(state: SwapState): StoredSwaps {
+  return { date: state.date, swaps: [...state.swaps.values()] };
+}
+
+const isString = (v: unknown): v is string => typeof v === 'string';
+const isNumber = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
+
+function isPlannedSet(v: unknown): v is PlannedSet {
+  if (typeof v !== 'object' || v === null) return false;
+  const p = v as Record<string, unknown>;
+  return (
+    isString(p.exercise_id) &&
+    (p.weight_kg === null || isNumber(p.weight_kg)) &&
+    isNumber(p.sets) &&
+    isNumber(p.target_rir) &&
+    isNumber(p.target_reps)
+  );
+}
+
+function isSwap(v: unknown): v is Swap {
+  if (typeof v !== 'object' || v === null) return false;
+  const s = v as Record<string, unknown>;
+  return (
+    isString(s.replace) &&
+    Array.isArray(s.shown) &&
+    s.shown.every(isString) &&
+    (s.current === null || isPlannedSet(s.current))
+  );
+}
+
+/**
+ * decodeSwaps は localStorage から読んだ値を差し替えに戻す。
+ *
+ * 形が1か所でも合わなければ全部捨てて空から始める。古い版が残した値や
+ * 手で壊れた値で画面を止めない。捨てても失うのは差し替えだけで、記録は
+ * 残る（「予定外の記録」に出る）。
+ */
+export function decodeSwaps(raw: unknown): SwapState {
+  const none: SwapState = { date: '', swaps: new Map() };
+  if (typeof raw !== 'object' || raw === null) return none;
+  const r = raw as Record<string, unknown>;
+  if (!isString(r.date) || !Array.isArray(r.swaps) || !r.swaps.every(isSwap)) return none;
+  return { date: r.date, swaps: new Map(r.swaps.map((s: Swap) => [s.replace, s])) };
+}
+
 /** substituteErrorMessage は取得に失敗したときの一言（forecastErrorMessage と同じ分け方）。 */
 export function substituteErrorMessage(e: unknown): string {
   return e instanceof TypeError ? OFFLINE_MESSAGE : COMMUNICATION_ERROR_MESSAGE;
@@ -1392,6 +1464,7 @@ Expected: PASS
 - `canMarkBlocked` の `recordedCount === 0` を `true` にする → 「1セットでも記録したら出さない」が赤
 - `substituteQuery` で `q.append` を `q.set` にする → 繰り返しの rejected のテストが赤
 - `accessoryCards` で `substitute_for` を付けない → 「その場所に代わり」が赤
+- `isPlannedSet` の `isNumber(p.sets)` を外す → 「壊れた値は空から始める」の最後の値が通って赤
 
 - [ ] **Step 7: 検収と Commit**
 
@@ -1423,10 +1496,13 @@ git commit -m "feat(web): 補助の差し替えの判断（substitute.ts）を�
 `useSubstitute.ts` を新規に作る。
 
 ```ts
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { getJSON } from '../../api/client';
 import type { SubstituteResponse } from '../../api/types';
+import { KEY_SUBSTITUTES, readJSON, writeJSON } from '../../storage/local';
 import {
+  decodeSwaps,
+  encodeSwaps,
   rejectedOf,
   substituteErrorMessage,
   substituteQuery,
@@ -1449,14 +1525,16 @@ export type Substitute = {
 /**
  * useSubstitute は「埋まっている」を押したときの取得を持つ。
  *
- * 差し替えは画面の状態だけで、保存しない（設計書）。開き直すと元のカードに
- * 戻るが、記録した分は「今日やったもの」に残る。PWA のキャッシュにも
+ * 差し替えは localStorage に計画の日付つきで残す（設計書）。スマホは勝手に
+ * 閉じるので、残さないと代わりの重量と目標セット数が開き直した時点で消える。
+ * 別の日付のものは swapsFor が読まない。取得そのものは PWA のキャッシュにも
  * Outbox にも載せない。オフラインでは出さない（古い答えを見せない）。
  *
  * date は表示している計画の日付（Session.date）。端末の今日を使わない。
  */
 export function useSubstitute(date: string | undefined): Substitute {
-  const [state, setState] = useState<SwapState>({ date: '', swaps: new Map() });
+  const [state, setState] = useState<SwapState>(() => decodeSwaps(readJSON(KEY_SUBSTITUTES)));
+  useEffect(() => writeJSON(KEY_SUBSTITUTES, encodeSwaps(state)), [state]);
   const [pending, setPending] = useState<string | null>(null);
   const [errors, setErrors] = useState<ReadonlyMap<string, string>>(new Map());
   // 連打の判定は ref で行う。state だと、押した直後の再描画より前の
@@ -1492,6 +1570,16 @@ export function useSubstitute(date: string | undefined): Substitute {
 
   return { swaps, pending, errors, markBlocked };
 }
+```
+
+`web/src/storage/local.ts` の末尾に足す。
+
+```ts
+// --- 補助の差し替え ---
+//
+// どの補助を何に差し替えたか。計画の日付つきで置き、別の日付のものは読まない
+// （features/today/substitute.ts の swapsFor）。失っても記録は消えない。
+export const KEY_SUBSTITUTES = 'liftplan.substitutes';
 ```
 
 - [ ] **Step 2: カードに「埋まっている」と注記を足す**
@@ -1599,7 +1687,7 @@ Expected: PASS
 //
 // 単体テストでは踏めないところを見る。押すとその場でカードが代わりに
 // 差し替わること、もう一度押すと次の候補か「代わりなし」になること、
-// 記録したカードからボタンが消えること、開き直すと元に戻ること、
+// 記録したカードからボタンが消えること、開き直しても代わりが残ること、
 // 連打しても1回しか取りに行かないこと。判断（何を送るか・どのカードを
 // 出すか）は features/today/substitute.ts の単体テストが守っているので、
 // ここは配線を見る。
@@ -1673,11 +1761,16 @@ if ((await blockedOf(target).count()) === 1) {
   check('記録したカードには「埋まっている」が出ない', (await blockedOf(target).count()) === 0, target);
 }
 
-// 開き直すと差し替えは消える（保存しない）。
+// 開き直しても差し替えは残る（localStorage）。
+const beforeReload = await cardNames();
 await page.reload();
 await page.waitForTimeout(2500);
 const reloaded = await cardNames();
-check('開き直すと元のカードに戻る', !replaced || reloaded.includes(replaced), reloaded.join(','));
+check('開き直しても代わりのカードが残る', JSON.stringify(reloaded) === JSON.stringify(beforeReload), reloaded.join(','));
+check('開き直しても元の補助は出ない', !replaced || !reloaded.includes(replaced), reloaded.join(','));
+
+// 片付け：次の実行に差し替えを持ち越さない。
+await page.evaluate(() => localStorage.removeItem('liftplan.substitutes'));
 
 check('画面のエラーが無い', errs.length === 0, errs.join(' | '));
 await browser.close();
@@ -1703,6 +1796,7 @@ Expected: 全項目 ✓（#278 の nav-check・settings-check は既知の失敗
 - `useSubstitute` の `inflight.current` の判定を外す → 「連打しても取得は1回」が赤
 - `Today.tsx` で `useSubstitute(data.session?.date)` を `useSubstitute(today())` にして端末の日付をずらす（`TZ=Pacific/Kiritimati` でブラウザを起動する）→ 「送った日付は表示中の計画の日付」が赤。手間が大きければこの変異は省き、単体テスト（`substituteQuery`）が守っていることを PR に書く
 - `accessoryCard` の `onBlocked` で `canMarkBlocked` を通さず常に渡す → 「記録したカードには出ない」が赤
+- `useSubstitute` の `writeJSON` の `useEffect` を消す → 「開き直しても代わりのカードが残る」が赤
 
 - [ ] **Step 8: ユーザーストーリーを更新する**
 
@@ -1724,7 +1818,7 @@ Run: `cd web && pnpm typecheck && pnpm test && pnpm format:check`
 Expected: PASS
 
 ```bash
-git add web/src/features/today web/scripts/substitute-check.mjs docs/user-stories.md
+git add web/src/features/today web/src/storage/local.ts web/scripts/substitute-check.mjs docs/user-stories.md
 git commit -m "feat(web): 補助のカードに「埋まっている」を置き、代わりの種目に差し替える"
 ```
 
