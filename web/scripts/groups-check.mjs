@@ -1,4 +1,4 @@
-// グループ（仲間）の画面を実機で確かめる。
+// グループの画面を実機で確かめる。
 //
 // 単体テストは判断（格子・自分を先頭・リンクの形）しか見ていない。
 // ここで見るのは配線：タブから開けるか、作ったグループの格子に自分が出るか、
@@ -63,7 +63,7 @@ await page.goto(`${APP}/#token=${TOKEN}`);
 await page.waitForTimeout(2000);
 const body = () => page.innerText('body');
 
-await page.getByRole('button', { name: '仲間', exact: true }).click();
+await page.getByRole('button', { name: 'グループ', exact: true }).click();
 await page.waitForTimeout(800);
 check('グループが無ければ作る画面が出る', (await body()).includes('グループを作る'));
 
@@ -184,7 +184,7 @@ await joinButton.click();
 await p2.waitForTimeout(1500);
 const joinedText = await p2.innerText('body');
 check(
-  '参加すると仲間の画面へ移り、そのグループが開く',
+  '参加するとグループの画面へ移り、そのグループが開く',
   joinedText.includes('今週') && joinedText.includes('吉田'),
 );
 check(

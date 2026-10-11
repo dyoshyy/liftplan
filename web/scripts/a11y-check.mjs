@@ -149,9 +149,9 @@ await page.click('nav >> text=履歴');
 await page.waitForTimeout(2500);
 await snap('履歴', '/tmp/a-history.png');
 
-await page.click('nav >> text=仲間');
+await page.click('nav >> text=グループ');
 await page.waitForTimeout(1500);
-await snap('仲間', '/tmp/a-groups.png');
+await snap('グループ', '/tmp/a-groups.png');
 
 await page.click('header button[aria-label="設定"]');
 await page.waitForTimeout(2500);
