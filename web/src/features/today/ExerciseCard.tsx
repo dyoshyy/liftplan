@@ -57,6 +57,8 @@ export function ExerciseCard({ plan, name, last, recorded, onOpen }: Props) {
             <button
               key={i}
               type="button"
+              // 初回の案内（CoachMarks）が指す。文書順で最初のカードの1セット目に当たる。
+              data-coach={i === 0 ? 'slot' : undefined}
               className={cn('set', rec && 'set-done', justRecorded(seenAtMount, rec) && 'set-pop')}
               onClick={() => onOpen(i, rec)}
             >
@@ -92,7 +94,7 @@ export function Target({ plan }: { plan: CardPlan }) {
   }
 
   return (
-    <div className="flex flex-wrap items-baseline gap-2.5">
+    <div className="flex flex-wrap items-baseline gap-2.5" data-coach="target">
       {plan.weight_kg === null ? (
         <span className="num text-[17px] font-medium text-muted">自分で決める</span>
       ) : (

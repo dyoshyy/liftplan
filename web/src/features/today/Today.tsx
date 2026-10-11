@@ -94,7 +94,13 @@ export function Today(props: Props) {
         <BodyWeightRow enqueue={enqueue} />
         {/* 自動で始まるのが通常の経路なので、手動の入口は控えめに置く。 */}
         {props.canStartRest && (
-          <Button variant="quiet" size="chip" className="ml-auto shrink-0" onClick={onRecorded}>
+          <Button
+            variant="quiet"
+            size="chip"
+            className="ml-auto shrink-0"
+            data-coach="rest"
+            onClick={onRecorded}
+          >
             休憩を始める
           </Button>
         )}
@@ -102,20 +108,21 @@ export function Today(props: Props) {
 
       {/* レーンの見出し。強度が3段階あることは、見出しでしか分からない。
           以前は HEAVY バッジがカードに付いていたが、狙いがレーンごとの定数に
-          なった時点で、種目ではなく枠の性質になった（D-126）。 */}
-      {main.length > 0 && <SectionTitle>軸</SectionTitle>}
+          なった時点で、種目ではなく枠の性質になった（D-126）。
+          初回の案内（CoachMarks）は data-coach="lane" の最初の1つを指す。 */}
+      {main.length > 0 && <SectionTitle data-coach="lane">軸</SectionTitle>}
       {main.map(card)}
 
-      {variation.length > 0 && <SectionTitle>バリエーション</SectionTitle>}
+      {variation.length > 0 && <SectionTitle data-coach="lane">バリエーション</SectionTitle>}
       {variation.map(card)}
 
-      {accessories.length > 0 && <SectionTitle>補助種目</SectionTitle>}
+      {accessories.length > 0 && <SectionTitle data-coach="lane">補助種目</SectionTitle>}
       {accessories.map(card)}
 
-      {adhoc.length > 0 && <SectionTitle>選んだ種目</SectionTitle>}
+      {adhoc.length > 0 && <SectionTitle data-coach="lane">選んだ種目</SectionTitle>}
       {adhoc.map(card)}
 
-      {done.length > 0 && <SectionTitle>今日やったもの</SectionTitle>}
+      {done.length > 0 && <SectionTitle data-coach="lane">今日やったもの</SectionTitle>}
       {done.map(card)}
 
       {/* 予定に無い種目をやりたい日の入口。今日どこまでやるかは本人が決める

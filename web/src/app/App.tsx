@@ -1,8 +1,9 @@
-import { useCallback } from 'react';
+import { useCallback, useState } from 'react';
 import type { DayChange } from '../domain/days';
 import { label, today } from '../domain/date';
 import { ExerciseManager } from '../features/exercises/ExerciseManager';
 import { Forecast } from '../features/forecast/Forecast';
+import { CoachMarks } from '../features/onboarding/CoachMarks';
 import { Onboarding } from '../features/onboarding/Onboarding';
 import { Setup } from '../features/setup/Setup';
 import { GearIcon } from '../ui/icons';
@@ -44,6 +45,14 @@ export function App() {
   // 歯車と下のナビを出さないのは、決める前に抜けると既定の通い方のまま
   // 「今日」に着地し、案内も次に開くまで出ないため。
   const onboarding = hasToken && !firstLoad && !data.onboarded;
+  // 通い方を決めた直後にだけ、「今日」の使い方を指して見せる。メモリだけに
+  // 持つので、再読み込みすれば出ない（済んだことは保存で記録済み）。
+  const [coaching, setCoaching] = useState(false);
+  const finishOnboarding = useCallback(async () => {
+    await reload();
+    setCoaching(true);
+  }, [reload]);
+  const stopCoaching = useCallback(() => setCoaching(false), []);
   const monthLogs = useMonthLogs(hasToken && route === 'history', data.days, !firstLoad);
   // 履歴での修正は、直近の記録（今月と今日の画面）と、取ってある過去の月の
   // 両方に当てる。片方だけだと、月を行き来したときに直す前の値に戻って見える。
@@ -69,6 +78,7 @@ export function App() {
           {hasToken && !onboarding && (
             <button
               type="button"
+              data-coach="settings"
               aria-label={route === 'settings' ? '設定を閉じる' : '設定'}
               aria-pressed={route === 'settings'}
               onClick={() => go(route === 'settings' ? 'today' : 'settings')}
@@ -108,7 +118,7 @@ export function App() {
             {/* 画面を替えたときだけふわっと出す。key が route なので、同じ画面の
                 描き直しでは入り直さない。 */}
             {onboarding ? (
-              <Onboarding exercises={data.exercises} onDone={reload} />
+              <Onboarding exercises={data.exercises} onDone={finishOnboarding} />
             ) : (
               <div key={route} className="grid animate-fade-in gap-3.5">
                 {route === 'today' && firstLoad && <TodaySkeleton />}
@@ -169,6 +179,8 @@ export function App() {
           </>
         )}
       </main>
+
+      {coaching && route === 'today' && !firstLoad && <CoachMarks onDone={stopCoaching} />}
 
       {hasToken && !onboarding && <RestTimerBar timer={timer} />}
 
