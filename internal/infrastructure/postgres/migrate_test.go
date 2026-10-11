@@ -19,7 +19,7 @@ func TestMigrate_CreatesEverySchemaObject(t *testing.T) {
 
 	for _, table := range []string{
 		"set_logs", "daily_conditions", "program",
-		"accounts", "sessions", "user_exercises", "schema_migrations",
+		"accounts", "sessions", "user_exercises", "onboarding", "schema_migrations",
 	} {
 		var exists bool
 		if err := pool.QueryRow(ctx,
