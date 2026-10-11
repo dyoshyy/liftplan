@@ -6,6 +6,7 @@ import (
 
 	"github.com/dyoshyy/liftplan/internal/domain/training"
 	"github.com/dyoshyy/liftplan/internal/domain/training/exercise"
+	"github.com/dyoshyy/liftplan/internal/domain/training/planning"
 	"github.com/dyoshyy/liftplan/internal/domain/training/program"
 	"github.com/dyoshyy/liftplan/internal/domain/training/setlog"
 )
@@ -39,6 +40,8 @@ func Classify(err error) error {
 		return fmt.Errorf("%w: %w", ErrConflict, err)
 	case errors.Is(err, exercise.ErrDuplicateExerciseName):
 		return fmt.Errorf("%w: %w", ErrDuplicateName, err)
+	case errors.Is(err, planning.ErrNotPlannedAccessory):
+		return fmt.Errorf("%w: %w", ErrInvalidInput, err)
 	case errors.Is(err, training.ErrRepositoryUnavailable):
 		return fmt.Errorf("%w: %w", ErrUnavailable, err)
 	default:

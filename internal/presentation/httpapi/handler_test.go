@@ -110,6 +110,7 @@ func dependencies(
 	return httpapi.Dependencies{
 		GetSession:       usecase.NewGetSession(exercises, logs, conditions, programs, planning.DefaultSessionPlanner()),
 		GetForecast:      usecase.NewGetForecast(exercises, logs, conditions, programs, planning.DefaultSessionPlanner()),
+		GetSubstitute:    usecase.NewGetSubstitute(exercises, logs, conditions, programs, planning.DefaultSessionPlanner()),
 		RecordSets:       usecase.NewRecordSets(logs, exercises),
 		RecordConditions: usecase.NewRecordConditions(conditions),
 		SetFocus:         usecase.NewSetFocusExercise(programs, programs),
