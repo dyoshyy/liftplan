@@ -176,3 +176,35 @@ export type StatsResponse = {
   trends: Trend[];
   weekly_volume: Volume[];
 };
+
+// --- グループ（internal/presentation/httpapi/groups.go と対） ---
+
+export type GroupSummary = {
+  id: string;
+  name: string;
+  member_count: number;
+  /** このグループでの自分の表示名。 */
+  my_name: string;
+};
+
+export type GroupsResponse = { groups: GroupSummary[] };
+
+export type CreatedGroup = { id: string; name: string; invite_token: string };
+
+/** その人がその日にやった種目名。名前を引けなかった種目は空文字で来る。 */
+export type MemberDay = { date: string; exercises: string[] };
+
+/** メンバー1人の1週間。days はやった日だけ（やっていなければ空配列）。 */
+export type MemberWeek = { display_name: string; is_me: boolean; days: MemberDay[] };
+
+/** グループの1週間（月〜日）。members は参加順。重量は来ない（日と種目名まで）。 */
+export type GroupWeek = {
+  id: string;
+  name: string;
+  invite_token: string;
+  from: string;
+  to: string;
+  members: MemberWeek[];
+};
+
+export type InviteTokenResponse = { invite_token: string };

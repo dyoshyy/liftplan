@@ -22,6 +22,7 @@ import (
 	"github.com/dyoshyy/liftplan/internal/application/query"
 	"github.com/dyoshyy/liftplan/internal/application/usecase"
 	"github.com/dyoshyy/liftplan/internal/domain/account"
+	"github.com/dyoshyy/liftplan/internal/domain/group"
 	"github.com/dyoshyy/liftplan/internal/domain/training/seed"
 	"github.com/dyoshyy/liftplan/internal/infrastructure/memory"
 	"github.com/dyoshyy/liftplan/internal/infrastructure/oauth"
@@ -205,6 +206,11 @@ type onboardingStore interface {
 	account.OnboardingWriter
 }
 
+type groupStore interface {
+	group.Reader
+	group.Writer
+}
+
 // repositories は差し替えの対象になる口の集まり。
 //
 // この構造体があるのは、インメモリと Postgres の選択を1箇所に閉じるため。
@@ -217,6 +223,8 @@ type repositories struct {
 	programs   programStore
 	accounts   accountStore
 	sessions   sessionStore
+	groups     groupStore
+	activity   group.ActivityReader
 	onboarding onboardingStore
 	// devUser はインメモリ構成でだけ使う利用者。
 	//
@@ -270,6 +278,11 @@ func buildHandler(ctx context.Context) (http.Handler, func(), error) {
 		History:            query.NewHistory(logs, exercises, conditions),
 		Stats:              query.NewStats(logs, exercises, conditions, programs, planning.DefaultOneRepMaxEstimator(), planner),
 		Accounts:           query.NewAccounts(repos.accounts),
+		CreateGroup:        usecase.NewCreateGroup(repos.groups, time.Now),
+		JoinGroup:          usecase.NewJoinGroup(repos.groups, time.Now),
+		LeaveGroup:         usecase.NewLeaveGroup(repos.groups),
+		RotateInvite:       usecase.NewRotateInvite(repos.groups),
+		Groups:             query.NewGroups(repos.groups, repos.activity),
 		Onboarding:         query.NewOnboarding(repos.onboarding),
 		CompleteOnboarding: usecase.NewCompleteOnboarding(repos.onboarding, time.Now),
 	})
@@ -525,6 +538,8 @@ func openRepositories(ctx context.Context, pool []*exercise.Exercise) (repositor
 		if err := seedProgramIfMissing(ctx, programs, pool, devUser); err != nil {
 			return repositories{}, err
 		}
+		exercises := memory.NewExerciseRepository(pool)
+		logs := memory.NewSetLogRepository()
 		onboarding := memory.NewOnboardingRepository()
 		// 開発用の利用者は初回の案内を済ませた状態で始める。画面の検査
 		// スクリプトが設定画面に阻まれないように。案内そのものを検査する
@@ -536,12 +551,14 @@ func openRepositories(ctx context.Context, pool []*exercise.Exercise) (repositor
 			}
 		}
 		return repositories{
-			exercises:  memory.NewExerciseRepository(pool),
-			logs:       memory.NewSetLogRepository(),
+			exercises:  exercises,
+			logs:       logs,
 			conditions: memory.NewConditionRepository(),
 			programs:   programs,
 			accounts:   memory.NewAccountRepository(),
 			sessions:   memory.NewSessionRepository(),
+			groups:     memory.NewGroupRepository(),
+			activity:   memory.NewGroupActivityReader(logs, exercises),
 			onboarding: onboarding,
 			devUser:    devUser,
 			ping:       func(context.Context) error { return nil },
@@ -568,6 +585,8 @@ func openRepositories(ctx context.Context, pool []*exercise.Exercise) (repositor
 		programs:   postgres.NewProgramRepository(db),
 		accounts:   postgres.NewAccountRepository(db),
 		sessions:   postgres.NewSessionRepository(db),
+		groups:     postgres.NewGroupRepository(db),
+		activity:   postgres.NewGroupActivityReader(db),
 		onboarding: postgres.NewOnboardingRepository(db),
 		ping:       db.Ping,
 		close:      db.Close,

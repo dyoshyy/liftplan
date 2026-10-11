@@ -43,6 +43,7 @@ export function BottomNav({ route, onGo, pending, rejected, online, onSync }: Pr
 
         <Tab label="今日" active={route === 'today'} onClick={() => onGo('today')} />
         <Tab label="履歴" active={route === 'history'} onClick={() => onGo('history')} />
+        <Tab label="仲間" active={route === 'groups'} onClick={() => onGo('groups')} />
       </div>
     </nav>
   );

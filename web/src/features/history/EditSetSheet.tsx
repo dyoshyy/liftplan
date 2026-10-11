@@ -58,8 +58,8 @@ export function EditSetSheet({ target, bodyweight, onSubmit, onDelete, onClose }
         </div>
 
         <Stepper label="重量 (kg)" value={weight} onChange={setWeight} step={2.5} decimal />
-        <Stepper label="レップ（実際にできた回数）" value={reps} onChange={setReps} step={1} />
-        <Stepper label="RIR（あと何回できたか）" value={rir} onChange={setRir} step={1} />
+        <Stepper label="レップ" value={reps} onChange={setReps} step={1} />
+        <Stepper label="RIR" value={rir} onChange={setRir} step={1} />
 
         {warning && <p className="m-0 text-[13px] text-red">{warning}</p>}
 

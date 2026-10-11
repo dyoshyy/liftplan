@@ -8,7 +8,7 @@ import (
 // OnboardingReader は初回の案内を済ませたかを読む。
 //
 // 行が無いことを「まだ」と読む。初回ログインで行を作らずに済み、既存の
-// 利用者はマイグレーション（0020）で済んだ行を持つ。
+// 利用者はマイグレーション（0021）で済んだ行を持つ。
 type OnboardingReader interface {
 	OnboardingCompleted(ctx context.Context, user UserID) (bool, error)
 }

@@ -10,17 +10,17 @@ import (
 	"github.com/dyoshyy/liftplan/internal/infrastructure/postgres"
 )
 
-// 既存の利用者を、初回の案内を済ませたものとして扱う（0020）。
+// 既存の利用者を、初回の案内を済ませたものとして扱う（0021）。
 //
 // 済ませていない扱いにすると、使い慣れた人が次に開いたときに設定画面に
-// 阻まれる。全部当てたあとで program に行を入れ、0020 をもう一度流す
+// 阻まれる。全部当てたあとで program に行を入れ、0021 をもう一度流す
 // （IF NOT EXISTS と ON CONFLICT で何度流しても同じ）。0018 の検査と同じ形。
-func TestMigration0020_MarksExistingUsersOnboarded(t *testing.T) {
+func TestMigration0021_MarksExistingUsersOnboarded(t *testing.T) {
 	pool := migratedDB(t)
 	ctx := context.Background()
-	sql, err := os.ReadFile("migrations/0020_onboarding.sql")
+	sql, err := os.ReadFile("migrations/0021_onboarding.sql")
 	if err != nil {
-		t.Fatalf("0020 を読めない: %v", err)
+		t.Fatalf("0021 を読めない: %v", err)
 	}
 
 	existing := mustUserID(t, "11111111-1111-4111-8111-111111111111")
@@ -30,7 +30,7 @@ func TestMigration0020_MarksExistingUsersOnboarded(t *testing.T) {
 	}
 
 	if _, err := pool.Exec(ctx, string(sql)); err != nil {
-		t.Fatalf("0020 が失敗: %v", err)
+		t.Fatalf("0021 が失敗: %v", err)
 	}
 
 	repo := postgres.NewOnboardingRepository(pool)

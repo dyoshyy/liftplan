@@ -92,8 +92,7 @@ const openSection = async () => {
   await page.click('text=休憩終了の音量');
   await page.waitForTimeout(400);
 };
-const volumeInput = () =>
-  page.locator('div:has(> label:has-text("休憩が終わったときの合図")) input[type=number]');
+const volumeInput = () => page.locator('div:has(> label:text-is("音量")) input[type=number]');
 const summary = () => page.locator('button[aria-controls]', { hasText: '休憩終了の音量' }).innerText();
 
 await openSection();

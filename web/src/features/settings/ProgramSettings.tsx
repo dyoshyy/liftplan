@@ -78,8 +78,7 @@ export function ProgramSettings({ nameOf, exercises: all, onChanged, onOpenExerc
           分割が選べない理由を読んでから回数の節を開き直すことになる。
           回数を先に置くのは、選べる分割が回数で決まるため。 */}
       <Section title="通い方" summary={program ? scheduleSummary(program) : ''} defaultOpen>
-        <p className="text-[13px] font-bold">週に通う回数</p>
-        <Note className="mb-3 mt-1">1週間に通う回数です。補助種目の量はこの回数に合わせて決まります。</Note>
+        <p className="mb-2 text-[13px] font-bold">週に通う回数</p>
 
         {waiting && <Skeleton className="h-11 w-full rounded-[10px]" />}
         {program && (
@@ -97,11 +96,7 @@ export function ProgramSettings({ nameOf, exercises: all, onChanged, onOpenExerc
           </Select>
         )}
 
-        <p className="mt-6 text-[13px] font-bold">1回の量</p>
-        <Note className="mb-3 mt-1">
-          1回に出る種目の数と、1種目あたりのセット数です。ジムで取れる時間に
-          合わせてください。どの部位をどれだけやるかは、この量と通う回数から 決まります。
-        </Note>
+        <p className="mb-2 mt-6 text-[13px] font-bold">1回の量</p>
 
         {waiting && (
           <div className="grid grid-cols-2 gap-2">
@@ -138,11 +133,7 @@ export function ProgramSettings({ nameOf, exercises: all, onChanged, onOpenExerc
           </div>
         )}
 
-        <p className="mt-6 text-[13px] font-bold">分割</p>
-        <Note className="mb-3 mt-1">
-          その日に補助種目が狙う筋部位を決めます。通った回数で順に回るので、
-          休んでも飛びません。全身法では毎回すべての部位から選ばれます。
-        </Note>
+        <p className="mb-2 mt-6 text-[13px] font-bold">分割</p>
 
         {waiting && (
           <div className="grid gap-2">
@@ -183,20 +174,12 @@ export function ProgramSettings({ nameOf, exercises: all, onChanged, onOpenExerc
           いくので、上で足した種目がそのまま下の候補に出る。3つとも押したその場で
           保存するので、節を分けて畳む理由も無い。 */}
       <Section title="種目" summary={program ? exercisesSummary(program, nameOf) : ''}>
-        <p className="text-[13px] font-bold">使う種目</p>
-        <Note className="mb-3 mt-1">
-          使う種目の入れ替え、効き方の調整、一覧に無い器具の追加は
-          「種目を管理する」でします。使わない種目は計画にも出ません。
-        </Note>
+        <p className="mb-2 text-[13px] font-bold">使う種目</p>
         <Button variant="quiet" disabled={busy} onClick={onOpenExercises}>
           種目を管理する
         </Button>
 
-        <p className="mt-6 text-[13px] font-bold">伸ばしたい種目</p>
-        <Note className="mb-3 mt-1">
-          毎回1種目ずつ、しばらくやっていないものから出ます。 増やすほど1種目あたりの間隔があきます。
-          候補は「使う種目」にした種目です。
-        </Note>
+        <p className="mb-2 mt-6 text-[13px] font-bold">伸ばしたい種目</p>
 
         {waiting && <Skeleton className="h-24 w-full rounded-xl" />}
         {program && (
@@ -212,11 +195,7 @@ export function ProgramSettings({ nameOf, exercises: all, onChanged, onOpenExerc
 
         {program && repsRows(program).length > 0 && (
           <>
-            <p className="mt-4 text-[13px] font-bold">重い日のレップ数</p>
-            <Note className="mb-3 mt-1">
-              軸に立ったときに狙う回数です。重さはこの回数から決まります。
-              チンニングのように少ない回数でやらない種目は増やしてください。
-            </Note>
+            <p className="mb-2 mt-4 text-[13px] font-bold">重い日のレップ数</p>
             <div className="grid gap-2">
               {repsRows(program).map(({ id, reps }) => (
                 <label key={id} className="grid grid-cols-[1fr_auto] items-center gap-3">
@@ -240,11 +219,7 @@ export function ProgramSettings({ nameOf, exercises: all, onChanged, onOpenExerc
         )}
 
         <p className="mt-6 text-[13px] font-bold">重点種目</p>
-        <Note className="mb-3 mt-1">
-          上の「伸ばしたい種目」から選びます。選んだ種目の派生
-          （ナローグリップ、テンポなど）が、軸とは別の枠で中1日以上あけて
-          出ます。指定しなければバリエーションは出ません。
-        </Note>
+        <Note className="mb-3 mt-1">選んだ種目の派生がバリエーションとして出ます。</Note>
 
         {waiting && (
           <div className="flex flex-wrap gap-2">
@@ -274,10 +249,7 @@ export function ProgramSettings({ nameOf, exercises: all, onChanged, onOpenExerc
 
         {focusId && focusReps && (
           <>
-            <p className="mt-4 text-[13px] font-bold">軽い日のレップ数</p>
-            <Note className="mb-3 mt-1">
-              重点種目は、重い日 → 軽い日 → 派生 の順に回ります。派生の日もこの回数で出ます。
-            </Note>
+            <p className="mb-2 mt-4 text-[13px] font-bold">軽い日のレップ数</p>
             <Select
               aria-label={`${nameOf(focusId)}の軽い日のレップ数`}
               value={focusReps.light}

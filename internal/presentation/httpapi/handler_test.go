@@ -107,6 +107,7 @@ func dependencies(
 	conditions *memory.ConditionRepository,
 	programs *memory.ProgramRepository,
 ) httpapi.Dependencies {
+	groups := memory.NewGroupRepository()
 	onboarding := memory.NewOnboardingRepository()
 	return httpapi.Dependencies{
 		GetSession:         usecase.NewGetSession(exercises, logs, conditions, programs, planning.DefaultSessionPlanner()),
@@ -129,6 +130,11 @@ func dependencies(
 		History:            query.NewHistory(logs, exercises, conditions),
 		Stats:              query.NewStats(logs, exercises, conditions, programs, planning.DefaultOneRepMaxEstimator(), planning.DefaultSessionPlanner()),
 		Accounts:           query.NewAccounts(memory.NewAccountRepository()),
+		CreateGroup:        usecase.NewCreateGroup(groups, time.Now),
+		JoinGroup:          usecase.NewJoinGroup(groups, time.Now),
+		LeaveGroup:         usecase.NewLeaveGroup(groups),
+		RotateInvite:       usecase.NewRotateInvite(groups),
+		Groups:             query.NewGroups(groups, memory.NewGroupActivityReader(logs, exercises)),
 		Onboarding:         query.NewOnboarding(onboarding),
 		CompleteOnboarding: usecase.NewCompleteOnboarding(onboarding, time.Now),
 	}

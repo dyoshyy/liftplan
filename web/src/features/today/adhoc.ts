@@ -45,10 +45,10 @@ export function adhocCards(
 }
 
 /**
- * belowPlan は予定のカードの下に出す2組。本人が選んだ種目と、今日やったもの。
+ * belowPlan は予定のカードの下に出す2組。本人が選んだ種目と、予定外の記録。
  *
  * 選んだ種目は予定として数えて leftovers に渡す。渡さないと、記録した時点で
- * 「今日やったもの」にも出て、同じ種目が2枚並ぶ。
+ * 「予定外の記録」にも出て、同じ種目が2枚並ぶ。
  */
 export function belowPlan(
   planned: readonly (readonly PlannedSet[])[],

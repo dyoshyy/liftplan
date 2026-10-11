@@ -22,6 +22,10 @@ describe('fromState', () => {
     expect(fromState({ route: 'forecast' })).toBe('forecast');
   });
 
+  it('groups も読み戻す', () => {
+    expect(fromState({ route: 'groups' })).toBe('groups');
+  });
+
   it('exercises も読み戻す', () => {
     expect(fromState({ route: 'exercises' })).toBe('exercises');
   });

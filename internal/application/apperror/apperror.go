@@ -78,6 +78,15 @@ var (
 	// 中身の説明はドメイン側に任せる。
 	ErrDuplicateName = newError("DUPLICATE_NAME", "種目を保存できない", http.StatusConflict)
 
+	// ErrGroupNotFound はグループが無いか、そのメンバーでないこと。
+	//
+	// 2つを区別しない。メンバーでない人に 403 を返すと、そのグループが
+	// 存在することが分かる。応答の本文も同じにするため、Classify は
+	// 原因を連結せずにこれだけを返す（respondCoded は 4xx の本文に原因を
+	// 載せる。載せると「メンバーではない: <利用者のID>」が出る）。
+	// 無効になった招待トークン・形の不正な ID もここに入る。
+	ErrGroupNotFound = newError("GROUP_NOT_FOUND", "グループが見つからない", http.StatusNotFound)
+
 	// ErrExerciseNotFound は消す・直そうとした種目が無いこと。存在しない
 	// ID・他人の種目・消した種目がここに入る。プリセット由来かどうかで
 	// 扱いを変えないので、共通の種目はここには入らない（消せる・直せる）。

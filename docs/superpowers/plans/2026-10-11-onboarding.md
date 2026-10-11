@@ -12,7 +12,7 @@
 
 ## Global Constraints
 
-- 既存の利用者には出さない（0020 が `program` の全行を完了として入れる）
+- 既存の利用者には出さない（0021 が `program` の全行を完了として入れる）
 - 行が無い＝まだ。初回ログインで行を作らない
 - `GET /api/onboarding` → `{"completed": bool}`、`PUT /api/onboarding/completed` → 204、冪等
 - 取得に失敗したら済んだものとして扱う（アプリを止めない）
@@ -52,9 +52,9 @@
 | `internal/domain/account/accounttest/contract.go` | `Repos.Onboarding` と `RunOnboardingContract` |
 | `internal/domain/account/repository_test.go` | 形と読み書き分離の固定に2つの口を足す |
 | `internal/infrastructure/memory/account_repositories.go` | `OnboardingRepository` |
-| `internal/infrastructure/postgres/migrations/0020_onboarding.sql`（新規） | 表と既存利用者の埋め |
+| `internal/infrastructure/postgres/migrations/0021_onboarding.sql`（新規） | 表と既存利用者の埋め |
 | `internal/infrastructure/postgres/onboarding_repository.go`（新規） | Postgres 実装 |
-| `internal/infrastructure/postgres/onboarding_migration_test.go`（新規） | 0020 の埋めの検査 |
+| `internal/infrastructure/postgres/onboarding_migration_test.go`（新規） | 0021 の埋めの検査 |
 | `internal/application/query/onboarding.go`（新規） | `query.Onboarding.Completed` |
 | `internal/application/usecase/complete_onboarding.go`（新規） | `usecase.CompleteOnboarding.Execute` |
 | `internal/presentation/httpapi/{handler.go,router.go,dto.go}` | 口2つ |
@@ -219,7 +219,7 @@ func (r *OnboardingRepository) CompleteOnboarding(_ context.Context, user accoun
 ### Task 2: Postgres の表と実装
 
 **Files:**
-- Create: `internal/infrastructure/postgres/migrations/0020_onboarding.sql`, `internal/infrastructure/postgres/onboarding_repository.go`, `internal/infrastructure/postgres/onboarding_migration_test.go`
+- Create: `internal/infrastructure/postgres/migrations/0021_onboarding.sql`, `internal/infrastructure/postgres/onboarding_repository.go`, `internal/infrastructure/postgres/onboarding_migration_test.go`
 - Modify: `internal/infrastructure/postgres/account_repository_test.go`
 
 **Interfaces:**
@@ -229,16 +229,16 @@ func (r *OnboardingRepository) CompleteOnboarding(_ context.Context, user accoun
 - [ ] **Step 1: テストを書く。**`account_repository_test.go` の `newAccountRepos` に `Onboarding: postgres.NewOnboardingRepository(pool)`、`TestOnboardingRepository_Contract` を足す。`onboarding_migration_test.go`：
 
 ```go
-// 既存の利用者を済んだものとして扱う（0020）。
+// 既存の利用者を済んだものとして扱う（0021）。
 //
-// 全部当てたあとで program に行を入れ、0020 をもう一度流す（IF NOT EXISTS と
+// 全部当てたあとで program に行を入れ、0021 をもう一度流す（IF NOT EXISTS と
 // ON CONFLICT で何度流しても同じ）。0018 の検査と同じ形。
-func TestMigration0020_MarksExistingUsersOnboarded(t *testing.T) {
+func TestMigration0021_MarksExistingUsersOnboarded(t *testing.T) {
 	pool := migratedDB(t)
 	ctx := context.Background()
-	sql, err := os.ReadFile("migrations/0020_onboarding.sql")
+	sql, err := os.ReadFile("migrations/0021_onboarding.sql")
 	if err != nil {
-		t.Fatalf("0020 を読めない: %v", err)
+		t.Fatalf("0021 を読めない: %v", err)
 	}
 
 	existing := mustUser(t, "11111111-1111-4111-8111-111111111111")
@@ -246,7 +246,7 @@ func TestMigration0020_MarksExistingUsersOnboarded(t *testing.T) {
 	saveDefaultProgram(t, pool, existing)
 
 	if _, err := pool.Exec(ctx, string(sql)); err != nil {
-		t.Fatalf("0020 が失敗: %v", err)
+		t.Fatalf("0021 が失敗: %v", err)
 	}
 
 	repo := postgres.NewOnboardingRepository(pool)
@@ -265,11 +265,11 @@ func TestMigration0020_MarksExistingUsersOnboarded(t *testing.T) {
 
 `saveDefaultProgram` は `seed.DefaultProgram(seed.Exercises())` を `postgres.NewProgramRepository(pool).Save` するヘルパー（同ファイルに置く。既存に同等があれば使う）。
 
-- [ ] **Step 2: 赤を確かめる**（埋め込み Postgres を立てて `TEST_DATABASE_URL` を渡す）。`go test ./internal/infrastructure/postgres/ -run 'Onboarding|0020'` → コンパイルエラー
+- [ ] **Step 2: 赤を確かめる**（埋め込み Postgres を立てて `TEST_DATABASE_URL` を渡す）。`go test ./internal/infrastructure/postgres/ -run 'Onboarding|0021'` → コンパイルエラー
 
 - [ ] **Step 3: 実装**
 
-`0020_onboarding.sql`：
+`0021_onboarding.sql`：
 
 ```sql
 -- 初回の案内を済ませた利用者。行が無い＝まだ。
@@ -324,9 +324,9 @@ func (r *OnboardingRepository) CompleteOnboarding(ctx context.Context, user acco
 
 - [ ] **Step 4: 緑。**`TEST_DATABASE_URL=... go test ./internal/infrastructure/postgres/...` → PASS（既存のマイグレーションテストも）
 
-- [ ] **Step 5: 変異。**SQL の `SELECT user_id, now() FROM program` を消して 0020 テストが赤、戻す
+- [ ] **Step 5: 変異。**SQL の `SELECT user_id, now() FROM program` を消して 0021 テストが赤、戻す
 
-- [ ] **Step 6: Commit** `feat(postgres): 初回の案内を済ませた利用者の表（0020）`
+- [ ] **Step 6: Commit** `feat(postgres): 初回の案内を済ませた利用者の表（0021）`
 
 ---
 

@@ -114,6 +114,11 @@ func routesForUserTest(t *testing.T) (http.Handler, *memory.ProgramRepository) {
 		History:            query.NewHistory(logs, exercises, conditions),
 		Stats:              query.NewStats(logs, exercises, conditions, programs, planning.DefaultOneRepMaxEstimator(), planning.DefaultSessionPlanner()),
 		Accounts:           query.NewAccounts(memory.NewAccountRepository()),
+		CreateGroup:        usecase.NewCreateGroup(memory.NewGroupRepository(), time.Now),
+		JoinGroup:          usecase.NewJoinGroup(memory.NewGroupRepository(), time.Now),
+		LeaveGroup:         usecase.NewLeaveGroup(memory.NewGroupRepository()),
+		RotateInvite:       usecase.NewRotateInvite(memory.NewGroupRepository()),
+		Groups:             query.NewGroups(memory.NewGroupRepository(), memory.NewGroupActivityReader(logs, exercises)),
 		Onboarding:         query.NewOnboarding(memory.NewOnboardingRepository()),
 		CompleteOnboarding: usecase.NewCompleteOnboarding(memory.NewOnboardingRepository(), time.Now),
 	})

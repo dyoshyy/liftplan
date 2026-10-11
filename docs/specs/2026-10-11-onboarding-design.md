@@ -39,7 +39,7 @@ CLAUDE.md の表に照らす。
 ### 保存
 
 ```sql
--- 0020_onboarding.sql
+-- 0021_onboarding.sql
 CREATE TABLE onboarding (
   user_id      uuid PRIMARY KEY,
   completed_at timestamptz NOT NULL
@@ -204,7 +204,7 @@ web/scripts/onboarding-check.mjs
   - 2回呼んでもエラーにならず、最初の時刻が残る
   - 別の利用者には影響しない
 - HTTP：GET が `completed` を返す。PUT のあと GET が `true`。未認証は 401
-- マイグレーション：0019 までで `program` に行を入れてから 0020 を当て、その利用者が
+- マイグレーション：0020 までで `program` に行を入れてから 0021 を当て、その利用者が
   `true` になること。行の無い利用者は `false`
 - `seedDevSession`：既定で済み、`DEV_ONBOARDING_PENDING=1` で未完了
 

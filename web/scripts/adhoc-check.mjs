@@ -2,7 +2,7 @@
 //
 // 単体テストでは踏めないところを見る。選択シートの開閉（<dialog>）、選んだ種目の
 // カードが出ること、記録のたびに次の空き枠が出ること、記録したあとに
-// 「今日やったもの」へ二重に出ないこと。判断（何を選択肢に出すか）は
+// 「予定外の記録」へ二重に出ないこと。判断（何を選択肢に出すか）は
 // features/exercises/pickable.ts と features/today/adhoc.ts（plannedIds）の
 // 単体テストが守っているので、ここは配線を見る。
 //
@@ -16,7 +16,7 @@ const check = (n, ok, d = '') => {
   console.log(`${ok ? '✓' : '✗'} ${n}${d ? ' — ' + d : ''}`);
 };
 
-// 前回の実行が残した記録を消す。残っていると「今日やったもの」の数が合わない。
+// 前回の実行が残した記録を消す。残っていると「予定外の記録」の数が合わない。
 const API = process.env.API ?? 'http://127.0.0.1:8080';
 const day = () => {
   const d = new Date();
@@ -126,8 +126,8 @@ await record(1, 42.5, 8);
 check('2セット目でも次の空き枠が出る', (await slotsOf(first).count()) === 3);
 
 // 二重に出ない。
-const heading = (await body()).split('今日やったもの').length - 1;
-check('「今日やったもの」に同じ種目が二重に出ない', heading === 0, `見出し${heading}件`);
+const heading = (await body()).split('予定外の記録').length - 1;
+check('「予定外の記録」に同じ種目が二重に出ない', heading === 0, `見出し${heading}件`);
 check('カードは1枚だけ', (await cardNames()).filter((n) => n === first).length === 1);
 
 // サーバーに届いている。
@@ -149,13 +149,13 @@ await page.locator('dialog[open] button', { hasText: first }).first().click();
 await page.waitForTimeout(500);
 check('選び直してもカードは増えない', (await cardNames()).filter((n) => n === first).length === 1);
 
-// 開き直すと、選んだ状態は消え、やった事実は「今日やったもの」に残る。
+// 開き直すと、選んだ状態は消え、やった事実は「予定外の記録」に残る。
 await page.reload();
 await page.waitForTimeout(2500);
 check('開き直すと「選んだ種目」の見出しは消える', !(await body()).includes('選んだ種目\n'));
 check(
-  '開き直しても記録は「今日やったもの」に残る',
-  (await body()).includes('今日やったもの') && (await cardNames()).includes(first),
+  '開き直しても記録は「予定外の記録」に残る',
+  (await body()).includes('予定外の記録') && (await cardNames()).includes(first),
 );
 
 await page.screenshot({ path: '/tmp/adhoc-check.png' });
