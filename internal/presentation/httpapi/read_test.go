@@ -625,3 +625,45 @@ func TestGetSetLogs_ReturnsBodyweightLoads(t *testing.T) {
 		t.Errorf("自重を使わない種目に足す量が載っている: %v", got.LoadOffsets)
 	}
 }
+
+// 体重の推移が引けること。記録した日だけが、期間の中で古い順に返る。
+// 記録が1件も無くても null ではなく空配列（画面が同じコードで描ける）。
+//
+// 【変異】handleGetStats で BodyWeight を詰めない → キーが null になって赤。
+func TestGetStats_ReturnsBodyWeights(t *testing.T) {
+	mux := newServer(t, true)
+
+	rec := do(t, mux, http.MethodGet, "/api/stats?from=2026-08-01&to=2026-08-31", "")
+	if !strings.Contains(rec.Body.String(), `"body_weight":[]`) {
+		t.Errorf("記録が無いのに body_weight が空配列でない: %s", rec.Body.String())
+	}
+
+	body := `{"conditions":[` +
+		`{"date":"2026-08-12","body_weight_kg":70.4},` +
+		`{"date":"2026-08-10","body_weight_kg":70.8},` +
+		`{"date":"2026-07-20","body_weight_kg":72}]}`
+	if rec := do(t, mux, http.MethodPost, "/api/conditions", body); rec.Code != http.StatusNoContent {
+		t.Fatalf("記録に失敗: %d body=%s", rec.Code, rec.Body.String())
+	}
+
+	rec = do(t, mux, http.MethodGet, "/api/stats?from=2026-08-01&to=2026-08-31", "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("ステータスが誤り: %d body=%s", rec.Code, rec.Body.String())
+	}
+	var got struct {
+		BodyWeight []struct {
+			Date string  `json:"date"`
+			Kg   float64 `json:"kg"`
+		} `json:"body_weight"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatalf("応答を解釈できない: %v", err)
+	}
+	want := []struct {
+		Date string  `json:"date"`
+		Kg   float64 `json:"kg"`
+	}{{"2026-08-10", 70.8}, {"2026-08-12", 70.4}}
+	if fmt.Sprint(got.BodyWeight) != fmt.Sprint(want) {
+		t.Errorf("body_weight = %v, want %v", got.BodyWeight, want)
+	}
+}

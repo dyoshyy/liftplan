@@ -119,6 +119,38 @@ func (q *Stats) Trends(ctx context.Context, user account.UserID, from, to traini
 	return out, nil
 }
 
+// BodyWeights は期間内に記録した体重を古い順に返す。両端を含む。
+//
+// 推定1RMの推移と並べて見るための材料。伸びが止まったのが減量中だからか、
+// 疲れの溜めすぎかは、記録だけでは同じ形をしている。判定はしない（停滞を
+// 検知して落とすかを決めるのは本人）。記録した点をそのまま返し、傾きや
+// 平滑化は足さない。
+func (q *Stats) BodyWeights(ctx context.Context, user account.UserID, from, to training.Date) (_ []Point, err error) {
+	defer func() { err = apperror.Classify(err) }()
+	if from.IsZero() || to.IsZero() {
+		return nil, fmt.Errorf("期間が指定されていない")
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, fmt.Errorf("読み取りが中断された: %w", err)
+	}
+
+	log, err := q.conditions.FindAll(ctx, user)
+	if err != nil {
+		return nil, fmt.Errorf("コンディションの取得に失敗: %w", err)
+	}
+
+	out := []Point{}
+	for _, c := range log.Items() {
+		if c.Date().Before(from) || c.Date().After(to) {
+			continue
+		}
+		if kg, ok := c.BodyWeightKg(); ok {
+			out = append(out, Point{Date: c.Date(), Kg: kg})
+		}
+	}
+	return out, nil
+}
+
 // WeeklyVolume は週目標に対する充足を、直近4週の週あたり平均で返す。
 //
 // これはアプリの中心概念なのに、これまでどこにも表示されていなかった。
