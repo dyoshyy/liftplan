@@ -40,6 +40,10 @@ export function layoutTrend(points: readonly TrendPoint[]): TrendLayout {
   return { x, y, min, max, bestIndex };
 }
 
+/** linePath は 0〜1 の座標を、viewBox 0 0 100 100 の折れ線にする。 */
+export const linePath = (xs: readonly number[], ys: readonly number[]) =>
+  xs.map((x, i) => `${i ? 'L' : 'M'}${(x * 100).toFixed(2)},${((ys[i] ?? 0) * 100).toFixed(2)}`).join(' ');
+
 /** nearestIndex は横位置（0〜1）にいちばん近い点。指で押した位置から点を選ぶ。 */
 export function nearestIndex(xs: readonly number[], ratio: number): number {
   let best = 0;

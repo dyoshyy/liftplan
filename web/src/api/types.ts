@@ -172,6 +172,8 @@ export type StatsResponse = {
   to: string;
   trends: Trend[];
   weekly_volume: Volume[];
+  /** 期間内に記録した体重。古い順。記録が無ければ空配列。 */
+  body_weight: TrendPoint[];
 };
 
 // --- グループ（internal/presentation/httpapi/groups.go と対） ---
