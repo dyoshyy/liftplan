@@ -117,6 +117,12 @@ type AllocationRequest struct {
 	Master []*exercise.Exercise
 	// History は実際の記録。前日まで（呼び出し側が切る）。
 	History setlog.History
+	// Pinned は既に置いてある補助。回ごとに Sessions と同じ並び（短ければ
+	// 足りない回は何も置かない）。nil なら何も置かない。
+	//
+	// 置いた種目は戻り値の各回の先頭にその順で入る。Sessions[k].Slots は
+	// Pinned[k] の数を含めた枠の数として読む（置くたびに1つ減る）。
+	Pinned [][]exercise.ExerciseID
 }
 
 // stimulusEvent は「この日に、この種目ぶんの刺激があった（あるいは、
@@ -256,6 +262,46 @@ func (a AccessoryAllocator) Allocate(req AllocationRequest) ([][]exercise.Exerci
 		chosenSet[k] = map[exercise.ExerciseID]bool{}
 	}
 
+	// place は回 k に種目 e を置く。貪欲法が1手選んだときと Pinned を
+	// 置くときで同じ手続きを通す（片方だけ直すと Pinned の回が別物になる）。
+	place := func(k int, e *exercise.Exercise) {
+		out[k] = append(out[k], e.ID())
+		chosenSet[k][e.ID()] = true
+		slots[k]--
+
+		for _, r := range e.Stimulus().Regions() {
+			t := req.Target.Sets(r)
+			if t <= 0 {
+				continue
+			}
+			c, ok := e.Stimulus().Contribution(r)
+			if !ok {
+				continue
+			}
+			current[r] = training.Quantize(current[r] + c.TimesSets(req.SetsPerAccessory))
+		}
+
+		d := req.Sessions[k].Date
+		allocated = append(allocated, stimulusEvent{date: d, ex: e})
+		if !hasLast[e.ID()] || d.After(lastPerformed[e.ID()]) {
+			lastPerformed[e.ID()] = d
+			hasLast[e.ID()] = true
+		}
+	}
+
+	for k, ids := range req.Pinned {
+		if k >= len(req.Sessions) {
+			return nil, fmt.Errorf("置いてある補助の回 %d が先の回の数 %d を超える", k, len(req.Sessions))
+		}
+		for _, id := range ids {
+			e, ok := byID[id]
+			if !ok {
+				return nil, fmt.Errorf("置いてある補助 %s が種目一覧に無い", id)
+			}
+			place(k, e)
+		}
+	}
+
 	type candidate struct {
 		k     int
 		e     *exercise.Exercise
@@ -335,28 +381,7 @@ func (a AccessoryAllocator) Allocate(req AllocationRequest) ([][]exercise.Exerci
 		})
 
 		chosen := near[0]
-		out[chosen.k] = append(out[chosen.k], chosen.e.ID())
-		chosenSet[chosen.k][chosen.e.ID()] = true
-		slots[chosen.k]--
-
-		for _, r := range chosen.e.Stimulus().Regions() {
-			t := req.Target.Sets(r)
-			if t <= 0 {
-				continue
-			}
-			c, ok := chosen.e.Stimulus().Contribution(r)
-			if !ok {
-				continue
-			}
-			current[r] = training.Quantize(current[r] + c.TimesSets(req.SetsPerAccessory))
-		}
-
-		d := req.Sessions[chosen.k].Date
-		allocated = append(allocated, stimulusEvent{date: d, ex: chosen.e})
-		if !hasLast[chosen.e.ID()] || d.After(lastPerformed[chosen.e.ID()]) {
-			lastPerformed[chosen.e.ID()] = d
-			hasLast[chosen.e.ID()] = true
-		}
+		place(chosen.k, chosen.e)
 	}
 
 	return out, nil
