@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/dyoshyy/liftplan/internal/domain/group"
 	"github.com/dyoshyy/liftplan/internal/domain/training"
 	"github.com/dyoshyy/liftplan/internal/domain/training/exercise"
 	"github.com/dyoshyy/liftplan/internal/domain/training/planning"
@@ -40,7 +41,12 @@ func Classify(err error) error {
 		return fmt.Errorf("%w: %w", ErrConflict, err)
 	case errors.Is(err, exercise.ErrDuplicateExerciseName):
 		return fmt.Errorf("%w: %w", ErrDuplicateName, err)
-	case errors.Is(err, planning.ErrNotPlannedAccessory):
+	case errors.Is(err, group.ErrGroupNotFound), errors.Is(err, group.ErrNotMember),
+		errors.Is(err, group.ErrInvalidID), errors.Is(err, group.ErrInvalidInviteToken):
+		// 原因を連結しない。「無い」と「メンバーでない」で本文が変わると、
+		// 隠したかったグループの存在が本文から分かる（ErrGroupNotFound）。
+		return ErrGroupNotFound
+	case errors.Is(err, group.ErrInvalidName), errors.Is(err, planning.ErrNotPlannedAccessory):
 		return fmt.Errorf("%w: %w", ErrInvalidInput, err)
 	case errors.Is(err, training.ErrRepositoryUnavailable):
 		return fmt.Errorf("%w: %w", ErrUnavailable, err)

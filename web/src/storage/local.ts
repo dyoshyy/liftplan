@@ -45,6 +45,17 @@ export const restKeys = {
   volume: KEY_REST_VOLUME,
 } as const;
 
+// --- グループ ---
+//
+// 招待リンクのトークンは、ログインの往復を越えて持ち越すためにここへ置く
+// （認証の戻り先は固定で、?invite= は落ちる）。参加するかやめたら消す。
+// 最後に見たグループは、消えても困らない便利。
+
+export const groupKeys = {
+  pendingInvite: 'liftplan.groups.invite',
+  selected: 'liftplan.groups.selected',
+} as const;
+
 // --- 補助の差し替え ---
 //
 // どの補助を何に差し替えたか。計画の日付つきで置き、別の日付のものは読まない

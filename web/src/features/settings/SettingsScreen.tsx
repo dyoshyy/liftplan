@@ -3,7 +3,7 @@ import { Button } from '../../ui/Button';
 import { Note } from '../../ui/Card';
 import { Section } from '../../ui/Section';
 import { Stepper } from '../../ui/Stepper';
-import { MAX_VOLUME, MIN_VOLUME, parseVolume, volumeSummary } from '../timer/volume';
+import { MIN_VOLUME, parseVolume, volumeSummary } from '../timer/volume';
 import type { RestTimer } from '../timer/useRestTimer';
 import { ProgramSettings } from './ProgramSettings';
 import { accountLine, accountSummary } from './account';
@@ -47,7 +47,7 @@ export function SettingsScreen({ nameOf, exercises, onChanged, timer, onForget, 
 
       <Section title="休憩の長さ" summary={`${Math.round((timer.durationSec / 60) * 100) / 100}分`}>
         <Stepper
-          label="セットを記録したあと、ここから数える"
+          label="長さ"
           value={String(Math.round((timer.durationSec / 60) * 100) / 100)}
           onChange={(v) => timer.setDurationSec(Number.parseFloat(v) * 60)}
           step={STEP_MIN}
@@ -55,14 +55,11 @@ export function SettingsScreen({ nameOf, exercises, onChanged, timer, onForget, 
           min={0}
           suffix="分"
         />
-        <Note className="mt-3">
-          動いている最中に変えても、いま数えているぶんは伸び縮みしません。次に始めたときから効きます。
-        </Note>
       </Section>
 
       <Section title="休憩終了の音量" summary={volumeSummary(timer.volume)}>
         <Stepper
-          label={`休憩が終わったときの合図（${MIN_VOLUME}〜${MAX_VOLUME}）`}
+          label="音量"
           value={String(timer.volume)}
           onChange={(v) => timer.setVolume(parseVolume(v, timer.volume))}
           step={STEP_VOLUME}
@@ -72,9 +69,6 @@ export function SettingsScreen({ nameOf, exercises, onChanged, timer, onForget, 
         <Button variant="quiet" className="mt-3" onClick={timer.previewSound}>
           試しに鳴らす
         </Button>
-        <Note className="mt-3">
-          0 にすると音は鳴らさず、通知だけ出ます。変えた音量は、次に鳴る合図から効きます。
-        </Note>
       </Section>
 
       <Section title="アカウント" summary={accountSummary(logins)}>
@@ -83,9 +77,7 @@ export function SettingsScreen({ nameOf, exercises, onChanged, timer, onForget, 
             入力中の値が消える。取り消せない操作はその場で二段階にする。 */}
         {confirming ? (
           <>
-            <Note className="mb-3">
-              この端末からログアウトします。未送信の記録は消えませんが、ログインし直すまで送れません。
-            </Note>
+            <Note className="mb-3">未送信の記録は、ログインし直すまで送れません。</Note>
             {/* 失効するのは**この端末のセッションだけ**。他の端末のログインは
                 生きたまま残る。順序と、失敗したときの扱いは useLogout にある。 */}
             <Button variant="danger" disabled={busy} onClick={() => void logout()}>
