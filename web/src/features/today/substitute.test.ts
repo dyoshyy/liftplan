@@ -37,6 +37,14 @@ describe('withResult / rejectedOf', () => {
     expect(s.swaps.get('leg_curl')).toEqual({ replace: 'leg_curl', shown: ['nordic'], current: null });
   });
 
+  it('ほかのカードにいま出ている代わりも外す（同じ代わりが2枚並ばない）', () => {
+    let s = withResult(empty('d'), 'd', 'leg_curl', set('nordic'));
+    s = withResult(s, 'd', 'curl', set('hammer'));
+    s = withResult(s, 'd', 'incline', null);
+    expect(rejectedOf(s.swaps, 'curl').sort()).toEqual(['hammer', 'nordic']);
+    expect(rejectedOf(s.swaps, 'squat').sort()).toEqual(['hammer', 'nordic']);
+  });
+
   it('まだ押していない種目の rejected は空', () => {
     expect(rejectedOf(new Map(), 'leg_curl')).toEqual([]);
   });

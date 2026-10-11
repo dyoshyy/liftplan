@@ -22,9 +22,19 @@ export function swapsFor(state: SwapState, date: string): ReadonlyMap<string, Sw
   return state.date === date ? state.swaps : new Map();
 }
 
-/** rejectedOf は replace の代わりを次に頼むときに外す種目。 */
+/**
+ * rejectedOf は replace の代わりを次に頼むときに外す種目。
+ *
+ * replace についてこれまでに出した代わりと、ほかのカードにいま出ている代わり。
+ * サーバーは今日の補助を元の計画のまま置いて選ぶので、ほかのカードの代わりは
+ * 知らない。外さないと、2台埋まっていた日に同じ代わりが2枚並ぶ。
+ */
 export function rejectedOf(swaps: ReadonlyMap<string, Swap>, replace: string): string[] {
-  return [...(swaps.get(replace)?.shown ?? [])];
+  const out = new Set(swaps.get(replace)?.shown ?? []);
+  for (const s of swaps.values()) {
+    if (s.replace !== replace && s.current) out.add(s.current.exercise_id);
+  }
+  return [...out];
 }
 
 /** withResult はサーバーの答えを差し替えに反映した新しい状態を返す。 */
@@ -35,7 +45,7 @@ export function withResult(
   result: PlannedSet | null,
 ): SwapState {
   const swaps = new Map(swapsFor(state, date));
-  const shown = rejectedOf(swaps, replace);
+  const shown = [...(swaps.get(replace)?.shown ?? [])];
   if (result) shown.push(result.exercise_id);
   swaps.set(replace, { replace, shown, current: result });
   return { date, swaps };

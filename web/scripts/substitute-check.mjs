@@ -141,6 +141,16 @@ check(
 );
 check('開き直しても元の補助は出ない', !replaced || !sub || !reloaded.includes(replaced), reloaded.join(','));
 
+// 2台埋まっていた日：ほかのカードでも押す。同じ代わりが2枚並ばない。
+for (const name of await cardNames()) {
+  if ((await blockedOf(name).count()) === 1) {
+    await blockedOf(name).click();
+    await page.waitForTimeout(1200);
+  }
+}
+const many = await cardNames();
+check('いくつ差し替えても同じ種目のカードが2枚並ばない', new Set(many).size === many.length, many.join(','));
+
 console.log('\nエラー:', errs.length ? errs.join('\n') : '(なし)');
 check('コンソールにエラーが出ない', errs.length === 0, errs.join(' | '));
 
