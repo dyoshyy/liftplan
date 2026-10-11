@@ -81,17 +81,63 @@ func (p SessionPlanner) IsZero() bool { return p == SessionPlanner{} }
 // 0でも割り振りは最後まで回す（回0の補助はその場合ちょうど0件になる
 // だけ）。
 func (p SessionPlanner) Forecast(req PlanRequest) ([]PlannedSession, error) {
+	w, err := p.planWeek(req)
+	if err != nil {
+		return nil, err
+	}
+	pool, estimable, sessions, allocations := w.pool, w.estimable, w.sessions, w.allocations
+
+	out := make([]PlannedSession, len(sessions))
+	for k, sess := range sessions {
+		var lineup []lineupEntry
+		if heavy, _, ok := sess.Axis(); ok {
+			role := sess.axisLaneRole()
+			lineup = append(lineup, lineupEntry{
+				exercise: heavy, role: role,
+				reps: axisRepTargets(req.Program, heavy, role),
+			})
+		}
+		if v, _, ok := sess.Variation(); ok {
+			lineup = append(lineup, lineupEntry{exercise: v, role: variationRole, reps: program.DefaultRepTargets()})
+		}
+		for _, id := range allocations[k] {
+			// Allocate が返すのは Pool（= pool から exclude を引いたもの）
+			// の中の種目に限るので、findExercise が nil を返す経路は無い。
+			if e := findExercise(pool, id); e != nil {
+				lineup = append(lineup, lineupEntry{exercise: e, role: accessoryRole, reps: program.DefaultRepTargets()})
+			}
+		}
+
+		split, hasSplit := sess.Split()
+		out[k] = p.prescribe(lineup, estimable, req.Conditions, req.Date,
+			req.Program.SessionVolume().Sets(), split, hasSplit)
+	}
+	return out, nil
+}
+
+// weekPlan は Forecast と Substitute が共有する、週ぶんの割り振りまでの途中経過。
+type weekPlan struct {
+	pool        []*exercise.Exercise
+	estimable   setlog.History
+	sessions    []ProjectedSession
+	alloc       AllocationRequest
+	allocations [][]exercise.ExerciseID
+}
+
+// planWeek は今日を含めた先の回を予測し、補助を割り振るところまでを行う。
+// Forecast と Substitute の共通の前半（経路を1本にする）。
+func (p SessionPlanner) planWeek(req PlanRequest) (weekPlan, error) {
 	if p.IsZero() {
-		return nil, errors.New("セッション生成器が未設定である")
+		return weekPlan{}, errors.New("セッション生成器が未設定である")
 	}
 	if req.Program == nil {
-		return nil, errors.New("プログラムが指定されていない")
+		return weekPlan{}, errors.New("プログラムが指定されていない")
 	}
 	if req.Target.IsEmpty() {
-		return nil, errors.New("週目標が指定されていない")
+		return weekPlan{}, errors.New("週目標が指定されていない")
 	}
 	if req.Date.IsZero() {
-		return nil, errors.New("対象日が指定されていない")
+		return weekPlan{}, errors.New("対象日が指定されていない")
 	}
 
 	pool := usablePool(req.Pool, req.Program)
@@ -139,12 +185,12 @@ func (p SessionPlanner) Forecast(req PlanRequest) ([]PlannedSession, error) {
 		// 到達しない。NewProgram が宣言ゼロを弾き、declared ⊂ selected
 		// なので pool に必ず1つ以上残る（req.Pool 自体が空の異常入力を
 		// 除く。その場合はこの分岐が最後の砦になる）。
-		return nil, errors.New("伸ばしたい種目が1つも選ばれていない")
+		return weekPlan{}, errors.New("伸ばしたい種目が1つも選ばれていない")
 	}
 
 	sessions, err := p.ProjectHorizon(history, req.Program, pool, req.Date)
 	if err != nil {
-		return nil, fmt.Errorf("先の回の予測に失敗: %w", err)
+		return weekPlan{}, fmt.Errorf("先の回の予測に失敗: %w", err)
 	}
 	exercisesPerSession := req.Program.SessionVolume().Exercises()
 	horizon := toHorizonSessions(sessions, exercisesPerSession)
@@ -166,49 +212,28 @@ func (p SessionPlanner) Forecast(req PlanRequest) ([]PlannedSession, error) {
 
 	setsPerAccessory, err := training.NewSetCount(req.Program.SessionVolume().Sets())
 	if err != nil {
-		return nil, fmt.Errorf("補助のセット数が不正: %w", err)
+		return weekPlan{}, fmt.Errorf("補助のセット数が不正: %w", err)
 	}
 
 	// 重点種目の系統が余分に入れる刺激のぶん、その区分の目標を上げる
 	// （raiseForFocus）。画面の充足も同じ目標を見る（WeeklyTarget）。
 	target := raiseForFocus(req.Target, sessions)
 
-	allocations, err := p.accessory.Allocate(AllocationRequest{
+	alloc := AllocationRequest{
 		Target: target, Baseline: baseline, Sessions: horizon,
 		Cycle: req.Program.Cycle(), SetsPerAccessory: setsPerAccessory,
 		Pool: candidateAccessories(req.Pool, exclude), Master: req.Pool,
 		History: history,
-	})
+	}
+	allocations, err := p.accessory.Allocate(alloc)
 	if err != nil {
-		return nil, fmt.Errorf("補助の割り振りに失敗: %w", err)
+		return weekPlan{}, fmt.Errorf("補助の割り振りに失敗: %w", err)
 	}
 
-	out := make([]PlannedSession, len(sessions))
-	for k, sess := range sessions {
-		var lineup []lineupEntry
-		if heavy, _, ok := sess.Axis(); ok {
-			role := sess.axisLaneRole()
-			lineup = append(lineup, lineupEntry{
-				exercise: heavy, role: role,
-				reps: axisRepTargets(req.Program, heavy, role),
-			})
-		}
-		if v, _, ok := sess.Variation(); ok {
-			lineup = append(lineup, lineupEntry{exercise: v, role: variationRole, reps: program.DefaultRepTargets()})
-		}
-		for _, id := range allocations[k] {
-			// Allocate が返すのは Pool（= pool から exclude を引いたもの）
-			// の中の種目に限るので、findExercise が nil を返す経路は無い。
-			if e := findExercise(pool, id); e != nil {
-				lineup = append(lineup, lineupEntry{exercise: e, role: accessoryRole, reps: program.DefaultRepTargets()})
-			}
-		}
-
-		split, hasSplit := sess.Split()
-		out[k] = p.prescribe(lineup, estimable, req.Conditions, req.Date,
-			req.Program.SessionVolume().Sets(), split, hasSplit)
-	}
-	return out, nil
+	return weekPlan{
+		pool: pool, estimable: estimable, sessions: sessions,
+		alloc: alloc, allocations: allocations,
+	}, nil
 }
 
 // Plan はその日のセッションを導出する。Forecast の回0を取り出すだけ。
@@ -221,8 +246,8 @@ func (p SessionPlanner) Forecast(req PlanRequest) ([]PlannedSession, error) {
 // 状態が原理的に発生しない。
 //
 // 受け入れ条件は TestSessionPlanner_PlanIsFixedForTheWholeDay。当日の
-// 記録を落とす規約（history := req.History.Before(req.Date)）は Forecast
-// 側に1箇所だけ残る。
+// 記録を落とす規約（history := req.History.Before(req.Date)）は planWeek
+// に1箇所だけ残る（Forecast と Substitute が共有する）。
 func (p SessionPlanner) Plan(req PlanRequest) (PlannedSession, error) {
 	sessions, err := p.Forecast(req)
 	if err != nil {
