@@ -3,7 +3,7 @@ import type { Trend } from '../../api/types';
 import { label } from '../../domain/date';
 import { Button } from '../../ui/Button';
 import { ChevronLeftIcon, ChevronRightIcon } from '../../ui/icons';
-import { layoutTrend, nearestIndex, stepIndex } from './trend';
+import { layoutTrend, linePath, nearestIndex, stepIndex } from './trend';
 
 type Props = {
   trend: Trend;
@@ -172,6 +172,3 @@ export function TrendRow({ trend, changeLabel, onOpenLog }: Props) {
     </div>
   );
 }
-
-const linePath = (xs: readonly number[], ys: readonly number[]) =>
-  xs.map((x, i) => `${i ? 'L' : 'M'}${(x * 100).toFixed(2)},${((ys[i] ?? 0) * 100).toFixed(2)}`).join(' ');

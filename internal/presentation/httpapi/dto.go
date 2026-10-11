@@ -396,4 +396,6 @@ type statsResponse struct {
 	To           string      `json:"to"`
 	Trends       []trendDTO  `json:"trends"`
 	WeeklyVolume []volumeDTO `json:"weekly_volume"`
+	// BodyWeight は期間内に記録した体重。古い順。推定1RMの推移と並べて見る。
+	BodyWeight []pointDTO `json:"body_weight"`
 }

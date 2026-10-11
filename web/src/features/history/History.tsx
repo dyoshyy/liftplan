@@ -13,6 +13,7 @@ import { ExercisePicker } from '../exercises/ExercisePicker';
 import { monthGrid } from './calendar';
 import { addableRange, exercisesOn, monthLabel, monthOf, summarize, type Month } from './month';
 import { TrendRow } from './TrendChart';
+import { BodyWeightChart } from './BodyWeightChart';
 import { changeWindowLabel } from './trend';
 import type { MonthLogs } from './useMonthLogs';
 import { EditSetSheet } from './EditSetSheet';
@@ -366,6 +367,10 @@ function Stats({
             いないように見える。 */}
         <WeeklySummary volume={stats.weekly_volume} />
         <WeeklyVolume volume={stats.weekly_volume} />
+      </Card>
+
+      <Card title="体重の推移">
+        <BodyWeightChart points={stats.body_weight} changeLabel={changeWindowLabel(stats.from, stats.to)} />
       </Card>
 
       <Card title="推定1RM の推移">

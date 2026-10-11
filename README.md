@@ -101,7 +101,7 @@ curl -H 'Authorization: Bearer <セッショントークン>' 'http://localhost:
 | DELETE | `/api/exercises/{id}` | 種目を消す（論理削除・204）。プリセット由来かどうかで扱いを変えない。伸ばしたい種目に入っている種目は消せない |
 | GET | `/api/set-logs?from=&to=` | 実績と、種目ごとの前回の実績。既定は直近56日 |
 | DELETE | `/api/set-logs/{id}` | 打ち間違いの取り消し |
-| GET | `/api/stats?from=&to=` | 推定1RMの推移と、今週の週目標の充足 |
+| GET | `/api/stats?from=&to=` | 推定1RMの推移、今週の週目標の充足、期間内に記録した体重（`body_weight`） |
 
 ### セッション取得の例
 
