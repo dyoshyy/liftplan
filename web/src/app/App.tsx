@@ -4,6 +4,9 @@ import { label, today } from '../domain/date';
 import { ExerciseManager } from '../features/exercises/ExerciseManager';
 import { Forecast } from '../features/forecast/Forecast';
 import { Groups } from '../features/groups/Groups';
+import { JoinInvite } from '../features/groups/JoinInvite';
+import { usePendingInvite } from '../features/groups/usePendingInvite';
+import { Note } from '../ui/Card';
 import { CoachMarks } from '../features/onboarding/CoachMarks';
 import { Onboarding } from '../features/onboarding/Onboarding';
 import { Setup } from '../features/setup/Setup';
@@ -49,10 +52,13 @@ export function App() {
   // 通い方を決めた直後にだけ、「今日」の使い方を指して見せる。メモリだけに
   // 持つので、再読み込みすれば出ない（済んだことは保存で記録済み）。
   const [coaching, setCoaching] = useState(false);
+  // 「今日」へ戻してから流す。招待から入った人は、設定の途中で参加すると
+  // 仲間の画面へ移っていて、そのままだとコーチマークの出番が来ない。
   const finishOnboarding = useCallback(async () => {
     await reload();
+    go('today');
     setCoaching(true);
-  }, [reload]);
+  }, [reload, go]);
   const stopCoaching = useCallback(() => setCoaching(false), []);
   const monthLogs = useMonthLogs(hasToken && route === 'history', data.days, !firstLoad);
   // 履歴での修正は、直近の記録（今月と今日の画面）と、取ってある過去の月の
@@ -67,6 +73,14 @@ export function App() {
     [applyLocally, patchMonth],
   );
   const editor = useHistoryEditor({ enqueue: outbox.enqueue, onApplied: onHistoryEdited });
+
+  // 招待から入ったら仲間の画面へ。key を替えて一覧を読み直させる
+  // （既に仲間の画面にいると、開き直さないかぎり読み直さない）。
+  const [groupsKey, setGroupsKey] = useState(0);
+  const invite = usePendingInvite(hasToken, () => {
+    setGroupsKey((k) => k + 1);
+    go('groups');
+  });
 
   return (
     <>
@@ -102,7 +116,10 @@ export function App() {
         <UpdateBanner />
 
         {!hasToken ? (
-          <Setup pending={outbox.pending} />
+          <>
+            {invite.pending && <Note>招待リンクを開きました。ログインすると参加できます。</Note>}
+            <Setup pending={outbox.pending} />
+          </>
         ) : (
           <>
             {/* 同期の異常はどの画面にいても出す。記録が送れていないことは、
@@ -115,6 +132,8 @@ export function App() {
               onClearRejected={() => void outbox.clearRejected()}
               onClearFailed={outbox.clearFailed}
             />
+
+            <JoinInvite invite={invite} />
 
             {/* 画面を替えたときだけふわっと出す。key が route なので、同じ画面の
                 描き直しでは入り直さない。 */}
@@ -168,7 +187,7 @@ export function App() {
 
                 {route === 'forecast' && <Forecast nameOf={nameOf} onBack={() => go('today')} />}
 
-                {route === 'groups' && <Groups />}
+                {route === 'groups' && <Groups key={groupsKey} />}
 
                 {route === 'exercises' && (
                   <ExerciseManager
