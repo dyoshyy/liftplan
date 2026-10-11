@@ -44,3 +44,14 @@ export const restKeys = {
   state: KEY_REST_STATE,
   volume: KEY_REST_VOLUME,
 } as const;
+
+// --- グループ ---
+//
+// 招待リンクのトークンは、ログインの往復を越えて持ち越すためにここへ置く
+// （認証の戻り先は固定で、?invite= は落ちる）。参加するかやめたら消す。
+// 最後に見たグループは、消えても困らない便利。
+
+export const groupKeys = {
+  pendingInvite: 'liftplan.groups.invite',
+  selected: 'liftplan.groups.selected',
+} as const;

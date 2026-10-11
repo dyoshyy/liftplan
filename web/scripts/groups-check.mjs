@@ -117,6 +117,82 @@ await page.goBack();
 await page.waitForTimeout(500);
 check('戻るで今日の画面に戻る', !(await body()).includes('グループを作る'));
 
+// --- 招待リンクから入る ---
+//
+// 認証の戻り先は固定なので、?invite= はログインの往復で落ちる。開いた時点で
+// 端末に覚え、URL からは消し、ログインのあとで聞く。
+
+const fresh = await browser.newContext({ viewport: { width: 390, height: 844 } });
+const p2 = await fresh.newPage();
+p2.on('pageerror', (e) => errs.push('pageerror: ' + e.message));
+await p2.goto(`${APP}/?invite=no-such-token`);
+await p2.waitForTimeout(1200);
+check(
+  'ログイン前でも招待を受け取ったと出る',
+  (await p2.innerText('body')).includes('ログインすると参加できます'),
+);
+check('招待のトークンは URL から消える', !p2.url().includes('invite='), p2.url());
+
+await p2.goto(`${APP}/#token=${TOKEN}`);
+await p2.reload();
+await p2.waitForTimeout(2000);
+check(
+  'ログインのあと、使えないリンクだと分かる',
+  (await p2.innerText('body')).includes('このリンクは使えません'),
+);
+await p2.getByRole('button', { name: '閉じる' }).click();
+await p2.waitForTimeout(300);
+check(
+  '閉じると招待は消える',
+  (await p2.evaluate(() => localStorage.getItem('liftplan.groups.invite'))) === null,
+);
+
+const made = await fetch(`${API}/api/groups`, {
+  method: 'POST',
+  headers: { ...auth, 'Content-Type': 'application/json' },
+  body: JSON.stringify({ name: '会社', display_name: '吉田' }),
+}).then((r) => r.json());
+
+await p2.goto(`${APP}/?invite=${encodeURIComponent(made.invite_token)}`);
+await p2.waitForTimeout(1500);
+check(
+  '自分のグループのリンクなら参加済みと出る',
+  (await p2.innerText('body')).includes('「会社」には参加しています'),
+);
+await p2.getByRole('button', { name: '見る', exact: true }).click();
+await p2.waitForTimeout(1200);
+check('見るとそのグループの今週が開く', (await p2.innerText('body')).includes('吉田'));
+
+// 2人目は作れないので、リンクの中身だけ「未参加」に差し替える。参加の送信は
+// 本物に送る（既にメンバーなので冪等に同じグループの ID が返る）。
+await p2.route(`${API}/api/invites/${encodeURIComponent(made.invite_token)}`, (route) =>
+  route.fulfill({
+    status: 200,
+    contentType: 'application/json',
+    headers: { 'Access-Control-Allow-Origin': APP },
+    body: JSON.stringify({ group_id: made.id, name: '会社', member_count: 1, already_member: false }),
+  }),
+);
+await p2.getByRole('button', { name: '今日', exact: true }).click();
+await p2.goto(`${APP}/?invite=${encodeURIComponent(made.invite_token)}`);
+await p2.waitForTimeout(1500);
+check('未参加なら参加するかを聞く', (await p2.innerText('body')).includes('「会社」（1人）に参加しますか'));
+const joinButton = p2.getByRole('button', { name: '参加する', exact: true });
+check('名前を入れるまで参加できない', await joinButton.isDisabled());
+await p2.getByLabel('このグループでの自分の名前').fill('たろう');
+await joinButton.click();
+await p2.waitForTimeout(1500);
+const joinedText = await p2.innerText('body');
+check(
+  '参加すると仲間の画面へ移り、そのグループが開く',
+  joinedText.includes('今週') && joinedText.includes('吉田'),
+);
+check(
+  '参加したら招待は消える',
+  (await p2.evaluate(() => localStorage.getItem('liftplan.groups.invite'))) === null,
+);
+await fetch(`${API}/api/groups/${made.id}/members/me`, { method: 'DELETE', headers: auth });
+
 check('コンソールにエラーが無い', errs.length === 0, errs.join(' | '));
 
 await browser.close();

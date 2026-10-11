@@ -8,11 +8,8 @@ import type {
   InviteTokenResponse,
 } from '../../api/types';
 import { today } from '../../domain/date';
-import { readJSON, writeJSON } from '../../storage/local';
+import { groupKeys, readJSON, writeJSON } from '../../storage/local';
 import { chooseGroup, describeFailure, groupErrorMessage } from './groups';
-
-// 最後に見たグループ。端末に覚えるだけの便利で、消えても困らない。
-const KEY_SELECTED = 'liftplan.groups.selected';
 
 export type Groups = {
   /** 自分のグループ。読めていなければ null。 */
@@ -51,7 +48,7 @@ export function useGroups(): Groups {
     try {
       const res = await getJSON<GroupsResponse>('/api/groups');
       setGroups(res.groups);
-      setSelectedId(chooseGroup(res.groups, prefer ?? readJSON<string>(KEY_SELECTED)));
+      setSelectedId(chooseGroup(res.groups, prefer ?? readJSON<string>(groupKeys.selected)));
     } catch (e) {
       setError(groupErrorMessage(e));
     }
@@ -64,7 +61,7 @@ export function useGroups(): Groups {
   useEffect(() => {
     setWeek(null);
     if (selectedId === null) return;
-    writeJSON(KEY_SELECTED, selectedId);
+    writeJSON(groupKeys.selected, selectedId);
     let stale = false;
     getJSON<GroupWeek>(`/api/groups/${encodeURIComponent(selectedId)}/week?date=${today()}`)
       .then((w) => {

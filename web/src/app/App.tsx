@@ -1,9 +1,12 @@
-import { useCallback } from 'react';
+import { useCallback, useState } from 'react';
 import type { DayChange } from '../domain/days';
 import { label, today } from '../domain/date';
 import { ExerciseManager } from '../features/exercises/ExerciseManager';
 import { Forecast } from '../features/forecast/Forecast';
 import { Groups } from '../features/groups/Groups';
+import { JoinInvite } from '../features/groups/JoinInvite';
+import { usePendingInvite } from '../features/groups/usePendingInvite';
+import { Note } from '../ui/Card';
 import { Setup } from '../features/setup/Setup';
 import { GearIcon } from '../ui/icons';
 import { Today } from '../features/today/Today';
@@ -54,6 +57,14 @@ export function App() {
   );
   const editor = useHistoryEditor({ enqueue: outbox.enqueue, onApplied: onHistoryEdited });
 
+  // 招待から入ったら仲間の画面へ。key を替えて一覧を読み直させる
+  // （既に仲間の画面にいると、開き直さないかぎり読み直さない）。
+  const [groupsKey, setGroupsKey] = useState(0);
+  const invite = usePendingInvite(hasToken, () => {
+    setGroupsKey((k) => k + 1);
+    go('groups');
+  });
+
   return (
     <>
       <header className="sticky top-0 z-30 border-b border-line-soft bg-ground/90 backdrop-blur-[10px]">
@@ -87,7 +98,10 @@ export function App() {
         <UpdateBanner />
 
         {!hasToken ? (
-          <Setup pending={outbox.pending} />
+          <>
+            {invite.pending && <Note>招待リンクを開きました。ログインすると参加できます。</Note>}
+            <Setup pending={outbox.pending} />
+          </>
         ) : (
           <>
             {/* 同期の異常はどの画面にいても出す。記録が送れていないことは、
@@ -100,6 +114,8 @@ export function App() {
               onClearRejected={() => void outbox.clearRejected()}
               onClearFailed={outbox.clearFailed}
             />
+
+            <JoinInvite invite={invite} />
 
             {/* 画面を替えたときだけふわっと出す。key が route なので、同じ画面の
                 描き直しでは入り直さない。 */}
@@ -150,7 +166,7 @@ export function App() {
 
               {route === 'forecast' && <Forecast nameOf={nameOf} onBack={() => go('today')} />}
 
-              {route === 'groups' && <Groups />}
+              {route === 'groups' && <Groups key={groupsKey} />}
 
               {route === 'exercises' && (
                 <ExerciseManager
