@@ -84,7 +84,6 @@ export function usePendingInvite(hasToken: boolean, onEntered: (groupId: string)
   }, []);
 
   const enter = (groupId: string) => {
-    writeJSON(groupKeys.selected, groupId);
     close();
     onEntered(groupId);
   };

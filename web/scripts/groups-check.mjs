@@ -74,16 +74,38 @@ await page.getByLabel('このグループでの自分の名前').fill('よし');
 await create.click();
 await page.waitForTimeout(1000);
 
-const text = await body();
-check('作ったグループの名前が出る', text.includes('ジム仲間'));
+let text = await body();
+check('作るとそのグループの詳細が開く', text.includes('ジム仲間') && text.includes('今週の記録'));
 check('格子に自分の行が出る', text.includes('よし') && text.includes('(自分)'));
 
-const dot = page.getByRole('button', { name: /よし .* の種目/ });
+const dot = page.getByRole('button', { name: /よし .* の記録へ/ });
 check('今日のマスに ● が1つ出る', (await dot.count()) === 1);
+check('押さなくても、その日の種目が記録に出る', text.includes('ベンチプレス'));
+check('重量は出ない', !text.includes('60kg') && !text.includes('60 kg'));
 await dot.first().click();
 await page.waitForTimeout(300);
-check('● を押すとその日の種目が出る', (await body()).includes('ベンチプレス'));
-check('重量は出ない', !(await body()).includes('60kg') && !(await body()).includes('60 kg'));
+check('詳細に「別のグループを作る」は無い', !(await body()).includes('別のグループを作る'));
+
+await page.locator('main').getByRole('button', { name: 'グループ', exact: true }).click();
+await page.waitForTimeout(800);
+text = await body();
+check(
+  '「グループ」で一覧に戻る',
+  text.includes('ジム仲間') && text.includes('1人') && !text.includes('今週の記録'),
+);
+check(
+  '一覧に「グループを作る」がある',
+  (await page.getByRole('button', { name: 'グループを作る' }).count()) === 1,
+);
+check('一覧にグループへの操作は無い', !text.includes('招待リンクを共有'));
+
+await page.getByRole('button', { name: /ジム仲間/ }).click();
+await page.waitForTimeout(800);
+await page.goBack();
+await page.waitForTimeout(800);
+check('詳細で戻ると一覧に戻る', (await body()).includes('グループを作る'));
+await page.getByRole('button', { name: /ジム仲間/ }).click();
+await page.waitForTimeout(800);
 
 await page.getByRole('button', { name: '招待リンクを共有' }).click();
 await page.waitForTimeout(300);
@@ -109,7 +131,7 @@ await page.getByRole('button', { name: 'グループを抜ける' }).click();
 check('抜ける前に画面内で確認する', (await body()).includes('お互いの記録が見えなくなります'));
 await page.getByRole('button', { name: '抜ける', exact: true }).click();
 await page.waitForTimeout(800);
-check('最後の1人が抜けると作る画面に戻る', (await body()).includes('グループを作る'));
+check('最後の1人が抜けると一覧（空なので作る画面）に戻る', (await body()).includes('グループを作る'));
 const after = await fetch(`${API}/api/groups`, { headers: auth }).then((r) => r.json());
 check('抜けたグループは一覧から消える', after.groups.length === 0);
 
@@ -161,7 +183,7 @@ check(
 );
 await p2.getByRole('button', { name: '見る', exact: true }).click();
 await p2.waitForTimeout(1200);
-check('見るとそのグループの今週が開く', (await p2.innerText('body')).includes('吉田'));
+check('見るとそのグループの詳細が開く', (await p2.innerText('body')).includes('吉田'));
 
 // 2人目は作れないので、リンクの中身だけ「未参加」に差し替える。参加の送信は
 // 本物に送る（既にメンバーなので冪等に同じグループの ID が返る）。
@@ -183,10 +205,7 @@ await p2.getByLabel('このグループでの自分の名前').fill('たろう')
 await joinButton.click();
 await p2.waitForTimeout(1500);
 const joinedText = await p2.innerText('body');
-check(
-  '参加するとグループの画面へ移り、そのグループが開く',
-  joinedText.includes('今週') && joinedText.includes('吉田'),
-);
+check('参加するとそのグループの詳細が開く', joinedText.includes('今週') && joinedText.includes('吉田'));
 check(
   '参加したら招待は消える',
   (await p2.evaluate(() => localStorage.getItem('liftplan.groups.invite'))) === null,

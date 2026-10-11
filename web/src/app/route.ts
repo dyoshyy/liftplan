@@ -8,12 +8,13 @@
 // あとに戻ろうとしてアプリごと閉じる。PWA では致命的で、記録の途中なら
 // なおさら困る。
 
-export type Route = 'today' | 'history' | 'groups' | 'settings' | 'forecast' | 'exercises';
+export type Route = 'today' | 'history' | 'groups' | 'group' | 'settings' | 'forecast' | 'exercises';
 
 export const isRoute = (v: unknown): v is Route =>
   v === 'today' ||
   v === 'history' ||
   v === 'groups' ||
+  v === 'group' ||
   v === 'settings' ||
   v === 'forecast' ||
   v === 'exercises';
@@ -25,8 +26,9 @@ export const fromState = (state: unknown): Route => {
   return isRoute(route) ? route : 'today';
 };
 
-/** parentOf は1段上の行き先。種目ページは設定から開く子。無ければ今日の直下。 */
-const parentOf: Partial<Record<Route, Route>> = { exercises: 'settings' };
+/** parentOf は1段上の行き先。種目ページは設定から、グループの詳細は一覧から
+ *  開く子。無ければ今日の直下。 */
+const parentOf: Partial<Record<Route, Route>> = { exercises: 'settings', group: 'groups' };
 
 /** depth は今日から何段積んだ位置か。今日が 0。 */
 const depth = (r: Route): number => {

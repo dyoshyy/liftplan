@@ -3,7 +3,8 @@ import type { DayChange } from '../domain/days';
 import { label, today } from '../domain/date';
 import { ExerciseManager } from '../features/exercises/ExerciseManager';
 import { Forecast } from '../features/forecast/Forecast';
-import { Groups } from '../features/groups/Groups';
+import { GroupDetail } from '../features/groups/GroupDetail';
+import { GroupList } from '../features/groups/GroupList';
 import { JoinInvite } from '../features/groups/JoinInvite';
 import { usePendingInvite } from '../features/groups/usePendingInvite';
 import { Note } from '../ui/Card';
@@ -74,12 +75,22 @@ export function App() {
   );
   const editor = useHistoryEditor({ enqueue: outbox.enqueue, onApplied: onHistoryEdited });
 
-  // 招待から入ったらグループの画面へ。key を替えて一覧を読み直させる
-  // （既にグループの画面にいると、開き直さないかぎり読み直さない）。
+  // 開いているグループ。行き先（route）はパラメータを持たないので、ここで持つ。
+  const [groupId, setGroupId] = useState<string | null>(null);
+  // key を替えて一覧を読み直させる。参加・退出のあと、同じ画面のままだと
+  // 開き直さないかぎり読み直さない。
   const [groupsKey, setGroupsKey] = useState(0);
-  const invite = usePendingInvite(hasToken, () => {
+  const openGroup = useCallback(
+    (id: string) => {
+      setGroupId(id);
+      go('group');
+    },
+    [go],
+  );
+  // 招待から入ったら、そのグループの詳細を開く。
+  const invite = usePendingInvite(hasToken, (id) => {
     setGroupsKey((k) => k + 1);
-    go('groups');
+    openGroup(id);
   });
 
   return (
@@ -187,7 +198,21 @@ export function App() {
 
                 {route === 'forecast' && <Forecast nameOf={nameOf} onBack={() => go('today')} />}
 
-                {route === 'groups' && <Groups key={groupsKey} />}
+                {(route === 'groups' || (route === 'group' && groupId === null)) && (
+                  <GroupList key={groupsKey} onOpen={openGroup} />
+                )}
+
+                {route === 'group' && groupId !== null && (
+                  <GroupDetail
+                    key={groupId}
+                    id={groupId}
+                    onBack={() => go('groups')}
+                    onLeft={() => {
+                      setGroupsKey((k) => k + 1);
+                      go('groups');
+                    }}
+                  />
+                )}
 
                 {route === 'exercises' && (
                   <ExerciseManager
