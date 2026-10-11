@@ -33,10 +33,17 @@ type SessionRepo interface {
 	account.SessionWriter
 }
 
+// OnboardingRepo は読み書き両方を備えた初回の案内の実装。
+type OnboardingRepo interface {
+	account.OnboardingReader
+	account.OnboardingWriter
+}
+
 // Repos は1つのテストケースで使う実装の組。
 type Repos struct {
-	Accounts AccountRepo
-	Sessions SessionRepo
+	Accounts   AccountRepo
+	Sessions   SessionRepo
+	Onboarding OnboardingRepo
 }
 
 // 契約テストで使う固定値。
@@ -674,4 +681,45 @@ func mustIssue(
 		t.Fatalf("セッションを発行できない: %v", err)
 	}
 	return token, s
+}
+
+// RunOnboardingContract は初回の案内の口が満たすべき契約を回す。
+func RunOnboardingContract(t *testing.T, newRepos func(t *testing.T) Repos) {
+	t.Helper()
+	ctx := context.Background()
+
+	t.Run("行が無ければまだ", func(t *testing.T) {
+		r := newRepos(t).Onboarding
+		got, err := r.OnboardingCompleted(ctx, userA)
+		if err != nil || got {
+			t.Fatalf("OnboardingCompleted = %v, %v。false, nil であること", got, err)
+		}
+	})
+
+	t.Run("済ませたら済み、別の利用者はまだ", func(t *testing.T) {
+		r := newRepos(t).Onboarding
+		if err := r.CompleteOnboarding(ctx, userA, at); err != nil {
+			t.Fatalf("CompleteOnboarding: %v", err)
+		}
+		if got, err := r.OnboardingCompleted(ctx, userA); err != nil || !got {
+			t.Fatalf("userA = %v, %v。true であること", got, err)
+		}
+		if got, err := r.OnboardingCompleted(ctx, userB); err != nil || got {
+			t.Fatalf("userB = %v, %v。false のままであること", got, err)
+		}
+	})
+
+	// 画面は送信に失敗すると最初から送り直す。2回目を拒むと、済んだのに
+	// 「済ませられない」と出る。
+	t.Run("2回済ませてもエラーにならない", func(t *testing.T) {
+		r := newRepos(t).Onboarding
+		for i := range 2 {
+			if err := r.CompleteOnboarding(ctx, userA, at.Add(time.Duration(i)*time.Hour)); err != nil {
+				t.Fatalf("%d回目: %v", i+1, err)
+			}
+		}
+		if got, err := r.OnboardingCompleted(ctx, userA); err != nil || !got {
+			t.Fatalf("userA = %v, %v。true であること", got, err)
+		}
+	})
 }
