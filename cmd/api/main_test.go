@@ -709,7 +709,7 @@ func TestBuildHandler_RequiresAuthentication(t *testing.T) {
 	t.Cleanup(closeRepos)
 
 	for _, path := range []string{
-		"/api/sessions?date=2026-08-17", "/api/program",
+		"/api/sessions?date=2026-08-17", "/api/program", "/api/onboarding",
 	} {
 		rec := httptest.NewRecorder()
 		handler.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, path, nil))
@@ -726,6 +726,13 @@ func TestBuildHandler_RequiresAuthentication(t *testing.T) {
 	handler.ServeHTTP(rec, r)
 	if rec.Code != http.StatusUnauthorized {
 		t.Errorf("書き込みが認証なしで通った: %d", rec.Code)
+	}
+
+	// 案内の完了も。通ると、誰でも他人の案内を済ませたことにできる。
+	rec = httptest.NewRecorder()
+	handler.ServeHTTP(rec, httptest.NewRequest(http.MethodPut, "/api/onboarding/completed", nil))
+	if rec.Code != http.StatusUnauthorized {
+		t.Errorf("案内の完了が認証なしで通った: %d", rec.Code)
 	}
 
 	// ヘルスチェックは通ること。
@@ -795,5 +802,46 @@ func TestBuildHandler_GuardsTheSimulation(t *testing.T) {
 		if rec.Code != http.StatusOK {
 			t.Errorf("%s が認証ありで通らない: %d body=%s", target, rec.Code, rec.Body.String())
 		}
+	}
+}
+
+// 開発用の利用者は、初回の案内を済ませた状態で始まる。
+//
+// 画面の検査スクリプトは開発用の利用者で「今日」を開く。済んでいないと
+// 全部が設定画面に阻まれる。案内そのものを検査するときだけ
+// DEV_ONBOARDING_PENDING=1 で未完了から始める。
+func TestBuildHandler_DevUserOnboarding(t *testing.T) {
+	for _, c := range []struct {
+		name    string
+		pending string
+		want    bool
+	}{
+		{"既定は済み", "", true},
+		{"DEV_ONBOARDING_PENDING=1 でまだ", "1", false},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			setAuthEnv(t)
+			t.Setenv("DEV_ONBOARDING_PENDING", c.pending)
+			handler, closeRepos, err := buildHandler(context.Background())
+			if err != nil {
+				t.Fatalf("組み立てに失敗: %v", err)
+			}
+			t.Cleanup(closeRepos)
+
+			rec := httptest.NewRecorder()
+			handler.ServeHTTP(rec, authed(http.MethodGet, "/api/onboarding", nil))
+			if rec.Code != http.StatusOK {
+				t.Fatalf("ステータスが誤り: %d body=%s", rec.Code, rec.Body.String())
+			}
+			var got struct {
+				Completed bool `json:"completed"`
+			}
+			if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+				t.Fatalf("応答を解釈できない: %v", err)
+			}
+			if got.Completed != c.want {
+				t.Errorf("completed = %v（期待 %v）", got.Completed, c.want)
+			}
+		})
 	}
 }

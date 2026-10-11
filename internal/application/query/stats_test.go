@@ -371,3 +371,48 @@ func TestTrends_自重種目は体重込みの負荷で推定する(t *testing.T
 		})
 	}
 }
+
+// 体重は記録した日だけを古い順に返す。期間の外と、体重の無い日（睡眠だけ
+// 記録した日）は含めない。推移の線に「記録していない日」の点が混ざると、
+// 測っていない日が0や前日と同じ値に見える。
+//
+// 【変異】BodyWeights の期間の判定を外す → 8/1 と 8/20 が混ざって赤。
+// 【変異】体重の有無を見ない → 8/11 が 0kg の点として混ざって赤。
+func TestBodyWeights_期間内の記録した日だけを古い順に返す(t *testing.T) {
+	log := condition.NewConditionLog([]condition.DailyCondition{
+		condition.NewDailyCondition(date(t, "2026-08-01")).WithBodyWeight(71),
+		condition.NewDailyCondition(date(t, "2026-08-12")).WithBodyWeight(70.4),
+		condition.NewDailyCondition(date(t, "2026-08-10")).WithBodyWeight(70.8),
+		condition.NewDailyCondition(date(t, "2026-08-11")).WithSleepHours(7),
+		condition.NewDailyCondition(date(t, "2026-08-20")).WithBodyWeight(69.9),
+	})
+	q := query.NewStats(
+		&stubLogs{history: setlog.NewHistory(nil)},
+		&stubExercises{},
+		&stubConditions{log: log},
+		&stubProgram{prog: defaultProgram(t)},
+		planning.DefaultOneRepMaxEstimator(),
+		planning.DefaultSessionPlanner(),
+	)
+
+	got, err := q.BodyWeights(context.Background(), testUser, date(t, "2026-08-05"), date(t, "2026-08-15"))
+	if err != nil {
+		t.Fatalf("BodyWeights: %v", err)
+	}
+	want := []query.Point{{Date: date(t, "2026-08-10"), Kg: 70.8}, {Date: date(t, "2026-08-12"), Kg: 70.4}}
+	if len(got) != len(want) {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+	for i := range want {
+		if !got[i].Date.Equal(want[i].Date) || got[i].Kg != want[i].Kg {
+			t.Errorf("[%d] = %v, want %v", i, got[i], want[i])
+		}
+	}
+}
+
+func TestBodyWeights_期間が無ければ断る(t *testing.T) {
+	q := newStats(t, nil, nil, defaultProgram(t))
+	if _, err := q.BodyWeights(context.Background(), testUser, training.Date{}, date(t, "2026-08-15")); err == nil {
+		t.Error("期間無しが通ってしまう")
+	}
+}

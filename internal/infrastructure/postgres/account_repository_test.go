@@ -17,8 +17,9 @@ func newAccountRepos(t *testing.T) accounttest.Repos {
 	t.Helper()
 	pool := migratedDB(t)
 	return accounttest.Repos{
-		Accounts: postgres.NewAccountRepository(pool),
-		Sessions: postgres.NewSessionRepository(pool),
+		Accounts:   postgres.NewAccountRepository(pool),
+		Sessions:   postgres.NewSessionRepository(pool),
+		Onboarding: postgres.NewOnboardingRepository(pool),
 	}
 }
 
@@ -28,6 +29,10 @@ func TestAccountRepository_Contract(t *testing.T) {
 
 func TestSessionRepository_Contract(t *testing.T) {
 	accounttest.RunSessionContract(t, newAccountRepos)
+}
+
+func TestOnboardingRepository_Contract(t *testing.T) {
+	accounttest.RunOnboardingContract(t, newAccountRepos)
 }
 
 // 再起動しても残ること。インメモリ実装との唯一の違いがここ。

@@ -204,6 +204,11 @@ type frequencyDTO struct {
 	PerWeek int `json:"per_week"`
 }
 
+// onboardingDTO は初回の案内を済ませたか。
+type onboardingDTO struct {
+	Completed bool `json:"completed"`
+}
+
 // selectedDTO は使う種目だけの書き込み。
 type selectedDTO struct {
 	Selected []string `json:"selected_exercises"`
@@ -396,4 +401,6 @@ type statsResponse struct {
 	To           string      `json:"to"`
 	Trends       []trendDTO  `json:"trends"`
 	WeeklyVolume []volumeDTO `json:"weekly_volume"`
+	// BodyWeight は期間内に記録した体重。古い順。推定1RMの推移と並べて見る。
+	BodyWeight []pointDTO `json:"body_weight"`
 }
