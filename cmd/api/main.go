@@ -22,6 +22,7 @@ import (
 	"github.com/dyoshyy/liftplan/internal/application/query"
 	"github.com/dyoshyy/liftplan/internal/application/usecase"
 	"github.com/dyoshyy/liftplan/internal/domain/account"
+	"github.com/dyoshyy/liftplan/internal/domain/group"
 	"github.com/dyoshyy/liftplan/internal/domain/training/seed"
 	"github.com/dyoshyy/liftplan/internal/infrastructure/memory"
 	"github.com/dyoshyy/liftplan/internal/infrastructure/oauth"
@@ -200,6 +201,11 @@ type sessionStore interface {
 	account.SessionWriter
 }
 
+type groupStore interface {
+	group.Reader
+	group.Writer
+}
+
 // repositories は差し替えの対象になる口の集まり。
 //
 // この構造体があるのは、インメモリと Postgres の選択を1箇所に閉じるため。
@@ -212,6 +218,8 @@ type repositories struct {
 	programs   programStore
 	accounts   accountStore
 	sessions   sessionStore
+	groups     groupStore
+	activity   group.ActivityReader
 	// devUser はインメモリ構成でだけ使う利用者。
 	//
 	// ログインを通さずに画面を動かす経路（開発と、画面の検査スクリプト）の
@@ -264,6 +272,11 @@ func buildHandler(ctx context.Context) (http.Handler, func(), error) {
 		History:          query.NewHistory(logs, exercises, conditions),
 		Stats:            query.NewStats(logs, exercises, conditions, programs, planning.DefaultOneRepMaxEstimator(), planner),
 		Accounts:         query.NewAccounts(repos.accounts),
+		CreateGroup:      usecase.NewCreateGroup(repos.groups, time.Now),
+		JoinGroup:        usecase.NewJoinGroup(repos.groups, time.Now),
+		LeaveGroup:       usecase.NewLeaveGroup(repos.groups),
+		RotateInvite:     usecase.NewRotateInvite(repos.groups),
+		Groups:           query.NewGroups(repos.groups, repos.activity),
 	})
 	if err != nil {
 		repos.close()
@@ -517,13 +530,17 @@ func openRepositories(ctx context.Context, pool []*exercise.Exercise) (repositor
 		if err := seedProgramIfMissing(ctx, programs, pool, devUser); err != nil {
 			return repositories{}, err
 		}
+		exercises := memory.NewExerciseRepository(pool)
+		logs := memory.NewSetLogRepository()
 		return repositories{
-			exercises:  memory.NewExerciseRepository(pool),
-			logs:       memory.NewSetLogRepository(),
+			exercises:  exercises,
+			logs:       logs,
 			conditions: memory.NewConditionRepository(),
 			programs:   programs,
 			accounts:   memory.NewAccountRepository(),
 			sessions:   memory.NewSessionRepository(),
+			groups:     memory.NewGroupRepository(),
+			activity:   memory.NewGroupActivityReader(logs, exercises),
 			devUser:    devUser,
 			ping:       func(context.Context) error { return nil },
 			close:      func() {},
@@ -549,6 +566,8 @@ func openRepositories(ctx context.Context, pool []*exercise.Exercise) (repositor
 		programs:   postgres.NewProgramRepository(db),
 		accounts:   postgres.NewAccountRepository(db),
 		sessions:   postgres.NewSessionRepository(db),
+		groups:     postgres.NewGroupRepository(db),
+		activity:   postgres.NewGroupActivityReader(db),
 		ping:       db.Ping,
 		close:      db.Close,
 	}, nil

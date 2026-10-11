@@ -42,5 +42,12 @@ func (h *Handler) Routes() *http.ServeMux {
 	mux.HandleFunc("DELETE /api/set-logs/{id}", h.handleDeleteSetLog)
 	mux.HandleFunc("GET /api/stats", h.handleGetStats)
 	mux.HandleFunc("GET /api/account", h.handleGetAccount)
+	mux.HandleFunc("GET /api/groups", h.handleGetGroups)
+	mux.HandleFunc("POST /api/groups", h.handlePostGroup)
+	mux.HandleFunc("GET /api/groups/{id}/week", h.handleGetGroupWeek)
+	mux.HandleFunc("POST /api/groups/{id}/invite", h.handlePostGroupInvite)
+	mux.HandleFunc("DELETE /api/groups/{id}/members/me", h.handleDeleteGroupMembership)
+	mux.HandleFunc("GET /api/invites/{token}", h.handleGetInvite)
+	mux.HandleFunc("POST /api/invites/{token}/join", h.handlePostInviteJoin)
 	return mux
 }
