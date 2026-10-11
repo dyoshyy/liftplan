@@ -3,6 +3,7 @@ import type { DayChange } from '../domain/days';
 import { label, today } from '../domain/date';
 import { ExerciseManager } from '../features/exercises/ExerciseManager';
 import { Forecast } from '../features/forecast/Forecast';
+import { Onboarding } from '../features/onboarding/Onboarding';
 import { Setup } from '../features/setup/Setup';
 import { GearIcon } from '../ui/icons';
 import { Today } from '../features/today/Today';
@@ -39,6 +40,10 @@ export function App() {
   // 見ないものを取りに行くことになる。
   const stats = useStats(hasToken && route === 'history');
   const firstLoad = awaitingFirstLoad(load, data.session);
+  // 初回の案内を済ませていなければ、どの画面よりも先に通い方を決めてもらう。
+  // 歯車と下のナビを出さないのは、決める前に抜けると既定の通い方のまま
+  // 「今日」に着地し、案内も次に開くまで出ないため。
+  const onboarding = hasToken && !firstLoad && !data.onboarded;
   const monthLogs = useMonthLogs(hasToken && route === 'history', data.days, !firstLoad);
   // 履歴での修正は、直近の記録（今月と今日の画面）と、取ってある過去の月の
   // 両方に当てる。片方だけだと、月を行き来したときに直す前の値に戻って見える。
@@ -61,7 +66,7 @@ export function App() {
             lift<span className="text-amber">plan</span>
           </div>
           <div className="ml-auto text-[13px] text-muted">{label(today())}</div>
-          {hasToken && (
+          {hasToken && !onboarding && (
             <button
               type="button"
               aria-label={route === 'settings' ? '設定を閉じる' : '設定'}
@@ -102,68 +107,72 @@ export function App() {
 
             {/* 画面を替えたときだけふわっと出す。key が route なので、同じ画面の
                 描き直しでは入り直さない。 */}
-            <div key={route} className="grid animate-fade-in gap-3.5">
-              {route === 'today' && firstLoad && <TodaySkeleton />}
+            {onboarding ? (
+              <Onboarding exercises={data.exercises} onDone={reload} />
+            ) : (
+              <div key={route} className="grid animate-fade-in gap-3.5">
+                {route === 'today' && firstLoad && <TodaySkeleton />}
 
-              {route === 'today' && !firstLoad && (
-                <Today
-                  data={data}
-                  enqueue={outbox.enqueue}
-                  enqueueAll={outbox.enqueueAll}
-                  onSaveFailed={outbox.reportFailure}
-                  onRecordLocally={session.recordLocally}
-                  onForgetLocally={session.forgetLocally}
-                  onRecorded={timer.start}
-                  canStartRest={timer.state.kind === 'idle'}
-                  onReload={reload}
-                  onOpenForecast={() => go('forecast')}
-                />
-              )}
+                {route === 'today' && !firstLoad && (
+                  <Today
+                    data={data}
+                    enqueue={outbox.enqueue}
+                    enqueueAll={outbox.enqueueAll}
+                    onSaveFailed={outbox.reportFailure}
+                    onRecordLocally={session.recordLocally}
+                    onForgetLocally={session.forgetLocally}
+                    onRecorded={timer.start}
+                    canStartRest={timer.state.kind === 'idle'}
+                    onReload={reload}
+                    onOpenForecast={() => go('forecast')}
+                  />
+                )}
 
-              {route === 'history' && (
-                <History
-                  logs={monthLogs}
-                  editor={editor}
-                  exercises={data.exercises}
-                  selected={data.selected}
-                  loadOffsets={data.loadOffsets}
-                  stats={stats.stats}
-                  statsError={stats.error}
-                  onReloadStats={() => void stats.reload()}
-                />
-              )}
+                {route === 'history' && (
+                  <History
+                    logs={monthLogs}
+                    editor={editor}
+                    exercises={data.exercises}
+                    selected={data.selected}
+                    loadOffsets={data.loadOffsets}
+                    stats={stats.stats}
+                    statsError={stats.error}
+                    onReloadStats={() => void stats.reload()}
+                  />
+                )}
 
-              {route === 'settings' && (
-                <SettingsScreen
-                  nameOf={nameOf}
-                  exercises={data.exercises}
-                  onChanged={reload}
-                  timer={timer}
-                  onForget={() => {
-                    session.signOut();
-                    go('today');
-                  }}
-                  onOpenExercises={() => go('exercises')}
-                />
-              )}
+                {route === 'settings' && (
+                  <SettingsScreen
+                    nameOf={nameOf}
+                    exercises={data.exercises}
+                    onChanged={reload}
+                    timer={timer}
+                    onForget={() => {
+                      session.signOut();
+                      go('today');
+                    }}
+                    onOpenExercises={() => go('exercises')}
+                  />
+                )}
 
-              {route === 'forecast' && <Forecast nameOf={nameOf} onBack={() => go('today')} />}
+                {route === 'forecast' && <Forecast nameOf={nameOf} onBack={() => go('today')} />}
 
-              {route === 'exercises' && (
-                <ExerciseManager
-                  exercises={data.exercises}
-                  onChanged={reload}
-                  onBack={() => go('settings')}
-                />
-              )}
-            </div>
+                {route === 'exercises' && (
+                  <ExerciseManager
+                    exercises={data.exercises}
+                    onChanged={reload}
+                    onBack={() => go('settings')}
+                  />
+                )}
+              </div>
+            )}
           </>
         )}
       </main>
 
-      {hasToken && <RestTimerBar timer={timer} />}
+      {hasToken && !onboarding && <RestTimerBar timer={timer} />}
 
-      {hasToken && (
+      {hasToken && !onboarding && (
         <BottomNav
           route={route}
           onGo={go}
