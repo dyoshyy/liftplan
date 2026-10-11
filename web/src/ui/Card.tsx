@@ -33,6 +33,10 @@ export function Note({ className, ...props }: HTMLAttributes<HTMLParagraphElemen
 
 /** SectionTitle はカードの外に出す見出し。レーン（軸・バリエーション・補助）の
  *  区切りに使う。カードの中の title と同じ見た目にして、階層を1つに保つ。 */
-export function SectionTitle({ children }: { children: ReactNode }) {
-  return <p className="mb-0 text-xs uppercase tracking-[0.12em] text-faint">{children}</p>;
+export function SectionTitle({ children, ...props }: HTMLAttributes<HTMLParagraphElement>) {
+  return (
+    <p className="mb-0 text-xs uppercase tracking-[0.12em] text-faint" {...props}>
+      {children}
+    </p>
+  );
 }

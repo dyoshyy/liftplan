@@ -41,7 +41,11 @@ node scripts/ui-check.mjs           # 休憩タイマーと記録シートの初
 node scripts/nav-check.mjs          # 画面の行き来と戻るジェスチャー
 node scripts/settings-check.mjs     # 設定の保存（週目標の置き直しを含む）
 node scripts/forecast-check.mjs     # この先の予定（今日のリンク・たたみ・オフライン表示）
+node scripts/onboarding-check.mjs   # 初回の案内。API を DEV_ONBOARDING_PENDING=1 で立てる
 ```
+
+**開発用の利用者は初回の案内を済ませた状態で始まる。**案内を見るときだけ
+API を `DEV_ONBOARDING_PENDING=1` で立てる（インメモリ構成でのみ効く）。
 
 **検査でのログインはフラグメントで済ませる。**`#token=<DEV_SESSION_TOKEN>` で開く
 （サーバーを `DEV_SESSION_TOKEN` 付きのインメモリ構成で起動しておく。手順は `scripts/ui-check.mjs` の冒頭）。
