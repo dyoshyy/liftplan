@@ -60,17 +60,22 @@ func (p SessionPlanner) Substitute(
 Pinned [][]exercise.ExerciseID
 ```
 
-割り振り器はループの前に Pinned を置いたことにする。
+割り振り器はループの前に、Pinned の各種目を**貪欲法が1手選んだときと同じ手続き**で置く。
+ループ本体から「回 k に種目 e を置く」を1つの関数に切り出し、Pinned にもそれを通す。
 
-- `current`（刺激量）に Pinned のぶんを足す
-- `allocated`（回復の判定に使う出来事）に Pinned を入れる
+- `current`（刺激量）に足す
+- `allocated`（回復の判定に使う出来事）に入れる
 - `chosenSet` に入れる（同じ回に同じ種目を2回置かない）
-- `slots` から Pinned の数を引く
+- `lastPerformed`（多様性の同点処理）を進める。進めないと、先の回に置いた種目が「一度もやっていない」に見えて今日の同点処理で勝ち、同じ種目が窓の中に2回入る
+- `slots` を1つ減らす
 
-先の回の空き枠を0にするのは、呼び出し側（`Substitute`）が `Sessions[k].Slots` を Pinned の数に揃えて行う。
-揃えないと、候補が今日ではなく先の回に入り、回0には何も入らないことがある。
+**空き枠の数え方は1つ。**呼び出し側が `Sessions[k].Slots` を「Pinned の数 + 空けたい枠」にし、
+割り振り器が Pinned を置くたびに1つ減らす。`Substitute` は回0を Pinned＋1、先の回を Pinned ちょうどにする。
+先の回に空きを残すと、候補が今日ではなく先の回に入り、回0には何も入らないことがある。
 
-**Pinned が nil のときは今と完全に同じ結果になる。**`Forecast` は Pinned を渡さない。
+**Pinned が nil のときは今と完全に同じ結果になる。**置く手続きが1本なので構造上そうなる。`Forecast` は Pinned を渡さない。
+
+Pinned に種目一覧（`Master`）に無い ID があればエラーにする（`Forecast` の割り振りから作るので起きないが、黙って飛ばすと刺激の数え漏れになる）。
 
 ### 失敗の分類
 
@@ -79,8 +84,13 @@ Pinned [][]exercise.ExerciseID
 ## API
 
 ```
-GET /api/sessions/substitute?date=2026-10-11&replace=leg_curl&rejected=seated_leg_curl
+GET /api/sessions/substitute?date=2026-10-11&replace=leg_curl&rejected=seated_leg_curl&rejected=nordic_curl
 ```
+
+`rejected` は繰り返しのクエリパラメータで渡す（カンマで割らない。種目 ID の文字種に依存しない）。
+
+`date` は画面が表示している今日の計画の日付（`Session.date`）を送る。端末の「いま」を送ると、
+23:50 に開いた計画で 0:05 に押したとき翌日の計画を引き、元の補助がそこに無くて 400 になる。
 
 ```json
 {"substitute": {"exercise_id": "nordic_curl", "weight_kg": null, "sets": 3, "target_rir": 2, "target_reps": 10}}
@@ -88,7 +98,7 @@ GET /api/sessions/substitute?date=2026-10-11&replace=leg_curl&rejected=seated_le
 
 代わりが無ければ `{"substitute": null}`（200）。
 
-- `date` と `replace` は必須。`rejected` は省略できる（カンマ区切り）
+- `date` と `replace` は必須。`rejected` は省略できる
 - `replace` が今日の補助に無ければ 400
 - 経路は handler → `usecase.GetSubstitute` → `SessionPlanner.Substitute`。組み立ては `GetForecast` と同じ
 
