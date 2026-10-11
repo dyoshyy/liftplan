@@ -48,7 +48,7 @@ export function Today(props: Props) {
   const dismiss = useCallback(() => setCelebration(null), []);
 
   // 「種目を選んで記録」で選んだ種目。画面を開き直すと消えるが、記録したセットは
-  // 消えない（「今日やったもの」に出る。belowPlan）。
+  // 消えない（「予定外の記録」に出る。belowPlan）。
   const [picked, setPicked] = useState<string[]>([]);
   const [picking, setPicking] = useState(false);
   const pick = useCallback((id: string) => setPicked((p) => withPicked(p, id)), []);
@@ -115,7 +115,7 @@ export function Today(props: Props) {
       {adhoc.length > 0 && <SectionTitle>選んだ種目</SectionTitle>}
       {adhoc.map(card)}
 
-      {done.length > 0 && <SectionTitle>今日やったもの</SectionTitle>}
+      {done.length > 0 && <SectionTitle>予定外の記録</SectionTitle>}
       {done.map(card)}
 
       {/* 予定に無い種目をやりたい日の入口。今日どこまでやるかは本人が決める

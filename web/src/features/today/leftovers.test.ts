@@ -23,7 +23,7 @@ describe('leftovers', () => {
     ]);
   });
 
-  // レーンを渡し忘れると、その種目が「今日やったもの」に二重で出る。
+  // レーンを渡し忘れると、その種目が「予定外の記録」に二重で出る。
   it('バリエーションレーンも予定として数える', () => {
     const lanes = [[plan('bench')], [plan('larsen_press')], [plan('curl')]];
     expect(leftovers(lanes, done({ larsen_press: 4 }))).toEqual([]);
