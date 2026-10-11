@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"testing"
+	"time"
 
 	"github.com/dyoshyy/liftplan/internal/domain/account"
 	"github.com/dyoshyy/liftplan/internal/infrastructure/postgres"
@@ -45,5 +46,34 @@ func TestMigration0020_MarksExistingUsersOnboarded(t *testing.T) {
 		if err != nil || got != c.want {
 			t.Errorf("%s: %v, %v（期待 %v）", c.name, got, err, c.want)
 		}
+	}
+}
+
+// 2回目の完了は最初の時刻を上書きしない。
+//
+// 画面は送信に失敗すると最初から送り直すので、完了は何度も届きうる。
+// 上書きすると「いつ始めた人か」が最後の送り直しの時刻にずれる。
+// インメモリ実装は時刻を外から読めないので、契約ではなくここで見る。
+func TestOnboardingRepository_KeepsFirstCompletion(t *testing.T) {
+	pool := migratedDB(t)
+	ctx := context.Background()
+	user := mustUserID(t, "11111111-1111-4111-8111-111111111111")
+	first := time.Date(2026, 10, 11, 9, 0, 0, 0, time.UTC)
+
+	repo := postgres.NewOnboardingRepository(pool)
+	for _, at := range []time.Time{first, first.Add(time.Hour)} {
+		if err := repo.CompleteOnboarding(ctx, user, at); err != nil {
+			t.Fatalf("CompleteOnboarding(%v): %v", at, err)
+		}
+	}
+
+	var got time.Time
+	if err := pool.QueryRow(ctx,
+		"SELECT completed_at FROM onboarding WHERE user_id = $1", user.String(),
+	).Scan(&got); err != nil {
+		t.Fatalf("completed_at を読めない: %v", err)
+	}
+	if !got.Equal(first) {
+		t.Errorf("completed_at = %v（期待 %v）", got, first)
 	}
 }

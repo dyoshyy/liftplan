@@ -709,7 +709,7 @@ func TestBuildHandler_RequiresAuthentication(t *testing.T) {
 	t.Cleanup(closeRepos)
 
 	for _, path := range []string{
-		"/api/sessions?date=2026-08-17", "/api/program",
+		"/api/sessions?date=2026-08-17", "/api/program", "/api/onboarding",
 	} {
 		rec := httptest.NewRecorder()
 		handler.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, path, nil))
@@ -726,6 +726,13 @@ func TestBuildHandler_RequiresAuthentication(t *testing.T) {
 	handler.ServeHTTP(rec, r)
 	if rec.Code != http.StatusUnauthorized {
 		t.Errorf("書き込みが認証なしで通った: %d", rec.Code)
+	}
+
+	// 案内の完了も。通ると、誰でも他人の案内を済ませたことにできる。
+	rec = httptest.NewRecorder()
+	handler.ServeHTTP(rec, httptest.NewRequest(http.MethodPut, "/api/onboarding/completed", nil))
+	if rec.Code != http.StatusUnauthorized {
+		t.Errorf("案内の完了が認証なしで通った: %d", rec.Code)
 	}
 
 	// ヘルスチェックは通ること。
