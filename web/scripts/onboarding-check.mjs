@@ -44,8 +44,25 @@ const shot = async (name) => {
   if (SHOTS) await page.screenshot({ path: `${SHOTS}/onboarding-${name}.png` });
 };
 
+// 0. 設定画面の読み込みが1回失敗しても抜けられる。歯車も下のナビも
+//    出していないので、読み直す手段が画面に無いと骨組みのまま止まる。
+//    プリセットは loadAll が取らないので、ここで初めて読まれる。
+let failPresets = true;
+await page.route('**/api/split-presets', (route) => {
+  if (!failPresets) return route.continue();
+  failPresets = false;
+  return route.abort();
+});
 await page.goto(`${APP}/#token=${TOKEN}`);
 const FREQ = 'select[aria-label="週に通う回数"]';
+const retry = page.getByRole('button', { name: '読み直す' });
+const retried = await retry
+  .waitFor({ timeout: 10000 })
+  .then(() => true)
+  .catch(() => false);
+check(retried, '読み込みに失敗したら「読み直す」が出る');
+await shot('0-load-failed');
+if (retried) await retry.click();
 await page.waitForSelector(FREQ, { timeout: 10000 });
 await shot('1-frequency');
 
@@ -82,8 +99,7 @@ check(program.per_week === 5, `per_week=5（${program.per_week}）`);
 check(program.splits.length === 5, `分割が5件（${program.splits.length}）`);
 check((await get('/api/onboarding')).completed === true, '完了が記録されている');
 
-// 4. コーチマークが出て、最後まで進められる
-check(true, 'コーチマークが出た');
+// 4. コーチマークが出て（上の waitFor）、最後まで進められる
 const texts = [];
 for (let i = 0; i < 10; i++) {
   texts.push(await dialog.locator('p').innerText());
@@ -107,8 +123,10 @@ check((await page.locator(FREQ).count()) === 0, '再読み込みで設定画面�
 check((await dialog.count()) === 0, '再読み込みでコーチマークが出ない');
 await shot('6-reloaded');
 
-check(errs.length === 0, `画面のエラーが0件（${errs.length}）`);
-errs.forEach((e) => console.log('     ', e));
+// 0 で落とした読み込みの1件は除く。
+const unexpected = errs.filter((e) => !e.includes('ERR_FAILED'));
+check(unexpected.length === 0, `画面のエラーが0件（${unexpected.length}）`);
+unexpected.forEach((e) => console.log('     ', e));
 
 await browser.close();
 console.log(failed === 0 ? '\n全部通った' : `\n${failed}件落ちた`);

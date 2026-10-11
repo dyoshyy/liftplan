@@ -27,7 +27,8 @@ const TITLES: Record<Step, string> = {
 // 既定のままでよい好み（分割、伸ばしたい種目）。何kgでやるかは聞かない。
 // それはアプリが決める。
 export function Onboarding({ exercises, onDone }: Props) {
-  const { program, presets, draft, step, note, busy, setDraft, next, back, finish } = useOnboarding(onDone);
+  const { program, presets, draft, step, note, busy, setDraft, next, back, finish, retry } =
+    useOnboarding(onDone);
   const current = STEPS[step] ?? 'frequency';
   const last = step === STEPS.length - 1;
 
@@ -46,7 +47,13 @@ export function Onboarding({ exercises, onDone }: Props) {
       </div>
 
       <Card>
-        {!draft || !program ? (
+        {/* 読めなかったときの出口はここだけ。この画面では歯車も下のナビも
+            出していないので、読み直す手段が無いと骨組みのまま止まる。 */}
+        {(!draft || !program) && note ? (
+          <Button variant="quiet" onClick={() => void retry()}>
+            読み直す
+          </Button>
+        ) : !draft || !program ? (
           <Skeleton className="h-24 w-full rounded-xl" />
         ) : current === 'frequency' ? (
           <>

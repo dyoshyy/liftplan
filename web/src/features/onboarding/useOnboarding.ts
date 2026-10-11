@@ -76,5 +76,5 @@ export function useOnboarding(onDone: () => Promise<void>) {
     }
   };
 
-  return { program, presets, draft, step, note, busy, setDraft, next, back, finish };
+  return { program, presets, draft, step, note, busy, setDraft, next, back, finish, retry: load };
 }
