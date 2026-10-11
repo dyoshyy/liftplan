@@ -8,7 +8,7 @@ import { cn } from '../../ui/cn';
 import { exerciseLabel, inviteUrl, nameProblem, WEEKDAYS, weekRows, type Row } from './groups';
 import { useGroups } from './useGroups';
 
-// Groups は仲間の今週を見る画面。
+// Groups はグループのメンバーの今週を見る画面。
 //
 // 見せるのは日と種目名まで（設計書「何のためか」）。目的は続ける動機で、
 // 「自分だけ空いている」に気づければよい。

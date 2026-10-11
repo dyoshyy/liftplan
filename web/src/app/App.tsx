@@ -53,7 +53,7 @@ export function App() {
   // 持つので、再読み込みすれば出ない（済んだことは保存で記録済み）。
   const [coaching, setCoaching] = useState(false);
   // 「今日」へ戻してから流す。招待から入った人は、設定の途中で参加すると
-  // 仲間の画面へ移っていて、そのままだとコーチマークの出番が来ない。
+  // グループの画面へ移っていて、そのままだとコーチマークの出番が来ない。
   const finishOnboarding = useCallback(async () => {
     await reload();
     go('today');
@@ -74,8 +74,8 @@ export function App() {
   );
   const editor = useHistoryEditor({ enqueue: outbox.enqueue, onApplied: onHistoryEdited });
 
-  // 招待から入ったら仲間の画面へ。key を替えて一覧を読み直させる
-  // （既に仲間の画面にいると、開き直さないかぎり読み直さない）。
+  // 招待から入ったらグループの画面へ。key を替えて一覧を読み直させる
+  // （既にグループの画面にいると、開き直さないかぎり読み直さない）。
   const [groupsKey, setGroupsKey] = useState(0);
   const invite = usePendingInvite(hasToken, () => {
     setGroupsKey((k) => k + 1);
