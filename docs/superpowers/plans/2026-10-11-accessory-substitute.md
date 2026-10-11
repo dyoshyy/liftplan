@@ -404,11 +404,14 @@ func substituteRequest(t *testing.T) planning.PlanRequest {
 	}
 
 	logs := planHistory(t)
-	// Biceps を4週窓で12セット（目標3×4週）まで埋める。
-	for i := range 4 {
-		for s := range 3 {
+	// Biceps を4週窓で12セット（目標3×4週）まで埋める。窓は先の回の最後
+	// （今日+5日）から27日前までなので、22日より前の記録は数えられない。
+	// 今日から2日以上離すのは、回復の判定で curl が弾かれて「損失を減らさない」
+	// を確かめたことにならないようにするため。
+	for i := range 3 {
+		for s := range 4 {
 			logs = append(logs, mkLogOn(t, fmt.Sprintf("curl-%d-%d", i, s),
-				planMonday.AddDays(-7*i-2), "curl", 15, 10, 2))
+				planMonday.AddDays(-7*i-3), "curl", 15, 10, 2))
 		}
 	}
 	// nordic は推定1RMが立つ量だけやってある。

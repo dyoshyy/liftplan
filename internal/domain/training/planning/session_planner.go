@@ -3,6 +3,7 @@ package planning
 import (
 	"errors"
 	"fmt"
+	"slices"
 	"sort"
 
 	"github.com/dyoshyy/liftplan/internal/domain/training"
@@ -254,6 +255,78 @@ func (p SessionPlanner) Plan(req PlanRequest) (PlannedSession, error) {
 		return PlannedSession{}, err
 	}
 	return sessions[0], nil
+}
+
+// ErrNotPlannedAccessory は差し替えを頼まれた種目が今日の補助に無いこと。
+// 軸・バリエーション・予定に無い種目は差し替えない（設計書「補助だけ」）。
+var ErrNotPlannedAccessory = errors.New("今日の補助に無い種目は差し替えられない")
+
+// Substitute は今日の補助 replace の代わりを1つ導出する。
+//
+// 今日のほかの補助と先の回の割り振りは置いたまま（Pinned）、replace を
+// 抜いて空いた1枠だけを割り振り器の同じ損失で埋める。候補からは replace と
+// rejected（前に出したが、それも埋まっていた種目）を外す。損失を減らす
+// 候補が無ければ2番目の戻り値が false。
+//
+// Forecast と同じ planWeek を通るので、今日の計画と別の計算にならず、
+// 当日の記録を見ない（一日中同じ代わりが出る）。
+func (p SessionPlanner) Substitute(
+	req PlanRequest, replace exercise.ExerciseID, rejected []exercise.ExerciseID,
+) (PlannedSet, bool, error) {
+	w, err := p.planWeek(req)
+	if err != nil {
+		return PlannedSet{}, false, err
+	}
+	if !slices.Contains(w.allocations[0], replace) {
+		return PlannedSet{}, false, fmt.Errorf("%s: %w", replace, ErrNotPlannedAccessory)
+	}
+
+	again := substituteAllocation(w, replace, rejected)
+	out, err := p.accessory.Allocate(again)
+	if err != nil {
+		return PlannedSet{}, false, fmt.Errorf("代わりの割り振りに失敗: %w", err)
+	}
+	added := out[0][len(again.Pinned[0]):]
+	if len(added) == 0 {
+		return PlannedSet{}, false, nil
+	}
+	e := findExercise(w.pool, added[0])
+	if e == nil {
+		// 到達しない。Allocate は Pool の中の種目しか置かない。
+		return PlannedSet{}, false, fmt.Errorf("代わり %s が種目一覧に無い", added[0])
+	}
+
+	split, hasSplit := w.sessions[0].Split()
+	s := p.prescribe(
+		[]lineupEntry{{exercise: e, role: accessoryRole, reps: program.DefaultRepTargets()}},
+		w.estimable, req.Conditions, req.Date, req.Program.SessionVolume().Sets(), split, hasSplit)
+	return s.Accessories()[0], true, nil
+}
+
+// substituteAllocation は代わりを1つ選ぶための割り振りの入力を組む。
+//
+// 今日の補助から replace を抜いた残りと、先の回の割り振りすべてを Pinned に
+// する。空き枠は回0の1つだけ。先の回に空きを残すと、今日には弾かれるが先の回
+// には置ける候補がそちらへ入って残差を食い、回0に何も入らないことがある。
+// 候補からは replace と rejected を外す。
+func substituteAllocation(w weekPlan, replace exercise.ExerciseID, rejected []exercise.ExerciseID) AllocationRequest {
+	pinned := make([][]exercise.ExerciseID, len(w.allocations))
+	for k, ids := range w.allocations {
+		pinned[k] = slices.Clone(ids)
+	}
+	pinned[0] = slices.DeleteFunc(pinned[0], func(id exercise.ExerciseID) bool { return id == replace })
+
+	sessions := slices.Clone(w.alloc.Sessions)
+	for k := range sessions {
+		sessions[k].Slots = len(pinned[k])
+	}
+	sessions[0].Slots++
+
+	again := w.alloc
+	again.Sessions = sessions
+	again.Pinned = pinned
+	again.Pool = candidateAccessories(w.alloc.Pool, append([]exercise.ExerciseID{replace}, rejected...))
+	return again
 }
 
 // lineupEntry はセッション1回ぶんの種目1つと、その役割。重量はまだ
