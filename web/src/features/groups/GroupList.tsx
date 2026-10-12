@@ -49,10 +49,7 @@ export function GroupList({ onOpen }: { onOpen: (id: string) => void }) {
             onClick={() => onOpen(g.id)}
             className={`flex min-h-14 items-center gap-3 px-4 py-3 text-left ${i > 0 ? 'border-t border-line-soft' : ''}`}
           >
-            <span className="min-w-0 flex-1">
-              <span className="block truncate text-[16px] font-medium">{g.name}</span>
-              <span className="block text-xs text-faint">自分は「{g.my_name}」</span>
-            </span>
+            <span className="min-w-0 flex-1 truncate text-[16px] font-medium">{g.name}</span>
             <span className="num text-[13px] text-muted">{g.member_count}人</span>
             <ChevronRightIcon width={18} height={18} className="text-faint" />
           </button>
