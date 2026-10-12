@@ -26,7 +26,7 @@ type Props = {
   onOpen: (index: number, recorded: RecordedSet | undefined) => void;
   /** replacingName は元の補助の名前。代わりのカードにだけ渡す。 */
   replacingName?: string;
-  /** onBlocked を渡したカードにだけ「埋まっている」を出す。 */
+  /** onBlocked を渡したカードにだけ「代替種目」を出す。 */
   onBlocked?: () => void;
   /** blockedBusy は代わりを取得中。 */
   blockedBusy?: boolean;
@@ -63,7 +63,7 @@ export function ExerciseCard({
             disabled={blockedBusy}
             onClick={onBlocked}
           >
-            {blockedBusy ? '探しています' : '埋まっている'}
+            {blockedBusy ? '探しています' : '代替種目'}
           </Button>
         )}
       </div>

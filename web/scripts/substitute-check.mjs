@@ -1,4 +1,4 @@
-// 補助の「埋まっている」を実機で確かめる。
+// 補助の「代替種目」を実機で確かめる。
 //
 // 単体テストでは踏めないところを見る。押すとその場でカードが代わりに
 // 差し替わること、もう一度押すと rejected を付けて次の候補を頼むこと、
@@ -17,7 +17,7 @@ const check = (n, ok, d = '') => {
   console.log(`${ok ? '✓' : '✗'} ${n}${d ? ' — ' + d : ''}`);
 };
 
-// 前回の実行が残した記録を消す。残っていると、記録済みのカードに「埋まっている」が出ない。
+// 前回の実行が残した記録を消す。残っていると、記録済みのカードに「代替種目」が出ない。
 const API = process.env.API ?? 'http://127.0.0.1:8080';
 const day = () => {
   const d = new Date();
@@ -61,7 +61,7 @@ const body = () => page.innerText('body');
 const cardNames = () => page.locator('span.font-bold.text-\\[17px\\]').allInnerTexts();
 const cardOf = (name) =>
   page.locator('div.grid.gap-3', { has: page.locator(`span.font-bold:text-is("${name}")`) });
-const blockedOf = (name) => cardOf(name).getByRole('button', { name: '埋まっている' });
+const blockedOf = (name) => cardOf(name).getByRole('button', { name: '代替種目' });
 
 const requests = [];
 page.on('request', (r) => {
@@ -69,14 +69,14 @@ page.on('request', (r) => {
 });
 
 const before = await cardNames();
-const nBlocked = await page.getByRole('button', { name: '埋まっている' }).count();
-check('補助のカードに「埋まっている」が出る', nBlocked > 0, `${nBlocked}件`);
+const nBlocked = await page.getByRole('button', { name: '代替種目' }).count();
+check('補助のカードに「代替種目」が出る', nBlocked > 0, `${nBlocked}件`);
 const firstPlanned = before[0];
 check('軸のカードには出ない', (await blockedOf(firstPlanned).count()) === 0, firstPlanned);
 
 // 連打：再描画の前に2回押す。取得は1回だけのはず。
 await page.evaluate(() => {
-  const b = [...document.querySelectorAll('button')].find((x) => x.textContent === '埋まっている');
+  const b = [...document.querySelectorAll('button')].find((x) => x.textContent === '代替種目');
   if (!b) return;
   b.click();
   b.click();
@@ -126,7 +126,7 @@ if ((await blockedOf(current).count()) === 1) {
   await page.fill('dialog input[inputmode=numeric] >> nth=0', '10');
   await page.click('dialog >> text=記録する');
   await page.waitForTimeout(900);
-  check('記録したカードには「埋まっている」が出ない', (await blockedOf(current).count()) === 0, current);
+  check('記録したカードには「代替種目」が出ない', (await blockedOf(current).count()) === 0, current);
 }
 
 // 開き直しても差し替えは残る（localStorage）。
