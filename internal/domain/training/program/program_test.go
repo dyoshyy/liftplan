@@ -276,21 +276,21 @@ func fieldsOf(p *program.Program) map[string]string {
 	}
 }
 
-// repsString は宣言ごとのレップ数を、宣言の順に "id:重い/軽い" で並べる。
+// repsString は宣言ごとのレップ数を、宣言の順に "id:重い" で並べる。
 func repsString(p *program.Program) string {
 	s := ""
 	for _, id := range p.DeclaredExercises() {
 		r := p.RepTargetsFor(id)
-		s += fmt.Sprintf("%s:%d/%d ", id, r.Heavy(), r.Light())
+		s += fmt.Sprintf("%s:%d ", id, r.Heavy())
 	}
 	return s
 }
 
-func mustRepTargets(t *testing.T, heavy, light int) program.RepTargets {
+func mustRepTargets(t *testing.T, heavy int) program.RepTargets {
 	t.Helper()
-	r, err := program.NewRepTargets(heavy, light)
+	r, err := program.NewRepTargets(heavy)
 	if err != nil {
-		t.Fatalf("NewRepTargets(%d, %d): %v", heavy, light, err)
+		t.Fatalf("NewRepTargets(%d): %v", heavy, err)
 	}
 	return r
 }
@@ -352,7 +352,7 @@ func TestProgram_WithKeepsOtherFields(t *testing.T) {
 		{
 			name: "WithRepTargets", changed: []string{"reps"},
 			apply: func(p *program.Program) (*program.Program, error) {
-				return p.WithRepTargets("squat", mustRepTargets(t, 6, 10))
+				return p.WithRepTargets("squat", mustRepTargets(t, 6))
 			},
 		},
 	}
@@ -372,7 +372,7 @@ func TestProgram_WithKeepsOtherFields(t *testing.T) {
 				t.Fatalf("WithCycle: %v", err)
 			}
 			// 既定のままだと、落ちても前後とも既定で一致して空振りする。
-			base, err = base.WithRepTargets("bench", mustRepTargets(t, 8, 12))
+			base, err = base.WithRepTargets("bench", mustRepTargets(t, 8))
 			if err != nil {
 				t.Fatalf("WithRepTargets: %v", err)
 			}
@@ -417,22 +417,21 @@ func TestProgram_RepTargetsForFallsBackToTheDefault(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewProgram: %v", err)
 	}
-	p, err = p.WithRepTargets("bench", mustRepTargets(t, 8, 12))
+	p, err = p.WithRepTargets("bench", mustRepTargets(t, 8))
 	if err != nil {
 		t.Fatalf("WithRepTargets: %v", err)
 	}
 
 	for _, c := range []struct {
-		id           exercise.ExerciseID
-		heavy, light int
+		id    exercise.ExerciseID
+		heavy int
 	}{
-		{"bench", 8, 12},
-		{"squat", 3, 6},
-		{"deadlift", 3, 6},
+		{"bench", 8},
+		{"squat", 3},
+		{"deadlift", 3},
 	} {
-		got := p.RepTargetsFor(c.id)
-		if got.Heavy() != c.heavy || got.Light() != c.light {
-			t.Errorf("%s が (%d, %d)。(%d, %d) のはず", c.id, got.Heavy(), got.Light(), c.heavy, c.light)
+		if got := p.RepTargetsFor(c.id).Heavy(); got != c.heavy {
+			t.Errorf("%s が %d。%d のはず", c.id, got, c.heavy)
 		}
 	}
 }
@@ -447,27 +446,27 @@ func TestProgram_WithRepTargetsLeavesTheReceiverUnchanged(t *testing.T) {
 	}
 	// map が空でない状態から始める。空のままだと、共有する map が無く
 	// 書き換えが旧側に届かない。
-	p, err = p.WithRepTargets("bench", mustRepTargets(t, 8, 12))
+	p, err = p.WithRepTargets("bench", mustRepTargets(t, 8))
 	if err != nil {
 		t.Fatalf("WithRepTargets: %v", err)
 	}
 
-	next, err := p.WithRepTargets("bench", mustRepTargets(t, 5, 9))
+	next, err := p.WithRepTargets("bench", mustRepTargets(t, 5))
 	if err != nil {
 		t.Fatalf("WithRepTargets: %v", err)
 	}
-	if _, err := next.WithRepTargets("squat", mustRepTargets(t, 6, 10)); err != nil {
+	if _, err := next.WithRepTargets("squat", mustRepTargets(t, 6)); err != nil {
 		t.Fatalf("WithRepTargets: %v", err)
 	}
 
-	if got := p.RepTargetsFor("bench"); got != mustRepTargets(t, 8, 12) {
-		t.Errorf("受け手の bench が (%d, %d) に変わった。(8, 12) のはず", got.Heavy(), got.Light())
+	if got := p.RepTargetsFor("bench"); got != mustRepTargets(t, 8) {
+		t.Errorf("受け手の bench が %d に変わった。8 のはず", got.Heavy())
 	}
 	if _, ok := p.DeclaredRepTargets()["squat"]; ok {
 		t.Error("受け手に squat の値が入った")
 	}
-	if got := next.RepTargetsFor("bench"); got != mustRepTargets(t, 5, 9) {
-		t.Errorf("新しい側の bench が (%d, %d)。(5, 9) のはず", got.Heavy(), got.Light())
+	if got := next.RepTargetsFor("bench"); got != mustRepTargets(t, 5) {
+		t.Errorf("新しい側の bench が %d。5 のはず", got.Heavy())
 	}
 }
 
@@ -479,7 +478,7 @@ func TestProgram_WithRepTargetsRejectsUndeclared(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewProgram: %v", err)
 	}
-	if _, err := p.WithRepTargets("squat", mustRepTargets(t, 8, 12)); err == nil {
+	if _, err := p.WithRepTargets("squat", mustRepTargets(t, 8)); err == nil {
 		t.Error("宣言していない squat に立てられた")
 	}
 	if _, err := p.WithRepTargets("bench", program.RepTargets{}); err == nil {
@@ -494,7 +493,7 @@ func TestProgram_WithDeclaredDropsTheRemovedTargets(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewProgram: %v", err)
 	}
-	p, err = p.WithRepTargets("squat", mustRepTargets(t, 6, 10))
+	p, err = p.WithRepTargets("squat", mustRepTargets(t, 6))
 	if err != nil {
 		t.Fatalf("WithRepTargets: %v", err)
 	}
@@ -512,7 +511,7 @@ func TestProgram_WithDeclaredDropsTheRemovedTargets(t *testing.T) {
 		t.Fatalf("入れ直すのに失敗: %v", err)
 	}
 	if got := back.RepTargetsFor("squat"); got != program.DefaultRepTargets() {
-		t.Errorf("入れ直した squat が (%d, %d)。既定のはず", got.Heavy(), got.Light())
+		t.Errorf("入れ直した squat が %d。既定のはず", got.Heavy())
 	}
 }
 
@@ -523,12 +522,12 @@ func TestProgram_DeclaredRepTargetsIsACopy(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewProgram: %v", err)
 	}
-	p, err = p.WithRepTargets("bench", mustRepTargets(t, 8, 12))
+	p, err = p.WithRepTargets("bench", mustRepTargets(t, 8))
 	if err != nil {
 		t.Fatalf("WithRepTargets: %v", err)
 	}
 	m := p.DeclaredRepTargets()
-	m["bench"] = mustRepTargets(t, 1, 1)
+	m["bench"] = mustRepTargets(t, 1)
 	if got := p.RepTargetsFor("bench"); got.Heavy() != 8 {
 		t.Errorf("外から書き換えられた: %d", got.Heavy())
 	}

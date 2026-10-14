@@ -152,13 +152,13 @@ describe('settingsLine', () => {
 
   // レップ数を変えた結果は、既定の結果と重さが違う。前提の1行に出さないと、
   // どちらの条件の数字かを要約だけで読み分けられない。既定のままなら書かない。
-  it('レップ数を設定していれば、種目名と 重い日/軽い日 を書く', () => {
+  it('レップ数を設定していれば、種目名と重い日のレップ数を書く', () => {
     const got = settingsLine(
-      { ...settings, reps: { squat: { heavy: 5, light: 8 }, bench: { heavy: 8, light: 12 } } },
+      { ...settings, reps: { squat: { heavy: 5 }, bench: { heavy: 8 } } },
       names,
       '上下2分割',
     );
-    expect(got).toContain('重点 ベンチプレス・レップ スクワット 5/8, ベンチプレス 8/12。模擬ユーザー');
+    expect(got).toContain('重点 ベンチプレス・レップ スクワット 5, ベンチプレス 8。模擬ユーザー');
     expect(settingsLine(settings, names, '上下2分割')).not.toContain('レップ');
   });
 

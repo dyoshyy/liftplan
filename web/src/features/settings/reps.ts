@@ -9,7 +9,7 @@ export const repsPath = (id: string): string => `/api/program/declared/${encodeU
 /** repsRows は宣言ごとのレップ数を、宣言の順に並べる。
  *
  *  値が無い宣言は出さない。宣言を足した直後は取り直すまで値が無いが、
- *  既定（3・6）を手元で作ると、サーバーの既定と二重に持つことになる。 */
+ *  既定（3）を手元で作ると、サーバーの既定と二重に持つことになる。 */
 export const repsRows = (program: Program): { id: string; reps: RepTargets }[] =>
   program.declared_exercises.flatMap((id) => {
     const reps = program.declared_reps[id];

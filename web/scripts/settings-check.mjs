@@ -290,8 +290,17 @@ const repsBefore = await program();
 const firstDeclared = repsBefore.declared_exercises[0];
 const heavyBefore = repsBefore.declared_reps[firstDeclared].heavy;
 const heavyWant = heavyBefore === 3 ? 8 : 3;
+const repsBodies = [];
+const onRepsRequest = (req) => {
+  if (req.method() === 'PUT' && req.url().endsWith('/reps')) repsBodies.push(req.postData());
+};
+page.on('request', onRepsRequest);
 await page.locator(HEAVY).first().selectOption(String(heavyWant));
 await page.waitForTimeout(1200);
+page.off('request', onRepsRequest);
+console.log('画面が送ったレップ数の本文:', repsBodies);
+if (repsBodies.length !== 1 || repsBodies[0] !== JSON.stringify({ heavy: heavyWant }))
+  repsErrs.push('重い日のレップ数の本文が {"heavy"} だけになっていない');
 const repsAfter = await program();
 console.log(
   '重い日のレップ数:',
@@ -316,37 +325,22 @@ for (const id of repsBefore.declared_exercises.slice(1)) {
 await page.locator(HEAVY).first().selectOption(String(heavyBefore));
 await page.waitForTimeout(1200);
 
-// 重点種目を選ぶと軽い日の行が出て、選んだ値が届く。重い日は動かない。
+// 軽い日のレップ数は無くなった（計画が読まない）。重点種目を選んでも行は
+// 出ず、サーバーも light を返さない。
 const exNames = new Map((await exercises()).exercises.map((e) => [e.id, e.name]));
 const firstName = exNames.get(firstDeclared);
-const LIGHT = `select[aria-label="${firstName}の軽い日のレップ数"]`;
-const lightRowsBefore = await page.locator(LIGHT).count();
+const LIGHT = 'select[aria-label$="の軽い日のレップ数"]';
 await page.locator('button', { hasText: new RegExp(`^${firstName}$`) }).click();
 await page.waitForTimeout(1200);
 const lightRowsFocused = await page.locator(LIGHT).count();
-const lightWant = repsBefore.declared_reps[firstDeclared].light === 6 ? 9 : 6;
-await page.locator(LIGHT).selectOption(String(lightWant));
-await page.waitForTimeout(1200);
-const lightAfter = (await program()).declared_reps[firstDeclared];
-console.log(
-  '軽い日のレップ数: 行',
-  lightRowsBefore,
-  '→ 重点で',
-  lightRowsFocused,
-  '/ サーバー',
-  lightAfter.light,
-  `（期待 ${lightWant}）/ 重い日`,
-  lightAfter.heavy,
-  `（期待 ${heavyBefore}）`,
-);
-if (lightRowsBefore !== 0 || lightRowsFocused !== 1)
-  repsErrs.push('軽い日の行が重点種目に付いて出入りしない');
-if (lightAfter.light !== lightWant || lightAfter.heavy !== heavyBefore)
-  repsErrs.push('軽い日のレップ数が保存されていない');
+const focusedReps = (await program()).declared_reps;
+const withLight = Object.keys(focusedReps).filter((id) => 'light' in focusedReps[id]);
+console.log('重点を選んだあとの軽い日の行:', lightRowsFocused, '（期待 0）/ light を返した宣言:', withLight);
+if (lightRowsFocused !== 0) repsErrs.push('重点種目を選ぶと軽い日の行が出る');
+if (withLight.length !== 0) repsErrs.push(`サーバーが light を返す: ${withLight.join(',')}`);
 // 重点を外す。
 await page.getByRole('button', { name: '指定しない', exact: true }).click();
 await page.waitForTimeout(1200);
-if ((await page.locator(LIGHT).count()) !== 0) repsErrs.push('重点を外しても軽い日の行が残る');
 
 // 宣言を足すと、その種目の重い日の行が出る。宣言していない「使う種目」を
 // 1つ押して行を数え、押し直して元に戻す。

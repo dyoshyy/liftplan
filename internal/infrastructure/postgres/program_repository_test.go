@@ -64,7 +64,7 @@ func TestProgramRepository_RoundTrips(t *testing.T) {
 	}
 	// レップ数を設定していないので、どの宣言も既定。
 	if got := got.RepTargetsFor("bench"); got != program.DefaultRepTargets() {
-		t.Errorf("bench のレップ数が (%d, %d)。既定のはず", got.Heavy(), got.Light())
+		t.Errorf("bench のレップ数が %d。既定のはず", got.Heavy())
 	}
 }
 
@@ -137,7 +137,7 @@ func TestProgramRepository_RoundTripsTheRepTargets(t *testing.T) {
 	ctx := context.Background()
 	repo := postgres.NewProgramRepository(pool)
 
-	reps, err := program.NewRepTargets(8, 12)
+	reps, err := program.NewRepTargets(8)
 	if err != nil {
 		t.Fatalf("NewRepTargets: %v", err)
 	}
@@ -153,16 +153,16 @@ func TestProgramRepository_RoundTripsTheRepTargets(t *testing.T) {
 	if err != nil {
 		t.Fatalf("取得に失敗: %v", err)
 	}
-	if r := got.RepTargetsFor("squat"); r.Heavy() != 8 || r.Light() != 12 {
-		t.Errorf("squat が (%d, %d)。(8, 12) のはず", r.Heavy(), r.Light())
+	if r := got.RepTargetsFor("squat"); r.Heavy() != 8 {
+		t.Errorf("squat が %d。8 のはず", r.Heavy())
 	}
 	if r := got.RepTargetsFor("bench"); r != program.DefaultRepTargets() {
-		t.Errorf("bench が (%d, %d)。既定のはず", r.Heavy(), r.Light())
+		t.Errorf("bench が %d。既定のはず", r.Heavy())
 	}
 
 	// 既存の行への保存でも反映されること（ON CONFLICT 側）。設定は初回の
 	// INSERT より、あとから変える方が多い。
-	again, err := program.NewRepTargets(5, 10)
+	again, err := program.NewRepTargets(5)
 	if err != nil {
 		t.Fatalf("NewRepTargets: %v", err)
 	}
@@ -177,8 +177,8 @@ func TestProgramRepository_RoundTripsTheRepTargets(t *testing.T) {
 	if err != nil {
 		t.Fatalf("取得に失敗: %v", err)
 	}
-	if r := got.RepTargetsFor("squat"); r.Heavy() != 5 || r.Light() != 10 {
-		t.Errorf("上書き後の squat が (%d, %d)。(5, 10) のはず", r.Heavy(), r.Light())
+	if r := got.RepTargetsFor("squat"); r.Heavy() != 5 {
+		t.Errorf("上書き後の squat が %d。5 のはず", r.Heavy())
 	}
 
 	// 設定の無いプログラムを保存すれば、列は NULL に戻り既定で読めること。
@@ -190,7 +190,7 @@ func TestProgramRepository_RoundTripsTheRepTargets(t *testing.T) {
 		t.Fatalf("取得に失敗: %v", err)
 	}
 	if r := got.RepTargetsFor("squat"); r != program.DefaultRepTargets() {
-		t.Errorf("解除後の squat が (%d, %d)。既定のはず", r.Heavy(), r.Light())
+		t.Errorf("解除後の squat が %d。既定のはず", r.Heavy())
 	}
 }
 
@@ -205,12 +205,50 @@ func TestProgramRepository_RejectsStoredRepTargetsOutOfRange(t *testing.T) {
 		t.Fatalf("保存に失敗: %v", err)
 	}
 	if _, err := pool.Exec(ctx,
-		`UPDATE program SET declared_reps = '{"bench": {"heavy": 99, "light": 6}}'::jsonb WHERE user_id = $1`,
+		`UPDATE program SET declared_reps = '{"bench": {"heavy": 99}}'::jsonb WHERE user_id = $1`,
 		userA(t).String()); err != nil {
 		t.Fatalf("書き換えに失敗: %v", err)
 	}
 	if _, err := repo.Get(ctx, userA(t)); err == nil {
 		t.Error("範囲外の 99 が読めた")
+	}
+}
+
+// 軽い番を外す前に保存した行には light が入っている。マイグレーションで
+// 消さないので、読み出しは light を無視して heavy だけを使うこと。書き込みは
+// heavy だけを書くこと（残すと、消したはずの値が保存のたびに生き延びる）。
+func TestProgramRepository_DropsTheStoredLightReps(t *testing.T) {
+	pool := migratedDB(t)
+	ctx := context.Background()
+	repo := postgres.NewProgramRepository(pool)
+
+	if err := repo.Save(ctx, userA(t), samplePrograms(t)); err != nil {
+		t.Fatalf("保存に失敗: %v", err)
+	}
+	if _, err := pool.Exec(ctx,
+		`UPDATE program SET declared_reps = '{"bench": {"heavy": 8, "light": 12}}'::jsonb WHERE user_id = $1`,
+		userA(t).String()); err != nil {
+		t.Fatalf("書き換えに失敗: %v", err)
+	}
+	got, err := repo.Get(ctx, userA(t))
+	if err != nil {
+		t.Fatalf("light の入った行が読めない: %v", err)
+	}
+	if h := got.RepTargetsFor("bench").Heavy(); h != 8 {
+		t.Errorf("bench の重い番が %d。8 のはず", h)
+	}
+
+	if err := repo.Save(ctx, userA(t), got); err != nil {
+		t.Fatalf("保存し直しに失敗: %v", err)
+	}
+	var raw string
+	if err := pool.QueryRow(ctx,
+		`SELECT declared_reps::text FROM program WHERE user_id = $1`,
+		userA(t).String()).Scan(&raw); err != nil {
+		t.Fatalf("読み出しに失敗: %v", err)
+	}
+	if want := `{"bench": {"heavy": 8}}`; raw != want {
+		t.Errorf("保存された declared_reps が %s。%s のはず", raw, want)
 	}
 }
 

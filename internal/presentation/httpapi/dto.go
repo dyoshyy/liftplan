@@ -5,6 +5,8 @@
 package httpapi
 
 import (
+	"encoding/json"
+
 	"github.com/dyoshyy/liftplan/internal/application/query"
 	"github.com/dyoshyy/liftplan/internal/domain/training/planning"
 	"github.com/dyoshyy/liftplan/internal/domain/training/program"
@@ -157,18 +159,27 @@ type programDTO struct {
 	Declared            []string `json:"declared_exercises"`
 	Focus               *string  `json:"focus_exercise"`
 	// DeclaredReps は宣言ごとのレップ数。設定していない宣言も既定で埋める。
-	// 既定値（3・6）をクライアントに二重に持たせないため。
+	// 既定値（3）をクライアントに二重に持たせないため。
 	DeclaredReps map[string]repTargetsDTO `json:"declared_reps"`
 	Splits       []splitDTO               `json:"splits"`
 }
 
-// repTargetsDTO は宣言1件ぶんのレップ数。書き込み（PUT …/reps）と
-// 読み出し（programDTO.DeclaredReps）で同じ形。
-//
-// 0 は NewRepTargets が弾くので、欠落と「0回」を区別する必要が無い。
+// repTargetsDTO は宣言1件ぶんのレップ数の読み出し（programDTO.DeclaredReps）。
 type repTargetsDTO struct {
 	Heavy int `json:"heavy"`
-	Light int `json:"light"`
+}
+
+// putRepTargetsDTO は宣言1件ぶんのレップ数の書き込み（PUT …/reps）。
+//
+// 0 は NewRepTargets が弾くので、欠落と「0回」を区別する必要が無い。
+type putRepTargetsDTO struct {
+	Heavy int `json:"heavy"`
+	// LegacyLight は軽い番のレップ数を持っていたころの画面が送る値で、読まない。
+	// 型を付けないのは、値の中身で断らないため。消さないのは、キャッシュに
+	// 残った古い画面が {"heavy", "light"} を送ってきて、知らないフィールドとして
+	// 断られる（重い番も保存できなくなる）ため。古い画面が残っていないと
+	// 言えるようになったら、この行ごと消す。
+	LegacyLight json.RawMessage `json:"light"`
 }
 
 // sessionVolumeDTO は1回の量だけの書き込み。
@@ -262,7 +273,7 @@ func toProgramDTO(p *program.Program) programDTO {
 	for _, id := range p.DeclaredExercises() {
 		declared = append(declared, string(id))
 		r := p.RepTargetsFor(id)
-		reps[string(id)] = repTargetsDTO{Heavy: r.Heavy(), Light: r.Light()}
+		reps[string(id)] = repTargetsDTO{Heavy: r.Heavy()}
 	}
 
 	// ポインタなのは weight_kg と同じ理由。非ポインタだと「指定なし」と

@@ -130,16 +130,13 @@ func TestDevSimulation_RejectsBadInput(t *testing.T) {
 
 // 宣言ごとのレップ数をクエリで受け取り、設定に返し、軸の処方に効くこと。
 func TestDevSimulation_TakesRepTargetsAndEchoesThem(t *testing.T) {
-	rec := devGet(t, "/api/dev/simulate?declared=bench&focus=&split=&frequency=2&weeks=1&reps=bench:8:12")
+	rec := devGet(t, "/api/dev/simulate?declared=bench&focus=&split=&frequency=2&weeks=1&reps=bench:8")
 	if rec.Code != http.StatusOK {
 		t.Fatalf("%d が返った。200 のはず: %s", rec.Code, rec.Body.String())
 	}
 	var got struct {
 		Settings struct {
-			Reps map[string]struct {
-				Heavy int `json:"heavy"`
-				Light int `json:"light"`
-			} `json:"reps"`
+			Reps map[string]map[string]json.RawMessage `json:"reps"`
 		} `json:"settings"`
 		Days []struct {
 			Main []struct {
@@ -151,8 +148,8 @@ func TestDevSimulation_TakesRepTargetsAndEchoesThem(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
 		t.Fatalf("応答が JSON でない: %v", err)
 	}
-	if r := got.Settings.Reps["bench"]; r.Heavy != 8 || r.Light != 12 {
-		t.Errorf("設定に返った bench が %+v。{8 12} のはず", r)
+	if r := got.Settings.Reps["bench"]; len(r) != 1 || string(r["heavy"]) != "8" {
+		t.Errorf("設定に返った bench が %s。heavy 8 だけのはず", r)
 	}
 	if len(got.Days) == 0 || len(got.Days[0].Main) == 0 || got.Days[0].Main[0].TargetReps != 8 {
 		t.Errorf("軸の目標レップが 8 になっていない: %+v", got.Days)
@@ -161,10 +158,10 @@ func TestDevSimulation_TakesRepTargetsAndEchoesThem(t *testing.T) {
 
 func TestDevSimulation_RejectsBadRepsQuery(t *testing.T) {
 	for _, q := range []string{
-		"reps=bench:8",     // 軽い番が無い
-		"reps=bench:x:12",  // 数字でない
-		"reps=bench:16:12", // 範囲外（NewRepTargets が弾く）
-		"reps=squat:8:12",  // 宣言していない（devsim が弾く）
+		"reps=bench:x",    // 数字でない
+		"reps=bench:16",   // 範囲外（NewRepTargets が弾く）
+		"reps=squat:8",    // 宣言していない（devsim が弾く）
+		"reps=bench:8:12", // 軽い番は無くなった。黙って捨てると前提の要約が嘘になる
 	} {
 		t.Run(q, func(t *testing.T) {
 			rec := devGet(t, "/api/dev/simulate?declared=bench&"+q)

@@ -469,36 +469,71 @@ func TestPutProgramFocus_Rejects(t *testing.T) {
 }
 
 // 宣言ごとのレップ数を差し替え、GET で読めること。設定していない宣言も
-// 既定（3・6）で埋めて返す（既定値をクライアントに二重に持たせない）。
+// 既定（3）で埋めて返す（既定値をクライアントに二重に持たせない）。
 func TestPutProgramDeclaredReps_SavesAndReadsBack(t *testing.T) {
 	mux := newServer(t, true)
 
 	if rec := do(t, mux, http.MethodPut, "/api/program/declared/squat/reps",
-		`{"heavy":6,"light":10}`); rec.Code != http.StatusNoContent {
+		`{"heavy":6}`); rec.Code != http.StatusNoContent {
 		t.Fatalf("保存に失敗: %d body=%s", rec.Code, rec.Body.String())
 	}
 
 	rec := do(t, mux, http.MethodGet, "/api/program", "")
 	var got struct {
-		Declared []string `json:"declared_exercises"`
-		Reps     map[string]struct {
-			Heavy int `json:"heavy"`
-			Light int `json:"light"`
-		} `json:"declared_reps"`
+		Declared []string                              `json:"declared_exercises"`
+		Reps     map[string]map[string]json.RawMessage `json:"declared_reps"`
 	}
 	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
 		t.Fatalf("JSONが壊れている: %v", err)
 	}
-	if r := got.Reps["squat"]; r.Heavy != 6 || r.Light != 10 {
-		t.Errorf("squat が %+v。{6 10} のはず", r)
+	if h := string(got.Reps["squat"]["heavy"]); h != "6" {
+		t.Errorf("squat の heavy が %s。6 のはず", h)
 	}
 	for _, id := range got.Declared {
-		if _, ok := got.Reps[id]; !ok {
+		r, ok := got.Reps[id]
+		if !ok {
 			t.Errorf("宣言 %s のレップ数が返っていない", id)
 		}
+		// 軽い番は計画が読まない。返すと、画面が設定できる値に見えてしまう。
+		if _, ok := r["light"]; ok {
+			t.Errorf("宣言 %s に light が返っている: %v", id, r)
+		}
 	}
-	if r := got.Reps["bench"]; r.Heavy != 3 || r.Light != 6 {
-		t.Errorf("bench が %+v。既定 {3 6} のはず", r)
+	if h := string(got.Reps["bench"]["heavy"]); h != "3" {
+		t.Errorf("bench の heavy が %s。既定 3 のはず", h)
+	}
+}
+
+// キャッシュに残った古い画面は、まだ {"heavy", "light"} を送ってくる。
+// light は値を問わず読まずに受ける。断ると、古い画面で重い日のレップ数も
+// 保存できなくなる。
+func TestPutProgramDeclaredReps_IgnoresLightFromOldClients(t *testing.T) {
+	cases := []struct {
+		name, body string
+	}{
+		{"古い画面の形", `{"heavy":6,"light":10}`},
+		// 以前は light も 1〜15 を検査していた。読まない値で断らない。
+		{"light が範囲外", `{"heavy":6,"light":0}`},
+		{"light が数でない", `{"heavy":6,"light":"x"}`},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			mux := newServer(t, true)
+			if rec := do(t, mux, http.MethodPut, "/api/program/declared/squat/reps",
+				c.body); rec.Code != http.StatusNoContent {
+				t.Fatalf("%d が返った。204 のはず: %s", rec.Code, rec.Body.String())
+			}
+			rec := do(t, mux, http.MethodGet, "/api/program", "")
+			var got struct {
+				Reps map[string]map[string]json.RawMessage `json:"declared_reps"`
+			}
+			if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+				t.Fatalf("JSONが壊れている: %v", err)
+			}
+			if h := string(got.Reps["squat"]["heavy"]); h != "6" {
+				t.Errorf("squat の heavy が %s。6 のはず", h)
+			}
+		})
 	}
 }
 
@@ -509,7 +544,7 @@ func TestPutProgramDeclaredReps_TouchesNothingElse(t *testing.T) {
 
 	before := do(t, mux, http.MethodGet, "/api/program", "")
 	if rec := do(t, mux, http.MethodPut, "/api/program/declared/bench/reps",
-		`{"heavy":8,"light":12}`); rec.Code != http.StatusNoContent {
+		`{"heavy":8}`); rec.Code != http.StatusNoContent {
 		t.Fatalf("保存に失敗: %d body=%s", rec.Code, rec.Body.String())
 	}
 	after := do(t, mux, http.MethodGet, "/api/program", "")
@@ -539,9 +574,11 @@ func TestPutProgramDeclaredReps_Rejects(t *testing.T) {
 		name, path, body string
 		want             int
 	}{
-		{"範囲外", "/api/program/declared/bench/reps", `{"heavy":16,"light":6}`, http.StatusBadRequest},
-		{"0", "/api/program/declared/bench/reps", `{"heavy":3,"light":0}`, http.StatusBadRequest},
-		{"宣言していない", "/api/program/declared/pull_up/reps", `{"heavy":8,"light":12}`, http.StatusBadRequest},
+		{"範囲外", "/api/program/declared/bench/reps", `{"heavy":16}`, http.StatusBadRequest},
+		{"0", "/api/program/declared/bench/reps", `{"heavy":0}`, http.StatusBadRequest},
+		{"欠落", "/api/program/declared/bench/reps", `{}`, http.StatusBadRequest},
+		{"宣言していない", "/api/program/declared/pull_up/reps", `{"heavy":8}`, http.StatusBadRequest},
+		// light を受けるために、知らないフィールドまで通していないこと。
 		{"知らないフィールド", "/api/program/declared/bench/reps", `{"heavy":8,"light":12,"x":1}`, http.StatusBadRequest},
 	}
 	for _, c := range cases {
@@ -556,7 +593,7 @@ func TestPutProgramDeclaredReps_Rejects(t *testing.T) {
 	t.Run("未設定", func(t *testing.T) {
 		mux := newServer(t, false)
 		if rec := do(t, mux, http.MethodPut, "/api/program/declared/bench/reps",
-			`{"heavy":8,"light":12}`); rec.Code != http.StatusConflict {
+			`{"heavy":8}`); rec.Code != http.StatusConflict {
 			t.Errorf("%d が返った。409 のはず", rec.Code)
 		}
 	})
@@ -1562,7 +1599,7 @@ func TestProgram_RoundTrips(t *testing.T) {
 		{"/api/program/volume", `{"exercises_per_session":5,"sets_per_exercise":4}`},
 		{"/api/program/selected", `{"selected_exercises":["bench","squat","deadlift","incline_db_press"]}`},
 		{"/api/program/focus", `{"focus_exercise":"bench"}`},
-		{"/api/program/declared/bench/reps", `{"heavy":8,"light":12}`},
+		{"/api/program/declared/bench/reps", `{"heavy":8}`},
 	} {
 		if rec := do(t, mux, http.MethodPut, step.path, step.body); rec.Code != http.StatusNoContent {
 			t.Fatalf("%s の設定に失敗: %d body=%s", step.path, rec.Code, rec.Body.String())
@@ -2024,7 +2061,7 @@ func TestWrites_StopOnClientDisconnect(t *testing.T) {
 		"conditions":    {http.MethodPost, "/api/conditions", `{"conditions":[{"date":"2026-08-17","body_weight_kg":75}]}`},
 		"focus":         {http.MethodPut, "/api/program/focus", `{"focus_exercise":"bench"}`},
 		"declared":      {http.MethodPut, "/api/program/declared", `{"declared_exercises":["bench"]}`},
-		"declared-reps": {http.MethodPut, "/api/program/declared/bench/reps", `{"heavy":8,"light":12}`},
+		"declared-reps": {http.MethodPut, "/api/program/declared/bench/reps", `{"heavy":8}`},
 		"frequency":     {http.MethodPut, "/api/program/frequency", `{"per_week":4}`},
 		"volume":        {http.MethodPut, "/api/program/volume", `{"exercises_per_session":5,"sets_per_exercise":4}`},
 		"selected":      {http.MethodPut, "/api/program/selected", `{"selected_exercises":["bench","squat","deadlift"]}`},
