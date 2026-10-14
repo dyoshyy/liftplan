@@ -277,13 +277,13 @@ function Settings({
 
       <label htmlFor="reps" className="grid gap-1.5">
         <span className="text-[12px] font-bold text-muted">
-          レップ数（id:重い:軽い を , 区切り。空なら全部 3:6）
+          レップ数（id:重い を , 区切り。空なら全部 3）
         </span>
         <input
           id="reps"
           type="text"
           value={form.reps}
-          placeholder="pull_up:8:12,squat:6:6"
+          placeholder="pull_up:8,squat:6"
           onChange={(ev) => setForm({ ...form, reps: ev.target.value })}
           className={`font-mono text-[12px] ${FIELD}`}
         />

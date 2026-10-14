@@ -329,12 +329,12 @@ describe('custom（自分の種目）', () => {
 });
 
 describe('reps（宣言ごとのレップ数）', () => {
-  // サーバーと同じ「id:重い:軽い」の1行のまま持つ。custom と同じ理由。
+  // サーバーと同じ「id:重い」の1行のまま持つ。custom と同じ理由。
   it('buildQuery が reps をそのまま送り、parseForm が読み戻す', () => {
-    const form = { ...defaultForm, reps: 'pull_up:8:12' };
+    const form = { ...defaultForm, reps: 'pull_up:8' };
     const q = buildQuery(form);
-    expect(new URLSearchParams(q).get('reps')).toBe('pull_up:8:12');
-    expect(parseForm(q, defaultForm).reps).toBe('pull_up:8:12');
+    expect(new URLSearchParams(q).get('reps')).toBe('pull_up:8');
+    expect(parseForm(q, defaultForm).reps).toBe('pull_up:8');
   });
 
   it('空なら送らない', () => {

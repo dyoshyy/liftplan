@@ -31,18 +31,16 @@ describe('repsPath', () => {
 
 describe('repsRows', () => {
   it('宣言の順に並べる', () => {
-    const rows = repsRows(program({ bench: { heavy: 3, light: 6 }, pull_up: { heavy: 8, light: 12 } }));
+    const rows = repsRows(program({ bench: { heavy: 3 }, pull_up: { heavy: 8 } }));
     expect(rows).toEqual([
-      { id: 'bench', reps: { heavy: 3, light: 6 } },
-      { id: 'pull_up', reps: { heavy: 8, light: 12 } },
+      { id: 'bench', reps: { heavy: 3 } },
+      { id: 'pull_up', reps: { heavy: 8 } },
     ]);
   });
 
   // 宣言を足した直後、取り直すまで値が無いことがある。既定を手元で作らず、
   // 行を出さない（既定値はサーバーだけが持つ）。
   it('値が無い宣言は出さない', () => {
-    expect(repsRows(program({ bench: { heavy: 3, light: 6 } }))).toEqual([
-      { id: 'bench', reps: { heavy: 3, light: 6 } },
-    ]);
+    expect(repsRows(program({ bench: { heavy: 3 } }))).toEqual([{ id: 'bench', reps: { heavy: 3 } }]);
   });
 });

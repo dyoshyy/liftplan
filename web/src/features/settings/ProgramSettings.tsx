@@ -58,9 +58,6 @@ export function ProgramSettings({ nameOf, exercises: all, onChanged, onOpenExerc
   } = useProgramSettings(onChanged);
   // 読めなかったときは note が出るので、形を出し続けない。
   const waiting = !program && !note;
-  // 軽い日のレップ数は、選んでいる重点種目の分だけ出す。
-  const focusId = program?.focus_exercise ?? null;
-  const focusReps = focusId ? program?.declared_reps[focusId] : undefined;
 
   return (
     <>
@@ -204,7 +201,7 @@ export function ProgramSettings({ nameOf, exercises: all, onChanged, onOpenExerc
                     aria-label={`${nameOf(id)}の重い日のレップ数`}
                     value={reps.heavy}
                     disabled={busy}
-                    onChange={(e) => void saveReps(id, { ...reps, heavy: Number(e.target.value) })}
+                    onChange={(e) => void saveReps(id, { heavy: Number(e.target.value) })}
                   >
                     {REP_OPTIONS.map((n) => (
                       <option key={n} value={n}>
@@ -245,24 +242,6 @@ export function ProgramSettings({ nameOf, exercises: all, onChanged, onOpenExerc
               );
             })}
           </div>
-        )}
-
-        {focusId && focusReps && (
-          <>
-            <p className="mb-2 mt-4 text-[13px] font-bold">軽い日のレップ数</p>
-            <Select
-              aria-label={`${nameOf(focusId)}の軽い日のレップ数`}
-              value={focusReps.light}
-              disabled={busy}
-              onChange={(e) => void saveReps(focusId, { ...focusReps, light: Number(e.target.value) })}
-            >
-              {REP_OPTIONS.map((n) => (
-                <option key={n} value={n}>
-                  {n}回
-                </option>
-              ))}
-            </Select>
-          </>
         )}
       </Section>
     </>

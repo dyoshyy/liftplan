@@ -69,10 +69,8 @@ export type OnboardingResponse = { completed: boolean };
 
 /** RepTargets は宣言1件ぶんの、軸で狙うレップ数。 */
 export type RepTargets = {
-  /** 重い番（宣言の軸、重点種目の一巡の1番目）。 */
+  /** 重い番。宣言の軸は重点種目かどうかによらずこれで出る。 */
   heavy: number;
-  /** 軽い番（重点種目の一巡の2番目と、派生が軸に立つ3番目）。 */
-  light: number;
 };
 
 export type Program = {
@@ -87,7 +85,7 @@ export type Program = {
   focus_exercise: string | null;
   /** 分割の周期。空なら分割なし。並びに意味がある。 */
   splits: Split[];
-  /** 宣言ごとのレップ数。サーバーが既定（3・6）で埋めて返す。 */
+  /** 宣言ごとのレップ数。サーバーが既定（3）で埋めて返す。 */
   declared_reps: Record<string, RepTargets>;
 };
 

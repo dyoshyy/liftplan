@@ -90,7 +90,7 @@ export type DevSettings = {
   /** 足した自分の種目。ID は orm= の上書きで指すのに使う。 */
   custom?: DevCustom[];
   /** 宣言ごとの軸のレップ数。指定した宣言だけが入る。 */
-  reps: Record<string, { heavy: number; light: number }>;
+  reps: Record<string, { heavy: number }>;
   /** 上書きしたプリセット（ID ごと）。上書きしたものだけが入る。 */
   edits?: Record<string, { stimulus: Record<string, number>; increment_kg: number }>;
   /** 使わない種目の ID（ID の順）。 */
@@ -137,7 +137,7 @@ export type Form = {
   /** 自分の種目。サーバーと同じ「名前|区分:寄与,区分:寄与|刻み」を ; で並べた
    *  1行のまま持つ。空なら足さない。 */
   custom: string;
-  /** 宣言ごとのレップ数。サーバーと同じ「id:重い:軽い」を , で並べた1行のまま持つ。
+  /** 宣言ごとのレップ数。サーバーと同じ「id:重い」を , で並べた1行のまま持つ。
    *  空なら既定。 */
   reps: string;
   /** プリセットの上書き。サーバーと同じ「ID|区分:寄与,区分:寄与|刻み」を ; で並べた

@@ -76,12 +76,12 @@ export function settingsLine(s: DevSettings, names: Record<string, string>, spli
 
 /** repsLine は設定したレップ数を重点の直後に足す。既定のままなら空。
  *
- *  書式は 種目名 重い日/軽い日。レップ数で重さが動くので、書かないと
+ *  書式は 種目名 重い日のレップ数。レップ数で重さが動くので、書かないと
  *  結果の数字がどの前提のものか要約だけで分からない。 */
 function repsLine(s: DevSettings, name: (id: string) => string): string {
   const entries = Object.entries(s.reps ?? {});
   if (entries.length === 0) return '';
-  return `・レップ ${entries.map(([id, r]) => `${name(id)} ${r.heavy}/${r.light}`).join(', ')}`;
+  return `・レップ ${entries.map(([id, r]) => `${name(id)} ${r.heavy}`).join(', ')}`;
 }
 
 /** customLine は自分の種目を前提の末尾に足す。無ければ空。
