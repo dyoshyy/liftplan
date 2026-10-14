@@ -2,7 +2,7 @@
 //
 // 単体テストでは踏めないところを見る。選択シートの開閉（<dialog>）、選んだ種目の
 // カードが出ること、記録のたびに次の空き枠が出ること、記録したあとに
-// 「予定外の記録」へ二重に出ないこと。判断（何を選択肢に出すか）は
+// 「予定外の記録」へ二重に出ないこと、開き直しても続きを記録できること。判断（何を選択肢に出すか）は
 // features/exercises/pickable.ts と features/today/adhoc.ts（plannedIds）の
 // 単体テストが守っているので、ここは配線を見る。
 //
@@ -149,14 +149,14 @@ await page.locator('dialog[open] button', { hasText: first }).first().click();
 await page.waitForTimeout(500);
 check('選び直してもカードは増えない', (await cardNames()).filter((n) => n === first).length === 1);
 
-// 開き直すと、選んだ状態は消え、やった事実は「予定外の記録」に残る。
+// 開き直しても、選んだ種目のカードのまま続きを記録できる。
 await page.reload();
 await page.waitForTimeout(2500);
-check('開き直すと「選んだ種目」の見出しは消える', !(await body()).includes('選んだ種目\n'));
-check(
-  '開き直しても記録は「予定外の記録」に残る',
-  (await body()).includes('予定外の記録') && (await cardNames()).includes(first),
-);
+check('開き直しても「予定外の記録」には落ちない', !(await body()).includes('予定外の記録'));
+check('開き直してもカードは1枚', (await cardNames()).filter((n) => n === first).length === 1);
+check('開き直しても次の空き枠が出る', (await slotsOf(first).count()) === 3);
+await record(2, 45, 6);
+check('開き直したあとに3セット目を記録できる', (await slotsOf(first).count()) === 4);
 
 await page.screenshot({ path: '/tmp/adhoc-check.png' });
 console.log('\nエラー:', errs.length ? errs.join('\n') : '(なし)');
