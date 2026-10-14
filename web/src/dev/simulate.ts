@@ -335,7 +335,7 @@ export function formatTargetReps(set: DevSet): string {
   return `目標 ${set.target_reps} 回`;
 }
 
-/** formatPct は推定1RMに対する比。軸の一巡はこれを見て追う。 */
+/** formatPct は推定1RMに対する比。役割の強度どおりに出ているかはこれで見る。 */
 export function formatPct(set: DevSet): string {
   return set.pct_of_1rm === null ? '' : set.pct_of_1rm.toFixed(2);
 }

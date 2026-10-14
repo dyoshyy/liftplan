@@ -77,8 +77,8 @@ func pplFixture(t *testing.T) horizonFixture {
 }
 
 // rotationFixture は分割なし・重点種目つき。頻度7で1週間ぶん予測すると、
-// 重点種目の一巡（3レップ相当 → 6レップ相当 → 派生）をちょうど3回踏み、
-// かつ他の宣言種目が軸の日にバリエーション（派生）が出る条件も踏む。
+// 宣言種目の間で軸が回り、他の宣言種目が軸の日にバリエーション（派生）が
+// 出る条件も踏む。
 func rotationFixture(t *testing.T) horizonFixture {
 	t.Helper()
 	derived := func(id string) *exercise.Exercise {
@@ -141,9 +141,6 @@ func horizonFixtures(t *testing.T) []horizonFixture {
 // バリエーションID、そのセット数）は、実際にその日を迎えて Plan を呼んだ
 // 結果と一致する。ずれると、次のPR（割り振り器）が架空の週を根拠に
 // 損失を計算することになる。
-//
-// laneRole（heavy/focusVolume）は Plan の出力（Main/Variation）に現れない
-// ので比較しない。役割の効果はレーンとセット数に既に現れている。
 //
 // 分割の日の期待値は、予測(sess.Split())とは独立に、実際に積み上がった
 // 履歴(before)から prog.SplitOn で出す。ProjectHorizon が受け取った

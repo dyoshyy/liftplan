@@ -49,16 +49,6 @@ func TestSessionPlanner_VariationLane(t *testing.T) {
 			want: "",
 		},
 		{
-			// 「軸 != 重点種目」では塞げない。派生が軸に来る日がある。
-			// ここを見落とすと、同じ系統が軸とバリエーションの両方に出る。
-			name:  "軸が重点種目の派生の日も出ない",
-			focus: "bench",
-			lastPerformed: map[exercise.ExerciseID]int{
-				"larsen": -7, "bench": -3, "squat": -3, "deadlift": -3,
-			},
-			want: "",
-		},
-		{
 			name:  "前回の系統から1日しか空いていなければ出ない",
 			focus: "bench",
 			lastPerformed: map[exercise.ExerciseID]int{
@@ -117,6 +107,31 @@ func TestSessionPlanner_VariationLane(t *testing.T) {
 				t.Errorf("バリエーションが %s。%s のはず", got[0].ExerciseID(), c.want)
 			}
 		})
+	}
+}
+
+// 軸が重点種目の派生の日は、バリエーションを出さないこと。
+//
+// 「軸 != 重点種目」では塞げない。派生を宣言していれば、宣言の軸として
+// 派生が軸に来る日がある。ここを見落とすと、同じ系統が軸とバリエーションの
+// 両方に出る。
+//
+// 宣言はベンチと tempo（declaredDerivativeProgram）。tempo のほうが古いので
+// 軸は tempo。系統の派生は tempo しか選択に無いので、門が無ければ軸と同じ
+// tempo がバリエーションにも出る。
+func TestSessionPlanner_VariationLane_SkipsADerivativeAxis(t *testing.T) {
+	req := planRequest(t)
+	req.Program, req.Target = declaredDerivativeProgram(t)
+	req.History = setlog.NewHistory(historyWithLastPerformed(t, map[exercise.ExerciseID]int{
+		"bench": -3, "tempo": -7, "squat": -5,
+	}))
+
+	got := mustPlan(t, req)
+	if len(got.Main()) != 1 || got.Main()[0].ExerciseID() != "tempo" {
+		t.Fatalf("前提: 軸が tempo であること: %v", got.Main())
+	}
+	if len(got.Variation()) != 0 {
+		t.Errorf("軸が系統の派生なのにバリエーションが出ている: %v", got.Variation())
 	}
 }
 

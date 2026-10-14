@@ -9,12 +9,12 @@ import (
 	"github.com/dyoshyy/liftplan/internal/domain/training/program"
 )
 
-// raiseForFocus は先の回の軸の役割（非公開）で足す量を決めるので、
+// raiseForFocus は ProjectedSession の非公開フィールドを読むので、
 // パッケージ内から ProjectedSession を直接組んで検査する。
 //
-// 足すのは「重点種目を指定したから出る回」の刺激だけ。重い番は重点で
-// なくても宣言種目として来る回なので足さない。
-func TestRaiseForFocus_AddsOnlyTheLineageBeyondTheHeavyTurn(t *testing.T) {
+// 足すのは「重点種目を指定したから出る回」の刺激だけ。軸は重点種目でも
+// 重い番で、重点でなくても宣言種目として来る回なので足さない。
+func TestRaiseForFocus_AddsOnlyTheVariationLane(t *testing.T) {
 	bench, err := exercise.NewExercise(exercise.ExerciseParams{
 		ID: "bench", Name: "bench",
 		Stimulus:    map[training.MuscleRegion]float64{training.ChestMid: 1.0, training.TricepsLateral: 0.5},
@@ -49,33 +49,23 @@ func TestRaiseForFocus_AddsOnlyTheLineageBeyondTheHeavyTurn(t *testing.T) {
 		wantMid  float64
 	}{
 		{
-			name:     "重い番の軸だけなら足さない",
-			sessions: []ProjectedSession{{axis: bench, axisRole: heavyRole, axisSets: three}},
+			name:     "軸だけなら足さない",
+			sessions: []ProjectedSession{{axis: bench, axisSets: three}},
 			wantMid:  12,
 		},
 		{
-			name:     "軽い番（ボリューム）の軸は足す",
-			sessions: []ProjectedSession{{axis: bench, axisRole: focusVolumeRole, axisSets: three}},
-			wantMid:  12 + 3,
-		},
-		{
-			name:     "派生が軸に立つ番は足す",
-			sessions: []ProjectedSession{{axis: larsen, axisRole: focusVariationRole, axisSets: three}},
-			wantMid:  12 + 3,
-		},
-		{
 			name:     "バリエーションレーンは足す",
-			sessions: []ProjectedSession{{axis: bench, axisRole: heavyRole, axisSets: three, variation: larsen, variationSets: three}},
+			sessions: []ProjectedSession{{axis: bench, axisSets: three, variation: larsen, variationSets: three}},
 			wantMid:  12 + 3,
 		},
 		{
 			name: "回をまたいで積む",
 			sessions: []ProjectedSession{
-				{axis: bench, axisRole: heavyRole, axisSets: three},
-				{axis: bench, axisRole: focusVolumeRole, axisSets: three, variation: larsen, variationSets: three},
+				{axis: bench, axisSets: three},
+				{axis: bench, axisSets: three, variation: larsen, variationSets: three},
 				{variation: larsen, variationSets: three},
 			},
-			wantMid: 12 + 9,
+			wantMid: 12 + 6,
 		},
 	}
 	for _, c := range cases {

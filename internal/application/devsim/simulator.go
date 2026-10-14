@@ -62,7 +62,7 @@ type Set struct {
 	TargetRIR  int
 	// TargetReps は目標レップ数。軸は宣言ごとのレップ数から決まる。
 	TargetReps int
-	// PctOfOneRM は推定1RMに対する比。一巡が回っているかはこれで見る。
+	// PctOfOneRM は推定1RMに対する比。役割の強度どおりに出ているかはこれで見る。
 	// 推定が立たない初出の日は 0。
 	PctOfOneRM float64
 	// Performed は模擬ユーザーが実際に記録した値。処方の重量が無い日も

@@ -18,14 +18,8 @@ import (
 type laneRole int
 
 const (
-	// heavyRole は軸の重い番（宣言のレップ数の heavy）。3レーンで最も重い。
+	// heavyRole は軸（宣言のレップ数の heavy）。3レーンで最も重い。
 	heavyRole laneRole = iota
-	// focusVolumeRole は重点種目の一巡の2番目。同じ軸を軽い番（light）で出す。
-	focusVolumeRole
-	// focusVariationRole は重点種目の一巡の3番目で、派生が軸に立つ日。
-	// 派生の目的はフォームの向上なので、軽い番で出し、上乗せは掛けない。
-	// レップ数は派生自身ではなく重点種目の light を使う（axisRepTargets）。
-	focusVariationRole
 	// variationRole はバリエーションレーン。軸より軽く、補助より重い。
 	variationRole
 	// accessoryRole は補助。RIR2 で10レップ前後を狙う位置。
@@ -33,10 +27,6 @@ const (
 )
 
 const (
-	// focusCycleLength は重点種目の番に回す一巡の長さ。
-	// 重い番 → 軽い番 → 派生 の3つ。
-	focusCycleLength = 3
-
 	// variationRecoveryDays は同じ系統を再び出すまでに空ける日数。
 	//
 	// 2 は「中1日」で、月曜にやったら火曜は出さず水曜から出す。判定は
@@ -64,12 +54,12 @@ type lanePrescription struct {
 	targetReps int
 }
 
-// axisRIR は軸の目標 RIR。重い番も軽い番も同じ。
+// axisRIR は軸の目標 RIR。
 const axisRIR = 1
 
 // epleyIntensity は「reps 回で RIR rir を残す」強度を、推定と同じ Epley を
 // 逆に解いて出す（training.IntensityForRepsToFailure）。小数2桁に丸める
-// （3レップ RIR1 → 0.88、6レップ → 0.81 と今の表に一致する）。
+// （既定の3レップ RIR1 → 0.88 で、表で定数だったころの値に一致する）。
 //
 // 根拠は Epley が正確だからではなく、行き（処方）と帰り（推定）が同じ式
 // だから。式そのものは training に1つだけ置き、ここは丸めだけを持つ。
@@ -90,17 +80,14 @@ func axisPrescription(reps, sets int) lanePrescription {
 // prescriptionFor は役割から強度・セット数・RIR を引く。3レーン分の定数は
 // ここにしか無い。
 //
-// 軸の強度は、宣言のレップ数（reps）から Epley の逆算で出す
-// （axisPrescription）。重い番は reps.Heavy()、軽い番は reps.Light()。
-// 既定の3・6 は 0.88・0.81 で、レップ数を設定していない人の重量は動かない。
-// 外部の強度表から刻みだけを借りると、推定（Epley）と処方が別の式で動く。
+// 軸の強度は、宣言のレップ数の重い番（reps.Heavy()）から Epley の逆算で
+// 出す（axisPrescription）。既定の3 は 0.88 で、レップ数を設定していない人の
+// 重量は動かない。外部の強度表から刻みだけを借りると、推定（Epley）と処方が
+// 別の式で動く。
 //
-// 軸の強度を1つの定数にしていたのは、散らす相手がいなかったため。宣言種目は
-// 「最後にやったのが最も古いもの」で回るので、宣言が3つあれば各種目は
-// 週1回しか軸に来ない（D-117）。分割が入ると前提が変わる。上下2分割で
-// 宣言がBIG3なら、上半身の日に立てる宣言はベンチだけになり、同じ種目を
-// 同じ強度で週2回やることになる。そこで重点種目の番だけ重い番と軽い番を
-// 回す（D-128）。
+// 軽い番（reps.Light()）は読まない。重点種目の番だけ重い番と軽い番を回して
+// いた（D-128）が、同じ系統の軽い日はバリエーションレーンが派生で作るので、
+// 軸の側で作る理由が無くなった。軸は重点種目でも常に重い番。
 //
 // reps は軸の役割にだけ効く。バリエーションと補助では読まない。
 //
@@ -120,8 +107,6 @@ func (p SessionPlanner) prescriptionFor(role laneRole, sets int, reps program.Re
 	switch role {
 	case heavyRole:
 		return axisPrescription(reps.Heavy(), sets)
-	case focusVolumeRole, focusVariationRole:
-		return axisPrescription(reps.Light(), sets)
 	case variationRole:
 		return lanePrescription{intensityPct: 0.80, sets: sets, targetRIR: 2, targetReps: 6}
 	case accessoryRole:
@@ -146,8 +131,7 @@ func (l lanePrescription) setCount() training.SetCount {
 // prescribe は並びの各種目に、役割の表から引いた定数と推定1RMで重量を付ける。
 // 種目の選び方には触れない。
 //
-// 役割からレーンへの振り分けもここ。heavyRole・focusVolumeRole・
-// focusVariationRole は同じ軸レーンで、違いは強度と上乗せの有無だけ。
+// 役割からレーンへの振り分けもここ。
 //
 // estimable は前日まで・実効負荷の履歴（Plan が作る）。記録のままの履歴を
 // 渡すと自重種目の重量がずれる。
@@ -169,7 +153,7 @@ func (p SessionPlanner) prescribe(
 	for _, entry := range lineup {
 		set := p.prescribeSet(estimable, conditions, date, entry.exercise, entry.role, entry.reps, sets, rirBump)
 		switch entry.role {
-		case heavyRole, focusVolumeRole, focusVariationRole:
+		case heavyRole:
 			session.main = append(session.main, set)
 		case variationRole:
 			session.variation = append(session.variation, set)
@@ -218,9 +202,7 @@ func (p SessionPlanner) prescribeSet(
 
 	if orm, ok := p.estimator.Estimate(estimable, target.ID(), date); ok {
 		if w, err := orm.WorkWeight(intensity, target.Increment()); err == nil {
-			// 派生が軸に立つ日（focusVariationRole）には掛けない。派生の目的は
-			// フォームの向上で、重くする必要が無い。
-			if role == heavyRole || role == focusVolumeRole {
+			if role == heavyRole {
 				w = p.overload(estimable, target, lane, intensity, w)
 			}
 			// 推定も処方も実効負荷（体重込み）で通し、出口で加重に戻す。
@@ -250,10 +232,10 @@ const overloadSessions = 3
 // 割っていなければ、刻みを1つ乗せる。
 //
 // 判定は重量の記録ではなく「その日の始まりの推定からこの役割で出る処方」で
-// 見る。記録のままの重量で比べると、重点種目の一巡で重い番と軽い番の強度が交互に
-// 来るので同じ重量が並ばず、永久に発火しない。履歴は役割を持たないので、
-// 「同じ役割で出た前回」も引けない。推定から役割の強度で引き直せば、どの
-// 役割でやった日でも同じ物差しで比べられ、差は刻み単位で出る（D-124）。
+// 見る。履歴は役割を持たないので「同じ役割で出た前回」を引けず、記録のままの
+// 重量では、同じ種目を軽い処方でやった日（後述）が混ざると同じ重量が並ばない。
+// 推定から役割の強度で引き直せば、どの日でも同じ物差しで比べられ、差は
+// 刻み単位で出る（D-124）。
 //
 // 上乗せは「前回の重量 + 刻み」ではなく base + 刻み。上げた日も推定は
 // 刻み単位で平坦なまま（窓が切れない）なので、前回の重量から積むと毎回
@@ -272,31 +254,22 @@ const overloadSessions = 3
 // 下げる規則は置かない。上げた重量で目標 RIR を割れば、RIR の条件が
 // 窓を抜けるまで外れて base に戻る。推定もその記録で下がる。
 //
-// 対象は heavyRole と focusVolumeRole（prescribeSet の呼び分け）。派生が
-// 一巡の3番目で軸に立つ日（focusVariationRole）は対象外。派生の目的は
-// フォームの向上で、重くする必要が無い。
+// 対象は heavyRole だけ（prescribeSet の呼び分け）。
 //
-// 以前はここに「focusVolumeRole（0.81）に派生が立つ経路ができると、
-// variationRole の 0.80 と同じ刻みに丸まってすり抜ける」という警告があった。
-// 派生の軸の日は上乗せの判定に入らなくなったので、その経路は無い。
-// 宣言種目そのものはバリエーションレーンに出ない（D-125）。
+// 軽い日は窓の証拠に使わない。履歴は役割を持たないので、同じ種目を軽い
+// 処方でやった日も、重い処方の日と同じく ForExercise に並ぶ。今の計画は
+// 宣言種目を軸の重い番でしか出さない（バリエーションレーンには出ない。
+// D-125）が、履歴は過去の計画を覚えている。軽い日になるのは次の記録。
 //
-// 軽い日は窓の証拠に使わない（以下の 0.88・0.81 は既定のレップ数 3・6 のときの
-// 値。宣言で変わっても、重い番と軽い番の強度が違うことは変わらない）。
-// 履歴は役割を持たないので、同じ種目が
-// 軽い処方（バリエーションレーンの variationRole・0.80・RIR2、重点種目の
-// 一巡の focusVariationRole・0.81・RIR1）で出た日も、重い処方の日と同じく
-// ForExercise に並ぶ。上の「宣言種目はバリエーションレーンに出ない」と
-// 矛盾して見えるが、ここで言う variationRole の日は、今は宣言している種目が
-// 宣言する前に出た履歴か、宣言していない派生としての履歴で、今の計画が
-// 出すものではない。履歴は過去の計画を覚えている。
-// 軽い日のうち 0.81 で出た日は、宣言した派生が
-// 宣言の軸（heavyRole・0.88）と重点種目の派生の番（focusVariationRole・0.81）を
-// 行き来するときに起きる。その日の記録RIRは軸の目標RIR（1）を割っていない
-// ため素通りし、「推定が平坦」の判定もその日の始まりの推定を今日の役割の
-// 強度で引き直すだけなので、実際に軽い重量でやったことと無関係に成立して
-// しまう。窓の3セッションのうち重い処方で実施したのが1日しかなくても
-// 発火する不具合になる。
+//   - 重点種目の一巡（軽い番・派生の番。既定のレップ数で 0.81・RIR1）を
+//     やめる前の記録
+//   - 今は宣言している種目が、宣言する前にバリエーションレーン
+//     （variationRole・0.80・RIR2）で出た記録
+//
+// どちらも記録RIRは軸の目標RIR（1）を割らずに素通りし、「推定が平坦」の
+// 判定もその日の始まりの推定を今日の役割の強度で引き直すだけなので、実際に
+// 軽い重量でやったことと無関係に成立してしまう。窓の3セッションのうち重い
+// 処方で実施したのが1日しかなくても発火する不具合になる。
 //
 // 本来は軽い日も換算して証拠に使うべきだが、その日の強度（0.80・RIR2 や
 // 0.81・RIR1）を軸の強度へどう換算するかが決まっていない。無理に決めると

@@ -36,15 +36,15 @@ func (p SessionPlanner) WeeklyTarget(
 
 // raiseForFocus は週目標に、重点種目を指定したから出る回の刺激を足す。
 //
-// 重点種目は一巡（重い番・軽い番・派生）とバリエーションレーンで、他の
-// 宣言種目より多く出る。目標が他と同じままだと、その区分は毎週目標を
-// 大きく超え、割り振り器の超過の罰則（regionLoss の α）が、その区分に
-// 副次で効く補助まで締め出す。胸を重点にすると、胸に 0.3 で効くだけの
-// 肩や三頭の種目が選ばれなくなり、補助の枠が余る。
+// 重点種目はバリエーションレーンで、他の宣言種目より多く出る。目標が
+// 他と同じままだと、その区分は毎週目標を大きく超え、割り振り器の超過の
+// 罰則（regionLoss の α）が、その区分に副次で効く補助まで締め出す。
+// 胸を重点にすると、胸に 0.3 で効くだけの肩や三頭の種目が選ばれなくなり、
+// 補助の枠が余る。
 //
-// 足すのは重い番以外。重い番は重点でなくても宣言種目の番として来る回で、
-// 設定から組んだ目標が既にその分を見ている。軽い番・派生が軸に立つ回・
-// バリエーションレーンは、重点を指定したから出る回。
+// 足すのはバリエーションレーンだけ。軸は重点種目でも重い番で、重点で
+// なくても宣言種目の番として来る回なので、設定から組んだ目標が既にその分を
+// 見ている。
 //
 // 先の回から数えるのは、系統の出方が分割と頻度で週 0.75〜3 回まで動く
 // ため（上下2分割は上の日の数が上限、ppl は押す日だけ）。定数で上げると
@@ -54,9 +54,6 @@ func (p SessionPlanner) WeeklyTarget(
 func raiseForFocus(base program.WeeklyVolumeTarget, sessions []ProjectedSession) program.WeeklyVolumeTarget {
 	extra := StimulusCoverage{}
 	for _, s := range sessions {
-		if s.axis != nil && s.axisRole != heavyRole {
-			extra = extra.Plus(s.axis.Stimulus(), s.axisSets)
-		}
 		if s.variation != nil {
 			extra = extra.Plus(s.variation.Stimulus(), s.variationSets)
 		}

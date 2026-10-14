@@ -23,7 +23,6 @@ type ProjectedSession struct {
 	split         program.Split
 	hasSplit      bool
 	axis          *exercise.Exercise
-	axisRole      laneRole
 	axisSets      training.SetCount
 	variation     *exercise.Exercise
 	variationSets training.SetCount
@@ -36,22 +35,10 @@ func (s ProjectedSession) Date() training.Date { return s.date }
 func (s ProjectedSession) Split() (program.Split, bool) { return s.split, s.hasSplit }
 
 // Axis はその回の軸と、その処方のセット数。軸が無い日は3番目の戻り値が false。
-//
-// laneRole（heavyRole・focusVolumeRole・focusVariationRole）は公開しない。役割が外へ与える
-// 効果はレーン（Axis から返るか Variation から返るか）とセット数だけで、
-// 両方ともここで既に表現している。役割そのものが要る日が来たら、そのとき
-// 公開する（必要になるまで作らない）。
+// 軸は常に重い番（heavyRole）で出るので、役割は持たない。
 func (s ProjectedSession) Axis() (*exercise.Exercise, training.SetCount, bool) {
 	return s.axis, s.axisSets, s.axis != nil
 }
-
-// axisLaneRole はその回の軸が担う役割（重い日・重点種目の一巡の
-// ボリュームの日・派生の軽い日）。パッケージの外には出さない。Forecast がその回を
-// prescribe するときに、軸を heavyRole 固定ではなく実際の役割で処方する
-// ために要る（設計書「役割（重い日・ボリュームの日・派生）も使う」）。
-// 役割が外へ与える効果は Axis() が既に表現しているので、公開はしない
-// （必要になるまで作らない）。
-func (s ProjectedSession) axisLaneRole() laneRole { return s.axisRole }
 
 // Variation はその回のバリエーションと、その処方のセット数。出ない日は
 // 3番目の戻り値が false。
@@ -71,25 +58,25 @@ func (s ProjectedSession) Stimulus() StimulusCoverage { return s.stimulus }
 //
 // 日付は今日から 7/頻度 日ごとの等間隔を仮定し、整数日へ丸める
 // （horizonDates）。回ごとの分割の日・軸・バリエーションは、Plan が今日に
-// 使うのと同じ関数（axis・heavyLift・focusCyclePosition・variationLift・
+// 使うのと同じ関数（axis・heavyLift・variationLift・
 // prescriptionFor(...).setCount()）で決める。予測と実際の決め方がずれようが
 // ない（TestProjectHorizon_MatchesPlanWhenFollowedExactly が守る）。
 //
 // 前の回の軸・バリエーションを実施したものとして履歴を仮に進めてから
 // 次の回を決める。進めないと、2回目以降の予測が「1回目をやらなかった
-// 世界線」のまま決まり、周期の位置（focusCyclePosition）も最終実施日
-// （stalest・LastPerformed）もずれる。
+// 世界線」のまま決まり、最終実施日（stalest・LastPerformed）も
+// 系統の間隔（recentlyPerformed）もずれる。
 //
 // 【設計書の難所】軸を決める関数は History を受け取るが、実際に読むのは
-// 最終実施日（LastPerformed）とセッション数（SessionCount・Sessions）だけで、
-// 重量やレップは読まない。仮の記録として組み立てる SetLog には重量・
+// 実施日と種目ID（LastPerformed・recentlyPerformed）だけで、重量やレップは
+// 読まない。仮の記録として組み立てる SetLog には重量・
 // レップが要る（コンストラクタが検証する）が、値そのものはどの関数の
 // 判断にも使われない。
 //
 // 選んだのは「仮の記録を組み立てて History に足す」側（設計書の構成(a)）。
 // もう一方（(b) 軸を決める関数を「最終実施日の辞書と出席回数」を受け取る
-// 形に割る）は heavyLift・focusCyclePosition・variationLift・stalest・
-// recentlyPerformed の5関数の型を変え、Plan からの呼び出しも道連れにする。
+// 形に割る）は heavyLift・variationLift・stalest・recentlyPerformed の
+// 関数の型を変え、Plan からの呼び出しも道連れにする。
 // (a) はこのファイル1つで完結し、既存の関数も Plan も1行も変えない。
 // このPRは「動かない」PR（設計書のPR分け）なので、触る面積が小さい
 // ほうを選ぶ。
@@ -129,15 +116,14 @@ func (p SessionPlanner) ProjectHorizon(
 		h := setlog.NewHistory(logs)
 
 		today, hasSplit := prog.SplitOn(attended + k)
-		heavy, axisRole := axis(h, prog, usable, declared, today, hasSplit, d)
+		heavy := axis(h, prog, usable, declared, today, hasSplit, d)
 		variation := variationLift(h, prog, usable, heavy, d, today, hasSplit)
 
 		session := ProjectedSession{date: d, split: today, hasSplit: hasSplit}
 		if heavy != nil {
 			session.axis = heavy
-			session.axisRole = axisRole
 			// ここで使うのはセット数だけで、セット数はレップ数に依らない。
-			session.axisSets = p.prescriptionFor(axisRole, sets, program.DefaultRepTargets()).setCount()
+			session.axisSets = p.prescriptionFor(heavyRole, sets, program.DefaultRepTargets()).setCount()
 			session.stimulus = session.stimulus.Plus(heavy.Stimulus(), session.axisSets)
 			logs = append(logs, projectedLog(k, "axis", d, heavy.ID()))
 		}
@@ -208,8 +194,8 @@ func horizonDates(today training.Date, f int) []training.Date {
 // projectedLog は仮の記録を1件組み立てる。
 //
 // 重量・レップ・RIRは0・1・0の固定値で、値そのものに意味は無い。軸・
-// バリエーションを決める関数（heavyLift・focusCyclePosition・
-// variationLift・stalest・recentlyPerformed）が読むのは実施日と種目IDだけで、
+// バリエーションを決める関数（heavyLift・variationLift・stalest・
+// recentlyPerformed）が読むのは実施日と種目IDだけで、
 // この3つの値を読む経路が無い。ID は (回, レーン, 種目) で一意にし、
 // 同じ種目を軸とバリエーションの双方に同日書き込む事態（起こらない。
 // variationLift は軸の系統を除く）でも衝突しない。

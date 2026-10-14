@@ -7,15 +7,16 @@ import (
 	"github.com/dyoshyy/liftplan/internal/domain/training/setlog"
 )
 
-// axis は今日の軸と、その役割（heavyRole・focusVolumeRole・focusVariationRole）を返す。
+// axis は今日の軸を返す。重点種目が軸に来た日も、他の宣言と同じく重い番で出す。
 //
-// 重点種目の番に来たときだけ一巡する。重い番 → 軽い番 → 派生。
-// 一巡のどこにいるかを数えるのは種目の判断で、その位置にどの強度を当てるかは
-// 重量の判断。ここは前者だけを扱い、強度の値は持たない（prescriptionFor）。
+// 重点種目の番だけ 重い番 → 軽い番 → 派生 と一巡させていたが、やめた。
+// 派生はバリエーションレーンが中1日空けて別の日に出すので、軸の側で軽い日を
+// 作る理由が無い。
 //
-// 派生を軸に出すのは、バリエーションレーンが届かない日があるため。あちらは
-// 軸が系統に含まれる日は出ない（D-125）ので、上半身の日が毎回ベンチになる
-// 構成では派生がどこにも出ない。
+// 派生を軸に出さないので、上半身の日の軸が毎回重点種目になる分割では
+// 派生がどこにも出ない（バリエーションレーンは軸が系統に含まれる日は出ない。
+// D-125）。分割と重点種目を両方使っている利用者は今0人なので、手当てはしない。
+// 要るようになったら、そのときの構成に合わせて足す。
 //
 // 重点種目の系統は、中1日空けてから軸に立てる（focusRested）。
 //
@@ -23,40 +24,13 @@ import (
 func axis(
 	history setlog.History, prog *program.Program, pool, declared []*exercise.Exercise,
 	today program.Split, hasSplit bool, date training.Date,
-) (*exercise.Exercise, laneRole) {
-	lift := heavyLift(history, focusRested(history, prog, pool, declared, date), today, hasSplit)
-	if lift == nil {
-		// 休ませたい系統しか今日の候補に無ければ、それを出す。軸を空に
-		// すると、その日の主役が消える。
-		lift = heavyLift(history, declared, today, hasSplit)
+) *exercise.Exercise {
+	if lift := heavyLift(history, focusRested(history, prog, pool, declared, date), today, hasSplit); lift != nil {
+		return lift
 	}
-	if lift == nil {
-		return nil, heavyRole
-	}
-
-	focus, ok := prog.FocusExercise()
-	if !ok || lift.ID() != focus {
-		return lift, heavyRole
-	}
-
-	switch focusCyclePosition(history, lineage(pool, focus)) {
-	case 1:
-		return lift, focusVolumeRole
-	case 2:
-		// 派生も分割で絞る。軸の候補（heavyLift）は絞っているのに
-		// ここだけ素通しにすると、胸の日にナローベンチ（主働は三頭）が
-		// 軸として出る。型が「今日は胸の日」と言いながら三頭を主役に据える。
-		//
-		// 該当が無ければ本体を重い側で出す（選択から外した派生も同じ経路）。
-		candidates := variationsOf(pool, focus)
-		if hasSplit {
-			candidates = primaryIn(candidates, today)
-		}
-		if d := stalest(history, candidates); d != nil {
-			return d, focusVariationRole
-		}
-	}
-	return lift, heavyRole
+	// 休ませたい系統しか今日の候補に無ければ、それを出す。軸を空に
+	// すると、その日の主役が消える。
+	return heavyLift(history, declared, today, hasSplit)
 }
 
 // focusRested は宣言のうち、重点種目の系統を直近 variationRecoveryDays 日に
@@ -93,28 +67,6 @@ func focusRested(
 		}
 	}
 	return out
-}
-
-// focusCyclePosition は重点種目の一巡のうち、今日がどこかを返す。
-//
-// 数えるのは「系統のどれかを実施したセッション数」。本体の実施回数で
-// 数えると、派生をやった日に位置が進まず同じ派生が出続ける。
-func focusCyclePosition(h setlog.History, family []*exercise.Exercise) int {
-	inFamily := make(map[exercise.ExerciseID]bool, len(family))
-	for _, e := range family {
-		inFamily[e.ID()] = true
-	}
-
-	n := 0
-	for _, s := range h.Sessions() {
-		for _, l := range s.Logs() {
-			if inFamily[l.ExerciseID()] {
-				n++
-				break
-			}
-		}
-	}
-	return n % focusCycleLength
 }
 
 // heavyLift は今日メインでやる＝高重量を扱う種目を返す。

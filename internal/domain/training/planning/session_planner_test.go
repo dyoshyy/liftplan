@@ -638,7 +638,6 @@ func TestSessionPlanner_ResidualCarriesOverWithinTheWeek(t *testing.T) {
 //
 // 上乗せの判定に当日を混ぜる変異を捕まえるのは「分割も重点種目も無い」と
 // 「バリエーションが出る」の2ケース。分割のケースは履歴が空で推定が立たず、
-// 重点種目の一巡は派生（tempo）の記録が1セッションしか無いので、どちらも
 // 上乗せが発火しうる状態にない。
 func TestSessionPlanner_PlanIsFixedForTheWholeDay(t *testing.T) {
 	cases := []struct {
@@ -689,19 +688,22 @@ func TestSessionPlanner_PlanIsFixedForTheWholeDay(t *testing.T) {
 			wantMainWeight: false,
 		},
 		{
-			// 一巡の位置を当日込みで数えると、派生の番（位置2）で1セット記録した
-			// 瞬間に位置が0へ進み、軸が派生から本体に入れ替わる。派生を選ぶ
-			// 「最も古いもの」も、当日の記録で入れ替わる。守っているのは axis。
-			name: "重点種目の一巡が派生の番",
+			// 重点種目（ベンチ）が軸の日。系統の間隔（focusRested）を当日込みで
+			// 見ると、ベンチを1セット記録した瞬間に系統が「最近やった」になり、
+			// 軸がベンチから次に古い宣言（デッドリフト）に入れ替わる。
+			// BIG3 は planHistory で最終実施日が同じなので、ID 順でベンチが立つ。
+			name: "重点種目が軸",
 			req: func(t *testing.T) planning.PlanRequest {
-				return rotationRequest(t, 5)
+				req := planRequest(t)
+				req.Program, req.Target = focusedProgram(t, "bench")
+				return req
 			},
 			wantVariation:  false,
 			wantMainWeight: true,
 		},
 		{
 			// バリエーションレーンを踏む唯一のケース。他の3ケースはどれも
-			// バリエーションが出ない構成（重点種目が無い／派生が軸そのもの／
+			// バリエーションが出ない構成（重点種目が無い／軸が重点種目そのもの／
 			// 記録が無い）なので、バリエーションの重量に当日の記録が
 			// 混ざる退行はこのケースでしか捕まらない。
 			//
