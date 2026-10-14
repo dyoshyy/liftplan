@@ -49,8 +49,8 @@ export function Today(props: Props) {
   );
   const dismiss = useCallback(() => setCelebration(null), []);
 
-  // 「種目を選んで記録」で選んだ種目。画面を開き直すと消えるが、記録したセットは
-  // 消えない（「予定外の記録」に出る。belowPlan）。
+  // 「種目を選んで記録」で選んだ種目。画面を開き直すと消えるが、記録した種目は
+  // 選んだ種目のまま出る（belowPlan）。
   const [picked, setPicked] = useState<string[]>([]);
   const [picking, setPicking] = useState(false);
   const pick = useCallback((id: string) => setPicked((p) => withPicked(p, id)), []);
@@ -74,17 +74,17 @@ export function Today(props: Props) {
 
   const main = data.session?.main ?? [];
   const variation = data.session?.variation ?? [];
-  // 補助は差し替えを反映した並びを予定として扱う（leftovers・plannedIds に
+  // 補助は差し替えを反映した並びを予定として扱う（belowPlan・plannedIds に
   // この並びを渡す。accessoryCards のコメント）。
   const substitute = useSubstitute(data.session?.date);
   const accessories = accessoryCards(data.session?.accessories ?? [], substitute.swaps);
 
   const lanes = [main, variation, accessories];
-  const { adhoc, done } = belowPlan(lanes, picked, data.doneToday);
+  const adhoc = belowPlan(lanes, picked, data.doneToday);
 
   const card = (plan: CardPlan) => (
     <ExerciseCard
-      key={`${plan.exercise_id}-${plan.finished_only ? 'done' : plan.adhoc ? 'adhoc' : 'plan'}`}
+      key={`${plan.exercise_id}-${plan.adhoc ? 'adhoc' : 'plan'}`}
       plan={plan}
       name={nameOf(plan.exercise_id)}
       last={data.last[plan.exercise_id]}
@@ -148,9 +148,6 @@ export function Today(props: Props) {
 
       {adhoc.length > 0 && <SectionTitle data-coach="lane">選んだ種目</SectionTitle>}
       {adhoc.map(card)}
-
-      {done.length > 0 && <SectionTitle data-coach="lane">予定外の記録</SectionTitle>}
-      {done.map(card)}
 
       {/* 予定に無い種目をやりたい日の入口。今日どこまでやるかは本人が決める
           ので、予定の下に控えめに置く。 */}

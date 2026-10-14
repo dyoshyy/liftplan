@@ -1,6 +1,5 @@
 import type { PlannedSet, RecordedSet } from '../../api/types';
 import type { CardPlan } from './ExerciseCard';
-import { leftovers } from './leftovers';
 
 // 自分で選んだ種目の初期RIR。補助の目標と同じ。
 //
@@ -11,7 +10,7 @@ export const ADHOC_RIR = 2;
 /**
  * plannedIds は今日の予定に出ている種目。種目を選ぶシートから除くのに使う。
  *
- * 予定は3レーンすべてを渡すこと（leftovers と同じ理由。1レーンでも渡し忘れると、
+ * 予定は3レーンすべてを渡すこと（1レーンでも渡し忘れると、
  * その種目が選択肢に残り、選ぶと同じカードが2枚並ぶ）。
  */
 export const plannedIds = (planned: readonly (readonly PlannedSet[])[]): Set<string> =>
@@ -45,16 +44,24 @@ export function adhocCards(
 }
 
 /**
- * belowPlan は予定のカードの下に出す2組。本人が選んだ種目と、予定外の記録。
+ * belowPlan は予定のカードの下に出す、本人が選んだ種目のカード。
  *
- * 選んだ種目は予定として数えて leftovers に渡す。渡さないと、記録した時点で
- * 「予定外の記録」にも出て、同じ種目が2枚並ぶ。
+ * 選んだ種目に加えて、今日やったのに予定に無い種目も入れる。選んだ状態は画面の
+ * メモリにしか無く、開き直すと消える。そこで記録の数だけの枠にしていたら、
+ * 続きを記録する空き枠が無くなった。予定に無い種目をやったのは本人が選んだ
+ * からなので、記録から選んだことにする。
+ *
+ * 予定は3レーンすべてを渡すこと。1レーンでも渡し忘れると、そのレーンの記録が
+ * 選んだ種目として二重に出る。
  */
 export function belowPlan(
   planned: readonly (readonly PlannedSet[])[],
   picked: readonly string[],
   doneToday: ReadonlyMap<string, readonly RecordedSet[]>,
-): { adhoc: CardPlan[]; done: CardPlan[] } {
-  const adhoc = adhocCards(picked, planned);
-  return { adhoc, done: leftovers([...planned, adhoc], doneToday) };
+): CardPlan[] {
+  const recorded = [...doneToday.entries()]
+    .filter(([, sets]) => sets.length > 0)
+    .map(([id]) => id)
+    .sort();
+  return adhocCards(recorded.reduce(withPicked, [...picked]), planned);
 }
