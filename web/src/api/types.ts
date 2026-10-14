@@ -161,8 +161,12 @@ export type Trend = {
   exercise_id: string;
   name: string;
   points: TrendPoint[];
-  current_kg: number;
-  change_kg: number;
+  /** current_kg は処方が使う推定1RM（点を均した値）。最後の記録が古すぎて
+   *  推定できなければ null。 */
+  current_kg: number | null;
+  /** change_kg は最初の点の日の推定から current_kg までの差。current_kg が
+   *  null なら null。 */
+  change_kg: number | null;
 };
 
 /** 筋区分ごとの週の充足。dto.go の volumeDTO と対。 */
