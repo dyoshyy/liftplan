@@ -36,13 +36,6 @@ func TestSessionPlanner_TargetReps(t *testing.T) {
 			},
 		},
 		{
-			name: "重点種目の2番目は6レップ", want: 6, intensity: 0.81, rir: 1,
-			plan: func(t *testing.T) planning.PlannedSet {
-				req := rotationRequest(t, 4)
-				return mustPlan(t, req).Main()[0]
-			},
-		},
-		{
 			name: "バリエーションは6レップ（5.5 を四捨五入）", want: 6, intensity: 0.80, rir: 2,
 			plan: func(t *testing.T) planning.PlannedSet {
 				req := variationRequest(t)

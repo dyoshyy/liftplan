@@ -92,10 +92,8 @@ func (p SessionPlanner) Forecast(req PlanRequest) ([]PlannedSession, error) {
 	for k, sess := range sessions {
 		var lineup []lineupEntry
 		if heavy, _, ok := sess.Axis(); ok {
-			role := sess.axisLaneRole()
 			lineup = append(lineup, lineupEntry{
-				exercise: heavy, role: role,
-				reps: axisRepTargets(req.Program, heavy, role),
+				exercise: heavy, role: heavyRole, reps: req.Program.RepTargetsFor(heavy.ID()),
 			})
 		}
 		if v, _, ok := sess.Variation(); ok {
@@ -163,8 +161,6 @@ func (p SessionPlanner) planWeek(req PlanRequest) (weekPlan, error) {
 	//   - 分割：周期は出席回数で進むので、1セット記録した瞬間に今日が1回に
 	//     数えられ、上の日が下の日に変わる。先の回の予測（ProjectHorizon）の
 	//     起点も1つずれる
-	//   - 重点種目の一巡：今日のセッションが1回に数えられて位置が進み、
-	//     軸の強度か種目が変わる
 	//
 	// かつて別々に手当てしていた不具合（終えた補助が再提示される、記録すると
 	// 種目が消える、並びが入れ替わる、枠が補充されて終わらない）は、すべて
@@ -337,19 +333,6 @@ type lineupEntry struct {
 	exercise *exercise.Exercise
 	role     laneRole
 	reps     program.RepTargets
-}
-
-// axisRepTargets は軸に立った種目のレップ数を宣言から引く。
-//
-// 派生が軸に立つ日（focusVariationRole）は、派生自身ではなく重点種目の
-// 値を使う。派生を宣言していなくても、重点種目の軽い番で出すため。
-func axisRepTargets(prog *program.Program, axis *exercise.Exercise, role laneRole) program.RepTargets {
-	if role == focusVariationRole {
-		if focus, ok := prog.FocusExercise(); ok {
-			return prog.RepTargetsFor(focus)
-		}
-	}
-	return prog.RepTargetsFor(axis.ID())
 }
 
 // usablePool はプログラムで選択された種目を ID 昇順で返す。

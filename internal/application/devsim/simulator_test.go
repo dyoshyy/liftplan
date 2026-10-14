@@ -114,11 +114,13 @@ func TestSimulator_NamesTheSplitOfTheDay(t *testing.T) {
 	}
 }
 
-// 重点種目を指定すると、軸の強度が一巡すること。
+// 重点種目を指定しても、軸に立った重点種目は毎回重い番で出ること。
 //
-// 画面で一巡を目で追えることがこの道具の目的なので、比が出ていない
-// （推定1RMが立っていない）と何も見えない。
-func TestSimulator_ShowsTheAxisCycle(t *testing.T) {
+// 以前は重点種目の番だけ 重い番 → 軽い番 → 派生 と一巡していた。軽い日は
+// バリエーションレーンが派生で作るので、軸は常に重い番（0.88）。比が出て
+// いない（推定1RMが立っていない）と何も見えないので、重い番が1回以上
+// 見えていることも確かめる。
+func TestSimulator_FocusAxisIsAlwaysHeavy(t *testing.T) {
 	req := baseRequest()
 	req.SplitKey = "upper_lower"
 	req.Focus = "bench"
@@ -138,8 +140,8 @@ func TestSimulator_ShowsTheAxisCycle(t *testing.T) {
 			}
 		}
 	}
-	if seen["重い"] == 0 || seen["軽い"] == 0 {
-		t.Errorf("一巡が見えない: %v", seen)
+	if seen["重い"] == 0 || seen["軽い"] != 0 {
+		t.Errorf("軸のベンチが重い番だけになっていない: %v", seen)
 	}
 }
 
@@ -399,8 +401,9 @@ func topAxisWeight(r devsim.Result, id exercise.ExerciseID) float64 {
 //
 // プランナーは体重込みで推定して処方し、出口で加重に戻す。比を加重だけで
 // 出すと、バックエクステンション（加重 1.25kg）で 1.41 のような意味の無い
-// 値になる。体重込みで見れば、どの種目も役割の強度（補助 0.71・軸 0.81〜
-// 0.88）の近くに並ぶ。加重0に倒した回（自重だけで強度を超える）は除く。
+// 値になる。体重込みで見れば、どの種目も役割の強度（補助 0.71・
+// バリエーション 0.80・軸 0.88）の近くに並ぶ。加重0に倒した回（自重だけで
+// 強度を超える）は除く。
 func TestSimulator_PctOfOneRMUsesEffectiveLoad(t *testing.T) {
 	// 画面で 1.41 が出た設定。自重種目に加重が付く回を踏む。
 	req := baseRequest()

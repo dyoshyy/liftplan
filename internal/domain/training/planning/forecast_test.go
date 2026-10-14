@@ -13,7 +13,7 @@ import (
 	"github.com/dyoshyy/liftplan/internal/domain/training/setlog"
 )
 
-// Forecast の回0は常に Plan と一致する。分割・重点種目の一巡・
+// Forecast の回0は常に Plan と一致する。分割・重点種目・
 // バリエーションが絡む構成でも崩れないこと（設計書「Plan(req) =
 // Forecast(req) の回0」）。
 func TestSessionPlanner_Forecast_FirstSessionMatchesPlan(t *testing.T) {
@@ -23,7 +23,6 @@ func TestSessionPlanner_Forecast_FirstSessionMatchesPlan(t *testing.T) {
 	}{
 		{"分割も重点種目も無い", planRequest},
 		{"分割がある", fixedDaySplitRequest},
-		{"重点種目の一巡が派生の番", func(t *testing.T) planning.PlanRequest { return rotationRequest(t, 5) }},
 		{"バリエーションが出る", func(t *testing.T) planning.PlanRequest {
 			req := planRequest(t)
 			req.Program, req.Target = focusedProgram(t, "bench")

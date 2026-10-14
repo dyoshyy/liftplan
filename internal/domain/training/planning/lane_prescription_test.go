@@ -103,8 +103,8 @@ func logAxisRows(t *testing.T, rows []axisRow) {
 //
 // 上げないと、推定1RMのとおりの実力で目標 RIR ちょうどで止める人には
 // 推定と処方が固定点に落ち、重量が永久に同じになる（D-014）。上に行く
-// 判断だけ本人に残る（#169）。実装前はどちらのケースも 12本やって
-// 100kg（6レップ相当は 92.5kg）のまま一度も動かなかった。
+// 判断だけ本人に残る（#169）。実装前は 12本やって 100kg のまま一度も
+// 動かなかった。
 //
 // 上がる幅も見る。刻み2つ上げる実装でも「上がった」は満たすので、
 // 「上がった重量 = 起点 + 刻み1つ」で固定する。
@@ -112,18 +112,10 @@ func TestSessionPlanner_AxisWeightProgresses(t *testing.T) {
 	cases := []struct {
 		name string
 		prog func(t *testing.T) (*program.Program, program.WeeklyVolumeTarget)
-		// 同じ役割が回ってくる間隔。重点種目の一巡では 3レップ相当と
-		// 6レップ相当が交互に来るので、同じ役割どうしで比べる。
-		period int
 	}{
-		{name: "軸が毎回3レップ相当", prog: benchOnlyProgram, period: 1},
-		{
-			name: "重点種目の一巡（派生なし）",
-			prog: func(t *testing.T) (*program.Program, program.WeeklyVolumeTarget) {
-				return rotationProgramWithout(t, "larsen", "tempo")
-			},
-			period: 3,
-		},
+		{name: "重点種目なし", prog: benchOnlyProgram},
+		// 重点種目の軸も重い番で、上乗せの対象になる。
+		{name: "重点種目が軸", prog: rotationProgram},
 	}
 
 	for _, c := range cases {
@@ -134,16 +126,14 @@ func TestSessionPlanner_AxisWeightProgresses(t *testing.T) {
 
 			// ベンチの刻みは 2.5kg。
 			const increment = 2.5
-			for pos := range c.period {
-				first := rows[pos].weight
-				top := first
-				for i := pos; i < len(rows); i += c.period {
-					top = max(top, rows[i].weight)
-				}
-				if top != first+increment {
-					t.Errorf("%d本目と同じ役割の軸が、%d本やって %vkg → 最大 %vkg。%vkg のはず",
-						pos+1, len(rows), first, top, first+increment)
-				}
+			first := rows[0].weight
+			top := first
+			for _, r := range rows {
+				top = max(top, r.weight)
+			}
+			if top != first+increment {
+				t.Errorf("軸が %d本やって %vkg → 最大 %vkg。%vkg のはず",
+					len(rows), first, top, first+increment)
 			}
 		})
 	}
@@ -249,10 +239,10 @@ func TestSessionPlanner_AxisOverload(t *testing.T) {
 
 // declaredDerivativeProgram は宣言がベンチと tempo、重点がベンチのプログラム。
 //
-// tempo はベンチの派生で、宣言にも入っている。宣言の軸（heavyRole・0.88・
-// 上乗せあり）に立つ日と、重点ベンチの一巡の3番目（focusVariationRole・
-// 0.81・上乗せなし）に立つ日を行き来する。履歴は役割を持たないので、
-// どちらの日も tempo の記録として同じに並ぶ。
+// tempo はベンチの派生で、宣言にも入っている。今の計画は tempo を宣言の軸
+// （heavyRole・0.88・上乗せあり）でしか出さないが、重点ベンチの一巡が
+// あったころは一巡の3番目（0.81）でも軸に立っていた。履歴は役割を
+// 持たないので、どちらの日も tempo の記録として同じに並ぶ。
 func declaredDerivativeProgram(t *testing.T) (*program.Program, program.WeeklyVolumeTarget) {
 	t.Helper()
 
@@ -269,7 +259,7 @@ func declaredDerivativeProgram(t *testing.T) (*program.Program, program.WeeklyVo
 }
 
 // 宣言した派生（tempo）が軸の重い日に立つとき、上乗せの判定が軽い日
-// （重点ベンチの派生の番で 0.81 で出た日）を証拠に使わないこと。
+// （一巡をやめる前、重点ベンチの派生の番で 0.81 で出た日）を証拠に使わないこと。
 //
 // 軽い日の記録 RIR（1）は軸の目標 RIR（1）を割っておらず、「推定が平坦」の
 // 判定もその日の始まりの推定を今日の役割の強度で引き直すだけなので、
@@ -327,40 +317,5 @@ func TestSessionPlanner_AxisOverload_ExcludesLighterDays(t *testing.T) {
 	const want = 87.5 // 軽い日を除けば、重い処方でやったのは1日だけで窓が満たない
 	if got != want {
 		t.Errorf("tempo が %vkg。%vkg のはず（軽い日を上乗せの証拠に使っている）", got, want)
-	}
-}
-
-// 派生が一巡の3番目で軸に立つ日は、上乗せの条件を満たしても刻みを乗せないこと。
-//
-// 派生の目的はフォームの向上で、重くする必要が無い（設計書
-// 2026-10-03-declared-rep-targets「決めたこと」）。
-//
-// tempo の起点は 75kg×8 RIR2（Epley 100kg）。0.81 で 81 → 80kg。
-// 以後 80kg×6 RIR1（Epley 98.67kg）を3回。EWMA で 100 → 99.6 → 99.32 →
-// 99.12 と下がるが、どの日の始まりの推定 × 0.81 も 80kg に丸まる。窓の
-// 3セッションが平坦で目標 RIR を割っていないので、上乗せが掛かれば 82.5kg。
-//
-// 系統（bench・tempo）のセッションは5回で、一巡の位置は 5 % 3 = 2（派生の番）。
-func TestSessionPlanner_DerivativeAxisIsNotOverloaded(t *testing.T) {
-	req := planRequest(t)
-	req.Program, req.Target = rotationProgramWithout(t, "larsen")
-	req.History = setlog.NewHistory([]*setlog.SetLog{
-		mkLogOn(t, "bench", planMonday.AddDays(-40), "bench", 85, 8, 0),
-		mkLogOn(t, "tempo-base", planMonday.AddDays(-35), "tempo", 75, 8, 2),
-		mkLogOn(t, "tempo-1", planMonday.AddDays(-21), "tempo", 80, 6, 1),
-		mkLogOn(t, "tempo-2", planMonday.AddDays(-14), "tempo", 80, 6, 1),
-		mkLogOn(t, "tempo-3", planMonday.AddDays(-7), "tempo", 80, 6, 1),
-	})
-
-	s := mustPlan(t, req)
-	if len(s.Main()) != 1 || s.Main()[0].ExerciseID() != "tempo" {
-		t.Fatalf("前提: 今日は tempo が派生の番で軸に立つこと: %v", s.Main())
-	}
-	got, ok := plannedWeight(t, s, "tempo")
-	if !ok {
-		t.Fatal("前提: tempo の重量が出ること")
-	}
-	if got != 80 {
-		t.Errorf("tempo が %vkg。80kg のはず（派生の日に上乗せが掛かっている）", got)
 	}
 }

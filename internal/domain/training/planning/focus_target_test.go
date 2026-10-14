@@ -16,8 +16,8 @@ import (
 // 重点種目を指定すると、その系統が先の回で余分に入れる刺激のぶんだけ
 // 週目標が上がる。
 //
-// 重点種目は一巡（重い番・軽い番・派生）とバリエーションレーンで週に
-// 3回前後出るのに、目標は他の宣言種目と同じだった。胸は目標を大きく
+// 重点種目は軸とバリエーションレーンで週に3回前後出るのに、目標は
+// 他の宣言種目と同じだった。胸は目標を大きく
 // 超えて超過の罰則（α）がかかり、胸に副次で効く補助まで選ばれなくなる。
 //
 // 足す量は固定の係数ではなく、先の回（Forecast と同じ ProjectHorizon）に
@@ -29,8 +29,8 @@ func TestSessionPlanner_WeeklyTargetIsRaisedByTheFocusLineage(t *testing.T) {
 	pool := planPool(t)
 	history := setlog.NewHistory(planHistory(t))
 
-	// 期待値は同じ先の回から数える。この履歴（系統は3回実施済みで一巡の
-	// 先頭）では、軸のベンチは重い番で、余分は派生のバリエーションだけ。
+	// 期待値は同じ先の回から数える。軸のベンチは重い番で、余分は派生の
+	// バリエーションだけ。
 	horizon, err := planner.ProjectHorizon(history, prog, pool, planMonday)
 	if err != nil {
 		t.Fatalf("先の回の予測に失敗: %v", err)
@@ -101,7 +101,7 @@ func TestSessionPlanner_FocusDoesNotCrowdOutAccessoriesWithSecondaryChest(t *tes
 		t.Fatalf("プログラムの生成に失敗: %v", err)
 	}
 
-	// 4週の窓いっぱいに、重点ベンチの一巡どおりの記録を置く。胸は軸と
+	// 4週の窓いっぱいに、重点ベンチと派生の記録を置く。胸は軸と
 	// 系統だけで目標を超える。肩は週1回（窓の3週ぶんで達成率 75%）。
 	var logs []*setlog.SetLog
 	n := 0

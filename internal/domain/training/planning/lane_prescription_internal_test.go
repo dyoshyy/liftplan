@@ -27,8 +27,6 @@ func TestLanePrescriptions_RoundTripIsCurrentlyContractive(t *testing.T) {
 		role laneRole
 	}{
 		{"軸", heavyRole},
-		{"重点種目の6レップ相当", focusVolumeRole},
-		{"重点種目の派生の番", focusVariationRole},
 		{"バリエーション", variationRole},
 		{"補助", accessoryRole},
 	}
@@ -87,8 +85,8 @@ func TestLanePrescriptions_RoundTripIsCurrentlyContractive(t *testing.T) {
 
 // 軸の強度は Epley の逆算を小数2桁に丸めた値。
 //
-// 丸めた値は今の表と一致する（3 → 0.88、6 → 0.81）。一致しないと、
-// レップ数を設定していない全員の重量が動く。1〜15 のどれでも、丸めた
+// 丸めた値は表で定数だったころの値と一致する（3 → 0.88、6 → 0.81）。
+// 既定の3が一致しないと、レップ数を設定していない全員の重量が動く。1〜15 のどれでも、丸めた
 // 強度から Epley で逆算したレップ数が元に戻る（TestSessionPlanner_TargetReps
 // の式の一致がそのまま通る）。
 //
