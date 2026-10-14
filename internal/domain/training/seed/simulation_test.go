@@ -446,17 +446,20 @@ func TestSimulation_EveryAccessoryGetsUsedInSomeSetup(t *testing.T) {
 	//   デッドリフト … ハム・臀筋の主働筋枠が空く
 	//   スクワット   … 大腿四頭・内転筋の枠が空く（レッグプレス、アダクション）
 	//   大腿四頭の複合種目 … レッグエクステンション
+	//   ベンチの派生       … ペックフライ
 	for _, without := range []exercise.ExerciseID{"deadlift", "squat"} {
 		for id := range simulateWithout(t, 3, 8, without).picked {
 			used[id] = true
 		}
 	}
-	// 下は、今週の量を週目標で止める（reachedWeeklyTarget）ようにしてから
-	// 要った。区分の枠を、ほかの区分にも効く複合種目が先に使い切るので、
-	// 同じ区分の単関節の種目は、複合種目を使わない人にしか回らない。出番が
-	// 少ないので、頻度を1つに決めず全部で数える。
+	// 下の2つは、今週の量を週目標で止める（reachedWeeklyTarget）ようにして
+	// から要った（ペックフライは、そのあと週目標の k を較正し直して目標が
+	// 下がったとき）。区分の枠を、ほかの区分にも効く複合種目が先に使い切る
+	// ので、同じ区分の単関節の種目は、複合種目を使わない人にしか回らない。
+	// 出番が少ないので、頻度を1つに決めず全部で数える。
 	for _, without := range [][]exercise.ExerciseID{
 		{"pause_squat", "front_squat", "leg_press"},
+		{"larsen_press", "tempo_bench"},
 	} {
 		for f := 2; f <= maxSimFrequency; f++ {
 			for id := range simulateWithout(t, f, 8, without...).picked {
