@@ -234,10 +234,12 @@ func TestSessionPlanner_Forecast_WeightsUseTodaysEstimate(t *testing.T) {
 	}
 }
 
-// 先の回の軸も、その回自身の役割（重い日／重点種目の一巡のボリューム
-// の日）で処方されること。予測器が持つ役割を Forecast が実際に使って
-// いないと、一巡2番目の回まで一律 0.88 になる。
-func TestSessionPlanner_Forecast_FutureSessionUsesItsOwnAxisRole(t *testing.T) {
+// 先の回でも、重点種目の軸は毎回重い番で出ること。
+//
+// Plan は回0しか見ないので、先の回の処方は Forecast で見る。宣言・重点種目とも
+// bench 1つだけで頻度7なので、全ての回で bench が軸に立つ。以前は回1と回4が
+// 軽い番（0.81・6レップ）だった（派生を選んでいないので、派生の番は本体の重い番）。
+func TestSessionPlanner_Forecast_FutureFocusAxisIsHeavy(t *testing.T) {
 	bench := mainExercise(t, "bench", map[training.MuscleRegion]float64{training.ChestMid: 1.0})
 	prog, err := program.NewProgram(mustFrequency(t, 7), planVolume(t),
 		[]exercise.ExerciseID{"bench"}, []exercise.ExerciseID{"bench"}, "bench")
@@ -256,13 +258,15 @@ func TestSessionPlanner_Forecast_FutureSessionUsesItsOwnAxisRole(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Forecast が失敗: %v", err)
 	}
-	// 回1が一巡の位置1（focusVolumeRole・0.81）になることは
-	// TestProjectedSession_AxisLaneRoleFollowsTheFocusCycle が固定した
-	// 並びと同じ（宣言・重点種目とも bench 1つだけ）。
-	if len(sessions[1].Main()) != 1 {
-		t.Fatalf("回1の軸が1つでない: %v", sessions[1].Main())
+	for k, s := range sessions {
+		if len(s.Main()) != 1 {
+			t.Fatalf("回%dの軸が1つでない: %v", k, s.Main())
+		}
+		assertIntensity(t, req, s.Main()[0], 0.88)
+		if got := s.Main()[0].TargetReps().Int(); got != 3 {
+			t.Errorf("回%d: 目標レップが %d。3 のはず", k, got)
+		}
 	}
-	assertIntensity(t, req, sessions[1].Main()[0], 0.81)
 }
 
 // 各回の種目数が1回の量を超えないこと（軸・バリエーション・補助の合計）。

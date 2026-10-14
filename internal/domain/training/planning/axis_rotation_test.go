@@ -11,32 +11,26 @@ import (
 	"github.com/dyoshyy/liftplan/internal/domain/training/setlog"
 )
 
-// 重点種目の番に、軸が一巡すること。
+// 重点種目が軸に来た日は、何回目でも重い番で出ること。
 //
-// 分割が入るまでは散らす相手がいなかった。軸は宣言のうち最も古いもので
-// 回るので、宣言が3つなら各種目は週1回しか軸に来ない（D-117）。だから
-// 強度は定数でよかった（D-126）。
-//
-// 分割を入れると前提が変わる。上下2分割で宣言がBIG3なら、上半身の日に
-// 立てる宣言はベンチだけで、同じ強度を週2回やることになる。散らす相手が
-// 戻ったので、重点種目の番だけ一巡を持たせる。
+// 以前は重点種目の番だけ 重い番 → 軽い番 → 派生 と一巡させていた（D-128）。
+// 派生はバリエーションレーンが中1日空けて別の日に出すので、軸の側で軽い日を
+// 作る理由が無い。重点種目の軸は常に重い番、派生はバリエーションレーンだけ。
 //
 // 強度は Epley の逆算に合わせる（割合 = 1 / (1 + (レップ + RIR) / 30)）。
-// 0.88 は3レップ RIR1、0.81 は6レップ RIR1。推定と処方を同じ式で閉じる。
-func TestSessionPlanner_FocusAxisRotates(t *testing.T) {
+// 0.88 は3レップ RIR1。推定と処方を同じ式で閉じる。
+func TestSessionPlanner_FocusAxisIsAlwaysHeavy(t *testing.T) {
 	cases := []struct {
 		name string
 		// sessions は系統が軸に来た回数（履歴に積むセッション数）。
-		sessions  int
-		want      exercise.ExerciseID
-		intensity float64
-		reps      int
+		sessions int
 	}{
-		{name: "1周目は3レップ相当", sessions: 3, want: "bench", intensity: 0.88, reps: 3},
-		{name: "2周目は6レップ相当", sessions: 4, want: "bench", intensity: 0.81, reps: 6},
-		// 派生の目的はフォームの向上で、重くする必要が無い。軽い番で出す。
-		{name: "3周目は派生を軽い番で", sessions: 5, want: "tempo", intensity: 0.81, reps: 6},
-		{name: "4周目で本体に戻る", sessions: 6, want: "bench", intensity: 0.88, reps: 3},
+		{name: "1回目", sessions: 3},
+		// ここが軽い番（0.81・6レップ）だった。
+		{name: "2回目も重い番", sessions: 4},
+		// ここで派生（tempo）が軸に立っていた。
+		{name: "3回目も本体を重い番で", sessions: 5},
+		{name: "4回目", sessions: 6},
 	}
 
 	for _, c := range cases {
@@ -48,12 +42,12 @@ func TestSessionPlanner_FocusAxisRotates(t *testing.T) {
 				t.Fatalf("軸が %d 件。1件のはず: %v", len(got.Main()), got.Main())
 			}
 			set := got.Main()[0]
-			if set.ExerciseID() != c.want {
-				t.Fatalf("軸が %s。%s のはず", set.ExerciseID(), c.want)
+			if set.ExerciseID() != "bench" {
+				t.Fatalf("軸が %s。bench のはず（派生は軸に立てない）", set.ExerciseID())
 			}
-			assertIntensity(t, req, set, c.intensity)
-			if got := set.TargetReps().Int(); got != c.reps {
-				t.Errorf("目標レップが %d。%d のはず", got, c.reps)
+			assertIntensity(t, req, set, 0.88)
+			if got := set.TargetReps().Int(); got != 3 {
+				t.Errorf("目標レップが %d。3 のはず", got)
 			}
 		})
 	}
