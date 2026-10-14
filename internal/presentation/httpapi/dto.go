@@ -386,8 +386,8 @@ type trendDTO struct {
 	ExerciseID string     `json:"exercise_id"`
 	Name       string     `json:"name"`
 	Points     []pointDTO `json:"points"`
-	CurrentKg  float64    `json:"current_kg"`
-	ChangeKg   float64    `json:"change_kg"`
+	CurrentKg  *float64   `json:"current_kg"`
+	ChangeKg   *float64   `json:"change_kg"`
 }
 
 type volumeDTO struct {

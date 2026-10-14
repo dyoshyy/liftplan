@@ -66,9 +66,8 @@ func defaultProgram(t *testing.T) *program.Program {
 	return newProgram(t, []exercise.ExerciseID{"bench"})
 }
 
-// 推移は古い順に並ぶ。現在値は最後の点で、増減は最初との差。
-// 並びが崩れると、伸びているのに減っているように見える。
-func TestTrends_古い順に並び現在値は最後の点(t *testing.T) {
+// 推移は古い順に並ぶ。並びが崩れると、伸びているのに減っているように見える。
+func TestTrends_古い順に並ぶ(t *testing.T) {
 	q := newStats(t,
 		[]*setlog.SetLog{
 			log(t, "c", "2026-08-18", "bench", 100, 5, 1),
@@ -95,11 +94,104 @@ func TestTrends_古い順に並び現在値は最後の点(t *testing.T) {
 			t.Fatalf("古い順に並んでいない: %v", tr.Points)
 		}
 	}
-	if tr.CurrentKg != tr.Points[len(tr.Points)-1].Kg {
-		t.Fatalf("現在値が最後の点でない: %v", tr.CurrentKg)
+}
+
+// 現在値と増減は、処方が使う推定1RM（回ごとの値を均したもの）で出す。
+//
+// 元は現在値を最後の点（その回だけの推定）、増減を最初の点との差にしていた。
+// 処方は均した値で重量を決めるので、画面が「デッドリフト 160.3kg」と言う
+// 横で処方は約153kgから組まれ、「135kg×3・RIR1 は軽すぎないか」の根拠に
+// なっていた（3ヶ月の利用者シミュレーション）。点は回ごとの値のまま残す。
+// どの回が高かったか・低かったかは、均すと見えなくなる。
+//
+// 期待値は、回ごとの推定（Epley: 重量 ×(1 + (回数+RIR)/30)）を古い順に
+// alpha 0.3 で均したもの。
+//
+// 【変異】現在値を最後の点に戻す → 現在値が 120 になって赤。
+// 【変異】増減を最初の点との差に戻す → 「期間より前の記録がある」で 12 になって赤。
+// 【変異】鮮度の判定を通さない → 「42日より古い」で現在値が出て赤。
+func TestTrends_現在値と増減は処方が使う推定で出す(t *testing.T) {
+	ptr := func(v float64) *float64 { return &v }
+
+	cases := []struct {
+		name        string
+		logs        []*setlog.SetLog
+		wantCurrent *float64
+		wantChange  *float64
+	}{
+		{
+			name: "現在値は最後の点ではなく、均した推定",
+			logs: []*setlog.SetLog{
+				log(t, "a", "2026-08-04", "bench", 90, 5, 1),  // 108
+				log(t, "b", "2026-08-11", "bench", 95, 5, 1),  // 114
+				log(t, "c", "2026-08-18", "bench", 100, 5, 1), // 120
+			},
+			// 108 → 0.3×114 + 0.7×108 = 109.8 → 0.3×120 + 0.7×109.8 = 112.86
+			wantCurrent: ptr(112.86),
+			// 最初の点の日の推定は 108 そのもの（それより前の記録が無い）
+			wantChange: ptr(112.86 - 108),
+		},
+		{
+			// 期間より前の記録も、最初の点の日の推定に効いている。最初の点
+			// （その回だけの値）と比べると、均した値と均していない値の差に
+			// なり、伸びていない人にも増減が出る。
+			name: "増減は最初の点の日の推定との差。期間より前の記録も効く",
+			logs: []*setlog.SetLog{
+				log(t, "z", "2026-07-28", "bench", 80, 5, 1),  // 96（期間の外）
+				log(t, "a", "2026-08-04", "bench", 90, 5, 1),  // 108
+				log(t, "b", "2026-08-11", "bench", 95, 5, 1),  // 114
+				log(t, "c", "2026-08-18", "bench", 100, 5, 1), // 120
+			},
+			// 96 → 99.6 → 103.92 → 108.744
+			wantCurrent: ptr(108.744),
+			// 8/4 時点は 0.3×108 + 0.7×96 = 99.6
+			wantChange: ptr(108.744 - 99.6),
+		},
+		{
+			// 最後の記録が42日より前だと、処方は「自分で決める」になる。
+			// 画面だけが数字を出すと、処方に無い値を見せることになる。
+			name: "42日より古い記録しか無ければ現在値も増減も出さない",
+			logs: []*setlog.SetLog{
+				log(t, "a", "2026-08-04", "bench", 90, 5, 1),
+			},
+			wantCurrent: nil,
+			wantChange:  nil,
+		},
 	}
-	if tr.ChangeKg <= 0 {
-		t.Fatalf("伸びているのに増減が %v", tr.ChangeKg)
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			q := newStats(t, c.logs,
+				[]*exercise.Exercise{newExercise(t, "bench", "ベンチプレス")}, defaultProgram(t))
+
+			// 8/4 から 9/16 は43日
+			to := "2026-08-31"
+			if c.wantCurrent == nil {
+				to = "2026-09-16"
+			}
+			trends, err := q.Trends(context.Background(), testUser, date(t, "2026-08-01"), date(t, to))
+			if err != nil {
+				t.Fatalf("読めない: %v", err)
+			}
+			if len(trends) != 1 {
+				t.Fatalf("種目数が合わない: %d", len(trends))
+			}
+			tr := trends[0]
+			assertKg(t, "現在値", tr.CurrentKg, c.wantCurrent)
+			assertKg(t, "増減", tr.ChangeKg, c.wantChange)
+		})
+	}
+}
+
+func assertKg(t *testing.T, what string, got, want *float64) {
+	t.Helper()
+	switch {
+	case want == nil && got != nil:
+		t.Errorf("%sが %v。出さないはず", what, *got)
+	case want != nil && got == nil:
+		t.Errorf("%sが出ていない。%v のはず", what, *want)
+	case want != nil && math.Abs(*got-*want) > 1e-6:
+		t.Errorf("%sが %v。%v のはず", what, *got, *want)
 	}
 }
 
@@ -367,6 +459,15 @@ func TestTrends_自重種目は体重込みの負荷で推定する(t *testing.T
 					t.Errorf("%d点目が %.1fkg。実効負荷 %.1fkg の通常種目と同じ %.1fkg のはず",
 						i+1, chin.Points[i].Kg, c.effectiveKg[i], ref.Points[i].Kg)
 				}
+			}
+			// 現在値も同じ読み替えを通る。点だけ体重込みで、現在値を加重の
+			// まま推定すると、自重でやっている人の現在値が出なくなる。
+			// 【変異】現在値の推定に体重込みの履歴を渡さない → 赤。
+			if chin.CurrentKg == nil || ref.CurrentKg == nil {
+				t.Fatalf("現在値が出ていない。自重 %v・参照 %v", chin.CurrentKg, ref.CurrentKg)
+			}
+			if math.Abs(*chin.CurrentKg-*ref.CurrentKg) > 0.1 {
+				t.Errorf("現在値が %.1fkg。通常種目と同じ %.1fkg のはず", *chin.CurrentKg, *ref.CurrentKg)
 			}
 		})
 	}

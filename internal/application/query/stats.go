@@ -30,9 +30,13 @@ type Trend struct {
 	ExerciseID exercise.ExerciseID
 	Name       string
 	Points     []Point
-	CurrentKg  float64
-	// ChangeKg は期間の最初から最後までの差。
-	ChangeKg float64
+	// CurrentKg は to 時点の推定1RM。処方が重量を決めるのに使う、各点を
+	// 均した値で、最後の点（その回だけの推定）ではない。最後の記録が
+	// 古すぎて処方が「自分で決める」になる種目は nil。
+	CurrentKg *float64
+	// ChangeKg は最初の点の日の推定1RMから CurrentKg までの差。どちらも
+	// 均した値で比べる。CurrentKg が nil なら nil。
+	ChangeKg *float64
 }
 
 // RegionVolume は筋区分ごとの充足（直近4週の週あたり）。
@@ -109,8 +113,13 @@ func (q *Stats) Trends(ctx context.Context, user account.UserID, from, to traini
 			ExerciseID: e.ID(),
 			Name:       e.Name(),
 			Points:     points,
-			CurrentKg:  points[len(points)-1].Kg,
-			ChangeKg:   points[len(points)-1].Kg - points[0].Kg,
+		}
+		if now, ok := q.estimator.EstimateOf(h, e, conditions, to); ok {
+			t.CurrentKg = new(now.Kg())
+			// 最初の点の日には記録があるので、鮮度で落ちることはない。
+			if start, ok := q.estimator.EstimateOf(h, e, conditions, points[0].Date); ok {
+				t.ChangeKg = new(now.Kg() - start.Kg())
+			}
 		}
 		out = append(out, t)
 	}
