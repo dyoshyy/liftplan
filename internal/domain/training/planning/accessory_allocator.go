@@ -146,6 +146,9 @@ type stimulusEvent struct {
 //
 // 候補が尽きるか、改善が無くなれば止まる。枠が残っていても止まる
 // （1回の量は上限であってノルマではない）。
+//
+// 候補の組からは、分割の日に入らないもの・回復中のもの・主働の区分が
+// この先1週の予定ですでに週目標に達したもの（reachedWeeklyTarget）を除く。
 func (a AccessoryAllocator) Allocate(req AllocationRequest) ([][]exercise.ExerciseID, error) {
 	if a.IsZero() {
 		return nil, errors.New("割り振り器が未設定である")
@@ -184,6 +187,15 @@ func (a AccessoryAllocator) Allocate(req AllocationRequest) ([][]exercise.Exerci
 			v += s.Stimulus.Sets(r)
 		}
 		current[r] = v
+	}
+
+	// week はこの先1週（Sessions）の予定だけが入れる刺激。current と違って
+	// 窓の実績を含まない。天井（reachedWeeklyTarget）の判定に使う。
+	week := make(map[training.MuscleRegion]float64, len(req.Target.Regions()))
+	for _, r := range req.Target.Regions() {
+		for _, s := range req.Sessions {
+			week[r] += s.Stimulus.Sets(r)
+		}
 	}
 
 	// fixed は動かない刺激イベント（実際の記録＋予測した軸・バリエーション）。
@@ -278,7 +290,9 @@ func (a AccessoryAllocator) Allocate(req AllocationRequest) ([][]exercise.Exerci
 			if !ok {
 				continue
 			}
-			current[r] = training.Quantize(current[r] + c.TimesSets(req.SetsPerAccessory))
+			added := c.TimesSets(req.SetsPerAccessory)
+			current[r] = training.Quantize(current[r] + added)
+			week[r] = training.Quantize(week[r] + added)
 		}
 
 		d := req.Sessions[k].Date
@@ -324,6 +338,9 @@ func (a AccessoryAllocator) Allocate(req AllocationRequest) ([][]exercise.Exerci
 					continue
 				}
 				if recoveryBlocks(primary, recovering) {
+					continue
+				}
+				if reachedWeeklyTarget(primary, week, req.Target) {
 					continue
 				}
 				candidates = append(candidates, candidate{
@@ -441,6 +458,33 @@ func splitAllowsAccessory(primary []training.MuscleRegion, today program.Split, 
 func recoveryBlocks(primary []training.MuscleRegion, recovering map[training.MuscleRegion]bool) bool {
 	for _, r := range primary {
 		if recovering[r] {
+			return true
+		}
+	}
+	return false
+}
+
+// reachedWeeklyTarget は候補の主働のどれかが、この先1週の予定だけで
+// すでに週目標に達しているか（天井）。
+//
+// 損失は4週の窓で見るので、途中でやめた週の分はそのまま遅れとして残り、
+// 放っておくとこの先1週の補助で取り返そうとする。本番では大腿四頭が
+// 週目標の1.6倍、ハムストリングが1.45倍の予定になり、レッグカールが
+// 5回中3回出た。足りなかった分を翌週に多く返すのは疲労を溜めるだけ
+// なので、今週の量は週目標で止める。窓の遅れは「どの区分を先に埋めるか」
+// にだけ効く（損失は4週の釣り合い、天井は今週の量、と役割を分ける）。
+//
+// 「足すと超えるなら置かない」にしない。週目標が1回ぶんのセット数より
+// 小さい区分（週3回のふくらはぎは1.8）に何も置けなくなる。届いていない
+// うちは1つ置き、届いたら止める。
+//
+// 主働だけを見る（recoveryBlocks と同じ理由）。副次まで見ると、副次の
+// 区分が先に埋まった多関節種目がほとんど置けなくなる。
+func reachedWeeklyTarget(
+	primary []training.MuscleRegion, week map[training.MuscleRegion]float64, target program.WeeklyVolumeTarget,
+) bool {
+	for _, r := range primary {
+		if t := target.Sets(r); t > 0 && week[r] >= t {
 			return true
 		}
 	}

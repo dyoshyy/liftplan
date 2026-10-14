@@ -784,6 +784,93 @@ func TestAccessoryAllocator_CountsTheHorizonStimulus(t *testing.T) {
 	}
 }
 
+// TestAccessoryAllocator_StopsAtTheWeeklyTarget は、今週の予定がすでに
+// 週目標に達した区分には、それを主働とする補助を足さないことを守る。
+//
+// 損失は4週の窓で見るので、過去の週に途中でやめた分はそのまま遅れとして
+// 残り、この先1週の補助で取り返そうとする。本番では大腿四頭が週目標の
+// 1.6倍、ハムストリングが1.45倍の予定になり、レッグカールが5回中3回出た。
+// 足りなかった分を翌週に多く返すのは疲労を溜めるだけなので、今週の量は
+// 週目標で止める。遅れは「どの区分を先に埋めるか」にだけ効く。
+//
+// 【変異1】天井の判定を外す → 1つ目のケースで leg_ext が入って赤。
+// 【変異2】判定を「足すと週目標を超えるなら置かない」にする → 週目標が
+// 1回ぶん（3セット）より小さい区分に何も置けなくなり、2つ目のケースが赤。
+// 通し検証では週3回のふくらはぎ（週目標1.8）が0%になった。
+// 【変異3】判定を主働ではなく効く全区分で見る → 3つ目のケースが赤。
+func TestAccessoryAllocator_StopsAtTheWeeklyTarget(t *testing.T) {
+	quadOnly := regionOnly(t, "leg_ext", training.Quad, 1.0)
+	calf := regionOnly(t, "calf_raise", training.Calf, 1.0)
+	legPress := mkAccessory(t, "leg_press", map[training.MuscleRegion]float64{
+		training.Quad: 1.0, training.Glute: 0.5,
+	})
+
+	cases := []struct {
+		name     string
+		target   map[training.MuscleRegion]float64
+		stimulus planning.StimulusCoverage
+		pool     *exercise.Exercise
+		want     int
+	}{
+		{
+			// 窓の実績は0なので4週の目標40に対して遅れは大きい。だが回0の軸が
+			// すでに今週ぶんの10セットを入れているので、もう足さない。
+			name:     "4週の窓で遅れていても今週の予定が週目標に達した区分には足さない",
+			target:   map[training.MuscleRegion]float64{training.Quad: 10},
+			stimulus: coverage(t, regionOnly(t, "axis_quad", training.Quad, 1.0), 10),
+			pool:     quadOnly, want: 0,
+		},
+		{
+			// 0 < 1.8 なので1つ目は置く（3セットで超えるが、置かなければ
+			// 0のまま）。置いたあとは 3 ≥ 1.8 なので2つ目は置かない。
+			name:   "週目標が1回ぶんより小さい区分にも1つは足し2つ目は足さない",
+			target: map[training.MuscleRegion]float64{training.Calf: 1.8},
+			pool:   calf, want: 1,
+		},
+		{
+			// 臀部は回0で3セット入っていて週目標2を超えているが、副次。
+			// 主働の大腿四頭は0なので足す（置いたあとは 3 ≥ 3 で2つ目は
+			// 置かない）。副次まで見ると多関節種目がほとんど置けなくなる。
+			name:     "副次の区分が週目標を超えていても主働の区分が未達なら足す",
+			target:   map[training.MuscleRegion]float64{training.Quad: 3, training.Glute: 2},
+			stimulus: coverage(t, regionOnly(t, "axis_glute", training.Glute, 1.0), 3),
+			pool:     legPress, want: 1,
+		},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			// 回復日数（2日）にかからないよう3日あける。
+			first := noSplitSession(allocatorDay, 1)
+			first.Stimulus = c.stimulus
+			second := noSplitSession(allocatorDay.AddDays(3), 1)
+
+			got, err := planning.DefaultAccessoryAllocator().Allocate(planning.AllocationRequest{
+				Target:           mustTarget(t, c.target),
+				Sessions:         []planning.HorizonSession{first, second},
+				SetsPerAccessory: mustSetCount(t, 3),
+				Pool:             []*exercise.Exercise{c.pool},
+				Master:           []*exercise.Exercise{c.pool},
+				History:          setlog.NewHistory(nil),
+			})
+			if err != nil {
+				t.Fatalf("Allocate: %v", err)
+			}
+
+			placed := 0
+			for _, ids := range got {
+				if contains(ids, c.pool.ID()) {
+					placed++
+				}
+			}
+			if placed != c.want {
+				t.Errorf("%s を置いた回が %d（%v / %v）。%d のはず",
+					c.pool.ID(), placed, idsOf(got[0]), idsOf(got[1]), c.want)
+			}
+		})
+	}
+}
+
 // TestAccessoryAllocator_PinnedStayAndOnlyFreeSlotsAreFilled は
 // 「置いてある補助はそのまま、空き枠だけが埋まる」を守る。
 //
