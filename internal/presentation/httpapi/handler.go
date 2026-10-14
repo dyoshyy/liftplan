@@ -584,13 +584,13 @@ func (h *Handler) handlePutProgramDeclaredReps(w http.ResponseWriter, r *http.Re
 	if !ok {
 		return
 	}
-	var req repTargetsDTO
+	var req putRepTargetsDTO
 	if err := decodeJSON(r, &req); err != nil {
 		respondError(w, err)
 		return
 	}
 	id := exercise.ExerciseID(r.PathValue("id"))
-	if err := h.setDeclaredReps.Execute(r.Context(), user, id, req.Heavy, req.Light); err != nil {
+	if err := h.setDeclaredReps.Execute(r.Context(), user, id, req.Heavy); err != nil {
 		respondError(w, err)
 		return
 	}

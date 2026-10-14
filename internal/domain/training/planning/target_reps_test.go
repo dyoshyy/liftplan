@@ -124,9 +124,9 @@ func variationRequest(t *testing.T) planning.PlanRequest {
 }
 
 // withReps は req のプログラムで、id にレップ数を立てる。
-func withReps(t *testing.T, req planning.PlanRequest, id exercise.ExerciseID, heavy, light int) planning.PlanRequest {
+func withReps(t *testing.T, req planning.PlanRequest, id exercise.ExerciseID, heavy int) planning.PlanRequest {
 	t.Helper()
-	reps, err := program.NewRepTargets(heavy, light)
+	reps, err := program.NewRepTargets(heavy)
 	if err != nil {
 		t.Fatalf("NewRepTargets: %v", err)
 	}
@@ -156,7 +156,7 @@ func TestSessionPlanner_AxisFollowsTheDeclaredReps(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			req := withReps(t, rotationRequest(t, c.sessions), "bench", 8, 12)
+			req := withReps(t, rotationRequest(t, c.sessions), "bench", 8)
 			set := mustPlan(t, req).Main()[0]
 			if set.ExerciseID() != c.want {
 				t.Fatalf("軸が %s。%s のはず", set.ExerciseID(), c.want)
@@ -181,7 +181,7 @@ func TestSessionPlanner_OtherDeclaredKeepTheirOwnReps(t *testing.T) {
 	req := planRequest(t)
 	req.Program, req.Target = focusedProgram(t, "bench")
 	req.History = setlog.NewHistory(logs)
-	req = withReps(t, req, "bench", 8, 12)
+	req = withReps(t, req, "bench", 8)
 
 	set := mustPlan(t, req).Main()[0]
 	if set.ExerciseID() != "squat" {
@@ -198,7 +198,7 @@ func TestSessionPlanner_NonFocusAxisUsesItsHeavyReps(t *testing.T) {
 	req := planRequest(t)
 	req.Program, req.Target = benchOnlyProgram(t) // 重点なし・宣言はベンチだけ
 	req.History = setlog.NewHistory(rotationLogs(t, 4))
-	req = withReps(t, req, "bench", 8, 12)
+	req = withReps(t, req, "bench", 8)
 
 	set := mustPlan(t, req).Main()[0]
 	if set.ExerciseID() != "bench" {

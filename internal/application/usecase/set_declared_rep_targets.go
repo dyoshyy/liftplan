@@ -10,7 +10,7 @@ import (
 	"github.com/dyoshyy/liftplan/internal/domain/training/program"
 )
 
-// SetDeclaredRepTargets は1つの宣言のレップ数（重い番・軽い番）だけを差し替える。
+// SetDeclaredRepTargets は1つの宣言のレップ数（重い番）だけを差し替える。
 //
 // SetFocusExercise と同じ形。受け取るのはその宣言の値だけで、プログラムの
 // 残りは保存済みのものを使う。
@@ -29,12 +29,12 @@ func NewSetDeclaredRepTargets(reader program.Reader, writer program.Writer) *Set
 
 // Execute は id のレップ数を差し替える。範囲外・宣言していない種目は入力の誤り。
 func (u *SetDeclaredRepTargets) Execute(
-	ctx context.Context, user account.UserID, id exercise.ExerciseID, heavy, light int,
+	ctx context.Context, user account.UserID, id exercise.ExerciseID, heavy int,
 ) (err error) {
 	// 出口で1度だけ翻訳する（SetFocusExercise と同じ理由）。
 	defer func() { err = apperror.Classify(err) }()
 
-	reps, err := program.NewRepTargets(heavy, light)
+	reps, err := program.NewRepTargets(heavy)
 	if err != nil {
 		return fmt.Errorf("%w: レップ数: %w", apperror.ErrInvalidInput, err)
 	}

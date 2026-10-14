@@ -488,7 +488,10 @@ func parseDevStimulus(v string) (map[training.MuscleRegion]float64, error) {
 	return exerciseStimulusFrom(raw), nil
 }
 
-// parseDevReps は "bench:8:12,pull_up:6:10" を宣言ごとのレップ数にする。
+// parseDevReps は "bench:8,pull_up:6" を宣言ごとのレップ数にする。
+//
+// 軽い番を持っていたころの "bench:8:12" は断る。黙って捨てると、前提の
+// 要約に出るレップ数が書いた値と食い違う。
 // 範囲は program.NewRepTargets が見る。宣言に含まれるかは devsim が見る。
 func parseDevReps(v string) (map[exercise.ExerciseID]program.RepTargets, error) {
 	out := map[exercise.ExerciseID]program.RepTargets{}
@@ -497,15 +500,14 @@ func parseDevReps(v string) (map[exercise.ExerciseID]program.RepTargets, error) 
 			continue
 		}
 		fields := strings.Split(item, ":")
-		if len(fields) != 3 {
+		if len(fields) != 2 {
 			return nil, errDevQuery("reps", item)
 		}
-		heavy, err1 := strconv.Atoi(strings.TrimSpace(fields[1]))
-		light, err2 := strconv.Atoi(strings.TrimSpace(fields[2]))
-		if err1 != nil || err2 != nil {
+		heavy, err := strconv.Atoi(strings.TrimSpace(fields[1]))
+		if err != nil {
 			return nil, errDevQuery("reps", item)
 		}
-		r, err := program.NewRepTargets(heavy, light)
+		r, err := program.NewRepTargets(heavy)
 		if err != nil {
 			return nil, fmt.Errorf("クエリ reps の %s が不正: %w", item, err)
 		}
@@ -600,7 +602,7 @@ func toDevSettingsDTO(req devsim.Request, pool []*exercise.Exercise) devSettings
 	}
 	out.Reps = make(map[string]repTargetsDTO, len(req.Reps))
 	for id, r := range req.Reps {
-		out.Reps[string(id)] = repTargetsDTO{Heavy: r.Heavy(), Light: r.Light()}
+		out.Reps[string(id)] = repTargetsDTO{Heavy: r.Heavy()}
 	}
 	out.Edits = make(map[string]devEditDTO, len(req.Edits))
 	for id, ed := range req.Edits {

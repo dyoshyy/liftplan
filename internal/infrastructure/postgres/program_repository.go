@@ -124,7 +124,7 @@ func (r *ProgramRepository) Get(
 		// キーの順で当てる。どれが不正かの診断が毎回同じ種目を指すように。
 		for _, id := range slices.Sorted(maps.Keys(rows)) {
 			row := rows[id]
-			reps, err := program.NewRepTargets(row.Heavy, row.Light)
+			reps, err := program.NewRepTargets(row.Heavy)
 			if err != nil {
 				return nil, fmt.Errorf("保存された %s のレップ数が不正: %w", id, err)
 			}
@@ -187,7 +187,7 @@ func (r *ProgramRepository) Save(
 	if reps := p.DeclaredRepTargets(); len(reps) > 0 {
 		rows := make(map[string]repTargetsRow, len(reps))
 		for id, t := range reps {
-			rows[string(id)] = repTargetsRow{Heavy: t.Heavy(), Light: t.Light()}
+			rows[string(id)] = repTargetsRow{Heavy: t.Heavy()}
 		}
 		rawReps, err = json.Marshal(rows)
 		if err != nil {
@@ -228,7 +228,9 @@ type splitRow struct {
 }
 
 // repTargetsRow は宣言1件ぶんのレップ数の保存形。
+//
+// 軽い番を持っていたころの行には "light" が残っているが、マイグレーションで
+// 消さない。読み出しは知らないキーを読み飛ばし、保存し直せば heavy だけになる。
 type repTargetsRow struct {
 	Heavy int `json:"heavy"`
-	Light int `json:"light"`
 }

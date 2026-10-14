@@ -48,7 +48,7 @@ type Request struct {
 	// Unused は「使わない」種目（本番で使う種目から外すのと同じ）。宣言には使えない。
 	Unused []exercise.ExerciseID
 
-	// Reps は宣言ごとの軸のレップ数。無い宣言は既定（3・6）。
+	// Reps は宣言ごとの軸のレップ数。無い宣言は既定（3）。
 	Reps map[exercise.ExerciseID]program.RepTargets
 }
 
