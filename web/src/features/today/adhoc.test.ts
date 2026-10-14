@@ -56,32 +56,45 @@ describe('belowPlan', () => {
   const rec = (id: string): RecordedSet => ({ id, weight_kg: 60, reps: 10, rir: 2 });
   const done = (m: Record<string, number>) =>
     new Map(Object.entries(m).map(([id, n]) => [id, Array.from({ length: n }, (_, i) => rec(`${id}-${i}`))]));
+  const ids = (cards: readonly { exercise_id: string }[]) => cards.map((p) => p.exercise_id);
 
-  // 選んだ種目を記録すると doneToday に入る。予定に無いので leftovers が
-  // 「予定外の記録」にも出し、同じ種目が2枚並ぶ。選んだ種目は予定として
-  // 数えて、あちらから外す。
-  it('選んだ種目は「予定外の記録」に二重に出ない', () => {
-    const got = belowPlan([[plan('bench')], [], []], ['dip'], done({ dip: 2 }));
-    expect(got.adhoc.map((p) => p.exercise_id)).toEqual(['dip']);
-    expect(got.done).toEqual([]);
+  // 選んだ種目を記録すると doneToday に入る。選んだ分と記録の分で2枚に
+  // ならない。
+  it('選んで記録した種目は1枚だけ', () => {
+    expect(ids(belowPlan([[plan('bench')], [], []], ['dip'], done({ dip: 2 })))).toEqual(['dip']);
   });
 
-  // 画面を開き直すと、選んだ状態は消える。やった事実は消えない。
-  it('選んでいないがやったものは「予定外の記録」に出る', () => {
-    const got = belowPlan([[plan('bench')], [], []], [], done({ dip: 2 }));
-    expect(got.adhoc).toEqual([]);
-    expect(got.done.map((p) => p.exercise_id)).toEqual(['dip']);
+  // 選んだ状態は画面のメモリにしか無く、開き直すと消える。記録の数だけの
+  // 枠で出すと、続きを記録する空き枠が無くなる。予定に無い種目をやったのは
+  // 本人が選んだからなので、記録から選んだ種目に戻す。
+  it('選んだ状態が消えても、予定に無い記録は選んだ種目として出る', () => {
+    expect(belowPlan([[plan('bench')], [], []], [], done({ dip: 2 }))).toEqual([
+      { exercise_id: 'dip', weight_kg: null, sets: 0, target_rir: 2, target_reps: 0, adhoc: true },
+    ]);
   });
 
-  it('予定に出ている種目はどちらにも出さない', () => {
-    const got = belowPlan([[plan('bench')], [], []], ['bench'], done({ bench: 3 }));
-    expect(got.adhoc).toEqual([]);
-    expect(got.done).toEqual([]);
+  it('予定に出ている種目は出さない', () => {
+    expect(belowPlan([[plan('bench')], [], []], ['bench'], done({ bench: 3 }))).toEqual([]);
   });
 
-  it('選んだだけで記録の無い種目は、選んだ種目として出る', () => {
-    const got = belowPlan([[]], ['dip'], done({}));
-    expect(got.adhoc.map((p) => p.exercise_id)).toEqual(['dip']);
-    expect(got.done).toEqual([]);
+  // 3レーンの全部を予定として数えないと、バリエーションや補助の記録が
+  // 選んだ種目として二重に出る。
+  it('どのレーンの記録も予定として数える', () => {
+    const lanes = [[plan('bench')], [plan('larsen_press')], [plan('curl')]];
+    expect(belowPlan(lanes, [], done({ bench: 1, larsen_press: 4, curl: 2 }))).toEqual([]);
+  });
+
+  it('選んだだけで記録の無い種目も出る', () => {
+    expect(ids(belowPlan([[]], ['dip'], done({})))).toEqual(['dip']);
+  });
+
+  it('1セットも記録していない種目は、記録からは出さない', () => {
+    expect(belowPlan([[]], [], done({ dip: 0 }))).toEqual([]);
+  });
+
+  // 選んだ順を先に、記録から戻したものはその後ろに種目IDの昇順で並べる。
+  // 記録のたびに並びが入れ替わらないように。
+  it('選んだ順、その後ろに記録から戻した種目を昇順で', () => {
+    expect(ids(belowPlan([[]], ['zz'], done({ mm: 1, aa: 1, zz: 1 })))).toEqual(['zz', 'aa', 'mm']);
   });
 });

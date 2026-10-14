@@ -8,8 +8,6 @@ import { justRecorded } from './justRecorded';
 import { slotCount } from './slots';
 
 export type CardPlan = PlannedSet & {
-  /** finished_only は今日やったが今の予定には入っていないもの。 */
-  finished_only?: boolean;
   /** adhoc は本人が「種目を選んで記録」で選んだもの。目標は無い。 */
   adhoc?: boolean;
   /** substitute_for は埋まっていた元の補助の ID。代わりのカードにだけ付く。 */
@@ -89,7 +87,7 @@ export function ExerciseCard({
       <div className="grid auto-cols-fr grid-flow-col gap-2">
         {Array.from({ length: slots }, (_, i) => {
           const rec = recorded[i];
-          const extra = !plan.finished_only && !plan.adhoc && i >= plan.sets;
+          const extra = !plan.adhoc && i >= plan.sets;
           return (
             <button
               key={i}
@@ -120,16 +118,6 @@ export function Target({ plan }: { plan: CardPlan }) {
     // 目標を出すと、アプリが決めたように読める。何kgで何セットやるかは
     // 本人が決めたことなので、選んだ事実だけを出す。
     return <span className="text-[13px] text-muted">自分で選んだ種目・好きなだけ</span>;
-  }
-
-  if (plan.finished_only) {
-    // 予定として出すと「これからやる」ように読めるので、済んだ事実だけを出す。
-    return (
-      <div className="flex flex-wrap items-baseline gap-2.5">
-        <span className="num text-[17px] font-medium text-muted">今日やった</span>
-        <span className="text-[13px] text-muted">{plan.sets}セット</span>
-      </div>
-    );
   }
 
   return (

@@ -55,8 +55,8 @@ export function withResult(
  * accessoryCards は補助のレーンに出すカード。差し替えた補助はその場所に
  * 代わりが入り、代わりなしと分かった補助には印が付く。
  *
- * ここで作った並びを今日の予定として leftovers・plannedIds に渡すこと。
- * 渡さないと、代わりを記録した時点で「予定外の記録」にも同じ種目が出る。
+ * ここで作った並びを今日の予定として belowPlan・plannedIds に渡すこと。
+ * 渡さないと、代わりを記録した時点で「選んだ種目」にも同じ種目が出る。
  */
 export function accessoryCards(
   accessories: readonly PlannedSet[],
@@ -129,7 +129,7 @@ function isSwap(v: unknown): v is Swap {
  *
  * 形が1か所でも合わなければ全部捨てて空から始める。古い版が残した値や
  * 手で壊れた値で画面を止めない。捨てても失うのは差し替えだけで、記録は
- * 残る（「予定外の記録」に出る）。
+ * 残る（「選んだ種目」に出る）。
  */
 export function decodeSwaps(raw: unknown): SwapState {
   const none: SwapState = { date: '', swaps: new Map() };
