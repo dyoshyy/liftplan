@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { changeWindowLabel, layoutTrend, nearestIndex, stepIndex } from './trend';
+import type { Trend } from '../../api/types';
+import { changeWindowLabel, layoutTrend, nearestIndex, stepIndex, trendHeadline } from './trend';
 
 const p = (date: string, kg: number) => ({ date, kg });
 
@@ -75,5 +76,53 @@ describe('changeWindowLabel', () => {
     { name: '月をまたぐ', from: '2026-02-26', to: '2026-03-05', want: '1週間で' },
   ])('$name', ({ from, to, want }) => {
     expect(changeWindowLabel(from, to)).toBe(want);
+  });
+});
+
+// 見出しの数字（推定1RMと増減）。サーバーが処方と同じ均した推定で返す。
+// 最後の記録が古すぎて処方が「自分で決める」になる種目は null で来るので、
+// そのときは数字を出さない。0.0kg と出すと、記録が消えたように読める。
+describe('trendHeadline', () => {
+  const trend = (over: Partial<Trend>): Trend => ({
+    exercise_id: 'bench',
+    name: 'ベンチプレス',
+    points: [
+      { date: '2026-09-01', kg: 90 },
+      { date: '2026-09-08', kg: 95 },
+    ],
+    current_kg: 92.5,
+    change_kg: 2.5,
+    ...over,
+  });
+
+  it.each([
+    {
+      name: '伸びていれば緑で + を付ける',
+      t: trend({}),
+      want: { currentKg: '92.5', change: { text: '+2.5', tone: 'up' } },
+    },
+    {
+      name: '落ちていれば琥珀で、符号は数字のまま',
+      t: trend({ current_kg: 90, change_kg: -2.5 }),
+      want: { currentKg: '90.0', change: { text: '-2.5', tone: 'down' } },
+    },
+    {
+      name: '変わっていなければ灰で、符号は付けない',
+      t: trend({ change_kg: 0 }),
+      want: { currentKg: '92.5', change: { text: '0.0', tone: 'flat' } },
+    },
+    {
+      // 比べる相手がまだ無いだけ。0.0 と出すと伸びていないように読める。
+      name: '点が1つなら増減は出さない',
+      t: trend({ points: [{ date: '2026-09-01', kg: 90 }], change_kg: 0 }),
+      want: { currentKg: '92.5', change: null },
+    },
+    {
+      name: '推定できなければ数字も増減も出さない',
+      t: trend({ current_kg: null, change_kg: null }),
+      want: { currentKg: null, change: null },
+    },
+  ])('$name', ({ t, want }) => {
+    expect(trendHeadline(t)).toEqual(want);
   });
 });

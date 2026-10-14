@@ -1,4 +1,4 @@
-import type { TrendPoint } from '../../api/types';
+import type { Trend, TrendPoint } from '../../api/types';
 
 export type TrendLayout = {
   /** 左端を 0、右端を 1 とした横位置。日付の間隔に比例する。 */
@@ -65,11 +65,38 @@ const utcDay = (iso: string): number => {
 /**
  * changeWindowLabel は増減のバッジに添える期間（「8週間で」）。
  *
- * バッジは期間の最初の点から最後の点までの差で、期間を言わないと前回比にも
+ * バッジは期間の最初の点の日から今までの推定の差で、期間を言わないと前回比にも
  * 読める（#188）。期間は応答の from・to から作り、取りに行く側の定数と文言が
  * ずれないようにする。日数は UTC で数える（端末の夏時間で1日ずれない）。
  */
 export function changeWindowLabel(from: string, to: string): string {
   const days = Math.round(utcDay(to) - utcDay(from));
   return days % 7 === 0 ? `${days / 7}週間で` : `${days}日で`;
+}
+
+export type TrendHeadline = {
+  /** currentKg は見出しの推定1RM。推定できなければ null。 */
+  currentKg: string | null;
+  change: { text: string; tone: 'up' | 'down' | 'flat' } | null;
+};
+
+/**
+ * trendHeadline は見出しに出す推定1RMと増減のバッジ。
+ *
+ * 数字はサーバーが処方と同じ均した推定で返す。最後の記録が古すぎて推定
+ * できない種目は null で来るので、数字を出さない（処方も「自分で決める」）。
+ * 点が1つなら増減は出さない。比べる相手がまだ無いだけで、0.0 と出すと
+ * 伸びていないように読める。
+ */
+export function trendHeadline(trend: Trend): TrendHeadline {
+  const currentKg = trend.current_kg === null ? null : trend.current_kg.toFixed(1);
+  const kg = trend.change_kg;
+  if (kg === null || trend.points.length < 2) return { currentKg, change: null };
+  return {
+    currentKg,
+    change: {
+      text: `${kg > 0 ? '+' : ''}${kg.toFixed(1)}`,
+      tone: kg > 0 ? 'up' : kg < 0 ? 'down' : 'flat',
+    },
+  };
 }

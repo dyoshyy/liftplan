@@ -3,7 +3,13 @@ import type { Trend } from '../../api/types';
 import { label } from '../../domain/date';
 import { Button } from '../../ui/Button';
 import { ChevronLeftIcon, ChevronRightIcon } from '../../ui/icons';
-import { layoutTrend, linePath, nearestIndex, stepIndex } from './trend';
+import { layoutTrend, linePath, nearestIndex, stepIndex, trendHeadline } from './trend';
+
+const TONE = {
+  up: 'text-green bg-green/15',
+  down: 'text-amber bg-amber/15',
+  flat: 'text-muted bg-surface-2',
+} as const;
 
 type Props = {
   trend: Trend;
@@ -29,16 +35,7 @@ export function TrendRow({ trend, changeLabel, onOpenLog }: Props) {
   const prev = points[sel - 1];
   const diff = prev ? at.kg - prev.kg : null;
 
-  // 1回しか記録が無いときに「0.0」と出すと、伸びていないように読める。
-  // 比べる相手がまだ無いだけなので、増減は出さない。
-  const showDelta = points.length >= 2;
-  const sign = trend.change_kg > 0 ? '+' : '';
-  const tone =
-    trend.change_kg > 0
-      ? 'text-green bg-green/15'
-      : trend.change_kg < 0
-        ? 'text-amber bg-amber/15'
-        : 'text-muted bg-surface-2';
+  const { currentKg, change } = trendHeadline(trend);
 
   const pick = (e: PointerEvent<HTMLDivElement>) => {
     const r = e.currentTarget.getBoundingClientRect();
@@ -51,13 +48,12 @@ export function TrendRow({ trend, changeLabel, onOpenLog }: Props) {
       <div className="grid grid-cols-[1fr_auto] items-center gap-3">
         <span className="text-sm font-medium">{trend.name}</span>
         <span className="num text-xl">
-          {trend.current_kg.toFixed(1)}
-          <small className="text-xs text-muted">kg</small>
-          {showDelta && <small className="ml-1.5 text-xs text-faint">{changeLabel}</small>}
-          {showDelta && (
-            <span className={`num ml-1 rounded-full px-[7px] py-[2px] text-xs ${tone}`}>
-              {sign}
-              {trend.change_kg.toFixed(1)}
+          {currentKg ?? '—'}
+          {currentKg !== null && <small className="text-xs text-muted">kg</small>}
+          {change && <small className="ml-1.5 text-xs text-faint">{changeLabel}</small>}
+          {change && (
+            <span className={`num ml-1 rounded-full px-[7px] py-[2px] text-xs ${TONE[change.tone]}`}>
+              {change.text}
             </span>
           )}
         </span>

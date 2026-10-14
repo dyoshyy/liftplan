@@ -164,3 +164,16 @@ func SessionEstimates(h setlog.History, e *exercise.Exercise, c condition.Condit
 	}
 	return out
 }
+
+// EstimateOf は種目 e の asOf 時点の推定1RM（体重込み）。処方が重量を決めるのに
+// 使う値で、SessionEstimates の各点を均したもの。
+//
+// 履歴は記録のまま渡す。体重込みへの読み替えをここで済ませる理由は
+// SessionEstimates と同じ。推定できない（記録が無い・42日より古い）ときは false。
+func (e OneRepMaxEstimator) EstimateOf(h setlog.History, ex *exercise.Exercise, c condition.ConditionLog, asOf training.Date) (training.OneRepMax, bool) {
+	if ex == nil {
+		return training.OneRepMax{}, false
+	}
+	converted := effectiveHistory(h.ForExercise(ex.ID()), []*exercise.Exercise{ex}, c)
+	return e.Estimate(converted, ex.ID(), asOf)
+}
