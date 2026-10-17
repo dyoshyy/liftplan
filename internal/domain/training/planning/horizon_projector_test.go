@@ -79,6 +79,10 @@ func pplFixture(t *testing.T) horizonFixture {
 // rotationFixture は分割なし・重点種目つき。頻度7で1週間ぶん予測すると、
 // 宣言種目の間で軸が回り、他の宣言種目が軸の日にバリエーション（派生）が
 // 出る条件も踏む。
+//
+// 上半身の宣言をベンチの他にもう1つ（row）置く。ベンチしか無いと、下半身を
+// 連日に立てない規則（lowerBodyRested）のせいで1日おきにベンチが軸になり、
+// 系統の中1日が空かずバリエーションが1回も出ない。
 func rotationFixture(t *testing.T) horizonFixture {
 	t.Helper()
 	derived := func(id string) *exercise.Exercise {
@@ -93,16 +97,17 @@ func rotationFixture(t *testing.T) horizonFixture {
 		mainExercise(t, "bench", map[training.MuscleRegion]float64{training.ChestMid: 1.0}),
 		mainExercise(t, "squat", map[training.MuscleRegion]float64{training.Quad: 1.0}),
 		mainExercise(t, "deadlift", map[training.MuscleRegion]float64{training.Hamstring: 1.0}),
+		mainExercise(t, "row", map[training.MuscleRegion]float64{training.Lat: 1.0}),
 		derived("larsen"),
 		derived("tempo"),
 		mkAccessory(t, "curl", map[training.MuscleRegion]float64{training.Biceps: 1.0}),
 	}
 	target := mustTarget(t, map[training.MuscleRegion]float64{
-		training.ChestMid: 21, training.Quad: 21, training.Hamstring: 21, training.Biceps: 7,
+		training.ChestMid: 21, training.Quad: 21, training.Hamstring: 21, training.Lat: 21, training.Biceps: 7,
 	})
 	prog, err := program.NewProgram(mustFrequency(t, 7), planVolume(t),
-		[]exercise.ExerciseID{"bench", "squat", "deadlift", "larsen", "tempo", "curl"},
-		big3(), "bench")
+		[]exercise.ExerciseID{"bench", "squat", "deadlift", "row", "larsen", "tempo", "curl"},
+		[]exercise.ExerciseID{"bench", "squat", "deadlift", "row"}, "bench")
 	if err != nil {
 		t.Fatalf("プログラムの生成に失敗: %v", err)
 	}

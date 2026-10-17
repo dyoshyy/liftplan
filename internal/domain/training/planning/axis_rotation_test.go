@@ -204,3 +204,101 @@ func TestSessionPlanner_AxisWaitsForTheFocusLineage(t *testing.T) {
 		})
 	}
 }
+
+// 全身法で、前日に下半身の宣言を軸でやったら、今日の軸は上半身に譲ること。
+//
+// 軸は「宣言のうち最後にやったのが最も古いもの」なので、宣言の順番が毎回
+// 同じに回る。宣言が ベンチ・懸垂・RDL・スクワット なら RDL の翌回は必ず
+// スクワットで、週5回だと連日になる（本番の記録で 10/9 RDL → 10/10 スクワット）。
+//
+// 下半身かどうかは主働（寄与1.0）の区分で見る。スクワット（大腿四頭）と
+// デッドリフト（ハムストリング・脊柱起立筋）は主働が重ならないので、主働の
+// 重なりでは判定できない。
+//
+// 【変異1】lowerBodyRested が常に candidates をそのまま返すようにする。
+// 「昨日スクワットなら…」が deadlift になって落ちる。
+// 【変異2】axis の2段目（focusRested だけを通した heavyLift）を外す。
+// 「昨日ラーセンとスクワットなら…」が bench になって落ちる。
+func TestSessionPlanner_AxisAlternatesLowerBody(t *testing.T) {
+	lowerOnly := func(t *testing.T) (*program.Program, program.WeeklyVolumeTarget) {
+		t.Helper()
+		target := mustTarget(t, map[training.MuscleRegion]float64{training.Quad: 12})
+		p, err := program.NewProgram(mustFrequency(t, 5), planVolume(t),
+			[]exercise.ExerciseID{"squat", "deadlift", "incline", "curl"},
+			[]exercise.ExerciseID{"squat", "deadlift"}, "")
+		if err != nil {
+			t.Fatalf("プログラムの生成に失敗: %v", err)
+		}
+		return p, target
+	}
+
+	cases := []struct {
+		name    string
+		program func(t *testing.T) (*program.Program, program.WeeklyVolumeTarget)
+		// daysAgo は各種目を最後にやった日。
+		daysAgo map[string]int
+		want    exercise.ExerciseID
+	}{
+		{
+			// 最も古いのはデッドリフト（5日前）。規則が無ければそれが立つ。
+			name:    "昨日スクワットなら、デッドリフトのほうが古くてもベンチ",
+			program: planProgram,
+			daysAgo: map[string]int{"bench": 3, "deadlift": 5, "squat": 1},
+			want:    "bench",
+		},
+		{
+			// focusRested と同じ開区間 (date-2, date)。中1日空けば下半身が続いてよい。
+			name:    "中1日空いていればデッドリフト",
+			program: planProgram,
+			daysAgo: map[string]int{"bench": 3, "deadlift": 5, "squat": 2},
+			want:    "deadlift",
+		},
+		{
+			name:    "昨日が上半身なら、下半身の古いほう",
+			program: planProgram,
+			daysAgo: map[string]int{"bench": 1, "deadlift": 5, "squat": 3},
+			want:    "deadlift",
+		},
+		{
+			// 軸を空にすると、その日の主役が消える。
+			name:    "宣言が下半身だけなら、昨日スクワットでもデッドリフト",
+			program: lowerOnly,
+			daysAgo: map[string]int{"deadlift": 5, "squat": 1},
+			want:    "deadlift",
+		},
+		{
+			// 昨日ラーセンでベンチを休ませ、昨日スクワットで下半身も休ませると
+			// 候補が残らない。ベンチの系統を2日続けるより、下半身を続けるほうを取る。
+			// 胸は軸とバリエーションで週に3回来るが、下半身は軸でしか来ない。
+			name: "昨日ラーセンとスクワットなら、デッドリフト",
+			program: func(t *testing.T) (*program.Program, program.WeeklyVolumeTarget) {
+				return focusedProgram(t, "bench")
+			},
+			// ベンチを最も古く（9日前）する。どちらの規則も外して選ぶとベンチになり、
+			// どちらを優先したかが結果に出る。
+			daysAgo: map[string]int{"bench": 9, "deadlift": 5, "squat": 1, "larsen": 1},
+			want:    "deadlift",
+		},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			req := planRequest(t)
+			req.Program, req.Target = c.program(t)
+			kg := map[string]float64{"bench": 85, "squat": 110, "deadlift": 140, "larsen": 75}
+			logs := make([]*setlog.SetLog, 0, len(c.daysAgo))
+			for id, d := range c.daysAgo {
+				logs = append(logs, mkLogOn(t, id, planMonday.AddDays(-d), id, kg[id], 8, 2))
+			}
+			req.History = setlog.NewHistory(logs)
+
+			got := mustPlan(t, req).Main()
+			if len(got) != 1 {
+				t.Fatalf("軸が %d 件。1件のはず: %v", len(got), got)
+			}
+			if got[0].ExerciseID() != c.want {
+				t.Errorf("軸が %s。%s のはず", got[0].ExerciseID(), c.want)
+			}
+		})
+	}
+}

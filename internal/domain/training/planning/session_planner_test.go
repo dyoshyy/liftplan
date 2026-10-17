@@ -256,8 +256,11 @@ func TestSessionPlanner_DeclaredExercisesTakeTurns(t *testing.T) {
 	logs := planHistory(t)
 	seen := make([]exercise.ExerciseID, 0, 6)
 
-	// 6日連続で通い、その日のヘビー枠を毎回こなす。
-	for day := range 6 {
+	// 1日おきに6回通い、その日のヘビー枠を毎回こなす。連日にすると
+	// 下半身の宣言が前日と続かないよう譲り合い（lowerBodyRested）、
+	// ベンチだけが1日おきに来て回数が揃わない。
+	for k := range 6 {
+		day := 2 * k
 		req := planRequest(t)
 		req.History = setlog.NewHistory(logs)
 		req.Date = planMonday.AddDays(day)
@@ -281,14 +284,14 @@ func TestSessionPlanner_DeclaredExercisesTakeTurns(t *testing.T) {
 		}
 	}
 
-	// 6日で各種目が2回ずつ回る。
+	// 6回で各種目が2回ずつ回る。
 	count := map[exercise.ExerciseID]int{}
 	for _, id := range seen {
 		count[id]++
 	}
 	for _, id := range big3() {
 		if count[id] != 2 {
-			t.Errorf("%s が %d 回。6日で3種目なら2回のはず: %v", id, count[id], seen)
+			t.Errorf("%s が %d 回。6回で3種目なら2回のはず: %v", id, count[id], seen)
 		}
 	}
 }

@@ -54,10 +54,7 @@ func SplitPresets() ([]SplitPreset, error) {
 		training.TricepsLong, training.TricepsLateral,
 		training.Biceps, training.Forearm,
 	)
-	lower := R(
-		training.Quad, training.Hamstring, training.Glute,
-		training.Adductor, training.Calf, training.Erector,
-	)
+	lower := training.LowerBody()
 
 	specs := []spec{
 		{key: "upper_lower", name: "上下2分割", days: [][2]any{
