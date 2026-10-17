@@ -56,6 +56,11 @@ func axis(
 //
 // 主働の重なりで判定しない。スクワットの主働は大腿四頭、デッドリフトは
 // ハムストリングと脊柱起立筋で、重ならない。
+//
+// 重点種目が下半身のとき、前日のバリエーション（ポーズスクワットなど）は
+// 見ていないので、翌日にデッドリフトが立つ。下半身を重点にしている利用者は
+// 今0人なので、手当てはしない。足すなら重点種目の系統も見ればよい
+// （バリエーションは予測に書かれるので、予測とずれない）。
 func lowerBodyRested(
 	history setlog.History, candidates, declared []*exercise.Exercise, date training.Date,
 ) []*exercise.Exercise {
