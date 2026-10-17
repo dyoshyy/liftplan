@@ -18,19 +18,79 @@ import (
 // D-125）。分割と重点種目を両方使っている利用者は今0人なので、手当てはしない。
 // 要るようになったら、そのときの構成に合わせて足す。
 //
-// 重点種目の系統は、中1日空けてから軸に立てる（focusRested）。
+// 重点種目の系統は、中1日空けてから軸に立てる（focusRested）。下半身の
+// 宣言も、前日にやっていれば今日は軸に立てない（lowerBodyRested）。
+//
+// 両方は守れない日がある。昨日ラーセンとスクワットをやった日に、宣言が
+// ベンチ・スクワット・デッドリフトだけなら候補が残らない。そのときは
+// 重点種目の系統を休ませるほうを取る。胸は軸とバリエーションで週に何度も
+// 来るが、下半身は軸でしか来ない。
 //
 // history は前日まで（Plan が切る）。
 func axis(
 	history setlog.History, prog *program.Program, pool, declared []*exercise.Exercise,
 	today program.Split, hasSplit bool, date training.Date,
 ) *exercise.Exercise {
-	if lift := heavyLift(history, focusRested(history, prog, pool, declared, date), today, hasSplit); lift != nil {
+	rested := focusRested(history, prog, pool, declared, date)
+	if lift := heavyLift(history, lowerBodyRested(history, rested, declared, date), today, hasSplit); lift != nil {
+		return lift
+	}
+	if lift := heavyLift(history, rested, today, hasSplit); lift != nil {
 		return lift
 	}
 	// 休ませたい系統しか今日の候補に無ければ、それを出す。軸を空に
 	// すると、その日の主役が消える。
 	return heavyLift(history, declared, today, hasSplit)
+}
+
+// lowerBodyRested は下半身の宣言を直近 variationRecoveryDays 日にやっていれば、
+// 候補から下半身の宣言を除いて返す。
+//
+// 除かないと、宣言の順番が毎回同じに回るので RDL の翌回は必ずスクワットになる
+// （TestSessionPlanner_AxisAlternatesLowerBody）。
+//
+// 見るのは宣言だけ。補助のレッグプレスをやった翌日にもスクワットは止めない。
+// 補助まで見ると、ProjectHorizon は軸とバリエーションしか予測に書かないので、
+// 予測と実際の計画がずれる（focusRested と同じ理由）。補助の側は
+// AccessoryAllocator が回復中の区分を避けている。
+//
+// 主働の重なりで判定しない。スクワットの主働は大腿四頭、デッドリフトは
+// ハムストリングと脊柱起立筋で、重ならない。
+func lowerBodyRested(
+	history setlog.History, candidates, declared []*exercise.Exercise, date training.Date,
+) []*exercise.Exercise {
+	if !recentlyPerformed(history, lowerBodyOf(declared), date) {
+		return candidates
+	}
+	out := make([]*exercise.Exercise, 0, len(candidates))
+	for _, e := range candidates {
+		if !isLowerBody(e) {
+			out = append(out, e)
+		}
+	}
+	return out
+}
+
+// lowerBodyOf は種目のうち下半身のものを返す。
+func lowerBodyOf(exercises []*exercise.Exercise) []*exercise.Exercise {
+	out := make([]*exercise.Exercise, 0, len(exercises))
+	for _, e := range exercises {
+		if isLowerBody(e) {
+			out = append(out, e)
+		}
+	}
+	return out
+}
+
+// isLowerBody は主働（寄与 primaryContribution 以上）のどれかが下半身の区分か。
+func isLowerBody(e *exercise.Exercise) bool {
+	for _, r := range e.Stimulus().Regions() {
+		c, ok := e.Stimulus().Contribution(r)
+		if ok && c.Float() >= primaryContribution && r.IsLowerBody() {
+			return true
+		}
+	}
+	return false
 }
 
 // focusRested は宣言のうち、重点種目の系統を直近 variationRecoveryDays 日に

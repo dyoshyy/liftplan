@@ -65,6 +65,18 @@ func AllMuscleRegions() []MuscleRegion { return clone(allMuscleRegions) }
 
 func (r MuscleRegion) Valid() bool { return validMuscleRegions[r] }
 
+// lowerBody は下半身の筋区分。脊柱起立筋を含めるのは、デッドリフトと
+// スクワットが両方とも強く使うから。上下2分割の「下半身」の日もこれを使う。
+var lowerBody = sortedValues(Quad, Hamstring, Glute, Adductor, Calf, Erector)
+
+var lowerBodyLookup = lookup(lowerBody)
+
+// LowerBody は下半身の筋区分を文字列値の昇順で返す。呼び出し側が書き換えても影響しない。
+func LowerBody() []MuscleRegion { return clone(lowerBody) }
+
+// IsLowerBody は下半身の筋区分か。
+func (r MuscleRegion) IsLowerBody() bool { return lowerBodyLookup[r] }
+
 // sortedValues は可変長で受けた値を昇順に並べた新しいスライスを返す。
 //
 // 引数のスライスをその場でソートすると、`sortedValues(s...)` と書かれたときに

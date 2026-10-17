@@ -217,8 +217,8 @@ func TestSessionPlanner_AxisWaitsForTheFocusLineage(t *testing.T) {
 //
 // 【変異1】lowerBodyRested が常に candidates をそのまま返すようにする。
 // 「昨日スクワットなら…」が deadlift になって落ちる。
-// 【変異2】axis のフォールバック（lowerBodyRested を通さない heavyLift）を外す。
-// 「宣言が下半身だけなら…」が軸なしになって落ちる。
+// 【変異2】axis の2段目（focusRested だけを通した heavyLift）を外す。
+// 「昨日ラーセンとスクワットなら…」が bench になって落ちる。
 func TestSessionPlanner_AxisAlternatesLowerBody(t *testing.T) {
 	lowerOnly := func(t *testing.T) (*program.Program, program.WeeklyVolumeTarget) {
 		t.Helper()
@@ -274,7 +274,9 @@ func TestSessionPlanner_AxisAlternatesLowerBody(t *testing.T) {
 			program: func(t *testing.T) (*program.Program, program.WeeklyVolumeTarget) {
 				return focusedProgram(t, "bench")
 			},
-			daysAgo: map[string]int{"bench": 3, "deadlift": 5, "squat": 1, "larsen": 1},
+			// ベンチを最も古く（9日前）する。どちらの規則も外して選ぶとベンチになり、
+			// どちらを優先したかが結果に出る。
+			daysAgo: map[string]int{"bench": 9, "deadlift": 5, "squat": 1, "larsen": 1},
 			want:    "deadlift",
 		},
 	}
