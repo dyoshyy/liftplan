@@ -81,6 +81,7 @@ type simResult struct {
 	setsPer1  int // 1種目あたりのセット数。帯の粒度（outOfBand）に使う
 	undecided int // 重量が未確定のまま提示された延べ件数
 	sessions  []simSession
+	forecasts [][]planning.PlannedSession // 日ごとの予定（simConfig.forecast のときだけ）
 }
 
 // simSession は1セッションの内訳。分割の検証で、その日に何が出たかを見る。
@@ -171,6 +172,7 @@ type simConfig struct {
 	excluded     []exercise.ExerciseID
 	cycle        []program.Split // 空なら分割なし（全身法）
 	allExercises bool            // 使う種目を referenceCatalog に絞らず、シードの全種目にする
+	forecast     bool            // 毎日、予定（Forecast）も組んで残す
 }
 
 // referenceCatalog は通し検証が使う種目。Hammer Strength のマシンを足す前の38種目。
@@ -256,14 +258,22 @@ func runSim(t *testing.T, cfg simConfig) simResult {
 	for w := range cfg.weeks {
 		for _, off := range weekdays[cfg.frequency] {
 			date := simStart.AddDays(w*7 + off)
-			s, err := planner.Plan(planning.PlanRequest{
+			req := planning.PlanRequest{
 				Program: prog, Target: target, Pool: all,
 				History:    setlog.NewHistory(logs),
 				Conditions: condition.NewConditionLog(nil),
 				Date:       date,
-			})
+			}
+			s, err := planner.Plan(req)
 			if err != nil {
 				t.Fatalf("%v: Plan が失敗: %v", date, err)
+			}
+			if cfg.forecast {
+				f, err := planner.Forecast(req)
+				if err != nil {
+					t.Fatalf("%v: Forecast が失敗: %v", date, err)
+				}
+				res.forecasts = append(res.forecasts, f)
 			}
 
 			// 今日の分割は、ハーネスが数えた出席回数から自前で引く。
