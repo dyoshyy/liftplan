@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { RecordedSet } from '../../api/types';
 import { parseSetInput, type LastPerformance } from '../../domain/sets';
+import { useBackdropClose } from '../../ui/backdrop';
 import { Button } from '../../ui/Button';
 import { Stepper } from '../../ui/Stepper';
 import { defaultsForSet } from './defaults';
@@ -36,6 +37,7 @@ type Props = {
 export function RecordSheet({ target, name, last, doneToday, bodyweight, onRecord, onUndo, onClose }: Props) {
   const { plan, index, recorded } = target;
   const ref = useRef<HTMLDialogElement>(null);
+  const backdrop = useBackdropClose(ref);
 
   // 2セット目以降は今日の直前のセットに合わせる（defaults.ts に理由がある）。
   const initial = defaultsForSet({ plan, last, index, doneToday, recorded });
@@ -58,7 +60,7 @@ export function RecordSheet({ target, name, last, doneToday, bodyweight, onRecor
   };
 
   return (
-    <dialog ref={ref} onClose={onClose} onCancel={onClose}>
+    <dialog ref={ref} {...backdrop} onClose={onClose} onCancel={onClose}>
       <div
         className="grid gap-3.5 px-4 pt-[18px]"
         style={{ paddingBottom: 'calc(20px + env(safe-area-inset-bottom))' }}

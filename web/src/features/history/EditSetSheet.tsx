@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { label } from '../../domain/date';
 import { parseSetInput, type SetValues } from '../../domain/sets';
+import { useBackdropClose } from '../../ui/backdrop';
 import { Button } from '../../ui/Button';
 import { Stepper } from '../../ui/Stepper';
 import type { SheetTarget } from './useHistoryEditor';
@@ -24,6 +25,7 @@ type Props = {
 // 数値の入力部品（Stepper）は共有している。
 export function EditSetSheet({ target, bodyweight, onSubmit, onDelete, onClose }: Props) {
   const ref = useRef<HTMLDialogElement>(null);
+  const backdrop = useBackdropClose(ref);
   const adding = target.kind === 'add';
   const initial = adding ? target.initial : target.set;
   const [weight, setWeight] = useState(initial ? String(initial.weight_kg) : '');
@@ -45,7 +47,7 @@ export function EditSetSheet({ target, bodyweight, onSubmit, onDelete, onClose }
   };
 
   return (
-    <dialog ref={ref} onClose={onClose} onCancel={onClose}>
+    <dialog ref={ref} {...backdrop} onClose={onClose} onCancel={onClose}>
       <div
         className="grid gap-3.5 px-4 pt-[18px]"
         style={{ paddingBottom: 'calc(20px + env(safe-area-inset-bottom))' }}
