@@ -1042,3 +1042,135 @@ func TestAccessoryAllocator_PinnedUnknownExerciseIsAnError(t *testing.T) {
 		t.Error("種目一覧に無い Pinned でエラーにならない")
 	}
 }
+
+// 以下は同じ日の重なり（#308）。回復の判定は当日を見ないので、軸と同じ部位を
+// 主に使う補助を同じ回に何本でも並べられた。禁止はしない（硬い規則は
+// ペックフライやレッグカールを締め出した）。もっと重ならない回に置けるなら
+// そちらに置く。
+
+// TestAccessoryAllocator_SameDayOverlapGoesToAnotherSession は、同じ候補を
+// 置ける回が2つあるとき、その部位を主に使う軸が無い回へ置くことを守る。
+//
+// 数値は「1回の追加で不足が解消し、2回目は損失を悪化させる」ように組んで
+// あるので、確定は1回だけ起きる。空き枠は同じなので、重なりを見なければ
+// 同点処理 (c) で日付の早い回0（軸がふくらはぎ）に置かれる。
+//
+// 【変異】重なる回の候補を捨てる処理を外す → 回0に置かれて赤。
+func TestAccessoryAllocator_SameDayOverlapGoesToAnotherSession(t *testing.T) {
+	axis := regionOnly(t, "calf_axis", training.Calf, 1.0)
+	e := regionOnly(t, "candidate", training.Calf, 1.0)
+	target := mustTarget(t, map[training.MuscleRegion]float64{training.Calf: 10})
+	baseline := coverage(t, e, 37)
+
+	sessions := []planning.HorizonSession{
+		{Date: allocatorDay, Slots: 2, Axis: axis},
+		{Date: allocatorDay.AddDays(2), Slots: 2},
+	}
+	got, err := planning.DefaultAccessoryAllocator().Allocate(planning.AllocationRequest{
+		Target: target, Baseline: baseline, Sessions: sessions,
+		SetsPerAccessory: mustSetCount(t, 3),
+		Pool:             []*exercise.Exercise{e},
+		Master:           []*exercise.Exercise{axis, e},
+		History:          setlog.NewHistory(nil),
+	})
+	if err != nil {
+		t.Fatalf("Allocate: %v", err)
+	}
+	if len(got[0]) != 0 || !contains(got[1], "candidate") {
+		t.Errorf("回0 %v 回1 %v。軸と重ならない回1に置くはず", idsOf(got[0]), idsOf(got[1]))
+	}
+}
+
+// TestAccessoryAllocator_SameDayOverlapCountsPlacedAccessories は、その回に先に
+// 置いた補助も重なりに数えることを守る（軸だけではない）。
+//
+// 大腿四頭の不足は補助2本ぶん。回0は空き枠が多いので、1本目は回0に入る。
+// 2本目は、置いた補助を数えなければ同点処理 (b) でまた回0に入る。
+//
+// 【変異】place で dayPrimary を足さない → 2本とも回0に入って赤。
+func TestAccessoryAllocator_SameDayOverlapCountsPlacedAccessories(t *testing.T) {
+	q1 := regionOnly(t, "a_quad1", training.Quad, 1.0)
+	q2 := regionOnly(t, "a_quad2", training.Quad, 1.0)
+	target := mustTarget(t, map[training.MuscleRegion]float64{training.Quad: 10})
+
+	got, err := planning.DefaultAccessoryAllocator().Allocate(planning.AllocationRequest{
+		Target:   target,
+		Baseline: coverage(t, q1, 34),
+		Sessions: []planning.HorizonSession{
+			{Date: allocatorDay, Slots: 3},
+			{Date: allocatorDay.AddDays(2), Slots: 1},
+		},
+		SetsPerAccessory: mustSetCount(t, 3),
+		Pool:             []*exercise.Exercise{q1, q2},
+		Master:           []*exercise.Exercise{q1, q2},
+		History:          setlog.NewHistory(nil),
+	})
+	if err != nil {
+		t.Fatalf("Allocate: %v", err)
+	}
+	if len(got[0]) != 1 || len(got[1]) != 1 {
+		t.Errorf("回0 %v 回1 %v。大腿四頭の補助は1回に1本ずつ散るはず", idsOf(got[0]), idsOf(got[1]))
+	}
+}
+
+// TestAccessoryAllocator_SameDayOverlapIsIgnoredWhenEverySessionOverlaps は、
+// 置ける回がどれも同じだけ重なるなら、重なりを理由に他の区分へ譲らないことを守る。
+//
+// 5分割の胸の日がこの形になる。CHEST_MID の補助を置ける日は軸がベンチの
+// 胸の日しか無く、そこで重なりを嫌うと CHEST_MID の不足が他の区分に負け続ける
+// （five_way 週2回で 57% → 47%）。分割の日に同じ部位を重ねるのは分割の
+// 目的そのもので、避けたいのは「他の回に置けるのに重ねる」ことだけ。
+//
+// 大腿四頭は達成率0%、ハムは20%。重なりを見なければ遅れの大きい a_quad が
+// 取られる。
+//
+// 【変異】「置ける回の最小より多く重なる候補を捨てる」を「重なる候補の ΔL を
+// 半分にする」に変える → b_ham が選ばれて赤（最初の実装がこれで、five_way
+// 週2回の CHEST_MID を帯の外へ押し出した）。
+func TestAccessoryAllocator_SameDayOverlapIsIgnoredWhenEverySessionOverlaps(t *testing.T) {
+	axis := regionOnly(t, "squat", training.Quad, 1.0)
+	quad := regionOnly(t, "a_quad", training.Quad, 1.0)
+	ham := regionOnly(t, "b_ham", training.Hamstring, 1.0)
+	target := mustTarget(t, map[training.MuscleRegion]float64{training.Quad: 10, training.Hamstring: 10})
+
+	got, err := planning.DefaultAccessoryAllocator().Allocate(planning.AllocationRequest{
+		Target:           target,
+		Baseline:         coverage(t, ham, 8),
+		Sessions:         []planning.HorizonSession{{Date: allocatorDay, Slots: 1, Axis: axis}},
+		SetsPerAccessory: mustSetCount(t, 3),
+		Pool:             []*exercise.Exercise{quad, ham},
+		Master:           []*exercise.Exercise{axis, quad, ham},
+		History:          setlog.NewHistory(nil),
+	})
+	if err != nil {
+		t.Fatalf("Allocate: %v", err)
+	}
+	if !contains(got[0], "a_quad") {
+		t.Errorf("回0の割り当てが %v。他に置ける回が無いので遅れの大きい a_quad のはず", idsOf(got[0]))
+	}
+}
+
+// TestAccessoryAllocator_SameDayOverlapIsAllowedWhenNothingElseHelps は、重なる
+// 種目しか改善しないなら、重ねてでも置くことを守る。重なりは禁止ではない。
+//
+// 【変異】重なる候補を候補から外す（硬い規則にする）→ 何も置かれず赤。
+func TestAccessoryAllocator_SameDayOverlapIsAllowedWhenNothingElseHelps(t *testing.T) {
+	axis := regionOnly(t, "squat", training.Quad, 1.0)
+	quad := regionOnly(t, "leg_extension", training.Quad, 1.0)
+	target := mustTarget(t, map[training.MuscleRegion]float64{training.Quad: 10})
+
+	got, err := planning.DefaultAccessoryAllocator().Allocate(planning.AllocationRequest{
+		Target:           target,
+		Sessions:         []planning.HorizonSession{{Date: allocatorDay, Slots: 1, Axis: axis}},
+		SetsPerAccessory: mustSetCount(t, 3),
+		Pool:             []*exercise.Exercise{quad},
+		Master:           []*exercise.Exercise{axis, quad},
+		History:          setlog.NewHistory(nil),
+	})
+	if err != nil {
+		t.Fatalf("Allocate: %v", err)
+	}
+	if !contains(got[0], "leg_extension") {
+		t.Errorf("回0の割り当てが %v。不足していれば重ねてでも置くはず", idsOf(got[0]))
+	}
+}
