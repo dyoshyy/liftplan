@@ -165,11 +165,12 @@ func simulateWith(t *testing.T, frequency, weeks int, focus exercise.ExerciseID,
 // 引数を並べるのをやめたのは、分割を足した時点で位置引数が5つになり、
 // 呼び出し側で何がどれか読めなくなるため。
 type simConfig struct {
-	frequency int
-	weeks     int
-	focus     exercise.ExerciseID
-	excluded  []exercise.ExerciseID
-	cycle     []program.Split // 空なら分割なし（全身法）
+	frequency    int
+	weeks        int
+	focus        exercise.ExerciseID
+	excluded     []exercise.ExerciseID
+	cycle        []program.Split // 空なら分割なし（全身法）
+	allExercises bool            // 使う種目を referenceCatalog に絞らず、シードの全種目にする
 }
 
 // referenceCatalog は通し検証が使う種目。Hammer Strength のマシンを足す前の38種目。
@@ -217,7 +218,7 @@ func runSim(t *testing.T, cfg simConfig) simResult {
 	ids := make([]exercise.ExerciseID, 0, len(all))
 	for _, e := range all {
 		byID[e.ID()] = e
-		if !skip[e.ID()] && referenceCatalog[e.ID()] {
+		if !skip[e.ID()] && (cfg.allExercises || referenceCatalog[e.ID()]) {
 			ids = append(ids, e.ID())
 		}
 	}
