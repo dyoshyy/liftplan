@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import type { Exercise } from '../../api/types';
+import { useBackdropClose } from '../../ui/backdrop';
 import { Button } from '../../ui/Button';
 import { groupByPart } from '../../domain/parts';
 import { Note } from '../../ui/Card';
@@ -25,6 +26,7 @@ type Props = {
 // parts.ts（種目管理と同じ）にある。
 export function ExercisePicker({ title, exercises, excluded, selected, onPick, onClose }: Props) {
   const ref = useRef<HTMLDialogElement>(null);
+  const backdrop = useBackdropClose(ref);
   const [query, setQuery] = useState('');
 
   useEffect(() => {
@@ -34,7 +36,7 @@ export function ExercisePicker({ title, exercises, excluded, selected, onPick, o
   const shown = pickableExercises(exercises, excluded, query, selected);
 
   return (
-    <dialog ref={ref} onClose={onClose} onCancel={onClose} aria-label="種目を選ぶ">
+    <dialog ref={ref} {...backdrop} onClose={onClose} onCancel={onClose} aria-label="種目を選ぶ">
       <div
         className="grid gap-3 px-4 pt-[18px]"
         style={{ paddingBottom: 'calc(20px + env(safe-area-inset-bottom))' }}
