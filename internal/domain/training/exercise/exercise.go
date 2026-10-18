@@ -32,7 +32,7 @@ const primaryContribution = 1.0
 // minStimulusContribution は1区分あたりの寄与度の下限
 // （設計書「各区分 0.1〜1.0」）。training.NewContribution は SmallestPositive
 // まで通してしまうので、ここでエクササイズ側の規則として下限を課す。
-// シードの最小は 0.2（barbell_row の RearDelt）なので、この下限はシードを壊さない。
+// シードの最小は 0.1（romanian_deadlift の TrapMid）で、この下限ちょうど。
 const minStimulusContribution = 0.1
 
 // ExerciseID は種目の同一性。

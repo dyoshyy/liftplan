@@ -127,7 +127,7 @@ func specs() []exercise.ExerciseParams {
 		spec("bench", "ベンチプレス", 2.5,
 			stimulus{r.ChestMid: 1.0, r.TricepsLateral: 0.5, r.FrontDelt: 0.5, r.ChestLower: 0.3, r.ChestUpper: 0.3}),
 		spec("deadlift", "デッドリフト", 5.0,
-			stimulus{r.Hamstring: 1.0, r.Glute: 0.8, r.Erector: 1.0, r.TrapMid: 0.4, r.Forearm: 0.4, r.Quad: 0.3, r.Lat: 0.3}),
+			stimulus{r.Hamstring: 1.0, r.Glute: 0.8, r.Erector: 1.0, r.TrapUpper: 0.4, r.TrapMid: 0.2, r.Forearm: 0.4, r.Quad: 0.3, r.Lat: 0.3}),
 
 		// --- 派生（重点種目のバリエーションとして回る） ---
 		//
@@ -148,7 +148,7 @@ func specs() []exercise.ExerciseParams {
 		// RDL は宣言（軸レーン）にも入りうる。系統に属することと、伸ばしたい
 		// 種目として宣言することは別の軸（2026-09-10 の仕様）。
 		derived("deadlift", "romanian_deadlift", "ルーマニアンデッドリフト", 2.5,
-			stimulus{r.Hamstring: 1.0, r.Glute: 0.7, r.Erector: 0.7}),
+			stimulus{r.Hamstring: 1.0, r.Glute: 0.7, r.Erector: 0.7, r.TrapUpper: 0.3, r.TrapMid: 0.1, r.Forearm: 0.3}),
 
 		// --- 胸 ---
 		spec("incline_db_press", "インクラインダンベルプレス", 2.0,
