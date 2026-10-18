@@ -3,6 +3,7 @@ package planning
 import (
 	"errors"
 	"fmt"
+	"slices"
 	"sort"
 
 	"github.com/dyoshyy/liftplan/internal/domain/training"
@@ -269,9 +270,20 @@ func (a AccessoryAllocator) Allocate(req AllocationRequest) ([][]exercise.Exerci
 	slots := make([]int, len(req.Sessions))
 	chosenSet := make([]map[exercise.ExerciseID]bool, len(req.Sessions))
 	out := make([][]exercise.ExerciseID, len(req.Sessions))
+	// dayPrimary は回ごと・区分ごとの、その回で主働として使う種目の本数。
+	dayPrimary := make([]map[training.MuscleRegion]int, len(req.Sessions))
 	for k, s := range req.Sessions {
 		slots[k] = s.Slots
 		chosenSet[k] = map[exercise.ExerciseID]bool{}
+		dayPrimary[k] = map[training.MuscleRegion]int{}
+		for _, e := range []*exercise.Exercise{s.Axis, s.Variation} {
+			if e == nil {
+				continue
+			}
+			for _, r := range primaryRegions(e) {
+				dayPrimary[k][r]++
+			}
+		}
 	}
 
 	// place は回 k に種目 e を置く。貪欲法が1手選んだときと Pinned を
@@ -280,6 +292,9 @@ func (a AccessoryAllocator) Allocate(req AllocationRequest) ([][]exercise.Exerci
 		out[k] = append(out[k], e.ID())
 		chosenSet[k][e.ID()] = true
 		slots[k]--
+		for _, r := range primaryRegions(e) {
+			dayPrimary[k][r]++
+		}
 
 		for _, r := range e.Stimulus().Regions() {
 			t := req.Target.Sets(r)
@@ -317,9 +332,10 @@ func (a AccessoryAllocator) Allocate(req AllocationRequest) ([][]exercise.Exerci
 	}
 
 	type candidate struct {
-		k     int
-		e     *exercise.Exercise
-		delta float64
+		k       int
+		e       *exercise.Exercise
+		delta   float64
+		overlap int // その回で、候補の主働を既に主働に持つ種目の本数（最大の区分）
 	}
 
 	for {
@@ -343,11 +359,33 @@ func (a AccessoryAllocator) Allocate(req AllocationRequest) ([][]exercise.Exerci
 				if reachedWeeklyTarget(primary, week, req.Target) {
 					continue
 				}
+				overlap := 0
+				for _, r := range primary {
+					overlap = max(overlap, dayPrimary[k][r])
+				}
 				candidates = append(candidates, candidate{
-					k: k, e: e, delta: deltaLoss(current, req.Target, e, req.SetsPerAccessory),
+					k: k, e: e, overlap: overlap,
+					delta: deltaLoss(current, req.Target, e, req.SetsPerAccessory),
 				})
 			}
 		}
+		// 同じ日の重なり（#308）。同じ種目をもっと重ならない回にも置けるなら、
+		// 重なる回の候補は捨てる。ΔL は回によらないので、残した回の候補が
+		// 同じ改善で選ばれ、種目そのものが締め出されることは無い。
+		//
+		// 区分の選択には口を出さない。「同じ日に同じ主働の補助は1つまで」を
+		// 試したときは、ペックフライやレッグカールがどの構成でも選ばれなく
+		// なった。どの回でも同じだけ重なる（5分割の胸の日の CHEST_MID の
+		// ように、置ける日が1つしか無い）なら、分割の目的どおり重ねて置く。
+		leastOverlap := map[exercise.ExerciseID]int{}
+		for _, c := range candidates {
+			if v, ok := leastOverlap[c.e.ID()]; !ok || c.overlap < v {
+				leastOverlap[c.e.ID()] = c.overlap
+			}
+		}
+		candidates = slices.DeleteFunc(candidates, func(c candidate) bool {
+			return c.overlap > leastOverlap[c.e.ID()]
+		})
 		if len(candidates) == 0 {
 			break
 		}

@@ -457,9 +457,15 @@ func TestSimulation_EveryAccessoryGetsUsedInSomeSetup(t *testing.T) {
 	// 下がったとき）。区分の枠を、ほかの区分にも効く複合種目が先に使い切る
 	// ので、同じ区分の単関節の種目は、複合種目を使わない人にしか回らない。
 	// 出番が少ないので、頻度を1つに決めず全部で数える。
+	//
+	// シュラッグは、デッドリフトと RDL に僧帽筋上部の寄与を入れて（#318）から
+	// 要った。僧帽筋上部はほかの種目の副次だけで週目標に届くので、全構成を
+	// 通して1回選ばれるかどうかになり、補助の置き場所が変わっただけで消えた
+	// （#308）。引く系の複合種目をやらない人にしか回らない。
 	for _, without := range [][]exercise.ExerciseID{
 		{"pause_squat", "front_squat", "leg_press"},
 		{"larsen_press", "tempo_bench"},
+		{"deadlift", "romanian_deadlift"},
 	} {
 		for f := 2; f <= maxSimFrequency; f++ {
 			for id := range simulateWithout(t, f, 8, without...).picked {
