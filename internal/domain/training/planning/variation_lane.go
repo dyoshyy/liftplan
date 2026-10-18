@@ -54,6 +54,17 @@ func variationLift(
 		return nil
 	}
 
+	// 軸とバリエーションで1回の種目数が尽きるなら、補助に譲る（#209）。
+	// 種目数2・重点ありで、補助が0の日が3分の2になり、重点の系統以外の区分が
+	// 0〜55% まで落ちた。重点種目は軸の番で出続けるので、ここで譲っても消えない。
+	slots := prog.SessionVolume().Exercises() - 1
+	if heavy != nil {
+		slots--
+	}
+	if slots < 1 {
+		return nil
+	}
+
 	return stalest(history, variationsOf(pool, focus))
 }
 

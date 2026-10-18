@@ -119,7 +119,7 @@ func TestSessionPlanner_Forecast_CountMatchesFrequencyAndSplitMatchesProjector(t
 	}
 }
 
-// slotVaryingRequest は今日の枠が0で、次の回には枠が空く入力。
+// slotVaryingRequest は回ごとに補助の空き枠の数が違う入力。
 //
 // declared は squat と bench。squat は一度も実施していないので
 // stalest が必ず先に返す（未着手を最優先で返す短絡）ため、回0の軸は
@@ -127,8 +127,11 @@ func TestSessionPlanner_Forecast_CountMatchesFrequencyAndSplitMatchesProjector(t
 // 記録された直後の回1では bench のほうが古株として選ばれる
 // （回1の軸は bench）。重点種目は bench なので、bench が軸の回は
 // バリエーションが出ない（軸が重点種目の系統に含まれる日は出さない
-// 規則）。結果、回0は 軸(squat)+バリエーション(larsen) の2種目で
-// 1回2種目の枠を使い切り、回1は 軸(bench) だけの1種目で枠が1つ余る。
+// 規則）。結果、1回3種目のうち、回0は 軸(squat)+バリエーション(larsen) で
+// 枠が1つ、回1は 軸(bench) だけで枠が2つ残る。
+//
+// 補助は区分の違う4つ。回0に置いた区分は翌日の回1で回復中になるので、
+// 回1の枠2つを埋めるには残りの区分が2つ以上要る。
 func slotVaryingRequest(t *testing.T) planning.PlanRequest {
 	t.Helper()
 	pool := []*exercise.Exercise{
@@ -140,12 +143,16 @@ func slotVaryingRequest(t *testing.T) planning.PlanRequest {
 			IncrementKg: 2.5, DerivedFrom: "bench",
 		}),
 		mkAccessory(t, "curl", map[training.MuscleRegion]float64{training.Biceps: 1.0}),
+		mkAccessory(t, "calf", map[training.MuscleRegion]float64{training.Calf: 1.0}),
+		mkAccessory(t, "raise", map[training.MuscleRegion]float64{training.SideDelt: 1.0}),
+		mkAccessory(t, "shrug", map[training.MuscleRegion]float64{training.TrapUpper: 1.0}),
 	}
 	target := mustTarget(t, map[training.MuscleRegion]float64{
-		training.Quad: 12, training.ChestMid: 12, training.Biceps: 9,
+		training.Quad: 12, training.ChestMid: 12,
+		training.Biceps: 40, training.Calf: 40, training.SideDelt: 40, training.TrapUpper: 40,
 	})
-	prog, err := program.NewProgram(mustFrequency(t, 7), mustVolume(t, 2, 3),
-		[]exercise.ExerciseID{"squat", "bench", "larsen", "curl"},
+	prog, err := program.NewProgram(mustFrequency(t, 7), mustVolume(t, 3, 3),
+		[]exercise.ExerciseID{"squat", "bench", "larsen", "curl", "calf", "raise", "shrug"},
 		[]exercise.ExerciseID{"squat", "bench"}, "bench")
 	if err != nil {
 		t.Fatalf("プログラムの生成に失敗: %v", err)
@@ -160,14 +167,16 @@ func slotVaryingRequest(t *testing.T) planning.PlanRequest {
 	}
 }
 
-// 今日の枠が0（軸+バリエーションで埋まる）でも、次の回には補助が入る
-// こと。2つの退行をまとめて捕まえる。(1) 以前は今日の枠が0だと
-// Allocate 自体を呼ばずに抜けていた（回を跨いだ割り振りが丸ごと消える）。
-// (2) 割り振りを呼んでいても、各回に自分の回の割り振り
-// （allocations[k]）ではなく回0のものを配ると、今日が0件なので
-// 全回が0件に見えてしまう。どちらの壊れ方も「回1の補助が空になる」
-// という同じ観測で捕まる。
-func TestSessionPlanner_Forecast_TodaysEmptySlotsDoNotBlockFutureAccessories(t *testing.T) {
+// 各回には、その回の割り振り（allocations[k]）が配られること。回0のものを
+// 全回に配ると、枠が2つある回1にも回0の1件しか出ない。
+//
+// 以前はここで「今日の枠が0でも次の回に補助が入る」も見ていた（今日の枠が
+// 0だと割り振り自体を呼ばずに抜けていた退行）。1回の種目数の下限は2で、
+// バリエーションは補助の枠が残る日にしか出さなくなったので（#209）、今日の
+// 枠が0になる入力はもう作れない。
+//
+// 【変異】Forecast で allocations[k] を allocations[0] にする → 回1が1件で赤。
+func TestSessionPlanner_Forecast_EachSessionGetsItsOwnAccessories(t *testing.T) {
 	req := slotVaryingRequest(t)
 	sessions, err := planning.DefaultSessionPlanner().Forecast(req)
 	if err != nil {
@@ -177,18 +186,18 @@ func TestSessionPlanner_Forecast_TodaysEmptySlotsDoNotBlockFutureAccessories(t *
 		t.Fatalf("回数が %d。2回以上のはず", len(sessions))
 	}
 	if n := len(sessions[0].Main()) + len(sessions[0].Variation()); n != 2 {
-		t.Fatalf("前提: 回0が軸+バリエーションの2種目で埋まっていない: main=%v variation=%v",
+		t.Fatalf("前提: 回0が軸+バリエーションの2種目でない: main=%v variation=%v",
 			sessions[0].Main(), sessions[0].Variation())
 	}
-	if len(sessions[0].Accessories()) != 0 {
-		t.Fatalf("前提: 回0の枠が0でない: %v", sessions[0].Accessories())
-	}
 	if n := len(sessions[1].Main()) + len(sessions[1].Variation()); n != 1 {
-		t.Fatalf("前提: 回1が軸1つだけで埋まっていない: main=%v variation=%v",
+		t.Fatalf("前提: 回1が軸1つだけでない: main=%v variation=%v",
 			sessions[1].Main(), sessions[1].Variation())
 	}
-	if len(sessions[1].Accessories()) == 0 {
-		t.Error("回1に枠があるのに補助が1つも入っていない")
+	if n := len(sessions[0].Accessories()); n != 1 {
+		t.Errorf("回0の補助が %d 件。枠1つぶんの1件のはず: %v", n, sessions[0].Accessories())
+	}
+	if n := len(sessions[1].Accessories()); n != 2 {
+		t.Errorf("回1の補助が %d 件。枠2つぶんの2件のはず: %v", n, sessions[1].Accessories())
 	}
 }
 
