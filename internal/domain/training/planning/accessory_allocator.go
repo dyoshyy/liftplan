@@ -134,6 +134,8 @@ type AllocationRequest struct {
 type stimulusEvent struct {
 	date training.Date
 	ex   *exercise.Exercise
+	// session は先の回の番号。実際の記録は -1。
+	session int
 }
 
 // Allocate は1週ぶんの補助種目の枠を貪欲に埋める。戻り値は回ごとの
@@ -206,15 +208,15 @@ func (a AccessoryAllocator) Allocate(req AllocationRequest) ([][]exercise.Exerci
 	var fixed []stimulusEvent
 	for _, l := range req.History.Logs() {
 		if e, ok := byID[l.ExerciseID()]; ok {
-			fixed = append(fixed, stimulusEvent{date: l.PerformedOn(), ex: e})
+			fixed = append(fixed, stimulusEvent{date: l.PerformedOn(), ex: e, session: -1})
 		}
 	}
-	for _, s := range req.Sessions {
+	for k, s := range req.Sessions {
 		if s.Axis != nil {
-			fixed = append(fixed, stimulusEvent{date: s.Date, ex: s.Axis})
+			fixed = append(fixed, stimulusEvent{date: s.Date, ex: s.Axis, session: k})
 		}
 		if s.Variation != nil {
-			fixed = append(fixed, stimulusEvent{date: s.Date, ex: s.Variation})
+			fixed = append(fixed, stimulusEvent{date: s.Date, ex: s.Variation, session: k})
 		}
 	}
 	var allocated []stimulusEvent
@@ -236,11 +238,26 @@ func (a AccessoryAllocator) Allocate(req AllocationRequest) ([][]exercise.Exerci
 	//
 	// 主働が回復中であることは引き続き候補を締め出す
 	// （TestAccessoryAllocator_RecoveryLooksBothWays が守る）。
-	touching := func(d training.Date) map[training.MuscleRegion]bool {
+	//
+	// 先の回（次の回以降）どうしは、日付ではなく回の数で離れ具合を測る（#309）。
+	// 先の回の日付は頻度から置いた仮のもので（週5回なら +0・+1・+3・+4・+6）、
+	// 予定の画面は日付を出さず「次の回」「2回後」と並べる。本人は連日通う
+	// ことが多いので、仮の日付で2日空いていても隣の回に同じ部位があれば
+	// 連日に見える。
+	//
+	// 今日（回0）は実際の日付のまま測る。回の数で測ると、空き枠の多い次の回に
+	// 先に置いた補助が今日の同じ区分を締め出し、今日のリストが仮の回のために
+	// 痩せる。次の回は明日以降に実際の記録から組み直されるので、今日と次の回の
+	// 重なりは画面の上にしか残らない。
+	touching := func(k int) map[training.MuscleRegion]bool {
+		d := req.Sessions[k].Date
 		out := map[training.MuscleRegion]bool{}
 		add := func(events []stimulusEvent) {
 			for _, ev := range events {
 				diff := d.DaysSince(ev.date)
+				if k >= 1 && ev.session >= 1 {
+					diff = k - ev.session
+				}
 				if diff < 0 {
 					diff = -diff
 				}
@@ -313,7 +330,7 @@ func (a AccessoryAllocator) Allocate(req AllocationRequest) ([][]exercise.Exerci
 		}
 
 		d := req.Sessions[k].Date
-		allocated = append(allocated, stimulusEvent{date: d, ex: e})
+		allocated = append(allocated, stimulusEvent{date: d, ex: e, session: k})
 		if !hasLast[e.ID()] || d.After(lastPerformed[e.ID()]) {
 			lastPerformed[e.ID()] = d
 			hasLast[e.ID()] = true
@@ -346,7 +363,7 @@ func (a AccessoryAllocator) Allocate(req AllocationRequest) ([][]exercise.Exerci
 			if slots[k] <= 0 {
 				continue
 			}
-			recovering := touching(s.Date)
+			recovering := touching(k)
 			for _, e := range pool {
 				if chosenSet[k][e.ID()] {
 					continue

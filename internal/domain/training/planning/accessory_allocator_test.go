@@ -1182,3 +1182,65 @@ func TestAccessoryAllocator_SameDayOverlapIsAllowedWhenNothingElseHelps(t *testi
 		t.Errorf("回0の割り当てが %v。不足していれば重ねてでも置くはず", idsOf(got[0]))
 	}
 }
+
+// 以下は先の回どうしの回復（#309）。予定の画面は日付を出さず「次の回」「2回後」
+// と並べるので、仮の日付で2日空いていても、隣の回に同じ主働を置くと連日に見える。
+
+// TestAccessoryAllocator_NeighbouringFutureSessionsDoNotShareAPrimary は、
+// 次の回と2回後（仮の日付では2日空く）に同じ主働の補助を置かないことを守る。
+//
+// ふくらはぎの不足は補助2本ぶんあり、日付だけで見れば回1と回2の両方に置ける。
+//
+// 【変異】先の回どうしも日付で判定する → 回1と回2の両方に置かれて赤。
+func TestAccessoryAllocator_NeighbouringFutureSessionsDoNotShareAPrimary(t *testing.T) {
+	a := regionOnly(t, "calf_a", training.Calf, 1.0)
+	b := regionOnly(t, "calf_b", training.Calf, 1.0)
+	got, err := planning.DefaultAccessoryAllocator().Allocate(planning.AllocationRequest{
+		Target: mustTarget(t, map[training.MuscleRegion]float64{training.Calf: 10}),
+		Sessions: []planning.HorizonSession{
+			noSplitSession(allocatorDay, 0),
+			noSplitSession(allocatorDay.AddDays(2), 1),
+			noSplitSession(allocatorDay.AddDays(4), 1),
+		},
+		SetsPerAccessory: mustSetCount(t, 3),
+		Pool:             []*exercise.Exercise{a, b},
+		Master:           []*exercise.Exercise{a, b},
+		History:          setlog.NewHistory(nil),
+	})
+	if err != nil {
+		t.Fatalf("Allocate: %v", err)
+	}
+	if len(got[1]) > 0 && len(got[2]) > 0 {
+		t.Errorf("回1 %v 回2 %v。隣り合う先の回に同じ主働を置いている", idsOf(got[1]), idsOf(got[2]))
+	}
+}
+
+// TestAccessoryAllocator_TodayAndTheNextSessionAreJudgedByDate は、今日と次の回の
+// 間は今までどおり日付で判定することを守る。
+//
+// 今日は実際の日付で、次の回の中身は明日以降に実際の記録から組み直される。
+// 回の数で判定すると、仮の次の回が今日の枠を奪う（補助の候補が少ない人では、
+// 空き枠の多い次の回に先に置かれ、今日に置けなくなった）。
+//
+// 【変異】今日と次の回も回の数で判定する → 片方にしか置かれず赤。
+func TestAccessoryAllocator_TodayAndTheNextSessionAreJudgedByDate(t *testing.T) {
+	a := regionOnly(t, "calf_a", training.Calf, 1.0)
+	b := regionOnly(t, "calf_b", training.Calf, 1.0)
+	got, err := planning.DefaultAccessoryAllocator().Allocate(planning.AllocationRequest{
+		Target: mustTarget(t, map[training.MuscleRegion]float64{training.Calf: 10}),
+		Sessions: []planning.HorizonSession{
+			noSplitSession(allocatorDay, 1),
+			noSplitSession(allocatorDay.AddDays(2), 1),
+		},
+		SetsPerAccessory: mustSetCount(t, 3),
+		Pool:             []*exercise.Exercise{a, b},
+		Master:           []*exercise.Exercise{a, b},
+		History:          setlog.NewHistory(nil),
+	})
+	if err != nil {
+		t.Fatalf("Allocate: %v", err)
+	}
+	if len(got[0]) == 0 || len(got[1]) == 0 {
+		t.Errorf("回0 %v 回1 %v。2日空くので両方に置けるはず", idsOf(got[0]), idsOf(got[1]))
+	}
+}
