@@ -498,3 +498,49 @@ func TestSessionPlanner_VariationIsNotAlsoAnAccessory(t *testing.T) {
 		}
 	}
 }
+
+// 1回の種目数が少なく、軸とバリエーションで枠が埋まる日は、バリエーションを
+// 出さず補助に枠を残すこと（#209）。
+//
+// 種目数2・重点ベンチ・週3回では、軸とバリエーションで毎回枠が尽き、24日中
+// 16日で補助が0になった。重点の系統だけが積まれ、ほかの区分は 0〜55% まで
+// 落ちる。重点種目は軸の番（重い番・軽い番・派生の番）で出続けるので、
+// バリエーションを譲っても重点は消えない。
+//
+// 種目数3は境界。軸＋バリエーション＋補助1つで、補助が残るので出す。
+//
+// 【変異】門を外す → 種目数2でバリエーションが出て、補助が0になり赤。
+// 【変異】門を「残りが2つ未満なら出さない」にする → 種目数3で出なくなり赤。
+func TestSessionPlanner_VariationYieldsWhenNoSlotIsLeftForAccessories(t *testing.T) {
+	cases := []struct {
+		exercises     int
+		wantVariation bool
+	}{
+		{exercises: 2, wantVariation: false},
+		{exercises: 3, wantVariation: true},
+	}
+	for _, c := range cases {
+		t.Run(fmt.Sprintf("種目数%d", c.exercises), func(t *testing.T) {
+			req := planRequest(t)
+			_, req.Target = focusedProgram(t, "bench")
+			prog, err := program.NewProgram(mustFrequency(t, 3), mustVolume(t, c.exercises, 3),
+				[]exercise.ExerciseID{"bench", "squat", "deadlift", "incline", "curl", "larsen", "tempo"},
+				big3(), "bench")
+			if err != nil {
+				t.Fatalf("プログラムの生成に失敗: %v", err)
+			}
+			req.Program = prog
+			req.History = setlog.NewHistory(historyWithLastPerformed(t, map[exercise.ExerciseID]int{
+				"bench": -2, "squat": -7, "deadlift": -7,
+			}))
+
+			s := mustPlan(t, req)
+			if got := len(s.Variation()) == 1; got != c.wantVariation {
+				t.Errorf("バリエーション %v。出る=%v のはず", s.Variation(), c.wantVariation)
+			}
+			if len(s.Accessories()) == 0 {
+				t.Errorf("補助が0。軸 %v バリエーション %v", s.Main(), s.Variation())
+			}
+		})
+	}
+}
