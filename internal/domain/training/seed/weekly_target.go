@@ -19,6 +19,10 @@ import (
 // 副次刺激の総和が大きい区分（上腕三頭筋外側・前部三角筋・前腕・内転筋）は、
 // 狙わなくても BIG3 と各種プレスで埋まる。ここを小さく置くと、埋まって
 // いるのに残差が常に0になり、その区分を主働筋とする種目が永久に選ばれない。
+//
+// 僧帽筋上部は、RDL とデッドリフトに寄与を足したとき（バーを支える）に
+// 4→6 にした。4 のままだと、ヒンジとサイドレイズ・ローの副次だけで実測が
+// 目標の 140% 前後になり、シュラッグがどの構成でも選ばれなくなった。
 var regionShare = map[training.MuscleRegion]float64{
 	training.ChestUpper: 5,
 	training.ChestMid:   10,
@@ -26,7 +30,7 @@ var regionShare = map[training.MuscleRegion]float64{
 
 	training.Lat:       8.5,
 	training.TrapMid:   8,
-	training.TrapUpper: 4,
+	training.TrapUpper: 6,
 	training.Erector:   12.5,
 
 	training.FrontDelt: 8.5,
@@ -65,8 +69,8 @@ var regionShare = map[training.MuscleRegion]float64{
 //
 // 値は実測で決めた。処方どおりにこなしたとき、1セットが供給する刺激の平均は、
 // 全身法・upper_lower・ppl・five_way の週2〜7回の24構成で 2.2〜2.4 に収まる。
-// k を変えると割り振りが変わって実測も少し動くので、実測の平均（2.2333）と
-// k の差が1%以内に収まる 2.23 に置いた。
+// k を変えると割り振りが変わって実測も少し動くので、実測の平均（2.2658）と
+// k の差が1%以内に収まる 2.27 に置いた。
 //
 // 経緯：最初はカタログの平均（寄与の合計 66.7 ÷ 38種目 = 1.755）で、実測より
 // 約1割小さかった。実測に合わせて 1.97 にしたあと、種目の寄与に副次の穴を埋める
@@ -74,6 +78,7 @@ var regionShare = map[training.MuscleRegion]float64{
 // 大腿四頭筋・中部大胸筋・前部三角筋など → 2.28）、1セットの供給が上がり、k を上げ直した。
 // 補助の割り振りに天井（今週の量を週目標で止める。reachedWeeklyTarget）を
 // 足したとき、目標を超えて足していた複合種目のぶん供給が下がり、2.23 に下げ直した。
+// RDL とデッドリフトに僧帽筋上部・前腕を足したときに供給が上がり、2.27 に上げ直した。
 //
 // 副次の寄与を足すと、その区分の単関節の種目（腹筋のクランチ、レッグカール、
 // デクラインプレスなど）の出番を奪う。足してよいのは、区分が薄く（寄与する
@@ -85,7 +90,7 @@ var regionShare = map[training.MuscleRegion]float64{
 // 変えたりして実測が k の±5%を外れると、
 // TestSimulation_StimulusPerSetMatchesTheTargetScale が赤くなる。較正の手順は
 // そのテストのコメントにある。
-const stimulusPerSet = 2.23
+const stimulusPerSet = 2.27
 
 // DefaultWeeklyTarget は筋区分ごとの週目標セット数のプリセット。
 //

@@ -324,7 +324,7 @@ func TestExercises_DerivedFromResolvesToARootLift(t *testing.T) {
 func TestDefaultWeeklyTarget_DistributionIsUnchanged(t *testing.T) {
 	want := map[training.MuscleRegion]float64{
 		training.ChestUpper: 5, training.ChestMid: 10, training.ChestLower: 4.5,
-		training.Lat: 8.5, training.TrapMid: 8, training.TrapUpper: 4,
+		training.Lat: 8.5, training.TrapMid: 8, training.TrapUpper: 6,
 		training.Erector:   12.5,
 		training.FrontDelt: 8.5, training.SideDelt: 4, training.RearDelt: 4,
 		training.TricepsLong: 4, training.TricepsLateral: 12.5,
