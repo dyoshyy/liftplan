@@ -294,12 +294,17 @@ func TestAccessoryAllocator_DoesNotBlowUpRegionsAtTarget(t *testing.T) {
 // TestAccessoryAllocator_SecondaryContributionsCountToo は「副次の寄与も
 // 損失に数える（二頭と前腕の状況でカールが入れ替わる）」を守る。
 //
-// ハンマーカール相当（前腕が主働1.0、二頭が副次0.8）とバーベルカール相当
-// （二頭が主働1.0、前腕が副次0.4）を、前腕の状況を変えて比べる。
+// ハンマーカール相当（前腕が主働1.0、二頭が副次0.8）と、二頭だけに効く
+// カール（二頭が主働1.0）を、前腕の状況を変えて比べる。
+//
+// 比べる相手に前腕の副次を持たせないのは、「ほぼ同じ」の幅（similarityBand
+// = 0.7）の外で差が付くようにするため。前腕0.4を持たせると、同じ達成率
+// からの減り幅の比が約0.78になり、幅の中に入って同点処理で決まる。副次の
+// 差が3割未満なら古い種目に回す、というのは幅の意図どおり（#223）。
 //
 //   - 二頭・前腕とも達成率50%（同じ出発点）: ハンマーは前腕（自分の主働）を
-//     大きく埋め、二頭への寄与はバーベルの主働寄与よりわずかに小さいだけ
-//     なので、ハンマーの合計 ΔL の方が大きく減り、ハンマーが選ばれる
+//     埋めたうえで二頭にも0.8効くので、合計 ΔL の方が大きく減り、ハンマーが
+//     選ばれる
 //   - 前腕がすでに超過（達成率170%）: ハンマーは前腕にさらに積んで α の罰を
 //     受けるので、バーベルが選ばれる
 //
@@ -318,7 +323,7 @@ func TestAccessoryAllocator_SecondaryContributionsCountToo(t *testing.T) {
 	}
 	barbell, err := exercise.NewExercise(exercise.ExerciseParams{
 		ID: "barbell", Name: "バーベルカール",
-		Stimulus:    map[training.MuscleRegion]float64{training.Biceps: 1.0, training.Forearm: 0.4},
+		Stimulus:    map[training.MuscleRegion]float64{training.Biceps: 1.0},
 		IncrementKg: 2.5,
 	})
 	if err != nil {
@@ -751,7 +756,10 @@ func TestNewAccessoryAllocator_ZeroRecoveryDaysIsNotTheZeroValue(t *testing.T) {
 // 計画の側ではこの性質を観測できない。割り振り器の入力で直接見る。
 //
 // 区分A（Quad）とB（Hamstring）は同じ週目標で実績ゼロ。回0の Stimulus で
-// Aを3セットぶん埋めておくと、Bのほうが遅れているのでBの候補が選ばれる。
+// Aを9セットぶん埋めておくと、Bのほうが遅れているのでBの候補が選ばれる。
+// 9は2つの境界の間に置いた。少ないと減り幅の差が「ほぼ同じ」の幅
+// （similarityBand）に入って同点処理で決まり、週目標（10）以上にすると
+// 天井（reachedWeeklyTarget）が candidate_a を外して、この性質を見なくなる。
 //
 // 【変異】Allocate の `v += s.Stimulus.Sets(r)` を外す。A・Bが同点になり、
 // 同点処理（ID昇順）で candidate_a が選ばれて落ちる。
@@ -763,7 +771,7 @@ func TestAccessoryAllocator_CountsTheHorizonStimulus(t *testing.T) {
 	candB := regionOnly(t, "candidate_b", training.Hamstring, 1.0)
 
 	session := noSplitSession(allocatorDay, 1)
-	session.Stimulus = coverage(t, regionOnly(t, "axis_quad", training.Quad, 1.0), 3)
+	session.Stimulus = coverage(t, regionOnly(t, "axis_quad", training.Quad, 1.0), 9)
 
 	req := planning.AllocationRequest{
 		Target:           target,
