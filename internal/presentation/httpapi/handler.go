@@ -49,6 +49,9 @@ type Handler struct {
 	groups             *query.Groups
 	onboarding         *query.Onboarding
 	completeOnboarding *usecase.CompleteOnboarding
+	recordRun          *usecase.RecordRun
+	deleteRunLog       *usecase.DeleteRunLog
+	runs               *query.Runs
 }
 
 // Dependencies は Handler を組むための材料。
@@ -84,6 +87,9 @@ type Dependencies struct {
 	Groups             *query.Groups
 	Onboarding         *query.Onboarding
 	CompleteOnboarding *usecase.CompleteOnboarding
+	RecordRun          *usecase.RecordRun
+	DeleteRunLog       *usecase.DeleteRunLog
+	Runs               *query.Runs
 }
 
 // NewHandler は依存を受け取って Handler を組む。
@@ -153,6 +159,12 @@ func NewHandler(d Dependencies) (*Handler, error) {
 		return nil, errMissingDependency("Onboarding")
 	case d.CompleteOnboarding == nil:
 		return nil, errMissingDependency("CompleteOnboarding")
+	case d.RecordRun == nil:
+		return nil, errMissingDependency("RecordRun")
+	case d.DeleteRunLog == nil:
+		return nil, errMissingDependency("DeleteRunLog")
+	case d.Runs == nil:
+		return nil, errMissingDependency("Runs")
 	}
 
 	return &Handler{
@@ -184,6 +196,9 @@ func NewHandler(d Dependencies) (*Handler, error) {
 		groups:             d.Groups,
 		onboarding:         d.Onboarding,
 		completeOnboarding: d.CompleteOnboarding,
+		recordRun:          d.RecordRun,
+		deleteRunLog:       d.DeleteRunLog,
+		runs:               d.Runs,
 	}, nil
 }
 

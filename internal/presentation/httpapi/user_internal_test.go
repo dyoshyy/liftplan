@@ -122,6 +122,9 @@ func routesForUserTest(t *testing.T) (http.Handler, *memory.ProgramRepository) {
 		Groups:             query.NewGroups(memory.NewGroupRepository(), memory.NewGroupActivityReader(logs, exercises)),
 		Onboarding:         query.NewOnboarding(memory.NewOnboardingRepository()),
 		CompleteOnboarding: usecase.NewCompleteOnboarding(memory.NewOnboardingRepository(), time.Now),
+		RecordRun:          usecase.NewRecordRun(memory.NewRunLogRepository()),
+		DeleteRunLog:       usecase.NewDeleteRunLog(memory.NewRunLogRepository()),
+		Runs:               query.NewRuns(memory.NewRunLogRepository()),
 	})
 	if err != nil {
 		t.Fatalf("ハンドラが組めない: %v", err)
