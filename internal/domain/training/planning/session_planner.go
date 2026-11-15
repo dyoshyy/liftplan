@@ -82,35 +82,9 @@ func (p SessionPlanner) IsZero() bool { return p == SessionPlanner{} }
 // 0でも割り振りは最後まで回す（回0の補助はその場合ちょうど0件になる
 // だけ）。
 func (p SessionPlanner) Forecast(req PlanRequest) ([]PlannedSession, error) {
-	w, err := p.ForecastWeek(req)
-	if err != nil {
-		return nil, err
-	}
-	return w.Sessions(), nil
-}
-
-// WeekForecast は今日から1週間ぶんの見込み。練習の回と、有酸素を置く休み。
-type WeekForecast struct {
-	sessions []PlannedSession
-	cardio   []CardioDay
-}
-
-// Sessions は練習の回。回0が今日（Forecast の戻り値と同じ）。
-func (w WeekForecast) Sessions() []PlannedSession { return w.sessions }
-
-// Cardio は有酸素を置く休みの日。早い順（PlaceCardio）。
-func (w WeekForecast) Cardio() []CardioDay { return w.cardio }
-
-// ForecastWeek は Forecast の予定に、有酸素を置く休みの日を添えて返す。
-//
-// 有酸素の日は予定と同じ予測（planWeek の sessions）から決める。別に
-// ProjectHorizon を呼ぶと、当日の記録を落とす規約（planWeek の1箇所）を
-// 通らない経路ができ、1セット記録した瞬間に周期がずれて有酸素の日が動く
-// （TestSessionPlanner_ForecastWeek_CardioIsFixedForTheWholeDay）。
-func (p SessionPlanner) ForecastWeek(req PlanRequest) (WeekForecast, error) {
 	w, err := p.planWeek(req)
 	if err != nil {
-		return WeekForecast{}, err
+		return nil, err
 	}
 	pool, estimable, sessions, allocations := w.pool, w.estimable, w.sessions, w.allocations
 
@@ -137,7 +111,7 @@ func (p SessionPlanner) ForecastWeek(req PlanRequest) (WeekForecast, error) {
 		out[k] = p.prescribe(lineup, estimable, req.Conditions, req.Date,
 			req.Program.SessionVolume().Sets(), split, hasSplit)
 	}
-	return WeekForecast{sessions: out, cardio: PlaceCardio(sessions)}, nil
+	return out, nil
 }
 
 // weekPlan は Forecast と Substitute が共有する、週ぶんの割り振りまでの途中経過。

@@ -1,7 +1,6 @@
 package planning
 
 import (
-	"cmp"
 	"slices"
 
 	"github.com/dyoshyy/liftplan/internal/domain/training"
@@ -19,13 +18,11 @@ const cardioDaysPerWeek = 2
 // 日付ではなく「何回目の練習の後の、休みの何日目か」で表す。周期は出席
 // 回数で進み、練習の日付は horizonDates の仮置きにすぎない。実際に通う
 // 曜日がずれても、「脚の日の翌日かどうか」は練習の並びだけで決まるので
-// 崩れない。
-//
-// 日付は持たない。予定の応答が日付を返さないのと同じ理由で、持てば
-// いずれ画面に出る（docs/specs/2026-09-27-session-forecast-design.md）。
+// 崩れない。日付は表示のための見込みとして添える。
 type CardioDay struct {
 	afterSession int
 	restDay      int
+	estimated    training.Date
 	afterLegDay  bool
 }
 
@@ -34,6 +31,10 @@ func (c CardioDay) AfterSession() int { return c.afterSession }
 
 // RestDay はその回の後の休みの何日目か。1 が練習の翌日。
 func (c CardioDay) RestDay() int { return c.restDay }
+
+// EstimatedDate は練習の日付を horizonDates の仮置きどおりとしたときの日付。
+// 見込みであって、その日に通う約束ではない。
+func (c CardioDay) EstimatedDate() training.Date { return c.estimated }
 
 // PlaceCardio は ProjectHorizon の1週間ぶんの予測から、有酸素を置く休みの日を
 // 選び、早い順に返す。
@@ -60,6 +61,7 @@ func PlaceCardio(sessions []ProjectedSession) []CardioDay {
 		for n := 1; n < next.DaysSince(s.Date()); n++ {
 			rest = append(rest, CardioDay{
 				afterSession: k, restDay: n,
+				estimated:   s.Date().AddDays(n),
 				afterLegDay: leg && n == 1,
 			})
 		}
@@ -77,9 +79,7 @@ func PlaceCardio(sessions []ProjectedSession) []CardioDay {
 		}
 	})
 	picked := rest[:min(cardioDaysPerWeek, len(rest))]
-	slices.SortFunc(picked, func(a, b CardioDay) int {
-		return cmp.Or(cmp.Compare(a.afterSession, b.afterSession), cmp.Compare(a.restDay, b.restDay))
-	})
+	slices.SortFunc(picked, func(a, b CardioDay) int { return a.estimated.Compare(b.estimated) })
 	return picked
 }
 

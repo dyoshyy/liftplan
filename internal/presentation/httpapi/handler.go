@@ -317,12 +317,12 @@ func (h *Handler) handleGetForecast(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	week, err := h.getForecast.Execute(r.Context(), user, usecase.GetForecastInput{Date: date})
+	sessions, err := h.getForecast.Execute(r.Context(), user, usecase.GetForecastInput{Date: date})
 	if err != nil {
 		respondError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, toForecastResponse(week))
+	writeJSON(w, http.StatusOK, toForecastResponse(sessions))
 }
 
 // handleGetSubstitute は今日の補助の代わりを1つ返す。代わりが無ければ
