@@ -12,6 +12,7 @@
 //	training/exercise/  種目マスタ
 //	training/setlog/    実績ログとその集まり
 //	training/condition/ 日次コンディション
+//	training/runlog/    ランの記録（計画の導出には使わない）
 //	training/program/   ユーザー設定（頻度・週目標・伸ばしたい種目）
 //	training/planning/  ドメインサービス。集約を材料に「今日の計画」を導く
 //	training/seed/      初期データ
@@ -56,6 +57,7 @@
 //	program   → exercise, training
 //	setlog    → exercise, training
 //	condition → training
+//	runlog    → training
 //	exercise  → training
 //	training  → （なし）
 package training

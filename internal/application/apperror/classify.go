@@ -9,6 +9,7 @@ import (
 	"github.com/dyoshyy/liftplan/internal/domain/training/exercise"
 	"github.com/dyoshyy/liftplan/internal/domain/training/planning"
 	"github.com/dyoshyy/liftplan/internal/domain/training/program"
+	"github.com/dyoshyy/liftplan/internal/domain/training/runlog"
 	"github.com/dyoshyy/liftplan/internal/domain/training/setlog"
 )
 
@@ -37,7 +38,7 @@ func Classify(err error) error {
 	switch {
 	case errors.Is(err, program.ErrProgramNotConfigured):
 		return fmt.Errorf("%w: %w", ErrNotConfigured, err)
-	case errors.Is(err, setlog.ErrConflictingSetLog):
+	case errors.Is(err, setlog.ErrConflictingSetLog), errors.Is(err, runlog.ErrConflictingRunLog):
 		return fmt.Errorf("%w: %w", ErrConflict, err)
 	case errors.Is(err, exercise.ErrDuplicateExerciseName):
 		return fmt.Errorf("%w: %w", ErrDuplicateName, err)

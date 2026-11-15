@@ -109,6 +109,7 @@ func dependencies(
 ) httpapi.Dependencies {
 	groups := memory.NewGroupRepository()
 	onboarding := memory.NewOnboardingRepository()
+	runs := memory.NewRunLogRepository()
 	return httpapi.Dependencies{
 		GetSession:         usecase.NewGetSession(exercises, logs, conditions, programs, planning.DefaultSessionPlanner()),
 		GetForecast:        usecase.NewGetForecast(exercises, logs, conditions, programs, planning.DefaultSessionPlanner()),
@@ -138,6 +139,9 @@ func dependencies(
 		Groups:             query.NewGroups(groups, memory.NewGroupActivityReader(logs, exercises)),
 		Onboarding:         query.NewOnboarding(onboarding),
 		CompleteOnboarding: usecase.NewCompleteOnboarding(onboarding, time.Now),
+		RecordRun:          usecase.NewRecordRun(runs),
+		DeleteRunLog:       usecase.NewDeleteRunLog(runs),
+		Runs:               query.NewRuns(runs),
 	}
 }
 

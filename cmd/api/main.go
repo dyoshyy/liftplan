@@ -33,6 +33,7 @@ import (
 	"github.com/dyoshyy/liftplan/internal/domain/training/exercise"
 	"github.com/dyoshyy/liftplan/internal/domain/training/planning"
 	"github.com/dyoshyy/liftplan/internal/domain/training/program"
+	"github.com/dyoshyy/liftplan/internal/domain/training/runlog"
 	"github.com/dyoshyy/liftplan/internal/domain/training/setlog"
 )
 
@@ -176,6 +177,11 @@ type setLogStore interface {
 	setlog.Writer
 }
 
+type runLogStore interface {
+	runlog.Reader
+	runlog.Writer
+}
+
 type conditionStore interface {
 	condition.Reader
 	condition.Writer
@@ -219,6 +225,7 @@ type groupStore interface {
 type repositories struct {
 	exercises  exerciseStore
 	logs       setLogStore
+	runs       runLogStore
 	conditions conditionStore
 	programs   programStore
 	accounts   accountStore
@@ -286,6 +293,9 @@ func buildHandler(ctx context.Context) (http.Handler, func(), error) {
 		Groups:             query.NewGroups(repos.groups, repos.activity),
 		Onboarding:         query.NewOnboarding(repos.onboarding),
 		CompleteOnboarding: usecase.NewCompleteOnboarding(repos.onboarding, time.Now),
+		RecordRun:          usecase.NewRecordRun(repos.runs),
+		DeleteRunLog:       usecase.NewDeleteRunLog(repos.runs),
+		Runs:               query.NewRuns(repos.runs),
 	})
 	if err != nil {
 		repos.close()
@@ -554,6 +564,7 @@ func openRepositories(ctx context.Context, pool []*exercise.Exercise) (repositor
 		return repositories{
 			exercises:  exercises,
 			logs:       logs,
+			runs:       memory.NewRunLogRepository(),
 			conditions: memory.NewConditionRepository(),
 			programs:   programs,
 			accounts:   memory.NewAccountRepository(),
@@ -582,6 +593,7 @@ func openRepositories(ctx context.Context, pool []*exercise.Exercise) (repositor
 	return repositories{
 		exercises:  postgres.NewExerciseRepository(db, pool),
 		logs:       postgres.NewSetLogRepository(db),
+		runs:       postgres.NewRunLogRepository(db),
 		conditions: postgres.NewConditionRepository(db),
 		programs:   postgres.NewProgramRepository(db),
 		accounts:   postgres.NewAccountRepository(db),
