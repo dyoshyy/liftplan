@@ -107,3 +107,72 @@ func TestGetForecast_SplitNameAppears(t *testing.T) {
 		t.Errorf("回0の split が %v。上半身のはず", body.Sessions[0].Split)
 	}
 }
+
+// 有酸素の日は「何回目の後の、休みの何日目か」で返り、日付を持たない
+// （予定の回と同じく、仮置きの日付は返さない）。
+//
+// 上下2分割の週3回。練習は 上(0)・下(2)・上(5) と仮置きされ、休みは
+// 1・3（下の翌日）・4・6。下の翌日を避けて 1 と 4 を取る。
+func TestGetForecast_Cardio(t *testing.T) {
+	mux := newServer(t, true)
+	putUpperLowerSplit(t, mux)
+
+	rec := do(t, mux, http.MethodGet, "/api/sessions/forecast?date=2026-08-17", "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("ステータスが誤り: %d body=%s", rec.Code, rec.Body.String())
+	}
+
+	var raw struct {
+		Cardio []map[string]json.RawMessage `json:"cardio"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &raw); err != nil {
+		t.Fatalf("JSONが壊れている: %v", err)
+	}
+	for i, c := range raw.Cardio {
+		if _, ok := c["date"]; ok {
+			t.Errorf("有酸素%d: date が応答に含まれている", i)
+		}
+	}
+
+	var body struct {
+		Cardio []struct {
+			AfterIndex int `json:"after_index"`
+			RestDay    int `json:"rest_day"`
+		} `json:"cardio"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("JSONが壊れている: %v", err)
+	}
+	want := []struct{ afterIndex, restDay int }{{0, 1}, {1, 2}}
+	if len(body.Cardio) != len(want) {
+		t.Fatalf("有酸素の日が %d 日。%d 日のはず: %s", len(body.Cardio), len(want), rec.Body.String())
+	}
+	for i, w := range want {
+		if g := body.Cardio[i]; g.AfterIndex != w.afterIndex || g.RestDay != w.restDay {
+			t.Errorf("有酸素%d が %d回目の後の%d日目。%d回目の後の%d日目のはず",
+				i, g.AfterIndex, g.RestDay, w.afterIndex, w.restDay)
+		}
+	}
+}
+
+// 休みが無い（毎日練習する）ときも cardio は null ではなく空の配列。
+// 画面が null を配列として回すと落ちる。
+func TestGetForecast_CardioIsNeverNull(t *testing.T) {
+	mux := newServer(t, true)
+	rec := do(t, mux, http.MethodPut, "/api/program/frequency", `{"per_week":7}`)
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("頻度の更新に失敗: %d body=%s", rec.Code, rec.Body.String())
+	}
+
+	rec = do(t, mux, http.MethodGet, "/api/sessions/forecast?date=2026-08-17", "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("ステータスが誤り: %d body=%s", rec.Code, rec.Body.String())
+	}
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(rec.Body.Bytes(), &raw); err != nil {
+		t.Fatalf("JSONが壊れている: %v", err)
+	}
+	if got := string(raw["cardio"]); got != "[]" {
+		t.Errorf("cardio が %s。[] のはず", got)
+	}
+}
