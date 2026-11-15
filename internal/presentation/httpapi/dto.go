@@ -83,27 +83,11 @@ type forecastSessionDTO struct {
 	Accessories []plannedSetDTO `json:"accessories"`
 }
 
-// cardioDayDTO は有酸素を置く休みの日1つ。after_index は sessions の index
-// （その回の後の休み）、rest_day はその休みの何日目か（1 が練習の翌日）。
-// 予定の回と同じく日付を持たない。
-type cardioDayDTO struct {
-	AfterIndex int `json:"after_index"`
-	RestDay    int `json:"rest_day"`
-}
-
-// forecastResponse の cardio は空でも [] で返す（null にしない）。
 type forecastResponse struct {
 	Sessions []forecastSessionDTO `json:"sessions"`
-	Cardio   []cardioDayDTO       `json:"cardio"`
 }
 
-func toForecastResponse(week planning.WeekForecast) forecastResponse {
-	cardio := make([]cardioDayDTO, 0, len(week.Cardio()))
-	for _, c := range week.Cardio() {
-		cardio = append(cardio, cardioDayDTO{AfterIndex: c.AfterSession(), RestDay: c.RestDay()})
-	}
-
-	sessions := week.Sessions()
+func toForecastResponse(sessions []planning.PlannedSession) forecastResponse {
 	out := make([]forecastSessionDTO, 0, len(sessions))
 	for i, s := range sessions {
 		var split *string
@@ -119,7 +103,7 @@ func toForecastResponse(week planning.WeekForecast) forecastResponse {
 			Accessories: toPlannedSetDTOs(s.Accessories()),
 		})
 	}
-	return forecastResponse{Sessions: out, Cardio: cardio}
+	return forecastResponse{Sessions: out}
 }
 
 // ポインタなのは、フィールドの欠落を検出するため。

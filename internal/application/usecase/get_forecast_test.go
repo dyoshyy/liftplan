@@ -40,8 +40,8 @@ func TestGetForecast_ReturnsOneSessionPerFrequency(t *testing.T) {
 	if err != nil {
 		t.Fatalf("実行に失敗: %v", err)
 	}
-	if len(got.Sessions()) != 3 { // buildProgram は週3
-		t.Errorf("回数が %d。週3のはず", len(got.Sessions()))
+	if len(got) != 3 { // buildProgram は週3
+		t.Errorf("回数が %d。週3のはず", len(got))
 	}
 }
 
