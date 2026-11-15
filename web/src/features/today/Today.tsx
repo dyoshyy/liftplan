@@ -12,6 +12,7 @@ import { usesBodyweight } from '../../domain/sets';
 import { RecordSheet } from './RecordSheet';
 import { useRecordOrchestrator } from './useRecordOrchestrator';
 import { BodyWeightRow } from './BodyWeightRow';
+import { RunRow } from './RunRow';
 import type { Enqueue, QueueItem } from '../../outbox/db';
 import { Button } from '../../ui/Button';
 import { SectionTitle } from '../../ui/Card';
@@ -154,6 +155,8 @@ export function Today(props: Props) {
       <Button variant="quiet" onClick={() => setPicking(true)}>
         種目を選んで記録
       </Button>
+
+      <RunRow enqueue={enqueue} onSaveFailed={props.onSaveFailed} />
 
       {picking && (
         <ExercisePicker
